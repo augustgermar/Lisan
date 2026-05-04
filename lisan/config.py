@@ -53,6 +53,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "thresholds": {"skip": 3, "lightweight": 6},
         "affect_terms": ["angry", "sad", "anxious", "excited", "afraid", "frustrated"],
     },
+    "backup": {
+        "destination_dir": "backups",
+        "encrypt_by_default": False,
+        "recipient_env": "LISAN_BACKUP_RECIPIENT",
+        "identity_env": "LISAN_BACKUP_IDENTITY",
+        "age_binary_env": "AGE_BIN",
+    },
 }
 
 

@@ -73,6 +73,11 @@ def score_text(text: str, config: dict[str, Any] | None = None) -> HeuristicResu
         seed_score += 3
         reasons.append("open loop phrase")
 
+    if any(phrase in lowered for phrase in ["want to talk about", "tell you about", "talk about", "i've been thinking about", "my relationship", "lately"]):
+        score += 3
+        narrative_score += 3
+        reasons.append("narrative seed")
+
     if any(keyword in lowered for keyword in HIGH_RISK_KEYWORDS):
         score += 4
         seed_score += 2
@@ -91,7 +96,9 @@ def score_text(text: str, config: dict[str, Any] | None = None) -> HeuristicResu
     if text.count("```") >= 2:
         score -= 3
         reasons.append("code-heavy or short factual lookup")
-    elif text.count("\n") <= 1 and len(text) < 120:
+    elif text.count("\n") <= 1 and len(text) < 120 and not any(
+        phrase in lowered for phrase in DECISION_PHRASES + LOOP_PHRASES + ["want to talk about", "tell you about", "talk about", "my relationship", "i've been thinking about"]
+    ):
         score -= 3
         reasons.append("short factual lookup")
 
@@ -110,6 +117,8 @@ def score_text(text: str, config: dict[str, Any] | None = None) -> HeuristicResu
 
     if score <= skip_threshold:
         action = "skip"
+        if any(reason in reasons for reason in ["decision phrase", "open loop phrase", "narrative seed", "remember flag present"]):
+            action = "lightweight"
     elif score <= lightweight_threshold:
         action = "lightweight"
     else:

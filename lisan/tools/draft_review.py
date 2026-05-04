@@ -14,6 +14,7 @@ def review_draft(
     vault: Path | None = None,
     provider: str | None = None,
     model: str | None = None,
+    apply: bool = False,
 ) -> dict[str, Any]:
     vault = vault or vault_root()
     if not draft_path.exists():
@@ -33,4 +34,8 @@ def review_draft(
     payload["interlocutor"] = interlocutor
     if skeptic.get("approved") and not skeptic.get("issues"):
         payload["recommendation"] = "promote"
+        if apply:
+            from .drafts import promote_draft_to_episode
+
+            payload["promoted_path"] = str(promote_draft_to_episode(draft_path, vault))
     return payload

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from ..agents import DreamerAgent
 from ..frontmatter import load_markdown
+from ..frontmatter import write_markdown
 from ..paths import vault_root
 from ..utils import today_iso
 from .primer_audit import build_primer_audit_bundle
@@ -23,9 +24,10 @@ def run_dreamer_task(
     bundle = _bundle_for_task(vault, task)
     agent = DreamerAgent(vault=vault, prompt_file=prompt_file)
     response = agent.run_json(bundle, significance="high", provider=provider, model=model, task=task)
+    artifact_path = _apply_task_side_effect(vault, task, bundle, response)
     out = _output_path(vault, task)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(_render_report(task, bundle, response), encoding="utf-8")
+    _render_report(out, task, bundle, response, artifact_path)
     return out
 
 
@@ -167,14 +169,86 @@ def _bundle_identity(vault: Path) -> str:
 
 
 def _output_path(vault: Path, task: str) -> Path:
-    today = today_iso()
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
     if task == "contradict":
-        return vault / "contradictions" / f"dreamer-contradictions-{today}.md"
-    return vault / "reports" / f"dreamer-{task}-{today}.md"
+        return vault / "contradictions" / f"dreamer-contradictions-{stamp}.md"
+    return vault / "reports" / f"dreamer-{task}-{stamp}.md"
 
 
-def _render_report(task: str, bundle: str, response: dict[str, Any]) -> str:
-    return f"""# Dreamer {task.replace('_', ' ').title()}
+def _apply_task_side_effect(vault: Path, task: str, bundle: str, response: dict[str, Any]) -> Path | None:
+    if task == "contradict":
+        return _write_contradiction_log(vault, bundle, response)
+    return None
+
+
+def _write_contradiction_log(vault: Path, bundle: str, response: dict[str, Any]) -> Path:
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    out = vault / "contradictions" / f"dreamer-contradictions-{stamp}.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "# Contradiction Log",
+        "",
+        "## Dreamer Findings",
+        "",
+        "```json",
+        json.dumps(response, indent=2, ensure_ascii=True),
+        "```",
+        "",
+        "## Bundle",
+        "",
+        bundle.strip(),
+    ]
+    write_markdown(
+        out,
+        {
+            "id": f"contradiction_log.{stamp}",
+            "type": "contradiction_log",
+            "created": today_iso(),
+            "updated": today_iso(),
+            "status": "active",
+            "significance": "medium",
+            "arena_primary": "cross_arena",
+            "arena_secondary": [],
+            "privacy": "personal",
+            "compartments": [],
+            "allowed_contexts": ["all"],
+            "blocked_contexts": [],
+            "summary": "Dreamer contradiction log",
+            "links": [],
+            "confidence": "low",
+            "confidence_basis": "Dreamer contradiction analysis",
+            "last_confirmed": today_iso(),
+            "review_after": today_iso(),
+        },
+        "\n".join(lines) + "\n",
+    )
+    return out
+
+
+def _render_report(out: Path, task: str, bundle: str, response: dict[str, Any], artifact_path: Path | None) -> None:
+    stamp = out.stem.split("-")[-1]
+    frontmatter = {
+        "id": f"dreamer.{task}.{stamp}",
+        "type": "report",
+        "created": today_iso(),
+        "updated": today_iso(),
+        "status": "active",
+        "significance": "medium",
+        "arena_primary": "cross_arena",
+        "arena_secondary": [],
+        "privacy": "personal",
+        "compartments": [],
+        "allowed_contexts": ["all"],
+        "blocked_contexts": [],
+        "summary": f"Dreamer {task.replace('_', ' ')} report",
+        "links": [str(artifact_path)] if artifact_path else [],
+        "confidence": "low",
+        "confidence_basis": f"Dreamer {task} analysis",
+        "last_confirmed": today_iso(),
+        "review_after": today_iso(),
+        "task": task,
+    }
+    body = f"""# Dreamer {task.replace('_', ' ').title()}
 
 ## Response
 
@@ -186,3 +260,4 @@ def _render_report(task: str, bundle: str, response: dict[str, Any]) -> str:
 
 {bundle.strip()}
 """
+    write_markdown(out, frontmatter, body)
