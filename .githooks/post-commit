@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+python3 -m lisan rebuild-index
+

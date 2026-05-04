@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+lisan.sqlite
+embeddings.bin
+.DS_Store
+

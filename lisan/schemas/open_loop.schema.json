@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "open_loop",
+  "type": "object",
+  "required": [
+    "id", "type", "created", "updated", "status", "significance",
+    "arena_primary", "arena_secondary", "privacy", "compartments",
+    "allowed_contexts", "blocked_contexts", "summary", "links",
+    "confidence", "confidence_basis", "last_confirmed", "review_after",
+    "priority", "owner", "next_action", "blocked_by"
+  ],
+  "properties": {
+    "id": {"type": "string"},
+    "type": {"type": "string", "enum": ["open_loop"]},
+    "created": {"type": "string"},
+    "updated": {"type": "string"},
+    "status": {"type": "string"},
+    "significance": {"type": "string"},
+    "arena_primary": {"type": "string"},
+    "arena_secondary": {"type": "array", "items": {"type": "string"}},
+    "privacy": {"type": "string"},
+    "compartments": {"type": "array", "items": {"type": "string"}},
+    "allowed_contexts": {"type": "array", "items": {"type": "string"}},
+    "blocked_contexts": {"type": "array", "items": {"type": "string"}},
+    "summary": {"type": "string"},
+    "links": {"type": "array", "items": {"type": "string"}},
+    "confidence": {"type": "string"},
+    "confidence_basis": {"type": "string"},
+    "last_confirmed": {"type": "string"},
+    "review_after": {"type": "string"},
+    "priority": {"type": "string"},
+    "owner": {"type": "string"},
+    "next_action": {"type": "string"},
+    "blocked_by": {}
+  }
+}
+
