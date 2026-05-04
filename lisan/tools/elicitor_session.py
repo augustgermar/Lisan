@@ -77,13 +77,18 @@ def run_elicitor_session(
 
 
 def _topic_closed(text: str, elicitor: dict[str, Any], state: dict[str, Any]) -> bool:
+    # Primary: trust the LLM's own mode assessment
     if str(state.get("mode_status", "")).lower() == "closed":
         return True
-    lowered = text.lower()
-    if any(term in lowered for term in ["anyway", "moving on", "next topic", "that's it", "that is it"]):
+    elicitor_state = elicitor.get("updated_narrative_state", {})
+    if str(elicitor_state.get("mode_status", "")).lower() == "closed":
         return True
-    next_step = str(elicitor.get("updated_narrative_state", {}).get("next_step", "")).lower()
-    return "next topic" in next_step or "wrap up" in next_step or "handoff" in next_step
+    # Secondary: only trigger on unambiguous explicit closure phrases, not "anyway"
+    lowered = text.lower()
+    if any(p in lowered for p in ["moving on", "next topic", "let's move on", "change the subject"]):
+        return True
+    next_step = str(elicitor_state.get("next_step", "")).lower()
+    return "handoff to writer" in next_step or "topic closed" in next_step
 
 
 def _write_elicitor_draft(
@@ -129,7 +134,7 @@ def _write_elicitor_draft(
     )
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     slug = slugify(str(writer.get("summary") or text[:48]))
-    path = vault / "drafts" / f"{timestamp}-elicitor-{slug}.md"
+    path = vault / "drafts" / f"{today_iso()}-{timestamp}-elicitor-{slug}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     frontmatter = {
         "id": f"draft.elicitor.{slug}",

@@ -77,7 +77,7 @@ def run_memory_pipeline(
         )
 
     context = AssemblerAgent(vault=vault).run(text).text
-    task = _choose_task(text=text, mode=mode)
+    task = _choose_task(text=text, listener=listener)
     writer = WriterAgent(vault=vault).run_json(
         text,
         significance="high" if action == "full" else "medium",
@@ -107,18 +107,17 @@ def run_memory_pipeline(
     )
 
 
-def _choose_task(text: str, mode: str) -> str:
-    lowered = text.lower()
-    if mode == "elicitor":
-        return "questions"
-    if "decision" in lowered:
+def _choose_task(text: str, listener: dict[str, Any]) -> str:
+    reasons = set(listener.get("reason", []))
+    if "decision phrase" in reasons:
         return "decision"
-    if "should" in lowered or "remind" in lowered:
+    if "open loop phrase" in reasons:
         return "open_loop"
-    if "state" in lowered and len(text.split()) < 80:
-        return "state"
-    if "know" in lowered or "research" in lowered:
-        return "knowledge"
+    lowered = text.lower()
+    if any(p in lowered for p in ["i decided", "going forward", "from now on", "the decision was"]):
+        return "decision"
+    if any(p in lowered for p in ["remind me to", "don't let me forget", "i need to follow up"]):
+        return "open_loop"
     return "episode"
 
 

@@ -62,3 +62,14 @@ def path_rel(base: Path, target: Path) -> str:
     except ValueError:
         return str(target)
 
+
+def hash_embedding(text: str, dimensions: int = 32) -> list[float]:
+    """Deterministic hash-based embedding placeholder. Not semantic — replace with a real model for meaningful vector search."""
+    import math
+    digest = hashlib.sha256(text.encode("utf-8")).digest()
+    vector = [0.0] * dimensions
+    for index, byte in enumerate(digest):
+        vector[index % dimensions] += byte / 255.0
+    norm = math.sqrt(sum(v * v for v in vector)) or 1.0
+    return [round(v / norm, 6) for v in vector]
+

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import os
 import sqlite3
 from dataclasses import dataclass
@@ -12,6 +11,7 @@ from typing import Any
 from ..frontmatter import FrontmatterError, load_markdown
 from ..paths import embeddings_path, repo_root, sqlite_path, vault_root
 from ..tools.common import iter_markdown_files, parse_date
+from ..utils import hash_embedding
 
 
 SCHEMA_SQL = """
@@ -129,7 +129,7 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
         file_rows: dict[str, dict[str, Any]] = {}
 
         for path in iter_markdown_files(vault):
-            if path.parts[-2] == "manifests" or path.parts[-2] == "transcripts":
+            if path.parts[-2] in {"manifests", "transcripts", "drafts"}:
                 continue
             try:
                 doc = load_markdown(path)
@@ -186,7 +186,7 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
                 row,
             )
             counts["files"] += 1
-            embeddings_lines.append(json.dumps({"id": file_id, "embedding": _hash_embedding(content)}))
+            embeddings_lines.append(json.dumps({"id": file_id, "embedding": hash_embedding(content)}))
             try:
                 conn.execute(
                     "INSERT INTO files_fts (id, summary, content) VALUES (?, ?, ?)",
@@ -298,15 +298,6 @@ def _extract_claims_from_episode(body: str, episode_id: str) -> list[tuple[Any, 
             )
         )
     return claims
-
-
-def _hash_embedding(text: str, dimensions: int = 32) -> list[float]:
-    digest = hashlib.sha256(text.encode("utf-8")).digest()
-    vector = [0.0] * dimensions
-    for index, byte in enumerate(digest):
-        vector[index % dimensions] += byte / 255.0
-    norm = math.sqrt(sum(value * value for value in vector)) or 1.0
-    return [round(value / norm, 6) for value in vector]
 
 
 def _maybe_create_fts(conn: sqlite3.Connection) -> None:

@@ -26,6 +26,22 @@ The working system now includes:
 
 The repo is usable as a local memory vault CLI now. Most remaining work is refinement, prompt calibration, and optional automation, not core plumbing.
 
+## Vault Location
+
+The active vault location is resolved like this:
+
+- If `LISAN_VAULT` is set, the app uses that path by default.
+- If `LISAN_VAULT` is unset, the app falls back to the checked-in `lisan-vault/` seed vault inside the repo.
+
+Recommended personal setup:
+
+```bash
+export LISAN_VAULT="$HOME/Library/Application Support/Lisan/vault"
+python3 -m lisan init
+```
+
+That keeps your personal memories, transcripts, drafts, and reports outside the Git repository while still letting the code operate on them locally.
+
 ## If You Are A Future Codex Session
 
 Start here instead of the draft spec:
@@ -36,7 +52,7 @@ Start here instead of the draft spec:
 4. Inspect `lisan/agents/` for provider-backed and deterministic agent behavior.
 5. Inspect `lisan/providers/` for routing and provider adapters.
 6. Inspect `lisan/schemas/` for output contracts.
-7. Inspect `lisan-vault/` to understand the current seed vault contents and generated artifacts.
+7. Inspect the active vault directory. If `LISAN_VAULT` is set, use that path. Otherwise inspect `lisan-vault/` to understand the current seed vault contents and generated artifact layout.
 
 The architecture is intentionally deterministic-first. If a feature can be done with file parsing, JSON, regex, or SQL, do that before adding any new LLM behavior.
 
@@ -56,7 +72,7 @@ The architecture is intentionally deterministic-first. If a feature can be done 
 
 ### Vault And Generated Artifacts
 
-- `lisan-vault/`: user vault content
+- `lisan-vault/`: checked-in seed vault content used when `LISAN_VAULT` is unset
 - `lisan-vault/primer/`: identity, operating style, and current brief
 - `lisan-vault/state/`: per-arena state files
 - `lisan-vault/entities/`: entity records
@@ -280,11 +296,12 @@ Behavior:
 - The archive is staged to avoid concurrent write corruption
 - `backup create --test-restore` restores into a temp directory and validates the restored copy
 - If `age` is configured and `LISAN_BACKUP_RECIPIENT` is set, encrypted backups are supported
-- Backup runs are logged in `lisan-vault/backup.md`
+- Backup runs are logged in `backup.md` at the active vault root
+- If `LISAN_VAULT` is set, backup commands operate on that external vault by default
 
 ## Current Brief
 
-`primer/current-brief.md` is generated from the current state files.
+`primer/current-brief.md` is generated from the current state files in the active vault.
 
 `lisan sync` refreshes it automatically.
 
@@ -320,6 +337,7 @@ Supported providers:
 Environment variables:
 
 - `CODEX_BIN`
+- `LISAN_VAULT`
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
 - `GOOGLE_API_KEY`
@@ -354,8 +372,8 @@ Review and maintenance:
 python3 -m lisan review
 python3 -m lisan review batch
 python3 -m lisan review batch --write
-python3 -m lisan draft review --path lisan-vault/drafts/your-draft-file.md
-python3 -m lisan draft review --path lisan-vault/drafts/your-draft-file.md --apply
+python3 -m lisan draft review --path "$LISAN_VAULT/drafts/your-draft-file.md"
+python3 -m lisan draft review --path "$LISAN_VAULT/drafts/your-draft-file.md" --apply
 python3 -m lisan backup status
 python3 -m lisan backup create
 python3 -m lisan backup test
@@ -406,7 +424,7 @@ Typical implementation pattern:
 
 ## Seed Vault Notes
 
-The checked-in vault content is intentionally small and acts as a seed vault. Generated artifacts may appear under:
+The checked-in vault content is intentionally small and acts as a seed vault. When `LISAN_VAULT` is set, your personal vault stays outside the repo. Generated artifacts may appear under:
 
 - `lisan-vault/drafts/`
 - `lisan-vault/reports/`
