@@ -12,6 +12,7 @@ from typing import Any
 from ..config import load_config
 from ..paths import sqlite_path, vault_root
 from ..utils import today_iso
+from .conversation_policy import assess_conversation_turn
 from .heuristic_gate import is_general_advice_question, score_text
 from .log import log_error, tail_log
 
@@ -183,7 +184,14 @@ def run_chat(
             continue
 
         listener_score = score_text(raw, config)
-        if _should_answer_directly(raw, listener_score, advice_context_active):
+        current_state = _load_current_state(vault, conv_id)
+        policy = assess_conversation_turn(
+            raw,
+            state=current_state,
+            listener=listener_score.as_dict(),
+            advice_context_active=advice_context_active,
+        )
+        if _should_answer_directly(raw, listener_score, advice_context_active, policy):
             try:
                 response = _run_advice_response(
                     vault=vault,
@@ -191,6 +199,7 @@ def run_chat(
                     provider=provider,
                     model=model,
                     history=advice_history,
+                    conversation_policy=policy,
                 )
             except Exception as exc:
                 log_error(vault, "chat.run_chat.advice", exc)
@@ -214,6 +223,7 @@ def run_chat(
                 speaker="USER",
                 provider=provider,
                 model=model,
+                conversation_policy=policy.as_dict(),
             )
         except Exception as exc:
             log_error(vault, "chat.run_chat", exc)
@@ -292,9 +302,16 @@ def _print_help() -> None:
     print()
 
 
-def _should_answer_directly(text: str, score: Any, advice_context_active: bool) -> bool:
+def _should_answer_directly(
+    text: str,
+    score: Any,
+    advice_context_active: bool,
+    policy: Any | None = None,
+) -> bool:
     if score.action != "skip":
         return False
+    if policy is not None and getattr(policy, "route", "") == "advice":
+        return True
     if is_general_advice_question(text):
         return True
     return advice_context_active
@@ -306,6 +323,7 @@ def _run_advice_response(
     provider: str | None,
     model: str | None,
     history: list[dict[str, str]],
+    conversation_policy: Any | None = None,
 ) -> str:
     from ..agents import AdviceAgent
 
@@ -316,8 +334,18 @@ def _run_advice_response(
         provider=provider,
         model=model,
         conversation_history=_format_advice_history(history),
+        conversation_policy=conversation_policy.as_dict() if conversation_policy is not None else {},
     )
     return str(result.text).strip()
+
+
+def _load_current_state(vault: Path, conversation_id: str) -> Any:
+    from .narrative_state import load_narrative_state
+
+    try:
+        return load_narrative_state(vault, conversation_id)
+    except Exception:
+        return None
 
 
 def _format_advice_history(history: list[dict[str, str]]) -> str:

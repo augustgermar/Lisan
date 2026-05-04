@@ -36,6 +36,7 @@ def run_memory_pipeline(
     speaker: str = "USER",
     provider: str | None = None,
     model: str | None = None,
+    conversation_policy: dict[str, Any] | None = None,
 ) -> MemoryPipelineResult:
     transcript_path = append_transcript(vault=vault, conversation_id=conversation_id, speaker=speaker, text=text)
     prior_state = load_narrative_state(vault=vault, conversation_id=conversation_id)
@@ -74,6 +75,7 @@ def run_memory_pipeline(
             provider=provider,
             model=model,
             transcript_path=transcript_path,
+            conversation_policy=conversation_policy,
         )
         return MemoryPipelineResult(
             transcript_path=transcript_path,
@@ -99,13 +101,21 @@ def run_memory_pipeline(
         task=task,
         context=context,
         transcript=str(transcript_path.relative_to(vault)),
+        conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     )
-    skeptic = SkepticAgent(vault=vault).run_json(json.dumps(writer, indent=2, ensure_ascii=True), significance="medium", provider=provider, model=model)
+    skeptic = SkepticAgent(vault=vault).run_json(
+        json.dumps(writer, indent=2, ensure_ascii=True),
+        significance="medium",
+        provider=provider,
+        model=model,
+        conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
+    )
     interlocutor = InterlocutorAgent(vault=vault).run_json(
         json.dumps({"writer": writer, "skeptic": skeptic, "listener": listener}, indent=2, ensure_ascii=True),
         significance="medium",
         provider=provider,
         model=model,
+        conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     )
     draft_path = _write_draft(vault, text, transcript_path, listener, writer, skeptic, interlocutor, task, mode, action)
     return MemoryPipelineResult(
