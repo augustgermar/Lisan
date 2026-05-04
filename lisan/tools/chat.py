@@ -16,6 +16,7 @@ from ..utils import today_iso
 from .conversation_policy import assess_conversation_turn
 from .heuristic_gate import is_general_advice_question, score_text
 from .log import log_error, tail_log
+from .turn_router import decide_turn_route
 
 
 # ── ANSI helpers ─────────────────────────────────────────────────────────────
@@ -187,14 +188,27 @@ def run_chat(
 
         listener_score = score_text(raw, config)
         current_state = _load_current_state(vault, conv_id)
+        route_hint = _run_with_thinking_indicator(
+            lambda: decide_turn_route(
+                vault=vault,
+                text=raw,
+                conversation_id=conv_id,
+                provider=provider,
+                model=model,
+                listener_score=listener_score.as_dict(),
+                advice_context_active=advice_context_active,
+                advice_topic=advice_topic,
+            )
+        )
         policy = assess_conversation_turn(
             raw,
             state=current_state,
             listener=listener_score.as_dict(),
             advice_context_active=advice_context_active,
             advice_topic=advice_topic,
+            route_hint=route_hint.as_dict(),
         )
-        if _should_answer_directly(raw, listener_score, advice_context_active, policy):
+        if _should_answer_directly(raw, listener_score, advice_context_active, policy, route_hint=route_hint.as_dict()):
             try:
                 response = _run_with_thinking_indicator(
                     lambda: _run_advice_response(
@@ -213,7 +227,7 @@ def run_chat(
 
             if response:
                 advice_context_active = True
-                advice_topic = policy.topic
+                advice_topic = route_hint.topic_hint or policy.topic
                 advice_history.append({"speaker": "user", "text": raw})
                 advice_history.append({"speaker": "assistant", "text": response})
                 print()
@@ -226,12 +240,12 @@ def run_chat(
                 lambda: capture_text(
                     vault=vault,
                     text=raw,
-                    conversation_id=conv_id,
-                    speaker="USER",
-                    provider=provider,
-                    model=model,
-                    conversation_policy=policy.as_dict(),
-                )
+                conversation_id=conv_id,
+                speaker="USER",
+                provider=provider,
+                model=model,
+                conversation_policy=policy.as_dict(),
+            )
             )
         except Exception as exc:
             log_error(vault, "chat.run_chat", exc)
@@ -317,7 +331,15 @@ def _should_answer_directly(
     score: Any,
     advice_context_active: bool,
     policy: Any | None = None,
+    route_hint: Any | None = None,
 ) -> bool:
+    route = ""
+    if route_hint is not None:
+        route = str((route_hint or {}).get("route") or "").lower()
+    if route == "advice":
+        return True
+    if route == "memory":
+        return False
     if score.action != "skip":
         return False
     if policy is not None and getattr(policy, "route", "") == "advice":

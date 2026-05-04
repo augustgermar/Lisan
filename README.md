@@ -14,6 +14,7 @@ The working system now includes:
 - Compartment-aware retrieval with keyword, FTS, and embedding-based scoring
 - Local Codex CLI as the default provider
 - Provider abstraction for OpenAI, Anthropic, Google, local HTTP, and Codex CLI
+- Heuristic fast-path routing with a Codex-backed router for ambiguous turns
 - Listener -> Writer -> Skeptic -> Interlocutor capture pipeline
 - Direct advice responses for non-memory questions in chat
 - Per-turn conversation policy that routes advice vs memory and varies tone by context
@@ -209,11 +210,13 @@ Flow:
 
 1. Append transcript entry.
 2. Run Listener heuristic scoring.
-3. Assess a conversation policy for route, tone, and turn kind.
-4. If skipped, stop.
-5. If mode is `elicitor`, run the stateful Elicitor path.
-6. Otherwise, assemble context, run Writer, Skeptic, and Interlocutor.
-7. Write a draft record.
+3. Route the turn with the heuristic fast path first.
+4. Use the Codex router only when the turn is ambiguous.
+5. Assess a conversation policy for route, tone, and turn kind.
+6. If skipped, stop.
+7. If mode is `elicitor`, run the stateful Elicitor path.
+8. Otherwise, assemble context, run Writer, Skeptic, and Interlocutor.
+9. Write a draft record.
 
 ### Listener
 

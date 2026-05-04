@@ -19,6 +19,25 @@ PRACTICAL_ADVICE_PHRASES = [
     "how do i make",
     "can i make",
 ]
+ADVICE_REQUEST_PHRASES = [
+    "please review",
+    "review my",
+    "review this",
+    "look over",
+    "proofread",
+    "edit my",
+    "feedback on",
+    "can you recommend",
+    "would you recommend",
+    "help me choose",
+    "what kind of",
+    "what type of",
+    "best way to",
+    "what should i",
+    "should i",
+    "what would you do",
+    "can you help me decide",
+]
 GENERAL_ADVICE_PHRASES = [
     "should i",
     "what do you think",
@@ -56,6 +75,7 @@ def is_general_advice_question(text: str) -> bool:
     lowered = text.lower()
     return (
         is_practical_advice_question(text)
+        or any(phrase in lowered for phrase in ADVICE_REQUEST_PHRASES)
         or (text.rstrip().endswith("?") and any(phrase in lowered for phrase in GENERAL_ADVICE_PHRASES))
     )
 
@@ -179,6 +199,9 @@ def score_text(text: str, config: dict[str, Any] | None = None) -> HeuristicResu
     if is_practical_advice_question(text):
         score -= 4
         reasons.append("practical food question")
+    elif is_general_advice_question(text):
+        score += 4
+        reasons.append("advice request")
 
     if "make a plan" in lowered or "template" in lowered:
         score += 2
