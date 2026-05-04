@@ -64,6 +64,39 @@ def generate_health_report(vault: Path | None = None, db_path: Path | None = Non
             lines.append("- None")
         lines.append("")
 
+        lines.append("## Claims")
+        claim_rows = conn.execute(
+            "SELECT id, claim_type, confidence, status, created, review_after FROM claims ORDER BY created DESC"
+        ).fetchall()
+        if claim_rows:
+            for row in claim_rows:
+                lines.append(
+                    f"- `{row['id']}` | {row['claim_type']} | {row['confidence']} | {row['status']} | review_after={row['review_after']}"
+                )
+        else:
+            lines.append("- None")
+        lines.append("")
+
+        lines.append("## Manifest Cap")
+        manifest_core = vault / "manifests" / "manifest-core.md"
+        if manifest_core.exists():
+            entry_count = sum(
+                1 for line in manifest_core.read_text(encoding="utf-8").splitlines() if line.startswith("- ")
+            )
+            lines.append(f"- manifest-core entries: {entry_count}/200")
+        else:
+            lines.append("- manifest-core not generated")
+        lines.append("")
+
+        lines.append("## Backup Status")
+        backup = vault / "backup.md"
+        if backup.exists():
+            age_days = (date.today() - date.fromtimestamp(backup.stat().st_mtime)).days
+            lines.append(f"- backup.md last modified {age_days} day(s) ago")
+        else:
+            lines.append("- backup.md missing")
+        lines.append("")
+
         lines.append("## Index Counts")
         counts = {
             "files": conn.execute("SELECT COUNT(*) FROM files").fetchone()[0],

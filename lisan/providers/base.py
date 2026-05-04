@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
-import os
 import sqlite3
 import time
 from abc import ABC, abstractmethod
@@ -13,7 +11,8 @@ from typing import Any
 from urllib import error, request
 
 from ..config import load_config
-from ..paths import repo_root, sqlite_path
+from ..paths import sqlite_path
+from .config import select_provider
 
 
 @dataclass(slots=True)
@@ -62,8 +61,8 @@ class LisanLLM:
         provider: str | None = None,
         model: str | None = None,
     ) -> LLMResponse:
-        routing = self.config.get("routing", {})
-        chosen_provider = provider or routing.get(agent, {}).get(significance, "local")
+        selected = select_provider(self.config, agent=agent, significance=significance, override_provider=provider, override_model=model)
+        chosen_provider = selected.provider
         client = _client_for(chosen_provider, self.config)
         prompt_version = f"{agent}_{significance}"
         input_hash = _sha(prompt)
@@ -72,7 +71,7 @@ class LisanLLM:
         response_text = ""
         raw: dict[str, Any] | None = None
         try:
-            response = client.complete(prompt, schema=schema, temperature=temperature, agent=agent, significance=significance, model=model)
+            response = client.complete(prompt, schema=schema, temperature=temperature, agent=agent, significance=significance, model=selected.model)
             response_text = response.text
             raw = response.raw
             success = True
@@ -84,7 +83,7 @@ class LisanLLM:
                 db_path=self.db_path,
                 agent=agent,
                 provider=chosen_provider,
-                model=model or _default_model(self.config, chosen_provider),
+                model=selected.model or _default_model(self.config, chosen_provider),
                 prompt_version=prompt_version,
                 input_hash=input_hash,
                 output_hash=output_hash,
@@ -114,6 +113,10 @@ def _client_for(provider: str, config: dict[str, Any]) -> "ProviderClient":
         from .openai import OpenAIClient
 
         return OpenAIClient(config)
+    if provider == "codex":
+        from .codex import CodexClient
+
+        return CodexClient(config)
     if provider == "anthropic":
         from .anthropic import AnthropicClient
 
@@ -184,4 +187,3 @@ def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeo
     except error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         raise ProviderError(f"HTTP {exc.code} from {url}: {body}") from exc
-

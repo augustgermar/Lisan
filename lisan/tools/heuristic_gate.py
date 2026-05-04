@@ -88,9 +88,12 @@ def score_text(text: str, config: dict[str, Any] | None = None) -> HeuristicResu
         seed_score += 2
         reasons.append("durable plan request")
 
-    if text.count("```") >= 2 or text.count("\n") <= 2 and len(text) > 150:
+    if text.count("```") >= 2:
         score -= 3
         reasons.append("code-heavy or short factual lookup")
+    elif text.count("\n") <= 1 and len(text) < 120:
+        score -= 3
+        reasons.append("short factual lookup")
 
     if len(text) >= 250:
         score += 5
@@ -127,4 +130,3 @@ def score_text(text: str, config: dict[str, Any] | None = None) -> HeuristicResu
         mode=mode,
         reasons=reasons,
     )
-

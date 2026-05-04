@@ -10,6 +10,11 @@ from .paths import config_path
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "providers": {
+        "codex": {
+            "enabled": True,
+            "binary_env": "CODEX_BIN",
+            "default_model": "",
+        },
         "openai": {
             "enabled": True,
             "api_key_env": "OPENAI_API_KEY",
@@ -36,13 +41,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
     },
     "routing": {
-        "listener": {"low": "local", "medium": "local", "high": "openai"},
-        "assembler": {"low": "local", "medium": "local", "high": "local"},
-        "elicitor": {"low": "google", "medium": "openai", "high": "anthropic"},
-        "writer": {"low": "local", "medium": "openai", "high": "anthropic"},
-        "skeptic": {"low": "local", "medium": "anthropic", "high": "anthropic"},
-        "interlocutor": {"low": "google", "medium": "openai", "high": "anthropic"},
-        "dreamer": {"low": "local", "medium": "openai", "high": "anthropic"},
+        "listener": {"low": "codex", "medium": "codex", "high": "codex"},
+        "assembler": {"low": "codex", "medium": "codex", "high": "codex"},
+        "elicitor": {"low": "codex", "medium": "codex", "high": "codex"},
+        "writer": {"low": "codex", "medium": "codex", "high": "codex"},
+        "skeptic": {"low": "codex", "medium": "codex", "high": "codex"},
+        "interlocutor": {"low": "codex", "medium": "codex", "high": "codex"},
+        "dreamer": {"low": "codex", "medium": "codex", "high": "codex"},
     },
     "heuristic": {
         "thresholds": {"skip": 3, "lightweight": 6},
@@ -77,4 +82,3 @@ def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> None:
             _deep_merge(base[key], value)
         else:
             base[key] = value
-

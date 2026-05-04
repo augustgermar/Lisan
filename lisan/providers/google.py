@@ -28,6 +28,8 @@ class GoogleClient(ProviderClient):
         }
         if schema:
             payload["systemInstruction"] = {"parts": [{"text": f"Return output compatible with schema: {schema.get('$id') or schema.get('title') or 'provided schema'}"}]}
+            payload["generationConfig"]["responseMimeType"] = "application/json"
+            payload["generationConfig"]["responseSchema"] = schema
         url = f"{self.config['providers']['google']['base_url']}/models/{chosen_model}:generateContent?key={api_key}"
         data = _post_json(url, payload, {"Content-Type": "application/json"})
         candidates = data.get("candidates", [])
@@ -36,4 +38,3 @@ class GoogleClient(ProviderClient):
             parts = candidates[0].get("content", {}).get("parts", [])
             text = "".join(part.get("text", "") for part in parts)
         return LLMResponse(text=text, provider=self.name, model=chosen_model, raw=data)
-

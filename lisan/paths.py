@@ -55,8 +55,8 @@ def ensure_repo_layout(base: Path | None = None) -> None:
         "lisan-vault/archive/open_loops",
         "lisan-vault/drafts",
         "lisan-vault/reports",
+        "prompts",
         "lisan/schemas",
         ".githooks",
     ]:
         (root / rel).mkdir(parents=True, exist_ok=True)
-
