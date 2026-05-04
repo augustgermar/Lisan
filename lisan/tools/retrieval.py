@@ -99,6 +99,14 @@ def assemble_context(query: str, arena: str | None = None, vault: Path | None = 
             sections.append(f"- `{item.id}` | {item.type} | {item.summary} | `{item.path}` | {item.reason}")
         sections.append("")
 
+    contradiction_notes = _load_relevant_contradictions(vault, query)
+    if contradiction_notes:
+        sections.append("## Active Contradictions")
+        sections.append("NOTE: The following unresolved contradictions are relevant to this context.")
+        for note in contradiction_notes:
+            sections.append(f"- {note}")
+        sections.append("")
+
     return "\n".join(sections).rstrip() + "\n"
 
 
@@ -350,3 +358,33 @@ def _log_retrieval(
         conn.commit()
     except sqlite3.Error:
         pass
+
+
+def _load_relevant_contradictions(vault: Path, query: str) -> list[str]:
+    """Return summary lines for active (unresolved) contradiction files relevant to this query."""
+    contradictions_dir = vault / "contradictions"
+    if not contradictions_dir.exists():
+        return []
+    query_terms = {t.lower() for t in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]+", query) if len(t) > 3}
+    notes: list[str] = []
+    from datetime import date
+    for path in sorted(contradictions_dir.glob("*.md")):
+        try:
+            doc = load_markdown(path)
+        except Exception:
+            continue
+        if str(doc.frontmatter.get("status", "active")) in ("resolved", "archived"):
+            continue
+        summary = str(doc.frontmatter.get("summary") or "").lower()
+        body_snippet = path.read_text(encoding="utf-8")[:800].lower()
+        haystack = summary + " " + body_snippet
+        if not query_terms or any(term in haystack for term in query_terms):
+            created = doc.frontmatter.get("created")
+            age = ""
+            if created:
+                try:
+                    age = f" ({(date.today() - date.fromisoformat(str(created))).days}d old)"
+                except ValueError:
+                    pass
+            notes.append(f"`{path.name}`{age}: {doc.frontmatter.get('summary', 'unresolved contradiction')}")
+    return notes[:5]

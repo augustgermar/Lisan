@@ -18,6 +18,7 @@ from .narrative_state import (
     save_narrative_state,
     update_narrative_state,
 )
+from .record_factory import STATE_TTLS, new_decision
 from .transcripts import append_transcript
 
 # Force Writer handoff after this many turns when enough has been established.
@@ -216,11 +217,12 @@ Elicitor mode closure was detected.
     write_markdown(path, frontmatter, body)
     _apply_elicitor_state_updates(vault, writer)
     _create_elicitor_open_loops(vault, writer)
+    _create_elicitor_decisions(vault, writer)
     return path
 
 
 def _create_elicitor_open_loops(vault: Path, writer: dict[str, Any]) -> None:
-    from .record_factory import STATE_TTLS, new_open_loop
+    from .record_factory import new_open_loop
     loops = writer.get("open_loops_to_create") or []
     for loop in loops:
         title = str(loop.get("title") or "").strip()
@@ -250,7 +252,7 @@ def _create_elicitor_open_loops(vault: Path, writer: dict[str, Any]) -> None:
 
 
 def _apply_elicitor_state_updates(vault: Path, writer: dict[str, Any]) -> None:
-    from .record_factory import STATE_TTLS, upsert_state
+    from .record_factory import upsert_state
     updates = writer.get("state_updates") or []
     for update in updates:
         arena = str(update.get("arena") or "").strip().lower()
@@ -270,3 +272,34 @@ def _apply_elicitor_state_updates(vault: Path, writer: dict[str, Any]) -> None:
             )
         except Exception as exc:
             log_error(vault, "elicitor_session.state_update", exc)
+
+
+def _create_elicitor_decisions(vault: Path, writer: dict[str, Any]) -> None:
+    decisions = writer.get("decisions_to_create") or []
+    for entry in decisions:
+        title = str(entry.get("title") or "").strip()
+        summary = str(entry.get("summary") or "").strip()
+        arena = str(entry.get("arena") or "cross_arena").strip()
+        significance = str(entry.get("significance") or "low").strip()
+        alternatives = list(entry.get("alternatives_considered") or [])
+        revisit = list(entry.get("revisit_conditions") or [])
+        if not title or not summary:
+            continue
+        if significance not in ("low", "medium", "high"):
+            significance = "low"
+        try:
+            new_decision(
+                vault=vault,
+                title=title,
+                arena_primary=arena if arena in STATE_TTLS else "cross_arena",
+                summary=summary,
+                significance=significance,
+                confidence="low",
+                confidence_basis="Auto-extracted from elicitor conversation",
+                alternatives_considered=alternatives,
+                revisit_conditions=revisit,
+            )
+        except FileExistsError:
+            pass
+        except Exception as exc:
+            log_error(vault, "elicitor_session.decision", exc)

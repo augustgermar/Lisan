@@ -27,6 +27,7 @@ from .tools.drafts import promote_draft_to_episode
 from .tools.editor import edit_record
 from .tools.health_report import generate_health_report
 from .tools.heuristic_gate import score_text
+from .tools.confidence_decay import detect_decay_candidates
 from .tools.manifest_gen import generate_manifests
 from .tools.migrator import run_migration
 from .tools.primer_audit import run_primer_audit
@@ -86,6 +87,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     loops = subparsers.add_parser("loops", help="List active open loops")
     loops.add_argument("--vault", type=Path, default=vault_root())
+
+    decay = subparsers.add_parser("decay", help="Surface confidence decay candidates (deterministic SQL)")
+    decay.add_argument("--vault", type=Path, default=vault_root())
 
     review = subparsers.add_parser("review", help="Show queued draft items")
     review.add_argument("--vault", type=Path, default=vault_root())
@@ -454,6 +458,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "loops":
         for path in sorted((args.vault / "open_loops").glob("*.md")):
             print(path.name)
+        return 0
+
+    if args.command == "decay":
+        print(detect_decay_candidates(vault=args.vault))
         return 0
 
     if args.command == "review":

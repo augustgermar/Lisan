@@ -13,7 +13,7 @@ from .elicitor_session import run_elicitor_session
 from .firewall import scan_text
 from .log import log_error
 from .narrative_state import load_narrative_state
-from .record_factory import STATE_TTLS, new_entity, new_open_loop, upsert_state
+from .record_factory import STATE_TTLS, new_decision, new_entity, new_open_loop, upsert_state
 from .transcripts import append_transcript
 
 
@@ -126,6 +126,7 @@ def run_memory_pipeline(
     _create_entity_stubs(vault, writer, str(draft_path.relative_to(vault)))
     _apply_state_updates(vault, writer)
     _create_open_loops(vault, writer)
+    _create_decisions(vault, writer)
     return MemoryPipelineResult(
         transcript_path=transcript_path,
         draft_path=draft_path,
@@ -304,3 +305,34 @@ def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel_path: st
             )
         except FileExistsError:
             pass  # entity already exists — skip silently
+
+
+def _create_decisions(vault: Path, writer: dict[str, Any]) -> None:
+    decisions = writer.get("decisions_to_create") or []
+    for entry in decisions:
+        title = str(entry.get("title") or "").strip()
+        summary = str(entry.get("summary") or "").strip()
+        arena = str(entry.get("arena") or "cross_arena").strip()
+        significance = str(entry.get("significance") or "low").strip()
+        alternatives = list(entry.get("alternatives_considered") or [])
+        revisit = list(entry.get("revisit_conditions") or [])
+        if not title or not summary:
+            continue
+        if significance not in ("low", "medium", "high"):
+            significance = "low"
+        try:
+            new_decision(
+                vault=vault,
+                title=title,
+                arena_primary=arena if arena in STATE_TTLS else "cross_arena",
+                summary=summary,
+                significance=significance,
+                confidence="low",
+                confidence_basis="Auto-extracted from conversation",
+                alternatives_considered=alternatives,
+                revisit_conditions=revisit,
+            )
+        except FileExistsError:
+            pass
+        except Exception as exc:
+            log_error(vault, "memory_pipeline.decision", exc)
