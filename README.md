@@ -18,6 +18,7 @@ The working system now includes:
 - Listener -> Writer -> Skeptic -> Interlocutor capture pipeline
 - Memory type routing: Listener classifies input as episode, decision, open_loop, state, knowledge, or entity; Writer selects the correct specialist prompt automatically
 - Open loop fan-out: Writer output `open_loops_to_create` is materialized as immediate vault records (open loops are always capture_now)
+- Decision fan-out: Writer output `decisions_to_create` materializes decision records in both extraction and elicitor pipelines
 - State update fan-out: Writer output `state_updates` is applied to arena state files immediately after each conversation turn
 - Entity stub fan-out: Writer output `entities_to_create` creates entity stubs with conversation-sourced summaries
 - Direct advice responses for non-memory questions in chat
@@ -33,6 +34,10 @@ The working system now includes:
 - Batch review digest generation
 - Local backup creation and restore testing
 - Current brief regeneration from active state files
+- Confidence decay candidate surfacing via deterministic SQL (`lisan decay`)
+- Active contradiction injection into assembled context (spec §10.3)
+- `/remember` and `/forget` prefix stripping before transcript and agent calls
+- `/logs [N]` command in interactive chat
 
 The repo is usable as a local memory vault CLI now. Most remaining work is refinement, prompt calibration, and optional automation, not core plumbing.
 
@@ -495,7 +500,6 @@ Those are operational outputs of the app.
 The remaining work is mainly refinement:
 
 - Prompt calibration for long Elicitor sessions
-- `decisions_to_create` fan-out: decisions embedded in drafts but not yet materialized as separate decision records
 - Optional automation around review items
 - Any UI polish you want on top of the CLI
 - Future provider/model changes
