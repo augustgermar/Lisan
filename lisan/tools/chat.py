@@ -199,12 +199,19 @@ def run_chat(
             print()
             continue
 
+        # Strip /remember and /forget prefixes before routing and capture
+        text = raw
+        if lowered.startswith("/remember "):
+            text = raw[len("/remember "):].strip()
+        elif lowered.startswith("/forget "):
+            text = raw[len("/forget "):].strip()
+
         listener_score = score_text(raw, config, db_path=sqlite_path())
         current_state = _load_current_state(vault, conv_id)
         route_hint = _run_with_thinking_indicator(
             lambda: decide_turn_route(
                 vault=vault,
-                text=raw,
+                text=text,
                 conversation_id=conv_id,
                 provider=provider,
                 model=model,
@@ -214,19 +221,19 @@ def run_chat(
             )
         )
         policy = assess_conversation_turn(
-            raw,
+            text,
             state=current_state,
             listener=listener_score.as_dict(),
             advice_context_active=advice_context_active,
             advice_topic=advice_topic,
             route_hint=route_hint.as_dict(),
         )
-        if _should_answer_directly(raw, listener_score, advice_context_active, policy, route_hint=route_hint.as_dict()):
+        if _should_answer_directly(text, listener_score, advice_context_active, policy, route_hint=route_hint.as_dict()):
             try:
                 response = _run_with_thinking_indicator(
                     lambda: _run_advice_response(
                         vault=vault,
-                        text=raw,
+                        text=text,
                         provider=provider,
                         model=model,
                         history=advice_history,
@@ -241,7 +248,7 @@ def run_chat(
             if response:
                 advice_context_active = True
                 advice_topic = route_hint.topic_hint or policy.topic
-                advice_history.append({"speaker": "user", "text": raw})
+                advice_history.append({"speaker": "user", "text": text})
                 advice_history.append({"speaker": "assistant", "text": response})
                 append_transcript(vault=vault, conversation_id=conv_id, speaker="LISAN", text=response)
                 print()
@@ -253,7 +260,7 @@ def run_chat(
             result = _run_with_thinking_indicator(
                 lambda: capture_text(
                     vault=vault,
-                    text=raw,
+                    text=text,
                 conversation_id=conv_id,
                 speaker="USER",
                 provider=provider,
