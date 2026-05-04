@@ -259,7 +259,23 @@ def new_decision(
         "revisit_conditions": revisit_conditions or [],
         "alternatives_considered": alternatives_considered or [],
     }
-    body = f"# {title}\n\n## Decision\n\nDecision details go here.\n"
+    decision_text = summary or title
+    alts = "\n".join(f"- {a}" for a in (alternatives_considered or [])) or "None recorded."
+    revisit = "\n".join(f"- {r}" for r in (revisit_conditions or [])) or "None recorded."
+    body = f"""# {title}
+
+## Decision
+
+{decision_text}
+
+## Alternatives Considered
+
+{alts}
+
+## Revisit Conditions
+
+{revisit}
+"""
     write_markdown(path, frontmatter, body)
     return CreatedRecord(path=path, created=True)
 
