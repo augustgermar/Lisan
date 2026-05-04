@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from ..paths import sqlite_path
 from ..tools.heuristic_gate import score_text
 from .base import PromptAgent
 
@@ -13,7 +14,7 @@ class RouterAgent(PromptAgent):
     output_schema_name = "mode_router_output"
 
     def fallback_output(self, user_input: str, significance: str = "medium", **kwargs: Any) -> str:
-        score = score_text(user_input, self.config)
+        score = score_text(user_input, self.config, db_path=sqlite_path())
         lowered = user_input.lower().strip()
         if lowered.startswith("/"):
             route = "skip"
