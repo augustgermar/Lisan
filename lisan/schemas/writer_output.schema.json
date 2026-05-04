@@ -18,6 +18,18 @@
     "frontmatter": { "type": "object" },
     "sections": { "type": "object" },
     "questions": { "type": "array", "items": { "type": "string" } },
-    "significance_rationale": { "type": "string" }
+    "significance_rationale": { "type": "string" },
+    "entities_to_create": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "subtype", "summary"],
+        "properties": {
+          "name":    { "type": "string" },
+          "subtype": { "type": "string", "enum": ["person", "place", "project", "organization"] },
+          "summary": { "type": "string" }
+        }
+      }
+    }
   }
 }
