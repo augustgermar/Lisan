@@ -11,6 +11,7 @@ from typing import Any
 from ..config import load_config
 from ..paths import sqlite_path, vault_root
 from ..utils import today_iso
+from .log import log_error, tail_log
 
 
 # ── ANSI helpers ─────────────────────────────────────────────────────────────
@@ -186,6 +187,7 @@ def run_chat(
                 model=model,
             )
         except Exception as exc:
+            log_error(vault, "chat.run_chat", exc)
             print(_c(f"\n  Error: {exc}\n", RED))
             continue
 
