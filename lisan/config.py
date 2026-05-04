@@ -21,7 +21,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "base_url": "https://api.openai.com/v1/chat/completions",
             "default_model": "gpt-4o-mini",
         },
-        "anthropic": {
+        "codex": {
             "enabled": True,
             "api_key_env": "ANTHROPIC_API_KEY",
             "base_url": "https://api.anthropic.com/v1/messages",
@@ -41,14 +41,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
     },
     "routing": {
-        "router":       {"low": "anthropic", "medium": "anthropic", "high": "anthropic"},
-        "listener":     {"low": "anthropic", "medium": "anthropic", "high": "anthropic"},
-        "assembler":    {"low": "anthropic", "medium": "anthropic", "high": "anthropic"},
-        "elicitor":     {"low": "anthropic", "medium": "anthropic", "high": "anthropic"},
-        "writer":       {"low": "anthropic", "medium": "anthropic", "high": "anthropic"},
-        "skeptic":      {"low": "anthropic", "medium": "anthropic", "high": "anthropic"},
-        "interlocutor": {"low": "anthropic", "medium": "anthropic", "high": "anthropic"},
-        "dreamer":      {"low": "anthropic", "medium": "anthropic", "high": "anthropic"},
+        "router":       {"low": "codex", "medium": "codex", "high": "codex"},
+        "listener":     {"low": "codex", "medium": "codex", "high": "codex"},
+        "assembler":    {"low": "codex", "medium": "codex", "high": "codex"},
+        "elicitor":     {"low": "codex", "medium": "codex", "high": "codex"},
+        "writer":       {"low": "codex", "medium": "codex", "high": "codex"},
+        "skeptic":      {"low": "codex", "medium": "codex", "high": "codex"},
+        "interlocutor": {"low": "codex", "medium": "codex", "high": "codex"},
+        "dreamer":      {"low": "codex", "medium": "codex", "high": "codex"},
     },
     "heuristic": {
         "thresholds": {"skip": 3, "lightweight": 6},
