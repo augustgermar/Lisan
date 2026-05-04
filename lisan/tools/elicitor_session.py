@@ -49,7 +49,8 @@ def run_elicitor_session(
     transcript_path = transcript_path or append_transcript(vault=vault, conversation_id=conversation_id, speaker=speaker, text=text)
     state = load_narrative_state(vault, conversation_id)
     history = conversation_history(vault, conversation_id)
-    context = assemble_context(text, arena=None, vault=vault, conversation_id=conversation_id)
+    arena = str((conversation_policy or {}).get("arena_override") or "") or None
+    context = assemble_context(text, arena=arena, vault=vault, conversation_id=conversation_id)
     elicitor = ElicitorAgent(vault=vault).run_json(
         text,
         significance="medium",
