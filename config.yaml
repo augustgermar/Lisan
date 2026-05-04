@@ -1,0 +1,42 @@
+{
+  "providers": {
+    "openai": {
+      "enabled": true,
+      "api_key_env": "OPENAI_API_KEY",
+      "base_url": "https://api.openai.com/v1/chat/completions",
+      "default_model": "gpt-4o-mini"
+    },
+    "anthropic": {
+      "enabled": true,
+      "api_key_env": "ANTHROPIC_API_KEY",
+      "base_url": "https://api.anthropic.com/v1/messages",
+      "default_model": "claude-3-5-sonnet-latest"
+    },
+    "google": {
+      "enabled": true,
+      "api_key_env": "GOOGLE_API_KEY",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta",
+      "default_model": "gemini-2.0-flash"
+    },
+    "local": {
+      "enabled": true,
+      "api_key_env": null,
+      "base_url": "http://localhost:11434/v1/chat/completions",
+      "default_model": "llama3.1"
+    }
+  },
+  "routing": {
+    "listener": {"low": "local", "medium": "local", "high": "openai"},
+    "assembler": {"low": "local", "medium": "local", "high": "local"},
+    "elicitor": {"low": "google", "medium": "openai", "high": "anthropic"},
+    "writer": {"low": "local", "medium": "openai", "high": "anthropic"},
+    "skeptic": {"low": "local", "medium": "anthropic", "high": "anthropic"},
+    "interlocutor": {"low": "google", "medium": "openai", "high": "anthropic"},
+    "dreamer": {"low": "local", "medium": "openai", "high": "anthropic"}
+  },
+  "heuristic": {
+    "thresholds": {"skip": 3, "lightweight": 6},
+    "affect_terms": ["angry", "sad", "anxious", "excited", "afraid", "frustrated"]
+  }
+}
+
