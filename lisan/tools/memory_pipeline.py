@@ -11,6 +11,7 @@ from ..frontmatter import write_markdown
 from ..utils import slugify, today_iso
 from .elicitor_session import run_elicitor_session
 from .narrative_state import load_narrative_state
+from .record_factory import new_entity
 from .transcripts import append_transcript
 
 
@@ -118,6 +119,7 @@ def run_memory_pipeline(
         conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     )
     draft_path = _write_draft(vault, text, transcript_path, listener, writer, skeptic, interlocutor, task, mode, action)
+    _create_entity_stubs(vault, writer, str(draft_path.relative_to(vault)))
     return MemoryPipelineResult(
         transcript_path=transcript_path,
         draft_path=draft_path,
@@ -131,16 +133,9 @@ def run_memory_pipeline(
 
 
 def _choose_task(text: str, listener: dict[str, Any]) -> str:
-    reasons = set(listener.get("reason", []))
-    if "decision phrase" in reasons:
-        return "decision"
-    if "open loop phrase" in reasons:
-        return "open_loop"
-    lowered = text.lower()
-    if any(p in lowered for p in ["i decided", "going forward", "from now on", "the decision was"]):
-        return "decision"
-    if any(p in lowered for p in ["remind me to", "don't let me forget", "i need to follow up"]):
-        return "open_loop"
+    mode = str(listener.get("mode", "")).lower()
+    if mode in ("decision", "open_loop", "knowledge", "entity", "state"):
+        return mode
     return "episode"
 
 
@@ -228,3 +223,25 @@ def _render_draft_body(
 
 {text.strip()}
 """
+
+
+def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel_path: str) -> None:
+    entities = writer.get("entities_to_create") or []
+    for entry in entities:
+        name = str(entry.get("name") or "").strip()
+        subtype = str(entry.get("subtype") or "person").strip()
+        summary = str(entry.get("summary") or "").strip()
+        if not name:
+            continue
+        try:
+            new_entity(
+                vault=vault,
+                name=name,
+                subtype=subtype,
+                summary=summary or f"{name} mentioned in conversation.",
+                confidence="low",
+                confidence_basis="Auto-extracted from conversation",
+                links=[draft_rel_path],
+            )
+        except FileExistsError:
+            pass  # entity already exists — skip silently
