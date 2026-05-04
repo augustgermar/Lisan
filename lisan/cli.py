@@ -356,7 +356,7 @@ def main(argv: list[str] | None = None) -> int:
         ensure_repo_layout()
         if not (repo_root() / "config.yaml").exists():
             save_default_config()
-        print("Lisan workspace initialized.")
+        print(f"Lisan workspace initialized at {vault_root()}.")
         return 0
 
     if args.command == "validate":
@@ -644,9 +644,9 @@ def main(argv: list[str] | None = None) -> int:
                     identity=args.identity,
                     encrypt=args.encrypt,
                 )
+                write_backup_log(args.vault, result)
                 if args.test_restore:
                     result = test_backup(result.archive_path, vault=args.vault, identity=args.identity)
-                else:
                     write_backup_log(args.vault, result)
             except (FileNotFoundError, ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
                 print(str(exc), file=sys.stderr)

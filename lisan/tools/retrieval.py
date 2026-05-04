@@ -11,7 +11,7 @@ from typing import Any
 from ..frontmatter import load_markdown
 from ..paths import embeddings_path, sqlite_path, vault_root
 from ..tools.common import iter_markdown_files
-from ..utils import approx_word_count
+from ..utils import approx_word_count, hash_embedding
 
 
 ARENA_KEYWORDS: dict[str, set[str]] = {
@@ -177,25 +177,24 @@ def _score_row(
     allowed_contexts = _json_list(row["allowed_contexts"])
     blocked_contexts = _json_list(row["blocked_contexts"])
     compartments = _json_list(row["compartments"])
-    file_contexts = set(allowed_contexts or ["all"]) | set(compartments)
-    if blocked_contexts and file_contexts.intersection(blocked_contexts):
-        return RetrievalItem(
-            id=str(row["id"]),
-            type=str(row["type"]),
-            path=str(row["path"]),
-            summary=str(row["summary"]),
-            score=0.0,
-            reason="compartment_blocked",
-        )
-    if allowed_contexts and "all" not in allowed_contexts and not file_contexts.intersection(active_contexts):
-        return RetrievalItem(
-            id=str(row["id"]),
-            type=str(row["type"]),
-            path=str(row["path"]),
-            summary=str(row["summary"]),
-            score=0.0,
-            reason="compartment_blocked",
-        )
+
+    def _blocked(reason: str = "compartment_blocked") -> RetrievalItem:
+        return RetrievalItem(id=str(row["id"]), type=str(row["type"]), path=str(row["path"]), summary=str(row["summary"]), score=0.0, reason=reason)
+
+    # File's blocked_contexts are contexts where it must NOT appear
+    if blocked_contexts and set(blocked_contexts).intersection(active_contexts):
+        return _blocked()
+
+    # File's allowed_contexts restrict which contexts may see it
+    if allowed_contexts and "all" not in allowed_contexts:
+        if not set(allowed_contexts).intersection(active_contexts):
+            return _blocked()
+
+    # Sensitive compartments (non-arena privacy domains) restrict independently of allowed_contexts
+    _SENSITIVE = {"legal", "health", "children"}
+    sensitive = _SENSITIVE.intersection(compartments)
+    if sensitive and not sensitive.intersection(active_contexts):
+        return _blocked()
 
     score = 0.0
     reasons: list[str] = []
@@ -250,7 +249,7 @@ def _score_row(
 
 
 def _vector_score(query: str, file_id: str, vault: Path) -> float:
-    query_vec = _hash_embedding(query)
+    query_vec = hash_embedding(query)
     emb_path = embeddings_path()
     if not emb_path.exists():
         return 0.0
@@ -281,17 +280,6 @@ def _cosine(a: list[float], b: list[float]) -> float:
     a_norm = math.sqrt(sum(v * v for v in a)) or 1.0
     b_norm = math.sqrt(sum(float(v) * float(v) for v in b[:length])) or 1.0
     return dot / (a_norm * b_norm)
-
-
-def _hash_embedding(text: str, dimensions: int = 32) -> list[float]:
-    import hashlib
-
-    digest = hashlib.sha256(text.encode("utf-8")).digest()
-    vector = [0.0] * dimensions
-    for index, byte in enumerate(digest):
-        vector[index % dimensions] += byte / 255.0
-    norm = math.sqrt(sum(value * value for value in vector)) or 1.0
-    return [value / norm for value in vector]
 
 
 def _fts_candidate_ids(conn: sqlite3.Connection, query: str) -> set[str]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
@@ -7,8 +8,17 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def default_vault_root() -> Path:
+    env_value = os.environ.get("LISAN_VAULT")
+    if env_value:
+        return Path(env_value).expanduser()
+    return repo_root() / "lisan-vault"
+
+
 def vault_root(base: Path | None = None) -> Path:
-    return (base or repo_root()) / "lisan-vault"
+    if base is not None:
+        return base / "lisan-vault"
+    return default_vault_root()
 
 
 def config_path(base: Path | None = None) -> Path:
@@ -29,32 +39,36 @@ def schemas_dir(base: Path | None = None) -> Path:
 
 def ensure_repo_layout(base: Path | None = None) -> None:
     root = base or repo_root()
+    vault = vault_root(base)
     for rel in [
-        "lisan-vault/primer",
-        "lisan-vault/state",
-        "lisan-vault/entities/people",
-        "lisan-vault/entities/places",
-        "lisan-vault/entities/projects",
-        "lisan-vault/entities/organizations",
-        "lisan-vault/episodes",
-        "lisan-vault/knowledge/frameworks",
-        "lisan-vault/knowledge/legal",
-        "lisan-vault/knowledge/financial",
-        "lisan-vault/knowledge/technical",
-        "lisan-vault/evidence/artifacts",
-        "lisan-vault/evidence/records",
-        "lisan-vault/evidence/corrections",
-        "lisan-vault/decisions",
-        "lisan-vault/open_loops",
-        "lisan-vault/contradictions",
-        "lisan-vault/transcripts",
-        "lisan-vault/manifests",
-        "lisan-vault/arenas",
-        "lisan-vault/archive/episodes",
-        "lisan-vault/archive/entities",
-        "lisan-vault/archive/open_loops",
-        "lisan-vault/drafts",
-        "lisan-vault/reports",
+        "primer",
+        "state",
+        "entities/people",
+        "entities/places",
+        "entities/projects",
+        "entities/organizations",
+        "episodes",
+        "knowledge/frameworks",
+        "knowledge/legal",
+        "knowledge/financial",
+        "knowledge/technical",
+        "evidence/artifacts",
+        "evidence/records",
+        "evidence/corrections",
+        "decisions",
+        "open_loops",
+        "contradictions",
+        "transcripts",
+        "manifests",
+        "arenas",
+        "archive/episodes",
+        "archive/entities",
+        "archive/open_loops",
+        "drafts",
+        "reports",
+    ]:
+        (vault / rel).mkdir(parents=True, exist_ok=True)
+    for rel in [
         "backups",
         "prompts",
         "lisan/schemas",

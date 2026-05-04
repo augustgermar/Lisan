@@ -242,14 +242,9 @@ def _validate_frontmatter_consistency(path: Path, body: str, frontmatter: dict[s
             "## Open Questions",
         }
         missing = required - headings
-        if missing:
-            source = str(frontmatter.get("source"))
-            if source == "elicitor":
-                for heading in missing:
-                    report.add(path, f"Missing episode section header: {heading}", severity="error")
-            else:
-                for heading in missing:
-                    report.add(path, f"Missing episode section header: {heading}")
+        if missing and str(frontmatter.get("source")) != "elicitor":
+            for heading in missing:
+                report.add(path, f"Missing episode section header: {heading}")
         if frontmatter.get("significance") == "high" and "## Claims" not in body:
             report.add(path, "High-significance episodes should include a Claims section")
         if frontmatter.get("significance") == "high":
