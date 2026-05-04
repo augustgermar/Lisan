@@ -34,6 +34,10 @@ SEED_PHRASES = [
     "want to talk about", "tell you about", "talk about",
     "i've been thinking about", "my relationship", "lately",
     "ask me about",
+    # First-person present-moment sharing
+    "i love", "i hate", "i miss", "i feel ", "i'm feeling",
+    "i'm having", "i'm making", "just had", "just got",
+    "just finished", "just started", "right now i",
 ]
 
 
