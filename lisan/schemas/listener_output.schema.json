@@ -15,6 +15,7 @@
   "properties": {
     "worth_remembering": { "type": "boolean" },
     "mode": { "type": "string", "enum": ["elicitor", "extraction", "skip", "undetermined"] },
+    "memory_type": { "type": "string", "enum": ["episode", "decision", "open_loop", "state", "knowledge", "entity", "skip"] },
     "reason": { "type": "array", "items": { "type": "string" } },
     "memory_events": { "type": "array" },
     "action": { "type": "string", "enum": ["skip", "lightweight", "full"] },

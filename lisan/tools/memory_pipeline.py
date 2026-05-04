@@ -135,9 +135,10 @@ def run_memory_pipeline(
 
 
 def _choose_task(text: str, listener: dict[str, Any]) -> str:
-    mode = str(listener.get("mode", "")).lower()
-    if mode in ("decision", "open_loop", "knowledge", "entity", "state"):
-        return mode
+    # Primary: use the LLM's explicit memory type classification
+    memory_type = str(listener.get("memory_type") or "").lower()
+    if memory_type in ("decision", "open_loop", "state", "knowledge", "entity"):
+        return memory_type
     return "episode"
 
 
