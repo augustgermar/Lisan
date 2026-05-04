@@ -295,14 +295,16 @@ def _extract_claims_from_episode(body: str, episode_id: str) -> list[tuple[Any, 
         claim_id = data.get("ID") or data.get("Id") or data.get("id")
         if not claim_id:
             continue
+        claim_text = str(data.get("Claim") or data.get("claim") or "")
+        sensitivity = _detect_claim_sensitivity(claim_text)
         claims.append(
             (
                 claim_id,
                 episode_id,
-                data.get("Claim") or data.get("claim") or "",
+                claim_text,
                 data.get("Type") or data.get("type") or "reported",
                 data.get("Confidence") or data.get("confidence") or "low",
-                None,
+                sensitivity,
                 data.get("Source") or data.get("source") or None,
                 data.get("Evidence") or data.get("evidence") or None,
                 data.get("Status") or data.get("status") or "unresolved",
@@ -312,6 +314,20 @@ def _extract_claims_from_episode(body: str, episode_id: str) -> list[tuple[Any, 
             )
         )
     return claims
+
+
+_PROFESSIONAL_REVIEW_TERMS = frozenset({
+    "criminal", "custody", "elder abuse", "abuse", "medical", "diagnosis",
+    "symptoms", "tax", "insurance fraud", "fraud", "legal obligation",
+    "custody implication", "medication", "prescription",
+})
+
+
+def _detect_claim_sensitivity(claim_text: str) -> str | None:
+    lowered = claim_text.lower()
+    if any(term in lowered for term in _PROFESSIONAL_REVIEW_TERMS):
+        return "requires_professional_review"
+    return None
 
 
 def _maybe_create_fts(conn: sqlite3.Connection) -> None:
