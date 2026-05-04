@@ -13,6 +13,7 @@ from .paths import ensure_repo_layout, repo_root, vault_root
 from .providers.base import LisanLLM, ProviderError
 from .prompts import list_prompts, load_prompt
 from .tools.assembler import assemble_context
+from .tools.chat import run_chat
 from .tools.capture import capture_text
 from .tools.current_brief import write_current_brief
 from .tools.conversation_digest import write_conversation_digest
@@ -43,6 +44,12 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("init", help="Create the default vault layout and config")
+
+    chat = subparsers.add_parser("chat", help="Start an interactive chat session")
+    chat.add_argument("--vault", type=Path, default=vault_root())
+    chat.add_argument("--conversation-id", default=None)
+    chat.add_argument("--provider", default=None)
+    chat.add_argument("--model", default=None)
 
     state = subparsers.add_parser("state", help="Inspect or update state files")
     state_subparsers = state.add_subparsers(dest="state_command", required=True)
@@ -354,6 +361,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "chat":
+        return run_chat(
+            vault=args.vault,
+            conversation_id=args.conversation_id,
+            provider=args.provider,
+            model=args.model,
+        )
 
     if args.command == "init":
         ensure_repo_layout()
