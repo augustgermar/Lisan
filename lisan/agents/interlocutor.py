@@ -15,11 +15,12 @@ class InterlocutorAgent(PromptAgent):
         questions = self._questions(user_input)
         payload = {
             "response": "I need a little more detail to proceed.",
+            "questions": questions,
+            "recommended_action": "review_later" if questions else "auto_commit",
             "updated_narrative_state": {
                 "open_questions": questions,
                 "next_step": "Ask the highest-priority clarification question.",
             },
-            "questions": questions,
         }
         return json.dumps(payload, indent=2, ensure_ascii=True)
 

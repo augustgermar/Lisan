@@ -17,6 +17,7 @@
       }
     },
     "risk": { "type": "string", "enum": ["low", "medium", "high"] },
-    "recommended_action": { "type": "string", "enum": ["promote", "revise", "reject"] }
+    "recommended_action": { "type": "string", "enum": ["approve", "revise", "hold"] },
+    "priority_questions": { "type": "array", "items": { "type": "string" } }
   }
 }
