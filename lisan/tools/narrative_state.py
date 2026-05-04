@@ -178,13 +178,14 @@ def _parse_transcript(text: str, conversation_id: str) -> list[dict[str, str]]:
             continue
         if conversation_id == "default" and "[" in header and "]" in header:
             continue
-        lines = rest.strip().splitlines()
-        if not lines:
-            continue
-        speaker, _, msg = lines[0].partition(":")
-        if not speaker:
-            continue
-        turns.append({"speaker": speaker.strip(), "text": msg.strip()})
+        for line in rest.strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            speaker, sep, msg = line.partition(":")
+            if not sep or not speaker or " " in speaker.strip():
+                continue
+            turns.append({"speaker": speaker.strip(), "text": msg.strip()})
     return turns
 
 
