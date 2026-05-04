@@ -25,12 +25,14 @@ commands, math questions, requests for information unrelated to the user's life.
 
 ## Decision guidelines
 
-- First-person emotional or experiential statements → at minimum lightweight/elicitor
+- Biographical or factual information about the user (name, family, job, location, relationships, dates) → full/extraction. Do not elicit — extract directly.
+- Multiple facts in one message → full/extraction regardless of emotional content.
+- First-person emotional or experiential statements (short, implied story) → lightweight/elicitor
 - Present-moment sharing ("I'm making pasta", "just got home") → lightweight/elicitor
 - Opinions and preferences expressed personally → lightweight/elicitor
 - Questions about the world with no personal stake → skip
-- Practical cooking, shopping, or how-to advice questions with no personal stake → skip
-- Short ambiguous inputs that could go either way → lean toward lightweight
+- Practical how-to or advice questions with no personal stake → skip
+- Short ambiguous inputs → lean toward lightweight
 - Decisions, plans, open loops → lightweight or full depending on detail
 - Long personal accounts (multiple sentences, multi-paragraph) → full/extraction
 - The same word can mean different things: judge by context and first-person framing
