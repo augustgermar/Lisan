@@ -217,12 +217,14 @@ def _render_response(result: dict[str, Any]) -> None:
         print()
 
     elif action in ("full", "lightweight") and not draft_path:
-        # Pipeline ran but no draft yet (e.g. lightweight without elicitor closure)
         print()
         print(_c("Lisan: ", CYAN) + _c("Noted.", DIM))
         print()
 
-    # action == "skip": say nothing, just re-prompt
+    else:
+        # Skipped — show a minimal acknowledgment so the UI doesn't look frozen
+        print(_c("  ·", DIM))
+        print()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

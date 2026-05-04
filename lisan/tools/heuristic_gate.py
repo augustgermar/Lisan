@@ -13,9 +13,18 @@ HIGH_RISK_KEYWORDS = ["legal", "medical", "child", "custody", "financial", "work
 
 # Short declarative statements that imply a story without telling it — classic elicitor seeds
 SEED_PHRASES = [
-    "i had a", "i've had", "something happened", "something weird", "something interesting",
-    "had a conversation", "had a meeting", "had an interesting", "had a great", "had a rough",
-    "had a hard", "had a terrible", "had a strange", "had a tough", "had a good",
+    # Classic short event seeds ("I had a...")
+    "i had a", "i've had", "had a conversation", "had a meeting",
+    "had a great", "had a rough", "had a hard", "had a terrible",
+    "had a strange", "had a tough", "had a good", "had an interesting",
+    # Exclamatory / experiential openers
+    "what a ", "what an ", "man i", "oh man", "oh my",
+    "it was so ", "it was such a", "i was loving", "i loved",
+    "that was so ", "that was such",
+    # Implicit story seeds
+    "something happened", "something weird", "something interesting",
+    "so something", "guess what",
+    # Explicit memory / reflection seeds
     "want to talk about", "tell you about", "talk about",
     "i've been thinking about", "my relationship", "lately",
     "ask me about",
