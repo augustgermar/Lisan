@@ -3,6 +3,8 @@ __pycache__/
 lisan.sqlite
 embeddings.bin
 .DS_Store
+lisan-vault/
+Draft5.md
 lisan-vault/drafts/
 lisan-vault/reports/
 lisan-vault/logs/
