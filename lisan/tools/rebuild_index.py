@@ -196,12 +196,26 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
                 pass
 
             if file_type == "entity":
+                # Index canonical name first so the heuristic gate can find entities by name
+                canonical = str(fm.get("canonical_name") or fm.get("id") or "").strip()
+                if canonical:
+                    try:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO entity_aliases (entity_id, alias, context) VALUES (?, ?, ?)",
+                            (file_id, canonical, None),
+                        )
+                        counts["aliases"] += 1
+                    except sqlite3.Error:
+                        pass
                 for alias in fm.get("aliases", []) or []:
-                    conn.execute(
-                        "INSERT INTO entity_aliases (entity_id, alias, context) VALUES (?, ?, ?)",
-                        (file_id, str(alias), None),
-                    )
-                    counts["aliases"] += 1
+                    try:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO entity_aliases (entity_id, alias, context) VALUES (?, ?, ?)",
+                            (file_id, str(alias), None),
+                        )
+                        counts["aliases"] += 1
+                    except sqlite3.Error:
+                        pass
                 previous_epochs = fm.get("previous_epochs", []) or []
                 if isinstance(previous_epochs, list):
                     for previous in previous_epochs:

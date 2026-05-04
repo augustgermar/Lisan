@@ -152,6 +152,8 @@ def validate_vault(vault: Path | None = None) -> ValidationReport:
 
     _validate_links(vault, seen_ids, report)
     _validate_episode_sources(vault, report)
+    _validate_state_staleness(vault, report)
+    _validate_wikilinks(vault, seen_ids, report)
     return report
 
 
@@ -290,6 +292,53 @@ def _validate_episode_sources(vault: Path, report: ValidationReport) -> None:
             continue
         if "source" not in doc.frontmatter:
             report.add(path, "Episode missing source field")
+
+
+def _validate_state_staleness(vault: Path, report: ValidationReport) -> None:
+    today = date.today()
+    for path in (vault / "state").glob("*.md"):
+        try:
+            doc = load_markdown(path)
+        except FrontmatterError:
+            continue
+        fm = doc.frontmatter
+        ttl = fm.get("ttl_days")
+        updated = fm.get("updated")
+        if ttl and updated:
+            try:
+                age = (today - date.fromisoformat(str(updated))).days
+                if age > int(ttl):
+                    report.add(path, f"State file is stale: age={age} days, ttl={ttl} days", severity="warning")
+            except (ValueError, TypeError):
+                pass
+        review_after = fm.get("review_after")
+        if review_after:
+            try:
+                if today > date.fromisoformat(str(review_after)):
+                    report.add(path, f"State file is past review_after date: {review_after}", severity="warning")
+            except ValueError:
+                pass
+
+
+def _validate_wikilinks(vault: Path, seen_ids: dict[str, Path], report: ValidationReport) -> None:
+    _WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+    for path in iter_markdown_files(vault):
+        if not _is_structured_record(path, vault):
+            continue
+        try:
+            doc = load_markdown(path)
+        except FrontmatterError:
+            continue
+        for match in _WIKILINK_RE.finditer(doc.body):
+            target = match.group(1).strip()
+            if not target:
+                continue
+            target_clean = target.split("|")[0].strip()
+            if target_clean in seen_ids:
+                continue
+            if (vault / target_clean).exists():
+                continue
+            report.add(path, f"Wikilink target not found: [[{target_clean}]]", severity="warning")
 
 
 def _is_structured_record(path: Path, vault: Path) -> bool:
