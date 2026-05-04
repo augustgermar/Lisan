@@ -9,10 +9,26 @@ from ..utils import approx_word_count
 from .base import PromptAgent
 
 
+_TASK_PROMPT_FILES = {
+    "episode":   "writer_episode_v1",
+    "decision":  "writer_decision_v1",
+    "open_loop": "writer_open_loop_v1",
+    "state":     "writer_state_v1",
+    "entity":    "writer_entity_v1",
+    "knowledge": "writer_knowledge_v1",
+    "questions": "writer_questions_v1",
+}
+
+
 class WriterAgent(PromptAgent):
     name = "writer"
     prompt_file = "writer_episode_v1"
     output_schema_name = "writer_output"
+
+    def run_json(self, user_input: str, **kwargs: Any) -> Any:
+        task = str(kwargs.get("task") or "episode")
+        self.prompt_file = _TASK_PROMPT_FILES.get(task, "writer_episode_v1")
+        return super().run_json(user_input, **kwargs)
 
     def fallback_output(self, user_input: str, significance: str = "medium", **kwargs: Any) -> str:
         task = str(kwargs.get("task") or "episode")
