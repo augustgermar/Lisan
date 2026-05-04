@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 import sys
 import time
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -145,6 +146,7 @@ def run_chat(
 
     advice_history: list[dict[str, str]] = []
     advice_context_active = False
+    advice_topic: str | None = None
 
     while True:
         try:
@@ -190,16 +192,19 @@ def run_chat(
             state=current_state,
             listener=listener_score.as_dict(),
             advice_context_active=advice_context_active,
+            advice_topic=advice_topic,
         )
         if _should_answer_directly(raw, listener_score, advice_context_active, policy):
             try:
-                response = _run_advice_response(
-                    vault=vault,
-                    text=raw,
-                    provider=provider,
-                    model=model,
-                    history=advice_history,
-                    conversation_policy=policy,
+                response = _run_with_thinking_indicator(
+                    lambda: _run_advice_response(
+                        vault=vault,
+                        text=raw,
+                        provider=provider,
+                        model=model,
+                        history=advice_history,
+                        conversation_policy=policy,
+                    )
                 )
             except Exception as exc:
                 log_error(vault, "chat.run_chat.advice", exc)
@@ -208,6 +213,7 @@ def run_chat(
 
             if response:
                 advice_context_active = True
+                advice_topic = policy.topic
                 advice_history.append({"speaker": "user", "text": raw})
                 advice_history.append({"speaker": "assistant", "text": response})
                 print()
@@ -216,22 +222,26 @@ def run_chat(
                 continue
 
         try:
-            result = capture_text(
-                vault=vault,
-                text=raw,
-                conversation_id=conv_id,
-                speaker="USER",
-                provider=provider,
-                model=model,
-                conversation_policy=policy.as_dict(),
+            result = _run_with_thinking_indicator(
+                lambda: capture_text(
+                    vault=vault,
+                    text=raw,
+                    conversation_id=conv_id,
+                    speaker="USER",
+                    provider=provider,
+                    model=model,
+                    conversation_policy=policy.as_dict(),
+                )
             )
         except Exception as exc:
             log_error(vault, "chat.run_chat", exc)
             print(_c(f"\n  Error: {exc}\n", RED))
             continue
 
-        if result.get("mode") != "skip":
+        if policy.route != "advice" or result.get("mode") != "skip":
             advice_context_active = False
+            if policy.route != "advice":
+                advice_topic = None
         _render_response(result)
 
 
@@ -337,6 +347,26 @@ def _run_advice_response(
         conversation_policy=conversation_policy.as_dict() if conversation_policy is not None else {},
     )
     return str(result.text).strip()
+
+
+def _run_with_thinking_indicator(callable_obj):
+    done = threading.Event()
+    started = time.time()
+
+    def _show_waiting() -> None:
+        if not done.wait(0.7):
+            print()
+            print(_c("Lisan: ", CYAN) + _c("thinking…", DIM))
+
+    watcher = threading.Thread(target=_show_waiting, daemon=True)
+    watcher.start()
+    try:
+        return callable_obj()
+    finally:
+        done.set()
+        elapsed_ms = int((time.time() - started) * 1000)
+        if elapsed_ms >= 700:
+            print(_c(f"  [took {elapsed_ms} ms]", DIM))
 
 
 def _load_current_state(vault: Path, conversation_id: str) -> Any:

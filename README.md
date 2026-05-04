@@ -17,6 +17,7 @@ The working system now includes:
 - Listener -> Writer -> Skeptic -> Interlocutor capture pipeline
 - Direct advice responses for non-memory questions in chat
 - Per-turn conversation policy that routes advice vs memory and varies tone by context
+- A lightweight thinking indicator in chat when provider calls take noticeable time
 - Stateful Elicitor mode with per-conversation narrative state
 - Manual record creation for entities, episodes, decisions, open loops, knowledge, evidence, and state
 - Draft review and promotion

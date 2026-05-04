@@ -31,6 +31,8 @@ def _policy_dict(value: Any) -> dict[str, Any]:
 def _fallback_answer(text: str, policy: dict[str, Any] | None = None) -> str:
     lowered = text.lower()
     tone = str((policy or {}).get("tone") or "").lower()
+    style = str((policy or {}).get("response_style") or "").lower()
+    transition = str((policy or {}).get("transition") or "").lower()
     opener = {
         "wry": "Yep —",
         "warm": "Yep,",
@@ -38,12 +40,17 @@ def _fallback_answer(text: str, policy: dict[str, Any] | None = None) -> str:
         "steady": "Yes.",
     }.get(tone, "Yep.")
     if any(term in lowered for term in ["tuna", "pasta", "mayo", "celery", "salad"]):
-        if tone == "wry":
+        if transition == "switch_advice_topic":
+            return (
+                f"{opener} new topic, same pantry. Tuna pasta salad still works: mix the pasta with tuna, mayo, and chopped celery, "
+                "then season it with salt, pepper, and a little acid if you have it."
+            )
+        if style == "direct_answer" and tone == "wry":
             return (
                 f"{opener} tuna pasta salad is old reliable for a reason. Mix the pasta with tuna, mayo, and chopped celery, "
                 "then season it with salt, pepper, and a little acid if you have it, like lemon juice or vinegar."
             )
-        if tone == "warm":
+        if style == "practical_answer" and tone == "warm":
             return (
                 f"{opener} tuna pasta salad is a good call. Mix the pasta with tuna, mayo, and chopped celery, "
                 "then season it with salt, pepper, and a little acid if you have it, like lemon juice or vinegar."
@@ -52,6 +59,16 @@ def _fallback_answer(text: str, policy: dict[str, Any] | None = None) -> str:
             f"{opener} tuna pasta salad works. Mix the pasta with tuna, mayo, and chopped celery, "
             "then season it with salt, pepper, and a little acid if you have it, like lemon juice or vinegar."
         )
+    if transition == "switch_advice_topic":
+        return "Yep, different topic, same rule: start simple and keep the first version honest."
+    if style == "direct_answer" and tone == "wry":
+        return "Yep. Start with the simplest version first, then add the clever bits if the dish earns them."
+    if style == "practical_answer" and tone == "warm":
+        return "Yep, start with the simplest version first and see what it actually needs."
+    if style == "reset":
+        return "Yep, fair. Let’s use the corrected version."
+    if style == "short_ack":
+        return "Yep."
     if tone == "wry":
         return "Yep. Start with the simplest version first. The fancy version can wait its turn."
     if tone == "warm":
