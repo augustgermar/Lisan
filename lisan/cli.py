@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -12,9 +13,13 @@ from .providers.base import LisanLLM, ProviderError
 from .prompts import list_prompts, load_prompt
 from .tools.assembler import assemble_context
 from .tools.capture import capture_text
+from .tools.current_brief import write_current_brief
+from .tools.conversation_digest import write_conversation_digest
 from .tools.dreamer_ops import run_dreamer_task
 from .tools.draft_review import review_draft
 from .tools.archive import archive_open_loop
+from .tools.backup import backup_status, create_backup, latest_backup_path, test_backup, write_backup_log
+from .tools.batch_review import generate_batch_review, write_batch_review
 from .tools.epochs import epoch_entity
 from .tools.drafts import promote_draft_to_episode
 from .tools.editor import edit_record
@@ -25,6 +30,7 @@ from .tools.migrator import run_migration
 from .tools.primer_audit import run_primer_audit
 from .tools.record_factory import new_decision, new_evidence, new_evidence_correction, new_entity, new_episode, new_knowledge, new_open_loop, new_state, upsert_state
 from .tools.rebuild_index import rebuild_index
+from .tools.narrative_state import conversation_history, load_narrative_state, render_narrative_state, reset_narrative_state
 from .tools.transcripts import append_transcript
 from .tools.validator import format_report, validate_vault
 
@@ -73,6 +79,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     review = subparsers.add_parser("review", help="Show queued draft items")
     review.add_argument("--vault", type=Path, default=vault_root())
+    review_subparsers = review.add_subparsers(dest="review_command", required=False)
+    review_batch = review_subparsers.add_parser("batch", help="Generate a batch review digest")
+    review_batch.add_argument("--vault", type=Path, default=vault_root())
+    review_batch.add_argument("--write", action="store_true")
 
     new = subparsers.add_parser("new", help="Create a new vault record")
     new_subparsers = new.add_subparsers(dest="new_command", required=True)
@@ -245,6 +255,21 @@ def build_parser() -> argparse.ArgumentParser:
     transcript_append.add_argument("--speaker", default="USER")
     transcript_append.add_argument("text", nargs="+")
 
+    conversation = subparsers.add_parser("conversation", help="Inspect or manage Elicitor conversation state")
+    conversation_subparsers = conversation.add_subparsers(dest="conversation_command", required=True)
+    conversation_show = conversation_subparsers.add_parser("show", help="Show the current narrative state")
+    conversation_show.add_argument("--vault", type=Path, default=vault_root())
+    conversation_show.add_argument("--conversation-id", default=None)
+    conversation_history_cmd = conversation_subparsers.add_parser("history", help="Show recent transcript turns")
+    conversation_history_cmd.add_argument("--vault", type=Path, default=vault_root())
+    conversation_history_cmd.add_argument("--conversation-id", default=None)
+    conversation_reset = conversation_subparsers.add_parser("reset", help="Clear persisted narrative state")
+    conversation_reset.add_argument("--vault", type=Path, default=vault_root())
+    conversation_reset.add_argument("--conversation-id", default=None)
+    conversation_digest = conversation_subparsers.add_parser("digest", help="Write a conversation digest report")
+    conversation_digest.add_argument("--vault", type=Path, default=vault_root())
+    conversation_digest.add_argument("--conversation-id", default=None)
+
     capture = subparsers.add_parser("capture", help="Capture input and create a review draft when warranted")
     capture.add_argument("--vault", type=Path, default=vault_root())
     capture.add_argument("--conversation-id", default=None)
@@ -275,6 +300,24 @@ def build_parser() -> argparse.ArgumentParser:
     archive_loop.add_argument("--path", type=Path, required=True)
     archive_loop.add_argument("--force", action="store_true")
 
+    backup = subparsers.add_parser("backup", help="Create or test local backups")
+    backup_subparsers = backup.add_subparsers(dest="backup_command", required=True)
+    backup_create = backup_subparsers.add_parser("create", help="Create a backup archive")
+    backup_create.add_argument("--vault", type=Path, default=vault_root())
+    backup_create.add_argument("--destination", type=Path, default=None)
+    backup_create.add_argument("--recipient", default=None)
+    backup_create.add_argument("--identity", default=None)
+    backup_create.add_argument("--encrypt", action="store_true")
+    backup_create.add_argument("--test-restore", action="store_true")
+    backup_test = backup_subparsers.add_parser("test", help="Test restoring a backup archive")
+    backup_test.add_argument("--vault", type=Path, default=vault_root())
+    backup_test.add_argument("--destination", type=Path, default=None)
+    backup_test.add_argument("--archive", type=Path, default=None)
+    backup_test.add_argument("--identity", default=None)
+    backup_status_cmd = backup_subparsers.add_parser("status", help="Show backup status")
+    backup_status_cmd.add_argument("--vault", type=Path, default=vault_root())
+    backup_status_cmd.add_argument("--destination", type=Path, default=None)
+
     entity = subparsers.add_parser("entity", help="Entity-specific operations")
     entity_subparsers = entity.add_subparsers(dest="entity_command", required=True)
     entity_epoch = entity_subparsers.add_parser("epoch", help="Archive the current entity epoch and start a new one")
@@ -289,6 +332,7 @@ def build_parser() -> argparse.ArgumentParser:
     draft_review.add_argument("--path", type=Path, required=True)
     draft_review.add_argument("--provider", default=None)
     draft_review.add_argument("--model", default=None)
+    draft_review.add_argument("--apply", action="store_true")
     draft_promote = draft_subparsers.add_parser("promote", help="Promote a draft file into an episode")
     draft_promote.add_argument("--vault", type=Path, default=vault_root())
     draft_promote.add_argument("--path", type=Path, required=True)
@@ -378,6 +422,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "review":
+        if getattr(args, "review_command", None) == "batch":
+            if args.write:
+                path = write_batch_review(args.vault)
+                print(path)
+            else:
+                print(generate_batch_review(args.vault))
+            return 0
         from .frontmatter import load_markdown
 
         drafts = sorted((args.vault / "drafts").glob("*.md"))
@@ -430,6 +481,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "sync":
         generate_manifests(args.vault, write=True)
+        write_current_brief(args.vault)
+        write_batch_review(args.vault)
         report = validate_vault(args.vault)
         counts = rebuild_index(args.vault)
         print(format_report(report))
@@ -457,6 +510,30 @@ def main(argv: list[str] | None = None) -> int:
                 speaker=args.speaker,
                 text=" ".join(args.text),
             )
+            print(path)
+            return 0
+
+    if args.command == "conversation":
+        if args.conversation_command == "show":
+            state = load_narrative_state(args.vault, args.conversation_id)
+            print(json.dumps(state.as_dict(), indent=2))
+            return 0
+        if args.conversation_command == "history":
+            history = conversation_history(args.vault, args.conversation_id)
+            print(render_narrative_state(load_narrative_state(args.vault, args.conversation_id)).rstrip())
+            print("\n---\n")
+            if history:
+                for turn in history[-20:]:
+                    print(f"{turn['speaker']}: {turn['text']}")
+            else:
+                print("No turns recorded.")
+            return 0
+        if args.conversation_command == "reset":
+            path = reset_narrative_state(args.vault, args.conversation_id)
+            print(path)
+            return 0
+        if args.conversation_command == "digest":
+            path = write_conversation_digest(args.vault, args.conversation_id)
             print(path)
             return 0
 
@@ -557,6 +634,47 @@ def main(argv: list[str] | None = None) -> int:
             print(path)
             return 0
 
+    if args.command == "backup":
+        if args.backup_command == "create":
+            try:
+                result = create_backup(
+                    vault=args.vault,
+                    destination=args.destination,
+                    recipient=args.recipient,
+                    identity=args.identity,
+                    encrypt=args.encrypt,
+                )
+                if args.test_restore:
+                    result = test_backup(result.archive_path, vault=args.vault, identity=args.identity)
+                else:
+                    write_backup_log(args.vault, result)
+            except (FileNotFoundError, ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            print(result.archive_path)
+            return 0
+        if args.backup_command == "test":
+            archive = args.archive or latest_backup_path(args.destination)
+            if archive is None:
+                print("No backup archive found.", file=sys.stderr)
+                return 1
+            try:
+                result = test_backup(archive, vault=args.vault, identity=args.identity)
+            except (FileNotFoundError, ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            print(json.dumps({
+                "archive_path": str(result.archive_path),
+                "encrypted": result.encrypted,
+                "restore_tested": result.restore_tested,
+                "restore_ok": result.restore_ok,
+                "restore_message": result.restore_message,
+            }, indent=2))
+            return 0
+        if args.backup_command == "status":
+            print(backup_status(args.vault, destination=args.destination))
+            return 0
+
     if args.command == "entity":
         if args.entity_command == "epoch":
             try:
@@ -570,7 +688,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "draft":
         if args.draft_command == "review":
             try:
-                result = review_draft(args.path, vault=args.vault, provider=args.provider, model=args.model)
+                result = review_draft(args.path, vault=args.vault, provider=args.provider, model=args.model, apply=args.apply)
             except (FileNotFoundError, ValueError) as exc:
                 print(str(exc), file=sys.stderr)
                 return 1

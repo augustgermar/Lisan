@@ -9,6 +9,7 @@ from typing import Any
 from ..agents import AssemblerAgent, InterlocutorAgent, ListenerAgent, SkepticAgent, WriterAgent
 from ..frontmatter import write_markdown
 from ..utils import slugify, today_iso
+from .elicitor_session import run_elicitor_session
 from .transcripts import append_transcript
 
 
@@ -22,6 +23,9 @@ class MemoryPipelineResult:
     interlocutor: dict[str, Any] | None
     action: str
     mode: str
+    elicitor: dict[str, Any] | None = None
+    narrative_state_path: Path | None = None
+    narrative_state: dict[str, Any] | None = None
 
 
 def run_memory_pipeline(
@@ -46,6 +50,30 @@ def run_memory_pipeline(
             interlocutor=None,
             action=action,
             mode=mode,
+        )
+
+    if mode == "elicitor":
+        elicitor_result = run_elicitor_session(
+            vault=vault,
+            text=text,
+            conversation_id=conversation_id,
+            speaker=speaker,
+            provider=provider,
+            model=model,
+            transcript_path=transcript_path,
+        )
+        return MemoryPipelineResult(
+            transcript_path=transcript_path,
+            draft_path=elicitor_result.draft_path,
+            listener=listener,
+            writer=None,
+            skeptic=None,
+            interlocutor=None,
+            action=action,
+            mode=mode,
+            elicitor=elicitor_result.response,
+            narrative_state_path=elicitor_result.state_path,
+            narrative_state=elicitor_result.narrative_state,
         )
 
     context = AssemblerAgent(vault=vault).run(text).text

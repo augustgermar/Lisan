@@ -144,6 +144,7 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
             content_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
             word_count = len(raw.split())
             token_count = max(1, round(word_count * 1.33))
+            content = f"{str(fm.get('summary', ''))}\n\n{doc.body.strip()}".strip()
             row = {
                 "id": file_id,
                 "type": file_type,
@@ -185,7 +186,14 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
                 row,
             )
             counts["files"] += 1
-            embeddings_lines.append(json.dumps({"id": file_id, "embedding": _hash_embedding(str(fm.get("summary", "")))}))
+            embeddings_lines.append(json.dumps({"id": file_id, "embedding": _hash_embedding(content)}))
+            try:
+                conn.execute(
+                    "INSERT INTO files_fts (id, summary, content) VALUES (?, ?, ?)",
+                    (file_id, str(fm.get("summary", "")), content),
+                )
+            except sqlite3.Error:
+                pass
 
             if file_type == "entity":
                 for alias in fm.get("aliases", []) or []:
@@ -312,4 +320,3 @@ def main(argv: list[str] | None = None) -> int:
     counts = rebuild_index()
     print(f"Index rebuilt: {counts}")
     return 0
-

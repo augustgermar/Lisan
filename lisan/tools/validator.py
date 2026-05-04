@@ -68,10 +68,12 @@ TYPE_FIELDS = {
     "state": {"ttl_days", "sources", "confidence", "confidence_basis", "last_confirmed"},
     "decision": {"revisit_after", "revisit_conditions", "alternatives_considered"},
     "open_loop": {"priority", "owner", "next_action", "blocked_by", "review_after"},
+    "report": set(),
+    "contradiction_log": set(),
 }
 
 ENUMS = {
-    "type": {"entity", "episode", "knowledge", "evidence", "state", "decision", "open_loop"},
+    "type": {"entity", "episode", "knowledge", "evidence", "state", "decision", "open_loop", "report", "contradiction_log"},
     "status": {"active", "archived", "stale", "resolved", "disputed", "stale_unresolved"},
     "significance": {"high", "medium", "low"},
     "arena_primary": {

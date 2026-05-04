@@ -10,7 +10,17 @@
       "required": ["open_questions", "next_step"],
       "properties": {
         "open_questions": { "type": "array", "items": { "type": "string" } },
-        "next_step": { "type": "string" }
+        "next_step": { "type": "string" },
+        "mode_status": {
+          "type": "string",
+          "enum": ["seed", "developing", "deepening", "resolving", "closed", "unknown"]
+        },
+        "story_thread": { "type": "string" },
+        "entities_involved": { "type": "array", "items": { "type": "string" } },
+        "established": { "type": "array", "items": { "type": "string" } },
+        "emotional_texture": { "type": "string" },
+        "open_threads": { "type": "array", "items": { "type": "string" } },
+        "unresolved": { "type": "array", "items": { "type": "string" } }
       }
     }
   }
