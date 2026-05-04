@@ -15,6 +15,7 @@ The working system now includes:
 - Local Codex CLI as the default provider
 - Provider abstraction for OpenAI, Anthropic, Google, local HTTP, and Codex CLI
 - Listener -> Writer -> Skeptic -> Interlocutor capture pipeline
+- Direct advice responses for non-memory questions in chat
 - Stateful Elicitor mode with per-conversation narrative state
 - Manual record creation for entities, episodes, decisions, open loops, knowledge, evidence, and state
 - Draft review and promotion
@@ -395,6 +396,7 @@ Provider and prompt inspection:
 
 ```bash
 python3 -m lisan prompts
+python3 -m lisan agent advice "What can I make with tuna, pasta, celery, and mayo?"
 python3 -m lisan prompt show writer_episode_v1
 python3 -m lisan agent assembler "Need context for the work arena"
 python3 -m lisan agent listener "forget this"

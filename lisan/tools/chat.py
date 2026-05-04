@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sqlite3
@@ -11,6 +12,7 @@ from typing import Any
 from ..config import load_config
 from ..paths import sqlite_path, vault_root
 from ..utils import today_iso
+from .heuristic_gate import is_general_advice_question, score_text
 from .log import log_error, tail_log
 
 
@@ -140,6 +142,9 @@ def run_chat(
     from ..tools.capture import capture_text
     from ..tools.narrative_state import reset_narrative_state
 
+    advice_history: list[dict[str, str]] = []
+    advice_context_active = False
+
     while True:
         try:
             raw = input(_c("You: ", BOLD)).strip()
@@ -177,6 +182,30 @@ def run_chat(
             print()
             continue
 
+        listener_score = score_text(raw, config)
+        if _should_answer_directly(raw, listener_score, advice_context_active):
+            try:
+                response = _run_advice_response(
+                    vault=vault,
+                    text=raw,
+                    provider=provider,
+                    model=model,
+                    history=advice_history,
+                )
+            except Exception as exc:
+                log_error(vault, "chat.run_chat.advice", exc)
+                print(_c(f"\n  Error: {exc}\n", RED))
+                continue
+
+            if response:
+                advice_context_active = True
+                advice_history.append({"speaker": "user", "text": raw})
+                advice_history.append({"speaker": "assistant", "text": response})
+                print()
+                print(_c("Lisan: ", CYAN) + response)
+                print()
+                continue
+
         try:
             result = capture_text(
                 vault=vault,
@@ -191,6 +220,8 @@ def run_chat(
             print(_c(f"\n  Error: {exc}\n", RED))
             continue
 
+        if result.get("mode") != "skip":
+            advice_context_active = False
         _render_response(result)
 
 
@@ -257,6 +288,42 @@ def _print_help() -> None:
     print(_c("  /remember   force capture regardless of score", DIM))
     print(_c("  /forget     suppress capture for this turn", DIM))
     print()
+    print(_c("  Advice questions are answered directly and are not stored in the vault.", DIM))
+    print()
+
+
+def _should_answer_directly(text: str, score: Any, advice_context_active: bool) -> bool:
+    if score.action != "skip":
+        return False
+    if is_general_advice_question(text):
+        return True
+    return advice_context_active
+
+
+def _run_advice_response(
+    vault: Path,
+    text: str,
+    provider: str | None,
+    model: str | None,
+    history: list[dict[str, str]],
+) -> str:
+    from ..agents import AdviceAgent
+
+    agent = AdviceAgent(vault=vault)
+    result = agent.run(
+        text,
+        significance="low",
+        provider=provider,
+        model=model,
+        conversation_history=_format_advice_history(history),
+    )
+    return str(result.text).strip()
+
+
+def _format_advice_history(history: list[dict[str, str]]) -> str:
+    if not history:
+        return ""
+    return json.dumps(history[-8:], indent=2, ensure_ascii=True)
 
 
 def _farewell() -> None:

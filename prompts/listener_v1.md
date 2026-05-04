@@ -29,6 +29,7 @@ commands, math questions, requests for information unrelated to the user's life.
 - Present-moment sharing ("I'm making pasta", "just got home") → lightweight/elicitor
 - Opinions and preferences expressed personally → lightweight/elicitor
 - Questions about the world with no personal stake → skip
+- Practical cooking, shopping, or how-to advice questions with no personal stake → skip
 - Short ambiguous inputs that could go either way → lean toward lightweight
 - Decisions, plans, open loops → lightweight or full depending on detail
 - Long personal accounts (multiple sentences, multi-paragraph) → full/extraction

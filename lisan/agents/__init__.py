@@ -1,3 +1,4 @@
+from .advice import AdviceAgent
 from .assembler import AssemblerAgent
 from .dreamer import DreamerAgent
 from .elicitor import ElicitorAgent
@@ -7,6 +8,7 @@ from .skeptic import SkepticAgent
 from .writer import WriterAgent
 
 __all__ = [
+    "AdviceAgent",
     "AssemblerAgent",
     "DreamerAgent",
     "ElicitorAgent",
@@ -15,4 +17,3 @@ __all__ = [
     "SkepticAgent",
     "WriterAgent",
 ]
-
