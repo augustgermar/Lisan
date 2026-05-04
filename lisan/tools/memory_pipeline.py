@@ -182,6 +182,7 @@ def _write_draft(
         "last_confirmed": today_iso(),
         "review_after": today_iso(),
         "pipeline": {"action": action, "mode": mode, "task": task},
+        "source": mode,
     }
     body = _render_draft_body(text, listener, writer, skeptic, interlocutor, task)
     write_markdown(path, frontmatter, body)
