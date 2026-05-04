@@ -5,6 +5,7 @@ embeddings.bin
 .DS_Store
 lisan-vault/drafts/
 lisan-vault/reports/
+lisan-vault/logs/
 lisan-vault/transcripts/
 lisan-vault/backup.md
 lisan-vault/primer/current-brief.md
