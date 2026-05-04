@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "skeptic_output",
+  "type": "object",
+  "required": ["approved", "issues", "risk", "recommended_action"],
+  "properties": {
+    "approved": { "type": "boolean" },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "message"],
+        "properties": {
+          "type": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      }
+    },
+    "risk": { "type": "string", "enum": ["low", "medium", "high"] },
+    "recommended_action": { "type": "string", "enum": ["promote", "revise", "reject"] }
+  }
+}

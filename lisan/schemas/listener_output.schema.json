@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "listener_output",
+  "type": "object",
+  "required": [
+    "worth_remembering",
+    "mode",
+    "reason",
+    "memory_events",
+    "action",
+    "score",
+    "seed_score",
+    "narrative_score"
+  ],
+  "properties": {
+    "worth_remembering": { "type": "boolean" },
+    "mode": { "type": "string", "enum": ["elicitor", "extraction", "skip", "undetermined"] },
+    "reason": { "type": "array", "items": { "type": "string" } },
+    "memory_events": { "type": "array" },
+    "action": { "type": "string", "enum": ["skip", "lightweight", "full"] },
+    "score": { "type": "integer" },
+    "seed_score": { "type": "integer" },
+    "narrative_score": { "type": "integer" }
+  }
+}

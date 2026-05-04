@@ -250,6 +250,17 @@ def _validate_frontmatter_consistency(path: Path, body: str, frontmatter: dict[s
                     report.add(path, f"Missing episode section header: {heading}")
         if frontmatter.get("significance") == "high" and "## Claims" not in body:
             report.add(path, "High-significance episodes should include a Claims section")
+        if frontmatter.get("significance") == "high":
+            links = [str(link) for link in frontmatter.get("links", []) if isinstance(link, str)]
+            has_operational_link = any(
+                link.startswith("decision.") or link.startswith("open_loop.") or link.startswith("state.")
+                for link in links
+            )
+            if not has_operational_link and not str(frontmatter.get("significance_rationale", "")).strip():
+                report.add(
+                    path,
+                    "High-significance episode needs a decision/open_loop/state link or significance_rationale",
+                )
 
 
 def _validate_links(vault: Path, seen_ids: dict[str, Path], report: ValidationReport) -> None:

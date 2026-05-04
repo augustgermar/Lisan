@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "writer_output",
+  "type": "object",
+  "required": [
+    "record_type",
+    "summary",
+    "significance",
+    "frontmatter",
+    "sections",
+    "questions",
+    "significance_rationale"
+  ],
+  "properties": {
+    "record_type": { "type": "string" },
+    "summary": { "type": "string" },
+    "significance": { "type": "string", "enum": ["low", "medium", "high"] },
+    "frontmatter": { "type": "object" },
+    "sections": { "type": "object" },
+    "questions": { "type": "array", "items": { "type": "string" } },
+    "significance_rationale": { "type": "string" }
+  }
+}

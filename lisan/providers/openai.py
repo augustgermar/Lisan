@@ -29,6 +29,7 @@ class OpenAIClient(ProviderClient):
         }
         if schema:
             payload["messages"].insert(0, {"role": "system", "content": f"Return output compatible with schema: {schema.get('$id') or schema.get('title') or 'provided schema'}"})
+            payload["response_format"] = {"type": "json_object"}
         data = _post_json(
             self.config["providers"]["openai"]["base_url"],
             payload,
@@ -36,4 +37,3 @@ class OpenAIClient(ProviderClient):
         )
         text = data["choices"][0]["message"]["content"]
         return LLMResponse(text=text, provider=self.name, model=chosen_model, raw=data)
-

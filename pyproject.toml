@@ -14,5 +14,4 @@ authors = [{name = "August Germar"}]
 lisan = "lisan.cli:main"
 
 [tool.setuptools]
-packages = ["lisan", "lisan.providers", "lisan.tools"]
-
+packages = ["lisan", "lisan.providers", "lisan.tools", "lisan.agents"]

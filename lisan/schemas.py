@@ -16,3 +16,7 @@ def load_schemas(base: Path | None = None) -> dict[str, dict[str, Any]]:
         schemas[path.stem.replace(".schema", "")] = json.loads(path.read_text(encoding="utf-8"))
     return schemas
 
+
+@lru_cache(maxsize=1)
+def get_schema(name: str, base: Path | None = None) -> dict[str, Any] | None:
+    return load_schemas(base).get(name)

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "interlocutor_output",
+  "type": "object",
+  "required": ["response", "updated_narrative_state", "questions"],
+  "properties": {
+    "response": { "type": "string" },
+    "updated_narrative_state": {
+      "type": "object",
+      "required": ["open_questions", "next_step"],
+      "properties": {
+        "open_questions": { "type": "array", "items": { "type": "string" } },
+        "next_step": { "type": "string" }
+      }
+    },
+    "questions": { "type": "array", "items": { "type": "string" } }
+  }
+}
