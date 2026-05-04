@@ -241,7 +241,6 @@ def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel_path: st
                 summary=summary or f"{name} mentioned in conversation.",
                 confidence="low",
                 confidence_basis="Auto-extracted from conversation",
-                links=[draft_rel_path],
             )
         except FileExistsError:
             pass  # entity already exists — skip silently
