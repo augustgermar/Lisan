@@ -214,7 +214,38 @@ Elicitor mode closure was detected.
 """
     write_markdown(path, frontmatter, body)
     _apply_elicitor_state_updates(vault, writer)
+    _create_elicitor_open_loops(vault, writer)
     return path
+
+
+def _create_elicitor_open_loops(vault: Path, writer: dict[str, Any]) -> None:
+    from .record_factory import STATE_TTLS, new_open_loop
+    loops = writer.get("open_loops_to_create") or []
+    for loop in loops:
+        title = str(loop.get("title") or "").strip()
+        next_action = str(loop.get("next_action") or "").strip()
+        summary = str(loop.get("summary") or "").strip()
+        priority = str(loop.get("priority") or "medium").strip()
+        arena = str(loop.get("arena") or "cross_arena").strip()
+        if not title or not next_action:
+            continue
+        if priority not in ("low", "medium", "high"):
+            priority = "medium"
+        try:
+            new_open_loop(
+                vault=vault,
+                title=title,
+                arena_primary=arena if arena in STATE_TTLS else "cross_arena",
+                summary=summary or title,
+                next_action=next_action,
+                priority=priority,
+                confidence="low",
+                confidence_basis="Auto-extracted from elicitor conversation",
+            )
+        except FileExistsError:
+            pass
+        except Exception as exc:
+            log_error(vault, "elicitor_session.open_loop", exc)
 
 
 def _apply_elicitor_state_updates(vault: Path, writer: dict[str, Any]) -> None:

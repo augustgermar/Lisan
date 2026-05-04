@@ -42,6 +42,20 @@
           "confidence": { "type": "string", "enum": ["low", "medium", "high"] }
         }
       }
+    },
+    "open_loops_to_create": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "next_action", "summary"],
+        "properties": {
+          "title":       { "type": "string" },
+          "next_action": { "type": "string" },
+          "summary":     { "type": "string" },
+          "priority":    { "type": "string", "enum": ["low", "medium", "high"] },
+          "arena":       { "type": "string" }
+        }
+      }
     }
   }
 }
