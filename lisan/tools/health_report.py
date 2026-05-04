@@ -45,34 +45,84 @@ def generate_health_report(vault: Path | None = None, db_path: Path | None = Non
             lines.append("- None")
         lines.append("")
 
-        active_loops = conn.execute("SELECT id, summary, review_after FROM files WHERE type='open_loop' AND status='active'").fetchall()
+        today = date.today()
+        overdue_loops = []
+        for row in conn.execute("SELECT id, summary, review_after FROM files WHERE type='open_loop' AND status='active'").fetchall():
+            review_after = str(row["review_after"] or "")
+            overdue = False
+            if review_after:
+                try:
+                    overdue = today > date.fromisoformat(review_after)
+                except ValueError:
+                    pass
+            overdue_loops.append((str(row["id"]), str(row["summary"]), review_after, overdue))
         lines.append("## Open Loops")
-        if active_loops:
-            for row in active_loops:
-                lines.append(f"- `{row['id']}` | {row['summary']} | review_after={row['review_after']}")
+        if overdue_loops:
+            for fid, summary, review_after, overdue in overdue_loops:
+                flag = " ⚠ OVERDUE" if overdue else ""
+                lines.append(f"- `{fid}` | {summary} | review_after={review_after}{flag}")
         else:
             lines.append("- None")
         lines.append("")
 
-        contradictions = (vault / "contradictions")
+        contradictions_dir = vault / "contradictions"
+        contradiction_files = sorted(contradictions_dir.glob("*.md")) if contradictions_dir.exists() else []
+        old_contradictions = []
+        for path in contradiction_files:
+            try:
+                doc = load_markdown(path)
+                created = doc.frontmatter.get("created")
+                if created:
+                    age = (today - date.fromisoformat(str(created))).days
+                    if age > 90:
+                        old_contradictions.append((path.name, age))
+            except Exception:
+                pass
         lines.append("## Contradictions")
-        contradiction_files = sorted(contradictions.glob("*.md"))
         if contradiction_files:
             for path in contradiction_files:
                 lines.append(f"- `{path.name}`")
+            if old_contradictions:
+                lines.append("")
+                lines.append("  Unresolved > 90 days:")
+                for name, age in old_contradictions:
+                    lines.append(f"  - `{name}` ({age} days)")
         else:
             lines.append("- None")
         lines.append("")
 
         lines.append("## Claims")
-        claim_rows = conn.execute(
-            "SELECT id, claim_type, confidence, status, created, review_after FROM claims ORDER BY created DESC"
+        stuck_claim_rows = conn.execute(
+            """
+            SELECT id, claim_type, confidence, status, created, review_after FROM claims
+            WHERE (status='unresolved' AND created < date('now', '-90 days'))
+               OR (status='disputed')
+               OR (status='hypothesis' AND created < date('now', '-180 days'))
+            ORDER BY created ASC
+            """
         ).fetchall()
-        if claim_rows:
-            for row in claim_rows:
+        if stuck_claim_rows:
+            for row in stuck_claim_rows:
                 lines.append(
                     f"- `{row['id']}` | {row['claim_type']} | {row['confidence']} | {row['status']} | review_after={row['review_after']}"
                 )
+        else:
+            lines.append("- None stuck/disputed")
+        lines.append("")
+
+        # Entities with no episodes linking to them (based on last_confirmed date)
+        entity_decay = conn.execute(
+            """
+            SELECT id, summary, last_confirmed FROM files
+            WHERE type = 'entity' AND status = 'active'
+            AND (last_confirmed IS NULL OR last_confirmed < date('now', '-365 days'))
+            """
+        ).fetchall()
+        lines.append("## Entity Decay Candidates")
+        lines.append("Entities not confirmed in 365+ days:")
+        if entity_decay:
+            for row in entity_decay:
+                lines.append(f"- `{row['id']}` | {row['summary']} | last_confirmed={row['last_confirmed']}")
         else:
             lines.append("- None")
         lines.append("")
@@ -95,6 +145,23 @@ def generate_health_report(vault: Path | None = None, db_path: Path | None = Non
             lines.append(f"- backup.md last modified {age_days} day(s) ago")
         else:
             lines.append("- backup.md missing")
+        lines.append("")
+
+        lines.append("## LLM Calls")
+        try:
+            total_calls = conn.execute("SELECT COUNT(*) FROM llm_call_log").fetchone()[0]
+            recent_failures = conn.execute(
+                "SELECT agent, provider, timestamp FROM llm_call_log WHERE success=0 ORDER BY timestamp DESC LIMIT 5"
+            ).fetchall()
+            lines.append(f"- total logged: {total_calls}")
+            if recent_failures:
+                lines.append("- recent failures:")
+                for row in recent_failures:
+                    lines.append(f"  - {row['timestamp']} | {row['agent']} | {row['provider']}")
+            else:
+                lines.append("- no recent failures")
+        except Exception:
+            lines.append("- llm_call_log not available")
         lines.append("")
 
         lines.append("## Index Counts")
