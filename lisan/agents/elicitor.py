@@ -77,17 +77,17 @@ class ElicitorAgent(PromptAgent):
     def _specific_follow_up(self, text: str, current_state: Any = None) -> str:
         lowered = text.lower()
         if any(term in lowered for term in ["working on", "building", "new agent", "project", "system"]):
-            return "Nice. What part of building this new agent are you most excited about?"
+            return "Nice. What part of building this new agent is actually worth the effort?"
         if any(term in lowered for term in ["beautiful night", "night", "evening", "weather"]):
-            return "Nice. What about the night is standing out to you?"
+            return "Nice. What about the night is worth stealing a line for?"
         if "cleaner and safer" in lowered or ("safer" in lowered and "setup" in lowered):
-            return "That makes sense. What part of the external setup feels safer to you?"
+            return "That makes sense. What part of the external setup does the heavy lifting for safety?"
         if any(term in lowered for term in ["glad", "finally"]) and "repo" in lowered:
             return "That’s a real cleanup win. What changes now that the vault is out of the repo?"
         if any(term in lowered for term in ["glad", "cleaner", "safer", "safer", "finally", "win", "relieved"]) and any(
             term in lowered for term in ["vault", "repo", "setup", "system", "route", "launch"]
         ):
-            return "That seems like a real win. What part of this setup feels biggest to you?"
+            return "That seems like a real win. What part of this setup do you think pays off most?"
         if any(term in lowered for term in ["made myself", "try it out", "first bit", "taking a bite", "took my first bit"]) and any(
             term in lowered for term in ["tuna", "pasta", "salad", "mayo", "celery"]
         ):
@@ -107,12 +107,12 @@ class ElicitorAgent(PromptAgent):
             return "Nice. What would you tweak next to make it taste exactly right?"
         if any(term in lowered for term in ["excited", "happy", "proud", "relieved", "anxious", "nervous", "frustrated", "sad", "angry", "worried"]):
             topic = self._topic_phrase(text)
-            return f"That makes sense. What about {topic} is making you feel that way?"
+            return f"That makes sense. What about {topic} is doing the heavy lifting there?"
         if current_state:
             topic = self._topic_phrase(text)
-            return f"That seems important. What feels most important about {topic}?"
+            return f"That seems important. What about {topic} feels like the real point?"
         topic = self._topic_phrase(text)
-        return f"That seems important. What feels most important about {topic}?"
+        return f"That seems important. What about {topic} feels like the real point?"
 
     def _topic_phrase(self, text: str) -> str:
         text = text.strip()
