@@ -17,7 +17,8 @@ class SkepticAgent(PromptAgent):
             "approved": not issues,
             "issues": issues,
             "risk": "low" if not issues else "medium",
-            "recommended_action": "promote" if not issues else "revise",
+            "recommended_action": "approve" if not issues else "revise",
+            "priority_questions": [],
         }
         return json.dumps(payload, indent=2, ensure_ascii=True)
 

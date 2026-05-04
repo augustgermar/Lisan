@@ -34,7 +34,7 @@ If the draft has `source: elicitor` in frontmatter:
 
 Return JSON with:
 - `approved`: true if the draft can proceed with minor edits, false if it needs significant revision
-- `issues`: array of strings, each describing a specific problem found (empty if none)
+- `issues`: array of objects, each with `type` (the challenge category) and `message` (specific problem description); empty array if none
 - `risk`: "low", "medium", or "high" — overall epistemic risk of this draft
 - `recommended_action`: "approve", "revise", or "hold" — what the pipeline should do next
-- `priority_questions`: array of up to 5 questions the Interlocutor should ask to resolve the most critical gaps (empty if none)
+- `priority_questions`: array of up to 5 questions the Interlocutor should ask to resolve the most critical gaps (empty array if none)
