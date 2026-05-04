@@ -29,25 +29,29 @@ class CodexClient(ProviderClient):
         if not binary:
             raise ProviderError("CODEX_BIN is empty")
 
-        args = [binary, "exec", "--skip-git-repo-check", "--cd", str(repo_root())]
-        if chosen_model:
-            args.extend(["--model", chosen_model])
+        # Embed the schema as a prompt instruction instead of using --output-schema.
+        # The --output-schema flag sends the schema to the OpenAI structured-output API,
+        # which causes a 400 on models that don't support it (e.g. gpt-5.4-mini).
+        full_prompt = prompt
+        if schema:
+            schema_instruction = (
+                "\n\nRespond with valid JSON only — no prose, no code fences. "
+                f"Your response must match this schema:\n{json.dumps(schema, indent=2)}"
+            )
+            full_prompt = prompt + schema_instruction
 
-        schema_path: Path | None = None
         output_path: Path | None = None
         try:
-            if schema:
-                with tempfile.NamedTemporaryFile("w", suffix=".schema.json", delete=False) as schema_file:
-                    json.dump(schema, schema_file, indent=2)
-                    schema_path = Path(schema_file.name)
-                args.extend(["--output-schema", str(schema_path)])
+            args = [binary, "exec", "--skip-git-repo-check", "--cd", str(repo_root())]
+            if chosen_model:
+                args.extend(["--model", chosen_model])
 
             with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as output_file:
                 output_path = Path(output_file.name)
             args.extend(["--output-last-message", str(output_path)])
             args.append("-")
 
-            proc = subprocess.run(args, input=prompt, capture_output=True, text=True)
+            proc = subprocess.run(args, input=full_prompt, capture_output=True, text=True)
             if proc.returncode != 0:
                 raise ProviderError(
                     "codex exec failed with exit code "
@@ -60,11 +64,14 @@ class CodexClient(ProviderClient):
             if schema:
                 parsed = extract_json(text)
                 if not isinstance(parsed, dict):
-                    raise ProviderError("codex did not return JSON matching the requested schema")
+                    raise ProviderError(f"codex returned non-JSON: {text[:200]!r}")
                 text = json.dumps(parsed, indent=2, ensure_ascii=True)
-            return LLMResponse(text=text, provider=self.name, model=chosen_model or "", raw={"stdout": proc.stdout, "stderr": proc.stderr})
+            return LLMResponse(
+                text=text,
+                provider=self.name,
+                model=chosen_model or "",
+                raw={"stdout": proc.stdout, "stderr": proc.stderr},
+            )
         finally:
-            if schema_path and schema_path.exists():
-                schema_path.unlink(missing_ok=True)
             if output_path and output_path.exists():
                 output_path.unlink(missing_ok=True)
