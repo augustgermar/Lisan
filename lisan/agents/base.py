@@ -72,10 +72,16 @@ class PromptAgent:
             )
             data = self.parse_output(response.text)
             if schema is not None and not isinstance(data, dict):
+                from ..tools.log import log_error
+                log_error(self.vault, f"{self.name}.parse", ValueError(
+                    f"non-JSON response from {response.provider}: {response.text[:120]!r}"
+                ))
                 fallback = self.fallback_output(user_input, significance=significance, **kwargs)
                 return AgentResult(text=fallback, response=response, data=self.parse_output(fallback))
             return AgentResult(text=response.text, response=response, data=data)
-        except ProviderError:
+        except ProviderError as exc:
+            from ..tools.log import log_error
+            log_error(self.vault, f"{self.name}.llm", exc)
             fallback = self.fallback_output(user_input, significance=significance, **kwargs)
             return AgentResult(text=fallback, response=None, data=self.parse_output(fallback))
 
