@@ -13,19 +13,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "codex": {
             "enabled": True,
             "binary_env": "CODEX_BIN",
-            "default_model": "",
+            "default_model": "gpt-4o-mini",
         },
         "openai": {
             "enabled": True,
             "api_key_env": "OPENAI_API_KEY",
             "base_url": "https://api.openai.com/v1/chat/completions",
             "default_model": "gpt-4o-mini",
-        },
-        "codex": {
-            "enabled": True,
-            "api_key_env": "ANTHROPIC_API_KEY",
-            "base_url": "https://api.anthropic.com/v1/messages",
-            "default_model": "claude-3-5-sonnet-latest",
         },
         "google": {
             "enabled": True,
