@@ -60,6 +60,7 @@ def ensure_repo_layout(base: Path | None = None) -> None:
         "open_loops",
         "contradictions",
         "transcripts",
+        "transcripts/narrative",
         "manifests",
         "arenas",
         "archive/episodes",
@@ -67,6 +68,7 @@ def ensure_repo_layout(base: Path | None = None) -> None:
         "archive/open_loops",
         "drafts",
         "reports",
+        "logs",
     ]:
         (vault / rel).mkdir(parents=True, exist_ok=True)
     for rel in [

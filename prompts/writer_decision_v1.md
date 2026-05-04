@@ -20,4 +20,5 @@ Return JSON with:
 - `questions`: array of clarifying questions (0-3, focused on rationale, alternatives, and conditions)
 - `significance_rationale`: why this significance level was chosen
 - `entities_to_create`: array of `{name, subtype, summary}` for people/places/things mentioned
+- `open_loops_to_create`: array of `{title, next_action, summary, priority, arena}` for follow-up actions implied by this decision. Leave empty if none.
 - `state_updates`: array of `{arena, summary, confidence}` if the decision implies current state changes
