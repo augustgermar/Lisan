@@ -10,6 +10,7 @@ from ..agents import AssemblerAgent, InterlocutorAgent, ListenerAgent, SkepticAg
 from ..frontmatter import write_markdown
 from ..utils import slugify, today_iso
 from .elicitor_session import run_elicitor_session
+from .firewall import scan_text
 from .log import log_error
 from .narrative_state import load_narrative_state
 from .record_factory import STATE_TTLS, new_entity, new_open_loop, upsert_state
@@ -41,6 +42,8 @@ def run_memory_pipeline(
     conversation_policy: dict[str, Any] | None = None,
 ) -> MemoryPipelineResult:
     transcript_path = append_transcript(vault=vault, conversation_id=conversation_id, speaker=speaker, text=text)
+    fw = scan_text(text, vault=vault)
+    text = fw.text  # use sanitized version for all downstream agents
     prior_state = load_narrative_state(vault=vault, conversation_id=conversation_id)
     listener = ListenerAgent(vault=vault).run_json(text, provider=provider, model=model)
     action = str(listener.get("action", "skip"))
