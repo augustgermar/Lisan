@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from ..paths import sqlite_path
 from ..tools.heuristic_gate import score_text
 from .base import AgentResult, PromptAgent
 
@@ -14,7 +15,7 @@ class ListenerAgent(PromptAgent):
 
     def fallback_output(self, user_input: str, **kwargs: Any) -> str:
         """Heuristic fallback when no LLM provider is available."""
-        score = score_text(user_input, self.config)
+        score = score_text(user_input, self.config, db_path=sqlite_path())
         payload = {
             "worth_remembering": score.action != "skip",
             "mode": score.mode if score.action != "skip" else "skip",

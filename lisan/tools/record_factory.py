@@ -104,7 +104,8 @@ def new_entity(
         "epoch_started": epoch_started or today,
         "previous_epochs": previous_epochs or [],
     }
-    body = f"# {canonical_name or name}\n\nManual entity record created from the CLI.\n"
+    body_summary = summary or f"{canonical_name or name} is a {subtype}."
+    body = f"# {canonical_name or name}\n\n{body_summary}\n"
     write_markdown(path, frontmatter, body)
     return CreatedRecord(path=path, created=True)
 

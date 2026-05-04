@@ -14,12 +14,18 @@ The working system now includes:
 - Compartment-aware retrieval with keyword, FTS, and embedding-based scoring
 - Local Codex CLI as the default provider
 - Provider abstraction for OpenAI, Anthropic, Google, local HTTP, and Codex CLI
-- Heuristic fast-path routing with a Codex-backed router for ambiguous turns
+- Full spec-compliant heuristic gate with vault entity lookup, affect scoring, biographical density, decision/open-loop phrase banks, and durable plan detection
 - Listener -> Writer -> Skeptic -> Interlocutor capture pipeline
+- Memory type routing: Listener classifies input as episode, decision, open_loop, state, knowledge, or entity; Writer selects the correct specialist prompt automatically
+- Open loop fan-out: Writer output `open_loops_to_create` is materialized as immediate vault records (open loops are always capture_now)
+- State update fan-out: Writer output `state_updates` is applied to arena state files immediately after each conversation turn
+- Entity stub fan-out: Writer output `entities_to_create` creates entity stubs with conversation-sourced summaries
 - Direct advice responses for non-memory questions in chat
 - Per-turn conversation policy that routes advice vs memory and varies tone by context
 - A lightweight thinking indicator in chat when provider calls take noticeable time
 - Stateful Elicitor mode with per-conversation narrative state
+- Elicitor turn-count hard cap (12 turns with ≥3 established facts forces Writer handoff)
+- Transcript completeness: LISAN responses written back to transcript alongside user turns
 - Manual record creation for entities, episodes, decisions, open loops, knowledge, evidence, and state
 - Draft review and promotion
 - Dreamer maintenance workflows
@@ -220,13 +226,26 @@ Flow:
 
 ### Listener
 
-`lisan/agents/listener.py` is deterministic and uses `lisan/tools/heuristic_gate.py`.
+`lisan/agents/listener.py` uses `lisan/tools/heuristic_gate.py` for fast-path scoring and falls back to LLM triage for ambiguous turns.
 
-It outputs:
+The heuristic gate scores text using:
+
+- Vault entity lookup (+3 per hit, cap +6): names already in the vault raise the score
+- Decision phrases ("I decided", "going forward", etc.): +3
+- Open-loop phrases ("I need to", "remind me to", etc.): +3
+- High-risk keywords (legal, medical, custody, etc.): +4
+- Affect terms: +2 base, +1 per additional hit up to +4
+- Biographical density (multiple family/life facts): +3
+- Durable plan phrases: +2
+- Pure code formatting: -3
+- Factual lookup (single question, no personal stake): -3
+
+Listener outputs:
 
 - whether the input is worth remembering
 - `skip`, `lightweight`, or `full`
 - `elicitor` or `extraction` mode
+- `memory_type`: episode, decision, open_loop, state, knowledge, entity, or skip
 - reasons and scores
 
 ### Elicitor
@@ -250,7 +269,7 @@ Conversation commands:
 
 ### Writer
 
-The Writer produces structured memory drafts and supports these tasks:
+The Writer produces structured memory drafts. The task is selected automatically from the Listener's `memory_type` classification. Supported tasks:
 
 - `episode`
 - `decision`
@@ -260,7 +279,13 @@ The Writer produces structured memory drafts and supports these tasks:
 - `entity`
 - `questions`
 
-Writer output is schema-backed and has deterministic fallback behavior when provider calls are unavailable.
+Each task has its own specialist prompt (e.g. `writer_decision_v1`, `writer_open_loop_v1`). Writer output is schema-backed and has deterministic fallback behavior when provider calls are unavailable.
+
+Writer output also drives three fan-out actions applied immediately after each pipeline run:
+
+- `entities_to_create` → entity stub records with conversation-sourced summaries
+- `open_loops_to_create` → open loop records (always captured immediately per spec)
+- `state_updates` → arena state file upserts
 
 ### Skeptic
 
@@ -469,7 +494,8 @@ Those are operational outputs of the app.
 
 The remaining work is mainly refinement:
 
-- prompt calibration for long Elicitor sessions
-- optional automation around review items
-- any UI polish you want on top of the CLI
-- future provider/model changes
+- Prompt calibration for long Elicitor sessions
+- `decisions_to_create` fan-out: decisions embedded in drafts but not yet materialized as separate decision records
+- Optional automation around review items
+- Any UI polish you want on top of the CLI
+- Future provider/model changes
