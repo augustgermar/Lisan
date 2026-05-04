@@ -73,12 +73,15 @@ def assemble_context(query: str, arena: str | None = None, vault: Path | None = 
 
     sections.append("## State")
     state_files = [item for item in result.loaded if item.type == "state"]
-    if state_files:
-        for item in state_files:
+    found_state = False
+    for item in state_files:
+        path = vault / item.path
+        if path.exists():
             sections.append(f"### {item.path}")
-            sections.append((vault / item.path).read_text(encoding="utf-8").strip())
+            sections.append(path.read_text(encoding="utf-8").strip())
             sections.append("")
-    else:
+            found_state = True
+    if not found_state:
         sections.append("- None")
         sections.append("")
 
