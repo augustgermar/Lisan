@@ -187,6 +187,18 @@ def run_chat(
             print()
             continue
 
+        if lowered.startswith("/logs"):
+            n = 20
+            parts = lowered.split()
+            if len(parts) > 1:
+                try:
+                    n = int(parts[1])
+                except ValueError:
+                    pass
+            print(_c(tail_log(vault, lines=n), DIM))
+            print()
+            continue
+
         listener_score = score_text(raw, config, db_path=sqlite_path())
         current_state = _load_current_state(vault, conv_id)
         route_hint = _run_with_thinking_indicator(
@@ -290,6 +302,7 @@ def _print_header(version: str, conv_id: str) -> None:
     print(_c("  /new      start a new conversation", DIM))
     print(_c("  /status   system health check", DIM))
     print(_c("  /help     all commands", DIM))
+    print(_c("  /logs     show recent log entries (/logs N for last N lines)", DIM))
     print(_c("  /quit     exit", DIM))
     print(bar)
     print()
@@ -301,6 +314,7 @@ def _print_help() -> None:
     print(_c("  /new        start a new conversation (clears narrative state)", DIM))
     print(_c("  /status     re-run system health check", DIM))
     print(_c("  /id         show the current conversation ID", DIM))
+    print(_c("  /logs [N]   show last N log lines (default 20)", DIM))
     print(_c("  /help       show this message", DIM))
     print(_c("  /quit       exit", DIM))
     print()
