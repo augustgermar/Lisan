@@ -43,6 +43,30 @@ python3 -m lisan init
 
 That keeps your personal memories, transcripts, drafts, and reports outside the Git repository while still letting the code operate on them locally.
 
+## Run It
+
+For a fresh checkout:
+
+```bash
+cd /Users/august/Code/Lisan
+export LISAN_VAULT="$HOME/Library/Application Support/Lisan/vault"
+python3 -m lisan init
+python3 -m lisan sync
+python3 -m lisan chat
+```
+
+If you have the shell function installed, `lisan` with no arguments launches the chat loop directly.
+
+Useful direct commands:
+
+```bash
+python3 -m lisan validate
+python3 -m lisan rebuild-index
+python3 -m lisan capture --conversation-id demo "I had a weird day at work"
+python3 -m lisan agent advice "What can I make with tuna, pasta, celery, and mayo?"
+python3 -m lisan agent elicitor "I am excited to build this"
+```
+
 ## If You Are A Future Codex Session
 
 Start here instead of the draft spec:
