@@ -103,7 +103,7 @@ ENUMS = {
     "confidence": {"high", "medium", "low"},
     "source": {"elicitor", "extraction", "manual"},
     "priority": {"high", "medium", "low"},
-    "subtype": {"person", "place", "project", "organization", "text_message", "photo", "document", "call_log", "receipt", "legal", "screenshot"},
+    "subtype": {"person", "place", "thing", "project", "organization", "text_message", "photo", "document", "call_log", "receipt", "legal", "screenshot"},
 }
 
 
