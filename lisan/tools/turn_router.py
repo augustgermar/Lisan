@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -52,13 +53,13 @@ def decide_turn_route(
             route="advice",
             confidence="medium",
             reason="heuristic advice follow-up",
-            topic_hint=_topic_hint(text, "advice"),
+            topic_hint=advice_topic or _topic_hint(text, "advice"),
             source="heuristic",
             raw={
                 "route": "advice",
                 "confidence": "medium",
                 "reason": "heuristic advice follow-up",
-                "topic_hint": _topic_hint(text, "advice"),
+                "topic_hint": advice_topic or _topic_hint(text, "advice"),
             },
         )
 
@@ -241,25 +242,46 @@ def _topic_hint(text: str, route: str) -> str:
         return ""
     if route == "advice":
         lower = text.lower()
-        for marker in [
-            "review my",
-            "review this",
-            "proofread",
-            "edit my",
-            "recommend",
-            "suggest",
-            "help me choose",
-            "what kind of",
-            "what type of",
-            "best way to",
-            "what should i",
-        ]:
+        marker_map = [
+            ("review my", "review"),
+            ("review this", "review"),
+            ("please review", "review"),
+            ("proofread", "proofread"),
+            ("edit my", "edit"),
+            ("feedback on", "feedback"),
+            ("recommend", "recommendation"),
+            ("suggest", "suggestion"),
+            ("help me choose", "choice"),
+            ("what kind of", "what kind of"),
+            ("what type of", "what type of"),
+            ("best way to", "best way"),
+            ("what should i", "what should i"),
+        ]
+        for marker, label in marker_map:
             if marker in lower:
-                return marker
+                return _compact_topic_hint(text, marker, label)
     for separator in [".", "!", "?", "\n", ","]:
         if separator in text:
             return text.split(separator, 1)[0].strip()[:80]
     return text[:80]
+
+
+def _compact_topic_hint(text: str, marker: str, label: str) -> str:
+    lower = text.lower()
+    idx = lower.find(marker)
+    if idx >= 0:
+        tail = text[idx + len(marker):].strip(" :,-")
+    else:
+        tail = text
+    tail = re.sub(r"^(to|the|a|an|some|my|your|our)\s+", "", tail, flags=re.IGNORECASE)
+    tail = re.sub(r"\s+", " ", tail).strip()
+    if not tail:
+        return label
+    if len(tail) > 60:
+        tail = tail[:57].rstrip() + "..."
+    if label in {"review", "proofread", "edit", "feedback", "suggestion"}:
+        return f"{label}: {tail}"
+    return tail
 
 
 def _render_prompt_context(
