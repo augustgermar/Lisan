@@ -347,6 +347,10 @@ def build_parser() -> argparse.ArgumentParser:
     draft_promote.add_argument("--vault", type=Path, default=vault_root())
     draft_promote.add_argument("--path", type=Path, required=True)
 
+    logs = subparsers.add_parser("logs", help="Show recent log entries")
+    logs.add_argument("--vault", type=Path, default=vault_root())
+    logs.add_argument("--tail", type=int, default=50, metavar="N")
+
     dreamer = subparsers.add_parser("dreamer", help="Run Dreamer maintenance analyses")
     dreamer_subparsers = dreamer.add_subparsers(dest="dreamer_command", required=True)
     for task_name in ["compress", "primer", "contradict", "confidence", "epoch", "overfitting", "identity-anchor"]:
@@ -361,6 +365,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "logs":
+        from .tools.log import tail_log
+        print(tail_log(args.vault, lines=args.tail))
+        return 0
 
     if args.command == "chat":
         return run_chat(

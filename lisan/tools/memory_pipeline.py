@@ -10,6 +10,7 @@ from ..agents import AssemblerAgent, InterlocutorAgent, ListenerAgent, SkepticAg
 from ..frontmatter import write_markdown
 from ..utils import slugify, today_iso
 from .elicitor_session import run_elicitor_session
+from .narrative_state import load_narrative_state
 from .transcripts import append_transcript
 
 
@@ -37,9 +38,21 @@ def run_memory_pipeline(
     model: str | None = None,
 ) -> MemoryPipelineResult:
     transcript_path = append_transcript(vault=vault, conversation_id=conversation_id, speaker=speaker, text=text)
+    prior_state = load_narrative_state(vault=vault, conversation_id=conversation_id)
     listener = ListenerAgent(vault=vault).run_json(text, provider=provider, model=model)
     action = str(listener.get("action", "skip"))
     mode = str(listener.get("mode", "skip"))
+
+    # If we're mid-conversation (turn_count > 0, topic not closed), never fully skip a turn —
+    # the user may be continuing a thread the heuristic can't see from the text alone.
+    if (
+        action == "skip"
+        and prior_state.turn_count > 0
+        and prior_state.mode_status not in ("closed",)
+    ):
+        action = "lightweight"
+        mode = "elicitor"
+
     if action == "skip":
         return MemoryPipelineResult(
             transcript_path=transcript_path,

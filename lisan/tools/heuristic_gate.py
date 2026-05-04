@@ -11,6 +11,12 @@ DECISION_PHRASES = ["i decided", "going forward", "from now on"]
 LOOP_PHRASES = ["i need to", "i should", "remind me to"]
 HIGH_RISK_KEYWORDS = ["legal", "medical", "child", "custody", "financial", "work conflict"]
 
+TEMPORAL_PHRASES = [
+    "this weekend", "last weekend", "this week", "last week",
+    "today", "yesterday", "last night", "this morning", "this afternoon",
+    "tonight", "earlier today", "earlier this week", "earlier this month",
+]
+
 # Short declarative statements that imply a story without telling it — classic elicitor seeds
 SEED_PHRASES = [
     # Classic short event seeds ("I had a...")
@@ -97,6 +103,17 @@ def score_text(text: str, config: dict[str, Any] | None = None) -> HeuristicResu
         seed_score += 3
         reasons.append("narrative seed")
 
+    if any(phrase in lowered for phrase in TEMPORAL_PHRASES):
+        score += 2
+        seed_score += 2
+        reasons.append("temporal marker")
+
+    exclamations = min(text.count("!"), 2)
+    if exclamations:
+        score += exclamations
+        seed_score += exclamations
+        reasons.append("exclamation")
+
     if any(keyword in lowered for keyword in HIGH_RISK_KEYWORDS):
         score += 4
         seed_score += 2
@@ -112,11 +129,15 @@ def score_text(text: str, config: dict[str, Any] | None = None) -> HeuristicResu
         seed_score += 2
         reasons.append("durable plan request")
 
+    has_experiential = (
+        any(term in lowered for term in affect_terms)
+        or any(phrase in lowered for phrase in SEED_PHRASES + TEMPORAL_PHRASES)
+    )
     if text.count("```") >= 2:
         score -= 3
         reasons.append("code-heavy")
-    elif text.count("\n") <= 1 and len(text) < 120 and not any(
-        phrase in lowered for phrase in DECISION_PHRASES + LOOP_PHRASES + SEED_PHRASES
+    elif text.count("\n") <= 1 and len(text) < 120 and not has_experiential and not any(
+        phrase in lowered for phrase in DECISION_PHRASES + LOOP_PHRASES
     ):
         score -= 3
         reasons.append("short factual lookup")
@@ -136,7 +157,11 @@ def score_text(text: str, config: dict[str, Any] | None = None) -> HeuristicResu
 
     if score <= skip_threshold:
         action = "skip"
-        if any(reason in reasons for reason in ["decision phrase", "open loop phrase", "narrative seed", "remember flag present"]):
+        if any(reason in reasons for reason in [
+            "decision phrase", "open loop phrase", "narrative seed",
+            "temporal marker", "exclamation", "affect term",
+            "remember flag present",
+        ]):
             action = "lightweight"
     elif score <= lightweight_threshold:
         action = "lightweight"
