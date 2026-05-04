@@ -10,6 +10,54 @@ from ..config import load_config
 DECISION_PHRASES = ["i decided", "going forward", "from now on"]
 LOOP_PHRASES = ["i need to", "i should", "remind me to"]
 HIGH_RISK_KEYWORDS = ["legal", "medical", "child", "custody", "financial", "work conflict"]
+PRACTICAL_ADVICE_PHRASES = [
+    "what do you think",
+    "could they go well together",
+    "could it go well",
+    "does this go well",
+    "should i make",
+    "how do i make",
+    "can i make",
+]
+GENERAL_ADVICE_PHRASES = [
+    "should i",
+    "what do you think",
+    "how do i",
+    "how should i",
+    "could i",
+    "can i",
+    "do you think",
+    "would you recommend",
+    "recommend",
+    "best way to",
+]
+FOOD_CONTEXT_TERMS = [
+    "pasta",
+    "tuna",
+    "mayo",
+    "celery",
+    "salad",
+    "recipe",
+    "cooking",
+    "ingredients",
+    "dinner",
+    "lunch",
+]
+
+
+def is_practical_advice_question(text: str) -> bool:
+    lowered = text.lower()
+    return any(phrase in lowered for phrase in PRACTICAL_ADVICE_PHRASES) and any(
+        term in lowered for term in FOOD_CONTEXT_TERMS
+    )
+
+
+def is_general_advice_question(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        is_practical_advice_question(text)
+        or (text.rstrip().endswith("?") and any(phrase in lowered for phrase in GENERAL_ADVICE_PHRASES))
+    )
 
 TEMPORAL_PHRASES = [
     "this weekend", "last weekend", "this week", "last week",
@@ -127,6 +175,10 @@ def score_text(text: str, config: dict[str, Any] | None = None) -> HeuristicResu
         score += 2
         seed_score += 2
         reasons.append("affect term")
+
+    if is_practical_advice_question(text):
+        score -= 4
+        reasons.append("practical food question")
 
     if "make a plan" in lowered or "template" in lowered:
         score += 2
