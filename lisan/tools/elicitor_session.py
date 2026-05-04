@@ -10,6 +10,7 @@ from ..agents import ElicitorAgent, InterlocutorAgent, SkepticAgent, WriterAgent
 from ..frontmatter import write_markdown
 from ..utils import slugify, today_iso
 from .assembler import assemble_context
+from .log import log_error
 from .narrative_state import (
     conversation_history,
     format_history,
@@ -18,6 +19,10 @@ from .narrative_state import (
     update_narrative_state,
 )
 from .transcripts import append_transcript
+
+# Force Writer handoff after this many turns when enough has been established.
+# Prevents elicitor conversations from running forever without producing a draft.
+_MAX_ELICITOR_TURNS = 12
 
 
 @dataclass(slots=True)
@@ -86,12 +91,21 @@ def _topic_closed(text: str, elicitor: dict[str, Any], state: dict[str, Any]) ->
     elicitor_state = elicitor.get("updated_narrative_state", {})
     if str(elicitor_state.get("mode_status", "")).lower() == "closed":
         return True
-    # Secondary: only trigger on unambiguous explicit closure phrases, not "anyway"
+    # Secondary: unambiguous explicit closure phrases
     lowered = text.lower()
     if any(p in lowered for p in ["moving on", "next topic", "let's move on", "change the subject"]):
         return True
     next_step = str(elicitor_state.get("next_step", "")).lower()
-    return "handoff to writer" in next_step or "topic closed" in next_step
+    if "handoff to writer" in next_step or "topic closed" in next_step:
+        return True
+    # Hard cap: after _MAX_ELICITOR_TURNS with enough established facts, hand off.
+    # Avoids runaway sessions that never produce a draft.
+    turn_count = int(state.get("turn_count", 0))
+    if turn_count >= _MAX_ELICITOR_TURNS:
+        established = state.get("established") or []
+        if len(established) >= 3:
+            return True
+    return False
 
 
 def _write_elicitor_draft(
@@ -199,4 +213,28 @@ Elicitor mode closure was detected.
 {text.strip()}
 """
     write_markdown(path, frontmatter, body)
+    _apply_elicitor_state_updates(vault, writer)
     return path
+
+
+def _apply_elicitor_state_updates(vault: Path, writer: dict[str, Any]) -> None:
+    from .record_factory import STATE_TTLS, upsert_state
+    updates = writer.get("state_updates") or []
+    for update in updates:
+        arena = str(update.get("arena") or "").strip().lower()
+        summary = str(update.get("summary") or "").strip()
+        confidence = str(update.get("confidence") or "low").strip()
+        if not arena or not summary or arena not in STATE_TTLS:
+            continue
+        if confidence not in ("low", "medium", "high"):
+            confidence = "low"
+        try:
+            upsert_state(
+                vault=vault,
+                arena_primary=arena,
+                summary=summary,
+                confidence=confidence,
+                confidence_basis="Auto-extracted from elicitor conversation",
+            )
+        except Exception as exc:
+            log_error(vault, "elicitor_session.state_update", exc)

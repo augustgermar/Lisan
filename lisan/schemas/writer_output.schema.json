@@ -30,6 +30,18 @@
           "summary": { "type": "string" }
         }
       }
+    },
+    "state_updates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["arena", "summary"],
+        "properties": {
+          "arena":      { "type": "string" },
+          "summary":    { "type": "string" },
+          "confidence": { "type": "string", "enum": ["low", "medium", "high"] }
+        }
+      }
     }
   }
 }
