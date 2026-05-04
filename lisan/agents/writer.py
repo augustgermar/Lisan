@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from ..tools.heuristic_gate import score_text
@@ -31,6 +32,7 @@ class WriterAgent(PromptAgent):
             "sections": self._sections(task, user_input),
             "questions": self._questions(user_input),
             "significance_rationale": self._significance_rationale(user_input, significance),
+            "entities_to_create": self._extract_entity_stubs(user_input),
         }
         return json.dumps(payload, indent=2, ensure_ascii=True)
 
@@ -84,6 +86,33 @@ class WriterAgent(PromptAgent):
         if not questions:
             questions.append("What detail would most change the meaning of this memory?")
         return questions[:5]
+
+    def _extract_entity_stubs(self, text: str) -> list[dict[str, str]]:
+        """Deterministic fallback: extract capitalized proper nouns as entity stubs."""
+        _SKIP = {
+            "I", "My", "The", "A", "An", "It", "He", "She", "They", "We", "You",
+            "No", "Yes", "Ok", "Okay", "So", "But", "And", "Or", "In", "On", "At",
+        }
+        _PLACE_SUFFIXES = ("ranch", "farm", "park", "lake", "valley", "beach",
+                           "street", "avenue", "road", "way", "drive", "blvd",
+                           "mountain", "river", "forest", "ranch")
+        stubs: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for match in re.finditer(r"\b[A-Z][a-z]+(?: [A-Z][a-z]+)?\b", text):
+            name = match.group(0)
+            if name in _SKIP or name in seen:
+                continue
+            # Skip possessives ("Nates" when "Nate" already seen)
+            if name.endswith("s") and name[:-1] in seen:
+                continue
+            seen.add(name)
+            lower = name.lower()
+            if any(lower.endswith(s) for s in _PLACE_SUFFIXES) or any(s in lower for s in _PLACE_SUFFIXES):
+                subtype = "place"
+            else:
+                subtype = "person"
+            stubs.append({"name": name, "subtype": subtype, "summary": f"{name} mentioned in conversation."})
+        return stubs[:10]
 
     def _significance_rationale(self, text: str, significance: str) -> str:
         if significance == "high":
