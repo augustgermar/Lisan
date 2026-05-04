@@ -18,4 +18,4 @@ Return JSON with:
 - `sections`
 - `questions`
 - `significance_rationale`
-- `entities_to_create`: array of `{name, subtype, summary}` for every distinct entity (person/place/project/organization) mentioned. One sentence summary each. Include the user themselves if biographical details are present. Omit if none.
+- `entities_to_create`: array of `{name, subtype, summary}` for every distinct entity (person/place/thing/project/organization) mentioned. Entities are nouns — people, places, and things. Use `thing` for pets, animals, vehicles, significant objects, or any named thing that is not a person, place, project, or organization. One sentence summary each. Include the user themselves if biographical details are present. Omit if none.

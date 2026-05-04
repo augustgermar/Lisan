@@ -11,6 +11,7 @@ from ..utils import slugify, today_iso
 ENTITY_DIRS = {
     "person": Path("entities/people"),
     "place": Path("entities/places"),
+    "thing": Path("entities/things"),
     "project": Path("entities/projects"),
     "organization": Path("entities/organizations"),
 }

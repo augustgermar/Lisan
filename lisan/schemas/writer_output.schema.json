@@ -26,7 +26,7 @@
         "required": ["name", "subtype", "summary"],
         "properties": {
           "name":    { "type": "string" },
-          "subtype": { "type": "string", "enum": ["person", "place", "project", "organization"] },
+          "subtype": { "type": "string", "enum": ["person", "place", "thing", "project", "organization"] },
           "summary": { "type": "string" }
         }
       }
