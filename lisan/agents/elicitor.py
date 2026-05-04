@@ -80,6 +80,14 @@ class ElicitorAgent(PromptAgent):
             return "What part of building this new agent are you most excited about?"
         if any(term in lowered for term in ["beautiful night", "night", "evening", "weather"]):
             return "What about the night is standing out to you?"
+        if "cleaner and safer" in lowered or ("safer" in lowered and "setup" in lowered):
+            return "What part of the external setup feels safer to you?"
+        if any(term in lowered for term in ["glad", "finally"]) and "repo" in lowered:
+            return "What changes now that the vault is out of the repo?"
+        if any(term in lowered for term in ["glad", "cleaner", "safer", "safer", "finally", "win", "relieved"]) and any(
+            term in lowered for term in ["vault", "repo", "setup", "system", "route", "launch"]
+        ):
+            return "What part of this setup feels like the biggest win to you?"
         if any(term in lowered for term in ["made myself", "try it out", "first bit", "taking a bite", "took my first bit"]) and any(
             term in lowered for term in ["tuna", "pasta", "salad", "mayo", "celery"]
         ):
@@ -101,7 +109,8 @@ class ElicitorAgent(PromptAgent):
             topic = self._topic_phrase(text)
             return f"What about {topic} is making you feel that way?"
         if current_state:
-            return "What feels most important to you about this part of the story?"
+            topic = self._topic_phrase(text)
+            return f"What feels most important about {topic}?"
         topic = self._topic_phrase(text)
         return f"What feels most important about {topic}?"
 
