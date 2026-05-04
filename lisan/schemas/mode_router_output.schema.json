@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "mode_router_output",
+  "title": "Mode Router Output",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "route": {
+      "type": "string",
+      "enum": ["advice", "memory", "skip"]
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "topic_hint": {
+      "type": "string"
+    }
+  },
+  "required": ["route", "confidence", "reason", "topic_hint"]
+}

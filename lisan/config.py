@@ -41,6 +41,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
     },
     "routing": {
+        "router": {"low": "codex", "medium": "codex", "high": "codex"},
         "listener": {"low": "codex", "medium": "codex", "high": "codex"},
         "assembler": {"low": "codex", "medium": "codex", "high": "codex"},
         "elicitor": {"low": "codex", "medium": "codex", "high": "codex"},

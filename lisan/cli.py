@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .config import load_config, save_default_config
-from .agents import AdviceAgent, AssemblerAgent, DreamerAgent, ElicitorAgent, InterlocutorAgent, ListenerAgent, SkepticAgent, WriterAgent
+from .agents import AdviceAgent, AssemblerAgent, DreamerAgent, ElicitorAgent, InterlocutorAgent, ListenerAgent, RouterAgent, SkepticAgent, WriterAgent
 from .paths import ensure_repo_layout, repo_root, vault_root
 from .providers.base import LisanLLM, ProviderError
 from .prompts import list_prompts, load_prompt
@@ -240,7 +240,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--vault", type=Path, default=vault_root())
 
     agent = subparsers.add_parser("agent", help="Run a named agent against input text")
-    agent.add_argument("name", choices=["advice", "assembler", "dreamer", "elicitor", "interlocutor", "listener", "skeptic", "writer"])
+    agent.add_argument("name", choices=["advice", "assembler", "dreamer", "elicitor", "interlocutor", "listener", "router", "skeptic", "writer"])
     agent.add_argument("input", nargs="+")
     agent.add_argument("--vault", type=Path, default=vault_root())
     agent.add_argument("--significance", default="medium")
@@ -894,6 +894,7 @@ def _handle_agent(args: argparse.Namespace) -> int:
         "elicitor": ElicitorAgent,
         "interlocutor": InterlocutorAgent,
         "listener": ListenerAgent,
+        "router": RouterAgent,
         "skeptic": SkepticAgent,
         "writer": WriterAgent,
     }
@@ -931,6 +932,8 @@ def _handle_agent(args: argparse.Namespace) -> int:
         prompt_file = "assembler_v1"
     elif args.name == "advice":
         prompt_file = "advice_v1"
+    elif args.name == "router":
+        prompt_file = "mode_router_v1"
 
     agent = agent_cls(vault=args.vault, prompt_file=prompt_file)
     if args.dry_run:

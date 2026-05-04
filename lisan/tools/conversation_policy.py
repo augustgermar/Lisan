@@ -96,16 +96,28 @@ def assess_conversation_turn(
     listener: dict[str, Any] | None = None,
     advice_context_active: bool = False,
     advice_topic: str | None = None,
+    route_hint: dict[str, Any] | None = None,
 ) -> ConversationPolicy:
     lowered = text.lower().strip()
     listener_action = str((listener or {}).get("action", "")).lower()
-    route = "memory"
-    if is_general_advice_question(text) or any(marker in lowered for marker in ADVICE_MARKERS):
-        route = "advice"
-    elif advice_context_active and listener_action == "skip" and _looks_like_advice_followup(lowered, advice_topic):
-        route = "advice"
-    elif listener and str(listener.get("mode", "")).lower() == "elicitor":
+    route = str((route_hint or {}).get("route") or "").lower()
+    if route not in {"advice", "memory", "skip"}:
         route = "memory"
+    if not route:
+        route = "memory"
+    if not route_hint:
+        route = "memory"
+        if is_general_advice_question(text) or any(marker in lowered for marker in ADVICE_MARKERS):
+            route = "advice"
+        elif advice_context_active and listener_action == "skip" and _looks_like_advice_followup(lowered, advice_topic):
+            route = "advice"
+        elif listener and str(listener.get("mode", "")).lower() == "elicitor":
+            route = "memory"
+    elif route == "skip" and listener and str(listener.get("mode", "")).lower() == "elicitor":
+        route = "memory"
+
+    if route == "skip" and not route_hint:
+        route = "advice"
 
     turn_kind = _turn_kind(lowered, route)
     topic = _topic_label(text, state)
