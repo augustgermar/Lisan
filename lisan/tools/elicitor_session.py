@@ -177,6 +177,7 @@ def _write_elicitor_draft(
         "last_confirmed": today_iso(),
         "review_after": today_iso(),
         "pipeline": {"action": "full", "mode": "elicitor", "task": "episode"},
+        "source": "elicitor",
     }
     body = f"""# Elicitor Draft
 
