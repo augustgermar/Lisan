@@ -24,7 +24,7 @@ class HeuristicResult:
         }
 
 
-_WORD_THRESHOLD = 25  # messages this long are structurally narrative — route to extraction
+_WORD_THRESHOLD = 60  # messages this long are structurally narrative — route to extraction
 
 
 def score_text(text: str, config: dict[str, Any] | None = None) -> HeuristicResult:

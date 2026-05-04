@@ -273,23 +273,10 @@ def _render_response(result: dict[str, Any]) -> None:
     if mode == "elicitor" and response_text:
         print()
         print(_c("Lisan: ", CYAN) + response_text)
-        if topic_closed and draft_path:
-            print(_c(f"  [draft saved → {draft_path}]", DIM))
-        print()
-
-    elif draft_path:
-        print()
-        print(_c("Lisan: ", CYAN) + "Got it — draft saved for review.")
-        print(_c(f"  [→ {draft_path}]", DIM))
-        print()
-
-    elif action in ("full", "lightweight") and not draft_path:
-        print()
-        print(_c("Lisan: ", CYAN) + _c("Noted.", DIM))
         print()
 
     else:
-        # Skipped — show a minimal acknowledgment so the UI doesn't look frozen
+        # Memory stored silently — no announcement
         print(_c("  ·", DIM))
         print()
 
