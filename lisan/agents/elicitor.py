@@ -17,8 +17,9 @@ class ElicitorAgent(PromptAgent):
         first_clause = self._first_clause(user_input) or "No content provided yet."
         entities = self._entities(user_input)
         story_thread = first_clause[:120] if not kwargs.get("current_state") else "Continuation of the current story thread."
+        response = self._fallback_response(user_input, entities)
         payload = {
-            "response": "I hear you — tell me more.",
+            "response": response,
             "updated_narrative_state": {
                 "open_questions": ["What detail matters most here?"],
                 "next_step": "Follow the user's lead.",
@@ -33,6 +34,16 @@ class ElicitorAgent(PromptAgent):
             "questions": ["What detail matters most here?"],
         }
         return json.dumps(payload, indent=2, ensure_ascii=True)
+
+    def _fallback_response(self, text: str, entities: list[str]) -> str:
+        """Build a minimally specific response by anchoring to a noun in the input."""
+        if entities:
+            noun = entities[0]
+            return f"Tell me more about {noun}."
+        first = self._first_clause(text)
+        if first and len(first) > 8:
+            return f"Tell me more about that — {first.rstrip('.!?').lower()}."
+        return "Tell me more."
 
     def _first_clause(self, text: str) -> str:
         text = text.strip()

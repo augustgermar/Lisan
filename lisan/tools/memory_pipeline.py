@@ -152,7 +152,7 @@ def _write_draft(
     action: str,
 ) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    slug = slugify(str(writer.get("summary") or text[:48]))
+    slug = slugify(str(writer.get("summary") or text[:48]))[:80]
     path = vault / "drafts" / f"{today_iso()}-{timestamp}-{slug}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     frontmatter = {
