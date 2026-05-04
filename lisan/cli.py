@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -36,7 +37,9 @@ from .tools.validator import format_report, validate_vault
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from . import __version__
     parser = argparse.ArgumentParser(prog="lisan")
+    parser.add_argument("--version", action="version", version=f"lisan {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("init", help="Create the default vault layout and config")
@@ -357,6 +360,14 @@ def main(argv: list[str] | None = None) -> int:
         if not (repo_root() / "config.yaml").exists():
             save_default_config()
         print(f"Lisan workspace initialized at {vault_root()}.")
+        if not os.environ.get("LISAN_VAULT"):
+            print(
+                "\nWARNING: LISAN_VAULT is not set.\n"
+                "Personal memories will be written to the repo-local vault and may be\n"
+                "accidentally committed to git. Set LISAN_VAULT to an external path\n"
+                "before capturing real data:\n\n"
+                '  export LISAN_VAULT="$HOME/Library/Application Support/Lisan/vault"\n'
+            )
         return 0
 
     if args.command == "validate":
