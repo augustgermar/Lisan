@@ -11,6 +11,16 @@ DECISION_PHRASES = ["i decided", "going forward", "from now on"]
 LOOP_PHRASES = ["i need to", "i should", "remind me to"]
 HIGH_RISK_KEYWORDS = ["legal", "medical", "child", "custody", "financial", "work conflict"]
 
+# Short declarative statements that imply a story without telling it — classic elicitor seeds
+SEED_PHRASES = [
+    "i had a", "i've had", "something happened", "something weird", "something interesting",
+    "had a conversation", "had a meeting", "had an interesting", "had a great", "had a rough",
+    "had a hard", "had a terrible", "had a strange", "had a tough", "had a good",
+    "want to talk about", "tell you about", "talk about",
+    "i've been thinking about", "my relationship", "lately",
+    "ask me about",
+]
+
 
 @dataclass(slots=True)
 class HeuristicResult:
@@ -73,9 +83,9 @@ def score_text(text: str, config: dict[str, Any] | None = None) -> HeuristicResu
         seed_score += 3
         reasons.append("open loop phrase")
 
-    if any(phrase in lowered for phrase in ["want to talk about", "tell you about", "talk about", "i've been thinking about", "my relationship", "lately"]):
+    if any(phrase in lowered for phrase in SEED_PHRASES):
         score += 3
-        narrative_score += 3
+        seed_score += 3
         reasons.append("narrative seed")
 
     if any(keyword in lowered for keyword in HIGH_RISK_KEYWORDS):
@@ -95,9 +105,9 @@ def score_text(text: str, config: dict[str, Any] | None = None) -> HeuristicResu
 
     if text.count("```") >= 2:
         score -= 3
-        reasons.append("code-heavy or short factual lookup")
+        reasons.append("code-heavy")
     elif text.count("\n") <= 1 and len(text) < 120 and not any(
-        phrase in lowered for phrase in DECISION_PHRASES + LOOP_PHRASES + ["want to talk about", "tell you about", "talk about", "my relationship", "i've been thinking about"]
+        phrase in lowered for phrase in DECISION_PHRASES + LOOP_PHRASES + SEED_PHRASES
     ):
         score -= 3
         reasons.append("short factual lookup")

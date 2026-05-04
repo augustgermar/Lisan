@@ -51,7 +51,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "heuristic": {
         "thresholds": {"skip": 3, "lightweight": 6},
-        "affect_terms": ["angry", "sad", "anxious", "excited", "afraid", "frustrated"],
+        "affect_terms": ["angry", "sad", "anxious", "excited", "afraid", "frustrated", "happy", "proud", "surprised", "confused", "hurt", "nervous", "grateful", "relieved", "disappointed", "interesting", "weird", "strange", "awful", "amazing", "terrible", "wonderful"],
     },
     "backup": {
         "destination_dir": "backups",
