@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .config import load_config, save_default_config
 from .agents import AdviceAgent, AssemblerAgent, DreamerAgent, ElicitorAgent, InterlocutorAgent, ListenerAgent, RouterAgent, SkepticAgent, WriterAgent
-from .paths import ensure_repo_layout, repo_root, vault_root
+from .paths import ensure_repo_layout, repo_root, sqlite_path, vault_root
 from .providers.base import LisanLLM, ProviderError
 from .prompts import list_prompts, load_prompt
 from .tools.assembler import assemble_context
@@ -493,7 +493,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "heuristic":
-        result = score_text(" ".join(args.text))
+        result = score_text(" ".join(args.text), db_path=sqlite_path())
         print(json.dumps(result.as_dict(), indent=2))
         return 0
 
