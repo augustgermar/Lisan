@@ -10,8 +10,9 @@ from ..agents import AssemblerAgent, InterlocutorAgent, ListenerAgent, SkepticAg
 from ..frontmatter import write_markdown
 from ..utils import slugify, today_iso
 from .elicitor_session import run_elicitor_session
+from .log import log_error
 from .narrative_state import load_narrative_state
-from .record_factory import new_entity
+from .record_factory import STATE_TTLS, new_entity, upsert_state
 from .transcripts import append_transcript
 
 
@@ -120,6 +121,7 @@ def run_memory_pipeline(
     )
     draft_path = _write_draft(vault, text, transcript_path, listener, writer, skeptic, interlocutor, task, mode, action)
     _create_entity_stubs(vault, writer, str(draft_path.relative_to(vault)))
+    _apply_state_updates(vault, writer)
     return MemoryPipelineResult(
         transcript_path=transcript_path,
         draft_path=draft_path,
@@ -223,6 +225,28 @@ def _render_draft_body(
 
 {text.strip()}
 """
+
+
+def _apply_state_updates(vault: Path, writer: dict[str, Any]) -> None:
+    updates = writer.get("state_updates") or []
+    for update in updates:
+        arena = str(update.get("arena") or "").strip().lower()
+        summary = str(update.get("summary") or "").strip()
+        confidence = str(update.get("confidence") or "low").strip()
+        if not arena or not summary or arena not in STATE_TTLS:
+            continue
+        if confidence not in ("low", "medium", "high"):
+            confidence = "low"
+        try:
+            upsert_state(
+                vault=vault,
+                arena_primary=arena,
+                summary=summary,
+                confidence=confidence,
+                confidence_basis="Auto-extracted from conversation",
+            )
+        except Exception as exc:
+            log_error(vault, "memory_pipeline.state_update", exc)
 
 
 def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel_path: str) -> None:

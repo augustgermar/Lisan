@@ -33,6 +33,7 @@ class WriterAgent(PromptAgent):
             "questions": self._questions(user_input),
             "significance_rationale": self._significance_rationale(user_input, significance),
             "entities_to_create": self._extract_entity_stubs(user_input),
+            "state_updates": [],
         }
         return json.dumps(payload, indent=2, ensure_ascii=True)
 

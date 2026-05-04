@@ -16,6 +16,7 @@ from ..utils import today_iso
 from .conversation_policy import assess_conversation_turn
 from .heuristic_gate import score_text
 from .log import log_error, tail_log
+from .transcripts import append_transcript
 from .turn_router import decide_turn_route
 
 
@@ -186,7 +187,7 @@ def run_chat(
             print()
             continue
 
-        listener_score = score_text(raw, config)
+        listener_score = score_text(raw, config, db_path=sqlite_path())
         current_state = _load_current_state(vault, conv_id)
         route_hint = _run_with_thinking_indicator(
             lambda: decide_turn_route(
@@ -230,6 +231,7 @@ def run_chat(
                 advice_topic = route_hint.topic_hint or policy.topic
                 advice_history.append({"speaker": "user", "text": raw})
                 advice_history.append({"speaker": "assistant", "text": response})
+                append_transcript(vault=vault, conversation_id=conv_id, speaker="LISAN", text=response)
                 print()
                 print(_c("Lisan: ", CYAN) + response)
                 print()
@@ -256,27 +258,24 @@ def run_chat(
             advice_context_active = False
             if policy.route != "advice":
                 advice_topic = None
-        _render_response(result)
+        _render_response(result, vault=vault, conversation_id=conv_id)
 
 
 # ── Response rendering ────────────────────────────────────────────────────────
 
-def _render_response(result: dict[str, Any]) -> None:
-    action     = result.get("action", "skip")
+def _render_response(result: dict[str, Any], vault: Path | None = None, conversation_id: str | None = None) -> None:
     mode       = result.get("mode", "skip")
     elicitor   = result.get("elicitor") or {}
-    draft_path = result.get("draft_path", "")
 
     response_text = str(elicitor.get("response") or "").strip()
-    topic_closed  = str((elicitor.get("updated_narrative_state") or {}).get("mode_status", "")).lower() == "closed"
 
     if mode == "elicitor" and response_text:
+        if vault and conversation_id:
+            append_transcript(vault=vault, conversation_id=conversation_id, speaker="LISAN", text=response_text)
         print()
         print(_c("Lisan: ", CYAN) + response_text)
         print()
-
     else:
-        # Memory stored silently — no announcement
         print(_c("  ·", DIM))
         print()
 

@@ -45,6 +45,7 @@ def ensure_repo_layout(base: Path | None = None) -> None:
         "state",
         "entities/people",
         "entities/places",
+        "entities/things",
         "entities/projects",
         "entities/organizations",
         "episodes",
