@@ -154,6 +154,7 @@ def validate_vault(vault: Path | None = None) -> ValidationReport:
     _validate_episode_sources(vault, report)
     _validate_state_staleness(vault, report)
     _validate_wikilinks(vault, seen_ids, report)
+    _validate_alias_uniqueness(vault, report)
     return report
 
 
@@ -339,6 +340,37 @@ def _validate_wikilinks(vault: Path, seen_ids: dict[str, Path], report: Validati
             if (vault / target_clean).exists():
                 continue
             report.add(path, f"Wikilink target not found: [[{target_clean}]]", severity="warning")
+
+
+def _validate_alias_uniqueness(vault: Path, report: ValidationReport) -> None:
+    """Warn when the same alias resolves to multiple entities (spec §7.8)."""
+    import sqlite3
+    from ..paths import sqlite_path
+    db = sqlite_path()
+    if not db.exists():
+        return
+    try:
+        conn = sqlite3.connect(db)
+        try:
+            rows = conn.execute(
+                """
+                SELECT alias, COUNT(DISTINCT entity_id) AS cnt, GROUP_CONCAT(entity_id, ', ') AS ids
+                FROM entity_aliases
+                GROUP BY alias
+                HAVING cnt > 1
+                """
+            ).fetchall()
+            for row in rows:
+                alias, count, ids = row[0], row[1], row[2]
+                report.add(
+                    vault / "entities",
+                    f"Alias '{alias}' resolves to {count} entities: {ids}",
+                    severity="warning",
+                )
+        finally:
+            conn.close()
+    except Exception:
+        pass
 
 
 def _is_structured_record(path: Path, vault: Path) -> bool:
