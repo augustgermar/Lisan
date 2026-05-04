@@ -14,7 +14,7 @@ from ..config import load_config
 from ..paths import sqlite_path, vault_root
 from ..utils import today_iso
 from .conversation_policy import assess_conversation_turn
-from .heuristic_gate import is_general_advice_question, score_text
+from .heuristic_gate import score_text
 from .log import log_error, tail_log
 from .turn_router import decide_turn_route
 
@@ -333,19 +333,11 @@ def _should_answer_directly(
     policy: Any | None = None,
     route_hint: Any | None = None,
 ) -> bool:
-    route = ""
-    if route_hint is not None:
-        route = str((route_hint or {}).get("route") or "").lower()
+    route = str((route_hint or {}).get("route") or "").lower()
     if route == "advice":
         return True
     if route == "memory":
         return False
-    if score.action != "skip":
-        return False
-    if policy is not None and getattr(policy, "route", "") == "advice":
-        return True
-    if is_general_advice_question(text):
-        return True
     return advice_context_active
 
 
