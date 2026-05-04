@@ -32,7 +32,7 @@ class VaultFile:
 
 def iter_markdown_files(root: Path) -> list[Path]:
     return sorted(
-        p for p in root.rglob("*.md") if ".git" not in p.parts and "Draft 5.md" not in p.name
+        p for p in root.rglob("*.md") if ".git" not in p.parts and "Draft5.md" not in p.name
     )
 
 
@@ -48,4 +48,3 @@ def parse_date(value: Any) -> date | None:
     if isinstance(value, str):
         return date.fromisoformat(value)
     return None
-

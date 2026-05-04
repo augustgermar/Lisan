@@ -2,7 +2,7 @@
 
 Local-first Python CLI framework for the Lisan memory vault.
 
-This repository is currently in an MVP-ready state. The codebase is designed so a future Codex session can work from the repository alone without reading `Draft 5.md`.
+This repository is currently in an MVP-ready state. The codebase is designed so a future Codex session can work from the repository alone without reading `Draft5.md`.
 
 ## Current System State
 
