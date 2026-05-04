@@ -51,6 +51,7 @@ class WriterAgent(PromptAgent):
             "entities_to_create": self._extract_entity_stubs(user_input),
             "state_updates": [],
             "open_loops_to_create": [],
+            "decisions_to_create": [],
         }
         return json.dumps(payload, indent=2, ensure_ascii=True)
 

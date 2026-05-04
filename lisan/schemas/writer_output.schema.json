@@ -56,6 +56,21 @@
           "arena":       { "type": "string" }
         }
       }
+    },
+    "decisions_to_create": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "summary"],
+        "properties": {
+          "title":                  { "type": "string" },
+          "summary":                { "type": "string" },
+          "arena":                  { "type": "string" },
+          "significance":           { "type": "string", "enum": ["low", "medium", "high"] },
+          "alternatives_considered":{ "type": "array", "items": { "type": "string" } },
+          "revisit_conditions":     { "type": "array", "items": { "type": "string" } }
+        }
+      }
     }
   }
 }
