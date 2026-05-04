@@ -47,10 +47,11 @@ class ElicitorAgent(PromptAgent):
 
     def _fallback_payload(self, user_input: str, **kwargs: Any) -> dict[str, Any]:
         current_state = kwargs.get("current_state")
+        policy = self._policy_dict(kwargs.get("conversation_policy"))
         story_thread = self._story_thread(user_input, bool(current_state))
         entities = self._entities(user_input)
         first_clause = self._first_clause(user_input) or "No content provided yet."
-        response = self._specific_follow_up(user_input, current_state=current_state)
+        response = self._specific_follow_up(user_input, current_state=current_state, policy=policy)
         payload = {
             "response": response,
             "updated_narrative_state": {
@@ -74,7 +75,7 @@ class ElicitorAgent(PromptAgent):
         first = self._first_clause(text)
         return first[:120] or "New story thread"
 
-    def _specific_follow_up(self, text: str, current_state: Any = None) -> str:
+    def _specific_follow_up(self, text: str, current_state: Any = None, policy: dict[str, Any] | None = None) -> str:
         lowered = text.lower()
         if any(term in lowered for term in ["working on", "building", "new agent", "project", "system"]):
             return "Nice. What part of building this new agent is actually worth the effort?"
@@ -107,12 +108,55 @@ class ElicitorAgent(PromptAgent):
             return "Nice. What would you tweak next to make it taste exactly right?"
         if any(term in lowered for term in ["excited", "happy", "proud", "relieved", "anxious", "nervous", "frustrated", "sad", "angry", "worried"]):
             topic = self._topic_phrase(text)
-            return f"That makes sense. What about {topic} is doing the heavy lifting there?"
+            return f"{self._tone_lead(policy, default='That makes sense.')} What about {topic} is doing the heavy lifting there?"
         if current_state:
             topic = self._topic_phrase(text)
-            return f"That seems important. What about {topic} feels like the real point?"
+            return self._generic_follow_up(topic, policy=policy)
         topic = self._topic_phrase(text)
-        return f"That seems important. What about {topic} feels like the real point?"
+        return self._generic_follow_up(topic, policy=policy)
+
+    def _generic_follow_up(self, topic: str, policy: dict[str, Any] | None = None) -> str:
+        turn_kind = str((policy or {}).get("turn_kind") or "").lower()
+        tone = str((policy or {}).get("tone") or "").lower()
+        if turn_kind == "recovery":
+            if tone == "wry":
+                return f"Fair. What changed in the version that matters now?"
+            if tone == "warm":
+                return f"That makes sense. What changed in the version that matters now?"
+            return f"Right. What changed in the version that matters now?"
+        if turn_kind == "question":
+            if tone == "wry":
+                return f"Fair. What’s the part that actually does the work in {topic}?"
+            if tone == "warm":
+                return f"That makes sense. What part of {topic} matters most to you?"
+            return f"What part of {topic} matters most?"
+        if turn_kind == "reflection":
+            if tone == "wry":
+                return f"Yeah. What about {topic} is the bit worth keeping?"
+            if tone == "warm":
+                return f"That feels real. What about {topic} is the bit worth keeping?"
+            if tone == "steady":
+                return f"Understood. What about {topic} is the part you want to hold onto?"
+            return f"What about {topic} is the part you want to hold onto?"
+        if tone == "wry":
+            return f"Fair. What about {topic} feels like the real point?"
+        if tone == "warm":
+            return f"That makes sense. What about {topic} feels like the real point?"
+        if tone == "steady":
+            return f"Understood. What about {topic} feels like the real point?"
+        return f"What about {topic} feels like the real point?"
+
+    def _tone_lead(self, policy: dict[str, Any] | None, default: str = "That makes sense.") -> str:
+        tone = str((policy or {}).get("tone") or "").lower()
+        if tone == "wry":
+            return "Fair."
+        if tone == "warm":
+            return "That makes sense."
+        if tone == "steady":
+            return "Understood."
+        if tone == "dry":
+            return "Yep."
+        return default
 
     def _topic_phrase(self, text: str) -> str:
         text = text.strip()
@@ -165,6 +209,17 @@ class ElicitorAgent(PromptAgent):
     def _is_generic(self, response: str) -> bool:
         normalized = response.strip().lower().rstrip(" .!?")
         return normalized in GENERIC_FOLLOW_UPS
+
+    def _policy_dict(self, value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str) and value.strip():
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
+        return {}
 
     def _first_clause(self, text: str) -> str:
         text = text.strip()

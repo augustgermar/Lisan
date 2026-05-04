@@ -16,6 +16,7 @@ The working system now includes:
 - Provider abstraction for OpenAI, Anthropic, Google, local HTTP, and Codex CLI
 - Listener -> Writer -> Skeptic -> Interlocutor capture pipeline
 - Direct advice responses for non-memory questions in chat
+- Per-turn conversation policy that routes advice vs memory and varies tone by context
 - Stateful Elicitor mode with per-conversation narrative state
 - Manual record creation for entities, episodes, decisions, open loops, knowledge, evidence, and state
 - Draft review and promotion
@@ -207,10 +208,11 @@ Flow:
 
 1. Append transcript entry.
 2. Run Listener heuristic scoring.
-3. If skipped, stop.
-4. If mode is `elicitor`, run the stateful Elicitor path.
-5. Otherwise, assemble context, run Writer, Skeptic, and Interlocutor.
-6. Write a draft record.
+3. Assess a conversation policy for route, tone, and turn kind.
+4. If skipped, stop.
+5. If mode is `elicitor`, run the stateful Elicitor path.
+6. Otherwise, assemble context, run Writer, Skeptic, and Interlocutor.
+7. Write a draft record.
 
 ### Listener
 

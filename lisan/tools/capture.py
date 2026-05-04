@@ -14,6 +14,7 @@ def capture_text(
     speaker: str = "USER",
     provider: str | None = None,
     model: str | None = None,
+    conversation_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     try:
         result = run_memory_pipeline(
@@ -23,6 +24,7 @@ def capture_text(
             speaker=speaker,
             provider=provider,
             model=model,
+            conversation_policy=conversation_policy,
         )
     except Exception as exc:
         log_error(vault, "capture_text", exc)
@@ -36,6 +38,7 @@ def capture_text(
         "elicitor": result.elicitor or {},
         "narrative_state_path": str(result.narrative_state_path or ""),
         "narrative_state": result.narrative_state or {},
+        "conversation_policy": conversation_policy or {},
     }
     log_capture(vault, text, out)
     return out
