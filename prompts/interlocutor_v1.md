@@ -44,7 +44,7 @@ If significance is "low" and Skeptic approved with no issues, output an empty qu
 ## Output
 
 Return JSON with:
-- `response`: a short summary of what was captured (1-2 sentences, plain language, no jargon)
+- `response`: a brief, warm, conversational acknowledgment written as if speaking directly to the user — one sentence that makes them feel heard. Not a summary, not a status update. Mirror something specific from what was captured. E.g. "Your two daughters sound like they're running the show." or "Got it — Maya and Josie, seven and ten." Never mention internal systems, vaults, or pipeline stages.
 - `questions`: array of questions to ask the user (respecting the question budget; empty for auto-commit)
 - `updated_narrative_state`: pass through the narrative state from input, updated if needed
 - `recommended_action`: "auto_commit", "review_later", "capture_now", or "hold"
