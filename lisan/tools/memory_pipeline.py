@@ -49,12 +49,16 @@ def run_memory_pipeline(
     action = str(listener.get("action", "skip"))
     mode = str(listener.get("mode", "skip"))
 
-    # If we're mid-conversation (turn_count > 0, topic not closed), never fully skip a turn —
-    # the user may be continuing a thread the heuristic can't see from the text alone.
+    # Never fully skip a conversational turn — the heuristic governs capture, not response.
+    # Upgrade to lightweight elicitor when:
+    #   - mid-conversation (turn_count > 0), OR
+    #   - message has seed potential (seed_score > 0, e.g. "oh man what a day!")
+    # Exception: topic explicitly closed.
+    seed_score = int(listener.get("seed_score", 0))
     if (
         action == "skip"
-        and prior_state.turn_count > 0
         and prior_state.mode_status not in ("closed",)
+        and (prior_state.turn_count > 0 or seed_score > 0)
     ):
         action = "lightweight"
         mode = "elicitor"

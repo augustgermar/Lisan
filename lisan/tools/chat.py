@@ -303,18 +303,18 @@ def run_chat(
 # ── Response rendering ────────────────────────────────────────────────────────
 
 def _render_response(result: dict[str, Any], vault: Path | None = None, conversation_id: str | None = None) -> None:
-    mode       = result.get("mode", "skip")
-    elicitor   = result.get("elicitor") or {}
-
+    mode         = result.get("mode", "skip")
+    elicitor     = result.get("elicitor") or {}
     response_text = str(elicitor.get("response") or "").strip()
 
-    if mode == "elicitor" and response_text:
+    if response_text:
         if vault and conversation_id:
             append_transcript(vault=vault, conversation_id=conversation_id, speaker="LISAN", text=response_text)
         print()
         print(_c("Lisan: ", CYAN) + response_text)
         print()
-    else:
+    elif mode not in ("skip",):
+        # Something was silently captured (extraction mode) — quiet acknowledgment.
         print(_c("  ·", DIM))
         print()
 

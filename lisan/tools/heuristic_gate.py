@@ -239,10 +239,23 @@ def _classify_mode(
             seed_score += 5
         elif first_person:
             seed_score += 3
+        elif has_event_hint:
+            # Implied event without explicit "I" — still a seed
+            seed_score += 2
     if any(phrase in lowered for phrase in ("ask me about", "ask me how", "want to talk about")):
         seed_score += 3
     # Implies story without telling it
     if word_count < 40 and any(w in lowered for w in ("something", "a thing", "this thing", "an idea")):
+        seed_score += 2
+    # Exclamatory expressions that imply a notable event ("what a day", "oh man", etc.)
+    _EXCLAMATORY_SEEDS = (
+        "what a day", "what a week", "what a night", "what a year", "what a time",
+        "what a mess", "what a trip", "oh man", "oh wow", "oh no", "oh my",
+    )
+    if any(phrase in lowered for phrase in _EXCLAMATORY_SEEDS):
+        seed_score += 3
+    elif word_count < 20 and "!" in text and not first_person:
+        # Short exclamation without "I" — someone reacting to an event
         seed_score += 2
 
     if narrative_score > seed_score:
