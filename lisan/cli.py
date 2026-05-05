@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .config import load_config, save_default_config
 from .agents import AdviceAgent, AssemblerAgent, DreamerAgent, ElicitorAgent, InterlocutorAgent, ListenerAgent, RouterAgent, SkepticAgent, WriterAgent
-from .paths import ensure_repo_layout, repo_root, sqlite_path, vault_root
+from .paths import ensure_repo_layout, repo_root, sqlite_path, vault_root, write_seed_files
 from .providers.base import LisanLLM, ProviderError
 from .prompts import list_prompts, load_prompt
 from .tools.assembler import assemble_context
@@ -387,7 +387,13 @@ def main(argv: list[str] | None = None) -> int:
         ensure_repo_layout()
         if not (repo_root() / "config.yaml").exists():
             save_default_config()
-        print(f"Lisan workspace initialized at {vault_root()}.")
+        vault = vault_root()
+        seeded = write_seed_files(vault)
+        print(f"Lisan workspace initialized at {vault}.")
+        if seeded:
+            print("\nSeed files created (fill these in before first use):")
+            for f in seeded:
+                print(f"  {f}")
         if not os.environ.get("LISAN_VAULT"):
             print(
                 "\nWARNING: LISAN_VAULT is not set.\n"
