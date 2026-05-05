@@ -21,7 +21,8 @@ The working system now includes:
 - Decision fan-out: Writer output `decisions_to_create` materializes decision records in both extraction and elicitor pipelines
 - State update fan-out: Writer output `state_updates` is applied to arena state files immediately after each conversation turn
 - Entity stub fan-out: Writer output `entities_to_create` creates entity stubs with conversation-sourced summaries
-- Direct advice responses for non-memory questions in chat
+- Direct advice responses for non-memory questions in chat, with vault context loaded so personal recall questions ("how many cats do I have?") are answered from stored records
+- First-run onboarding flow: blank primer detection triggers a short Q&A that populates `identity.md` and `operating-style.md`
 - Per-turn conversation policy that routes advice vs memory and varies tone by context
 - A lightweight thinking indicator in chat when provider calls take noticeable time
 - Stateful Elicitor mode with per-conversation narrative state
@@ -38,6 +39,7 @@ The working system now includes:
 - Active contradiction injection into assembled context (spec §10.3)
 - `/remember` and `/forget` prefix stripping before transcript and agent calls
 - `/logs [N]` command in interactive chat
+- `/arena [name]` command to override retrieval arena for the current session (empty to clear)
 
 The repo is usable as a local memory vault CLI now. Most remaining work is refinement, prompt calibration, and optional automation, not core plumbing.
 
