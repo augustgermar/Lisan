@@ -3,7 +3,7 @@
     "codex": {
       "enabled": true,
       "binary_env": "CODEX_BIN",
-      "default_model": "gpt-4o-mini"
+      "default_model": null
     },
     "openai": {
       "enabled": true,

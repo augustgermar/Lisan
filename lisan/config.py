@@ -13,7 +13,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "codex": {
             "enabled": True,
             "binary_env": "CODEX_BIN",
-            "default_model": "gpt-4o-mini",
+            "default_model": None,
         },
         "openai": {
             "enabled": True,
