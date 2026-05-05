@@ -307,6 +307,11 @@ def _render_response(result: dict[str, Any], vault: Path | None = None, conversa
     elicitor     = result.get("elicitor") or {}
     response_text = str(elicitor.get("response") or "").strip()
 
+    # In extraction mode the elicitor is silent, but the interlocutor produced an acknowledgment.
+    if not response_text and mode == "extraction":
+        interlocutor = result.get("interlocutor") or {}
+        response_text = str(interlocutor.get("response") or "").strip()
+
     if response_text:
         if vault and conversation_id:
             append_transcript(vault=vault, conversation_id=conversation_id, speaker="LISAN", text=response_text)
@@ -314,7 +319,7 @@ def _render_response(result: dict[str, Any], vault: Path | None = None, conversa
         print(_c("Lisan: ", CYAN) + response_text)
         print()
     elif mode not in ("skip",):
-        # Something was silently captured (extraction mode) — quiet acknowledgment.
+        # Fallback dot for extraction when interlocutor produced nothing.
         print(_c("  ·", DIM))
         print()
 
@@ -378,7 +383,9 @@ def _run_advice_response(
     conversation_policy: Any | None = None,
 ) -> str:
     from ..agents import AdviceAgent
+    from .assembler import assemble_context
 
+    vault_context = assemble_context(text, vault=vault) or None
     agent = AdviceAgent(vault=vault)
     result = agent.run(
         text,
@@ -387,6 +394,7 @@ def _run_advice_response(
         model=model,
         conversation_history=_format_advice_history(history),
         conversation_policy=conversation_policy.as_dict() if conversation_policy is not None else {},
+        vault_context=vault_context,
     )
     return str(result.text).strip()
 
