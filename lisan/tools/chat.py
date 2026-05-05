@@ -128,9 +128,13 @@ def run_chat(
     model: str | None = None,
 ) -> int:
     from .. import __version__
+    from .onboarding import needs_onboarding, run_onboarding
 
     config = load_config()
     ready = startup_check(vault, config)
+
+    if needs_onboarding(vault):
+        run_onboarding(vault)
 
     conv_id = conversation_id or today_iso()
     _print_header(__version__, conv_id)
