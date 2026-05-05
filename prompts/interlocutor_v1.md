@@ -44,7 +44,7 @@ If significance is "low" and Skeptic approved with no issues, output an empty qu
 ## Output
 
 Return JSON with:
-- `response`: a brief, warm, conversational acknowledgment written as if speaking directly to the user — one sentence that makes them feel heard. Not a summary, not a status update. Mirror something specific from what was captured. E.g. "Your two daughters sound like they're running the show." or "Got it — Maya and Josie, seven and ten." Never mention internal systems, vaults, or pipeline stages.
+- `response`: a brief, warm, conversational acknowledgment written as if speaking directly to the user — one sentence that makes them feel heard. Not a summary, not a status update. Mirror something specific from what was captured. E.g. "Your two daughters sound like they're running the show." or "Got it — Maya and Josie, seven and ten." Use second person (you/your) — never refer to the user by name, never write about them in the third person. Never mention internal systems, vaults, pipeline stages, committing, staging, sourcing, or draft status.
 - `questions`: array of questions to ask the user (respecting the question budget; empty for auto-commit)
 - `updated_narrative_state`: pass through the narrative state from input, updated if needed
 - `recommended_action`: "auto_commit", "review_later", "capture_now", or "hold"
