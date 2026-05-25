@@ -29,6 +29,11 @@ class CodexClient(ProviderClient):
         if not binary:
             raise ProviderError("CODEX_BIN is empty")
 
+        env = os.environ.copy()
+        home_dir = self.config.get("providers", {}).get("codex", {}).get("home_dir") or os.environ.get("LISAN_CODEX_HOME")
+        if home_dir:
+            env["HOME"] = str(home_dir)
+
         # Embed the schema as a prompt instruction instead of using --output-schema.
         # The --output-schema flag sends the schema to the OpenAI structured-output API,
         # which causes a 400 on models that don't support it (e.g. gpt-5.4-mini).
@@ -51,7 +56,7 @@ class CodexClient(ProviderClient):
             args.extend(["--output-last-message", str(output_path)])
             args.append("-")
 
-            proc = subprocess.run(args, input=full_prompt, capture_output=True, text=True)
+            proc = subprocess.run(args, input=full_prompt, capture_output=True, text=True, env=env)
             if proc.returncode != 0:
                 raise ProviderError(
                     "codex exec failed with exit code "

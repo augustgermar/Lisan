@@ -22,6 +22,7 @@ from .tools.draft_review import review_draft
 from .tools.archive import archive_open_loop
 from .tools.analyst_ops import run_analyst_scan
 from .tools.jobs import audit_jobs, cancel_job, format_job_audit, format_job_list, get_job, list_jobs, reap_stuck_jobs, retry_job, run_jobs_worker
+from .evals import get_scenario, list_scenarios, run_live_eval, wipe_live_run
 from .tools.backup import backup_status, create_backup, latest_backup_path, test_backup, write_backup_log
 from .tools.batch_review import generate_batch_review, write_batch_review
 from .tools.epochs import epoch_entity
@@ -46,6 +47,7 @@ from .tools.confidence_decay import detect_decay_candidates
 from .tools.manifest_gen import generate_manifests
 from .tools.migrator import run_migration
 from .tools.primer_audit import run_primer_audit
+from .tools.provider_diagnostics import diagnose_provider
 from .tools.seed_evaluation import run_seed_evaluation
 from .tools.record_factory import new_claim, new_decision, new_evidence, new_evidence_correction, new_entity, new_episode, new_knowledge, new_open_loop, new_state, upsert_state
 from .tools.rebuild_index import rebuild_index
@@ -59,6 +61,82 @@ def _split_csv_values(value: str | None) -> list[str]:
     if not value:
         return []
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _load_live_eval_cycle_row(payload: dict[str, object], *, row_type: str = "run", aggregate_id: str | None = None) -> dict[str, str]:
+    scenarios = payload.get("scenarios")
+    if not isinstance(scenarios, list):
+        scenarios = []
+    evaluation = payload.get("evaluation")
+    passed = None
+    if isinstance(evaluation, dict):
+        passed = evaluation.get("passed")
+    elif "passed" in payload:
+        passed = payload.get("passed")
+    wiped = payload.get("wiped")
+    if wiped is None and payload.get("cleanup_status") == "cycles-wiped":
+        wiped = True
+    return {
+        "type": row_type,
+        "run_id": str(payload.get("run_id") or payload.get("aggregate_id") or ""),
+        "created_at": str(payload.get("created_at") or ""),
+        "passed": str(passed),
+        "status": str(payload.get("status") or ""),
+        "failure_classification": str(payload.get("failure_classification") or ""),
+        "scenarios": ", ".join(str(item) for item in scenarios),
+        "cycle_index": str(payload.get("cycle_index") or ""),
+        "seed": str(payload.get("seed") if payload.get("seed") is not None else ""),
+        "wiped": str(wiped),
+        "cleanup_status": str(payload.get("cleanup_status") or ""),
+        "provider_auth_mode": str(payload.get("provider_auth_mode") or ""),
+        "aggregate_id": str(aggregate_id or payload.get("aggregate_id") or ""),
+        "cycle_count": str(payload.get("cycle_count") or ""),
+    }
+
+
+def _collect_live_eval_rows(eval_root: Path) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def add_row(row: dict[str, str]) -> None:
+        key = f"{row.get('type')}:{row.get('run_id')}"
+        if key in seen:
+            return
+        seen.add(key)
+        rows.append(row)
+
+    for path in sorted(eval_root.iterdir() if eval_root.exists() else []):
+        if not path.is_dir():
+            continue
+        if path.name.startswith("aggregate_"):
+            aggregate_json = path / "aggregate.json"
+            cycles_json = path / "cycles.json"
+            if aggregate_json.exists():
+                try:
+                    payload = json.loads(aggregate_json.read_text(encoding="utf-8"))
+                    add_row(_load_live_eval_cycle_row(payload, row_type="aggregate"))
+                except Exception:
+                    pass
+            if cycles_json.exists():
+                try:
+                    payload = json.loads(cycles_json.read_text(encoding="utf-8"))
+                    for cycle in payload.get("cycles") or []:
+                        if isinstance(cycle, dict):
+                            add_row(_load_live_eval_cycle_row(cycle, aggregate_id=path.name))
+                except Exception:
+                    pass
+            continue
+        if path.name.startswith("live_eval_"):
+            report_json = path / "reports" / "report.json"
+            if not report_json.exists():
+                continue
+            try:
+                payload = json.loads(report_json.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            add_row(_load_live_eval_cycle_row(payload))
+
+    return rows
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -521,6 +599,33 @@ def build_parser() -> argparse.ArgumentParser:
     jobs_reap.add_argument("--timeout-minutes", type=int, default=15)
     jobs_reap.add_argument("--fail", action="store_true")
 
+    provider_cmd = subparsers.add_parser("provider", help="Inspect provider readiness and diagnostics")
+    provider_subparsers = provider_cmd.add_subparsers(dest="provider_command", required=True)
+    provider_check = provider_subparsers.add_parser("check", help="Run provider preflight diagnostics")
+    provider_check.add_argument("--provider", default=None)
+    provider_check.add_argument("--model", default=None)
+
+    eval_live = subparsers.add_parser("eval-live", help="Run live behavioral evaluations against the local app")
+    eval_live_subparsers = eval_live.add_subparsers(dest="eval_live_command", required=True)
+    eval_live_run = eval_live_subparsers.add_parser("run", help="Run one or more live evaluation scenarios")
+    eval_live_run.add_argument("--scenario", action="append", choices=list_scenarios(), default=None)
+    eval_live_run.add_argument("--cycles", type=int, default=1)
+    eval_live_run.add_argument("--seed", type=int, default=None)
+    eval_live_run.add_argument("--wipe-after", action="store_true")
+    eval_live_run.add_argument("--run-jobs-after-turn", action="store_true")
+    eval_live_run.add_argument("--run-jobs-at-end", dest="run_jobs_at_end", action="store_true", default=True)
+    eval_live_run.add_argument("--no-run-jobs-at-end", dest="run_jobs_at_end", action="store_false")
+    eval_live_run.add_argument("--no-jobs", action="store_true")
+    eval_live_run.add_argument("--provider", default=None)
+    eval_live_run.add_argument("--model", default=None)
+    eval_live_run.add_argument("--provider-auth", choices=["shared", "isolated", "mock"], default=None)
+    eval_live_run.add_argument("--dangerous-vault", type=Path, default=None, help="Dangerous: run against the specified vault instead of an isolated eval vault")
+    eval_live_report = eval_live_subparsers.add_parser("report", help="Print a live eval report")
+    eval_live_report.add_argument("run_id")
+    eval_live_list = eval_live_subparsers.add_parser("list", help="List live eval runs")
+    eval_live_wipe = eval_live_subparsers.add_parser("wipe", help="Safely wipe a live eval run")
+    eval_live_wipe.add_argument("run_id")
+
     return parser
 
 
@@ -554,6 +659,61 @@ def main(argv: list[str] | None = None) -> int:
             model=args.model,
             trace=args.trace,
         )
+
+    if args.command == "eval-live":
+        eval_root = repo_root() / ".lisan_live_eval_runs"
+        eval_root.mkdir(parents=True, exist_ok=True)
+
+        if args.eval_live_command == "run":
+            scenario_names = list(args.scenario or [])
+            result = run_live_eval(
+                scenarios=scenario_names or None,
+                cycles=max(1, int(args.cycles)),
+                seed=args.seed,
+                wipe_after=bool(args.wipe_after),
+                run_jobs_after_turn=bool(args.run_jobs_after_turn),
+                run_jobs_at_end=bool(args.run_jobs_at_end),
+                no_jobs=bool(args.no_jobs),
+                dangerous_vault=args.dangerous_vault,
+                provider=args.provider,
+                model=args.model,
+                provider_auth=args.provider_auth or "shared",
+            )
+            print(json.dumps(result.to_dict(), indent=2, ensure_ascii=True, default=str))
+            return 0 if getattr(result, "status", "completed") == "completed" else 1
+
+        if args.eval_live_command == "report":
+            run_dir = eval_root / args.run_id
+            aggregate_dir = eval_root / args.run_id
+            report_md = run_dir / "reports" / "report.md"
+            aggregate_md = aggregate_dir / "aggregate.md"
+            if report_md.exists():
+                print(report_md.read_text(encoding="utf-8"))
+                return 0
+            if aggregate_md.exists():
+                print(aggregate_md.read_text(encoding="utf-8"))
+                return 0
+            print(f"Missing live eval report: {args.run_id}", file=sys.stderr)
+            return 1
+
+        if args.eval_live_command == "list":
+            rows = _collect_live_eval_rows(eval_root)
+            if not rows:
+                print("No live eval runs found.")
+                return 0
+            for row in rows:
+                print(
+                    f"{row['type']} | {row['run_id']} | {row['created_at']} | "
+                    f"passed={row['passed']} | status={row['status']} | wiped={row['wiped']} | cycles={row['cycle_count']} | "
+                    f"cycle_index={row['cycle_index']} | seed={row['seed']} | {row['scenarios']}"
+                )
+            return 0
+
+        if args.eval_live_command == "wipe":
+            run_dir = eval_root / args.run_id
+            result = wipe_live_run(run_dir)
+            print(json.dumps(result, indent=2, ensure_ascii=True))
+            return 0 if result.get("wiped") else 1
 
     if args.command == "init":
         ensure_repo_layout()
@@ -832,6 +992,13 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(response.text)
         return 0
+
+    if args.command == "provider":
+        config = load_config()
+        if args.provider_command == "check":
+            result = diagnose_provider(provider=args.provider, model=args.model, config=config)
+            print(json.dumps(result.to_dict(), indent=2, ensure_ascii=True))
+            return 0 if result.status in {"ok", "warning"} else 1
 
     if args.command == "sync":
         generate_manifests(args.vault, write=True)

@@ -19,6 +19,7 @@ from .conversation_policy import assess_conversation_turn
 from .log import log_error, tail_log
 from .transcripts import append_transcript
 from .tracing import finalize_turn_trace, record_inline_step, record_jobs_queued, reset_current_turn_trace, start_turn_trace
+from ..providers.base import ProviderError
 
 
 # ── ANSI helpers ─────────────────────────────────────────────────────────────
@@ -234,13 +235,14 @@ def run_chat(
             domain_override=domain_override,
             db_path=db_path,
         )
-        if turn_result.get("error"):
-            print(_c(f"\n  Error: {turn_result['error']}\n", RED))
-            continue
 
         response = str(turn_result.get("response") or "").strip()
         if response:
-            if turn_result.get("route") == "advice":
+            if turn_result.get("provider_failure"):
+                print()
+                print(_c("Lisan: ", CYAN) + response)
+                print()
+            elif turn_result.get("route") == "advice":
                 advice_context_active = True
                 advice_topic = str(turn_result.get("topic") or advice_topic or "")
                 advice_history.append({"speaker": "user", "text": str(turn_result.get("content_text") or raw)})
@@ -364,6 +366,15 @@ def _process_chat_turn(
         result["response"] = _extract_capture_response(response_bundle)
         result["trace_summary"] = trace.summary()
         return result
+    except ProviderError as exc:
+        log_error(vault, "chat.process_chat_turn.provider", exc)
+        short_reason = _short_provider_reason(exc)
+        error_message = f"The local model provider failed before I could answer. Provider error: {short_reason}"
+        result["response"] = error_message
+        result["error"] = error_message
+        result["provider_failure"] = True
+        result["provider_error_type"] = exc.__class__.__name__
+        return result
     except Exception as exc:
         log_error(vault, "chat.process_chat_turn", exc)
         result["error"] = str(exc)
@@ -383,6 +394,15 @@ def _extract_capture_response(result: dict[str, Any]) -> str:
         interlocutor = result.get("interlocutor") or {}
         response_text = str(interlocutor.get("response") or "").strip()
     return response_text
+
+
+def _short_provider_reason(exc: Exception) -> str:
+    message = str(exc).strip().replace("\n", " ")
+    if not message:
+        return exc.__class__.__name__
+    if len(message) > 180:
+        return message[:177] + "..."
+    return message
 
 
 # ── Response rendering ────────────────────────────────────────────────────────
@@ -477,6 +497,7 @@ def _run_advice_response(
         significance="low",
         provider=provider,
         model=model,
+        provider_error_mode="raise",
         conversation_history=_format_advice_history(history),
         conversation_policy=conversation_policy.as_dict() if conversation_policy is not None else {},
         vault_context=vault_context,

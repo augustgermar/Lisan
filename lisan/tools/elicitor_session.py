@@ -58,6 +58,7 @@ def run_elicitor_session(
         significance="medium",
         provider=provider,
         model=model,
+        provider_error_mode="raise",
         current_state=json.dumps(state.as_dict(), indent=2, ensure_ascii=True),
         conversation_history=format_history(history),
         assembler_context=context,
@@ -137,6 +138,7 @@ def _write_elicitor_draft(
         significance="high",
         provider=provider,
         model=model,
+        provider_error_mode="raise",
         task="episode",
         source="elicitor",
         narrative_state=json.dumps(state, indent=2, ensure_ascii=True),
@@ -148,6 +150,7 @@ def _write_elicitor_draft(
         significance="medium",
         provider=provider,
         model=model,
+        provider_error_mode="raise",
         conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     )
     interlocutor = InterlocutorAgent(vault=vault).run_json(
@@ -155,6 +158,7 @@ def _write_elicitor_draft(
         significance="medium",
         provider=provider,
         model=model,
+        provider_error_mode="raise",
         conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     )
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
