@@ -12,6 +12,7 @@ from ..config import load_config
 from ..frontmatter import FrontmatterError, load_markdown
 from ..paths import vault_root, schemas_dir, repo_root
 from ..schemas import load_schemas
+from .domain_fields import normalize_domain_fields
 from ..tools.common import iter_markdown_files, parse_date
 
 
@@ -46,8 +47,8 @@ UNIVERSAL_REQUIRED = {
     "updated",
     "status",
     "significance",
-    "arena_primary",
-    "arena_secondary",
+    "domain_primary",
+    "domain_secondary",
     "privacy",
     "compartments",
     "allowed_contexts",
@@ -76,7 +77,7 @@ ENUMS = {
     "type": {"entity", "episode", "knowledge", "evidence", "state", "decision", "open_loop", "report", "contradiction_log"},
     "status": {"active", "archived", "stale", "resolved", "disputed", "stale_unresolved"},
     "significance": {"high", "medium", "low"},
-    "arena_primary": {
+    "domain_primary": {
         "physical",
         "environmental",
         "financial",
@@ -129,7 +130,7 @@ def validate_vault(vault: Path | None = None) -> ValidationReport:
             report.add(path, str(exc))
             continue
 
-        frontmatter = doc.frontmatter
+        frontmatter = normalize_domain_fields(doc.frontmatter)
         file_type = frontmatter.get("type")
         if not file_type:
             report.add(path, "Missing required frontmatter field: type")
@@ -172,9 +173,9 @@ def _validate_universal(path: Path, frontmatter: dict[str, Any], report: Validat
         value = frontmatter.get(field)
         if value is None:
             continue
-        if field in {"arena_primary", "privacy", "status", "significance", "confidence", "source", "priority"} and str(value) not in allowed:
+        if field in {"domain_primary", "privacy", "status", "significance", "confidence", "source", "priority"} and str(value) not in allowed:
             report.add(path, f"Invalid {field}: {value}")
-    for field in ["arena_secondary", "compartments", "allowed_contexts", "blocked_contexts", "links"]:
+    for field in ["domain_secondary", "arena_secondary", "compartments", "allowed_contexts", "blocked_contexts", "links"]:
         if field in frontmatter and not isinstance(frontmatter[field], list):
             report.add(path, f"{field} must be a list")
 
@@ -380,7 +381,7 @@ def _is_structured_record(path: Path, vault: Path) -> bool:
         return False
     if not rel.parts:
         return False
-    if rel.parts[0] in {"primer", "arenas", "transcripts", "manifests", "reports"}:
+    if rel.parts[0] in {"primer", "domains", "transcripts", "manifests", "reports"}:
         return False
     if rel.name == "backup.md":
         return False

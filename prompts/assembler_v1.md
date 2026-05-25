@@ -9,13 +9,13 @@ Context assembly follows a six-step process:
 
 1. **Primer** — identity.md and operating-style.md are always loaded. current-brief.md is loaded when available. These are the baseline — every conversation starts with them.
 
-2. **Arena classification** — Infer the most relevant arena from the query. Arena choices: physical, environmental, financial, relational, work, status, appearance, competence, social_presence, desirability, cross_arena. If the query spans multiple arenas or is ambiguous, use cross_arena.
+2. **Domain classification** — Infer the most relevant life domain from the query. Domain choices: physical, environmental, financial, relational, work, status, appearance, competence, social_presence, desirability, cross_arena. If the query spans multiple domains or is ambiguous, use cross_arena.
 
-3. **State files** — Load active state files for the inferred arena. Flag stale files (past TTL). State files capture the current reality of an arena and are the single most valuable context for grounding the conversation.
+3. **State files** — Load active state files for the inferred domain. Flag stale files (past TTL). State files capture the current reality of a domain and are the single most valuable context for grounding the conversation.
 
 4. **Entities and episodes** — Load entities mentioned in the query by name. For each matched entity, load recent episodes that involve them. Supplement with vector search when the query is open-ended. Apply compartment gating before returning any record.
 
-5. **Open loops and decisions** — Load active open loops and recent decisions for the inferred arena. These represent pending actions and prior commitments that are likely relevant.
+5. **Open loops and decisions** — Load active open loops and recent decisions for the inferred domain. These represent pending actions and prior commitments that are likely relevant.
 
 6. **Rejection logging** — Any records excluded by compartment gating must be noted (not surfaced). Never merge compartments that have not been explicitly unlocked.
 
@@ -33,4 +33,4 @@ The assembled context is injected at the top of the Elicitor or Writer prompt. I
 
 ## Output format
 
-Return a structured context block. Use section headers: Primer, State, Relevant Records, Open Loops, Rejected (if any). Summarize each loaded record in one line. Include arena classification and confidence.
+Return a structured context block. Use section headers: Primer, State, Relevant Records, Open Loops, Rejected (if any). Summarize each loaded record in one line. Include domain classification and confidence.

@@ -54,6 +54,8 @@ def edit_record(
             "entities",
             "evidence",
             "claims",
+            "domain_primary",
+            "domain_secondary",
             "arena_secondary",
         }
         for item in set_fields or []:

@@ -10,6 +10,7 @@ from ..agents import AssemblerAgent, InterlocutorAgent, ListenerAgent, SkepticAg
 from ..frontmatter import write_markdown
 from ..utils import slugify, today_iso
 from .elicitor_session import run_elicitor_session
+from .domain_fields import with_domain_fields
 from .firewall import scan_text
 from .log import log_error
 from .narrative_state import load_narrative_state
@@ -174,8 +175,8 @@ def _write_draft(
         "updated": today_iso(),
         "status": "pending",
         "significance": str(writer.get("significance", "medium")),
-        "arena_primary": "cross_arena",
-        "arena_secondary": [],
+        "domain_primary": "cross_arena",
+        "domain_secondary": [],
         "privacy": "personal",
         "compartments": [],
         "allowed_contexts": ["all"],
@@ -190,7 +191,7 @@ def _write_draft(
         "source": mode,
     }
     body = _render_draft_body(text, listener, writer, skeptic, interlocutor, task)
-    write_markdown(path, frontmatter, body)
+    write_markdown(path, with_domain_fields(frontmatter), body)
     return path
 
 
@@ -246,7 +247,7 @@ def _create_open_loops(vault: Path, writer: dict[str, Any]) -> None:
         next_action = str(loop.get("next_action") or "").strip()
         summary = str(loop.get("summary") or "").strip()
         priority = str(loop.get("priority") or "medium").strip()
-        arena = str(loop.get("arena") or "cross_arena").strip()
+        arena = str(loop.get("domain", loop.get("arena")) or "cross_arena").strip()
         if not title or not next_action:
             continue
         if priority not in ("low", "medium", "high"):
@@ -255,7 +256,7 @@ def _create_open_loops(vault: Path, writer: dict[str, Any]) -> None:
             new_open_loop(
                 vault=vault,
                 title=title,
-                arena_primary=arena if arena in STATE_TTLS else "cross_arena",
+                domain_primary=arena if arena in STATE_TTLS else "cross_arena",
                 summary=summary or title,
                 next_action=next_action,
                 priority=priority,
@@ -271,17 +272,17 @@ def _create_open_loops(vault: Path, writer: dict[str, Any]) -> None:
 def _apply_state_updates(vault: Path, writer: dict[str, Any]) -> None:
     updates = writer.get("state_updates") or []
     for update in updates:
-        arena = str(update.get("arena") or "").strip().lower()
+        state_category = str(update.get("category", update.get("arena")) or "").strip().lower()
         summary = str(update.get("summary") or "").strip()
         confidence = str(update.get("confidence") or "low").strip()
-        if not arena or not summary or arena not in STATE_TTLS:
+        if not state_category or not summary or state_category not in STATE_TTLS:
             continue
         if confidence not in ("low", "medium", "high"):
             confidence = "low"
         try:
             upsert_state(
                 vault=vault,
-                arena_primary=arena,
+                state_category=state_category,
                 summary=summary,
                 confidence=confidence,
                 confidence_basis="Auto-extracted from conversation",
@@ -316,7 +317,7 @@ def _create_decisions(vault: Path, writer: dict[str, Any]) -> None:
     for entry in decisions:
         title = str(entry.get("title") or "").strip()
         summary = str(entry.get("summary") or "").strip()
-        arena = str(entry.get("arena") or "cross_arena").strip()
+        arena = str(entry.get("domain", entry.get("arena")) or "cross_arena").strip()
         significance = str(entry.get("significance") or "low").strip()
         alternatives = list(entry.get("alternatives_considered") or [])
         revisit = list(entry.get("revisit_conditions") or [])
@@ -328,7 +329,7 @@ def _create_decisions(vault: Path, writer: dict[str, Any]) -> None:
             new_decision(
                 vault=vault,
                 title=title,
-                arena_primary=arena if arena in STATE_TTLS else "cross_arena",
+                domain_primary=arena if arena in STATE_TTLS else "cross_arena",
                 summary=summary,
                 significance=significance,
                 confidence="low",

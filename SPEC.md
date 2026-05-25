@@ -2,7 +2,7 @@
 
 ## Fifth Draft
 
-> **Designed:** April 30 – May 3, 2026 **Authors:** August Germar + Claude Opus 4 **Review contributions:** Gemini 2.5 Pro, ChatGPT o3, DeepSeek R1, Grok **Status:** Architectural specification — ready for MVP implementation **License:** Open source. Designed for one life, adaptable to any. **Repository:** Local git only. No remote. No cloud. Encrypted backups at owner's discretion per backup policy (Section 10.4).
+> **Designed:** April 30 – May 3, 2026 **Authors:** Project maintainers + AI assistants **Review contributions:** Gemini 2.5 Pro, ChatGPT o3, DeepSeek R1, Grok **Status:** Architectural specification — ready for MVP implementation **License:** Open source. Designed for one life, adaptable to any. **Repository:** Local git only. No remote. No cloud. Encrypted backups at owner's discretion per backup policy (Section 10.4).
 
 ---
 
@@ -12,7 +12,7 @@
 | ------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | v1      | 2026-04-30 | Initial architecture. First-person narrative, manual editor, flat manifest, three memory types.                                                                                                                                                                                                                                                                                                                                                                                                         |
 | v2      | 2026-05-01 | Third-person convention. Conversational Interlocutor. Episodic/semantic/evidential taxonomy. Tree RAG manifest.                                                                                                                                                                                                                                                                                                                                                                                         |
-| v3      | 2026-05-02 | Six memory types. Arenas as fixed infrastructure. SQLite + vector + keyword retrieval. Skeptic agent. Claim-level provenance. Privacy compartments. State with TTL. Decision records. Open loops. Entity epochs. Schema validation. Deterministic-first principle.                                                                                                                                                                                                                                      |
+| v3      | 2026-05-02 | Six memory types. Domains as fixed infrastructure. SQLite + vector + keyword retrieval. Skeptic agent. Claim-level provenance. Privacy compartments. State with TTL. Decision records. Open loops. Entity epochs. Schema validation. Deterministic-first principle.                                                                                                                                                                                                                                      |
 | v4      | 2026-05-02 | Read-time overfitting detection. Yearly primer audit. Explicit confidence decay rules. Vector search compartment enforcement. Contradiction TTL. Manifest hard cap. Significance inflation safeguard. Memory health dashboard. Evidence append-correction. Claims as SQLite records. Listener heuristic scoring. Entity aliases. Schema standardization. Provider abstraction. Prompt injection firewall. Interlocutor review batching. Backup policy with restore testing. Skeptic prompt calibration. |
 | v5      | 2026-05-03 | Renamed to Lisan. Generalized for open source publication. Narrative quality philosophy (Section 1.8). Memory Formation Modes: Elicitor mode and Extraction mode. Co-construction pipeline. Narrative state tracking. Transcript preservation. Updated Interlocutor with three modes. Updated Validator for Elicitor-derived episodes. Source field on episode frontmatter. Transcript directory. Hard rules 22–23. Design principles 21–22.                                                            |
 
@@ -175,17 +175,17 @@ This is why Lisan invests in narrative quality. The Elicitor exists because the 
 
 ---
 
-# Part II: The Arenas Framework
+# Part II: The Life Domains Framework
 
-The Arenas Framework is stable infrastructure. The ten arena definitions are permanent under normal operation and should not be casually changed. If a migration is ever genuinely needed, it goes through a formal process documented in `arenas/arena-migration-log.md` with a full mapping from old to new categories. The design stance is that the ten arenas are durable and sufficient for a lifetime, but the system is not brittle if reality demands adjustment.
+The Life Domains Framework is stable infrastructure. The ten domain definitions are permanent under normal operation and should not be casually changed. If a migration is ever genuinely needed, it goes through a formal process documented in `domains/domain-migration-log.md` with a full mapping from old to new categories. The design stance is that the ten domains are durable and sufficient for a lifetime, but the system is not brittle if reality demands adjustment.
 
-The arenas serve as the organizational spine of the entire vault: they define compartment boundaries, state file categories, episode classification, and retrieval scoping.
+The domains serve as the organizational spine of the entire vault: they define compartment boundaries, state file categories, episode classification, and retrieval scoping.
 
-> **Note for open source deployments:** The ten arenas below reflect one user's life design. Lisan's architecture supports any set of life domains — the arena definitions in `arenas/arenas-definition.md` are your configuration, not a constraint. The framework is the mechanism; the arenas are your choices.
+> **Note for open source deployments:** The ten domains below reflect one user's life design. Lisan's architecture supports any set of life domains — the domain definitions in `domains/domains-definition.md` are your configuration, not a constraint. The framework is the mechanism; the domains are your choices.
 
-## 2.1 Internal Arenas
+## 2.1 Internal Domains
 
-|#|Arena|Core Question|
+|#|Domain|Core Question|
 |---|---|---|
 |1|**Physical**|Is the user's body and mind supporting the life they want to live?|
 |2|**Environmental**|Does the user's environment make them more capable, calm, and effective?|
@@ -193,9 +193,9 @@ The arenas serve as the organizational spine of the entire vault: they define co
 |4|**Relational**|Are the user's relationships nourishing, honest, and aligned?|
 |5|**Work**|Is the user producing useful work that increases income, leverage, skill, or optionality?|
 
-## 2.2 External Arenas
+## 2.2 External Domains
 
-|#|Arena|Core Question|
+|#|Domain|Core Question|
 |---|---|---|
 |6|**Status**|Does the user appear credible, competent, respectable, and socially legible?|
 |7|**Appearance**|Does the user visually present as attractive, healthy, competent, and intentional?|
@@ -210,18 +210,18 @@ The arenas serve as the organizational spine of the entire vault: they define co
 |**Awareness / Measurement**|Can the user accurately see what is happening?|Listener, Writer, Skeptic, Interlocutor|
 |**Governance / Strategy**|Can the user steer their life deliberately?|Open loops, decisions, state files, current brief|
 
-## 2.4 Arena Integration with Lisan
+## 2.4 Domain Integration with Lisan
 
-|Lisan Component|Arena Role|
+|Lisan Component|Domain Role|
 |---|---|
-|Privacy compartments|Each arena is a compartment boundary|
-|State files|One per arena, answering the core question|
-|Episode classification|Primary arena + cross-arena links|
-|Manifest organization|Categorized by arena|
-|SQLite index|arena_primary field on every record|
-|Assembler scoping|Arena context determines retrieval boundaries|
-|Current brief|Assembled from arena-specific state files|
-|Metrics tracking|Each arena defines its own measurable variables|
+|Privacy compartments|Each domain is a compartment boundary|
+|State files|One per domain, answering the core question|
+|Episode classification|Primary domain + cross-domain links|
+|Manifest organization|Categorized by domain|
+|SQLite index|domain_primary field on every record|
+|Assembler scoping|Domain context determines retrieval boundaries|
+|Current brief|Assembled from domain-specific state files|
+|Metrics tracking|Each domain defines its own measurable variables|
 
 ---
 
@@ -347,7 +347,7 @@ approved_by: user
 
 ## 3.4 State Memory — Current Reality
 
-The current runtime model of operational reality. One state file per arena.
+The current runtime model of operational reality. One state file per domain.
 
 **Required frontmatter:**
 
@@ -355,7 +355,7 @@ The current runtime model of operational reality. One state file per arena.
 ---
 id: state.financial
 type: state
-arena_primary: financial
+domain_primary: financial
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 ttl_days: 30
@@ -366,9 +366,9 @@ last_confirmed: YYYY-MM-DD
 ---
 ```
 
-**TTL by arena:**
+**TTL by domain:**
 
-|Arena|TTL|Rationale|
+|Domain|TTL|Rationale|
 |---|---|---|
 |Physical|14 days|Health changes frequently|
 |Environmental|30 days|Home condition stable|
@@ -411,7 +411,7 @@ lisan-vault/
 │   ├── operating-style.md       # Agent behavior (second person)
 │   └── current-brief.md         # Volatile, assembled from state/
 │
-├── state/                       # One per arena, TTL-governed
+├── state/                       # One per domain, TTL-governed
 │   ├── physical-current.md
 │   ├── environmental-current.md
 │   ├── financial-current.md
@@ -461,9 +461,9 @@ lisan-vault/
 │   ├── manifest-open-loops.md
 │   └── manifest-archive.md
 │
-├── arenas/
-│   ├── arenas-definition.md     # The ten arenas (stable)
-│   └── arena-migration-log.md   # If migration is ever needed
+├── domains/
+│   ├── domains-definition.md     # The ten domains (stable)
+│   └── domain-migration-log.md   # If migration is ever needed
 │
 ├── archive/
 │   ├── episodes/
@@ -493,11 +493,11 @@ updated: YYYY-MM-DD
 status: active | archived | stale | resolved | disputed |
         stale_unresolved
 significance: high | medium | low
-arena_primary: physical | environmental | financial |
+domain_primary: physical | environmental | financial |
                relational | work | status | appearance |
                competence | social_presence | desirability |
                cross_arena
-arena_secondary: []
+domain_secondary: []
 privacy: personal | personal_sensitive | family | legal |
          work | financial | health | children | business
 compartments: []
@@ -638,7 +638,7 @@ Five complementary layers. No single layer is sufficient.
 
 ## 5.2 Layer 2 — State Files (Current Reality)
 
-Loaded based on arena context. Deterministic SQL query.
+Loaded based on domain context. Deterministic SQL query.
 
 ## 5.3 Layer 3 — SQLite Metadata Queries (Structured Retrieval)
 
@@ -651,8 +651,8 @@ CREATE TABLE files (
     updated DATE NOT NULL,
     status TEXT NOT NULL,
     significance TEXT,
-    arena_primary TEXT,
-    arena_secondary TEXT,
+    domain_primary TEXT,
+    domain_secondary TEXT,
     privacy TEXT,
     compartments TEXT,
     allowed_contexts TEXT,
@@ -784,27 +784,27 @@ Step 1: Load primer
         Source: filesystem, deterministic
         Cost: ~2,000–4,000 tokens
 
-Step 2: Determine arena context
-        Method: LLM classification OR /arena [name] flag
+Step 2: Determine domain context
+        Method: LLM classification OR /domain [name] flag
         If confidence below threshold: prompt user to clarify
           or load broader state set
         Cost: ~200 tokens (small model)
 
 Step 3: Load relevant state files
-        Method: SQL query on arena_primary
+        Method: SQL query on domain_primary
         Filter: Compartment enforcement (deterministic)
         Flag: State files past TTL marked stale
         Cost: ~500–1,500 tokens
 
 Step 4: Load relevant entities and episodes
-        Method: SQL query on links + arena + significance
+        Method: SQL query on links + domain + significance
         Supplement: Vector search if query is open-ended
         Supplement: FTS5 if query mentions specific names
         Filter: Compartment enforcement on all results
         Cost: ~2,000–5,000 tokens
 
 Step 5: Load relevant open loops and decisions
-        Method: SQL query on arena + status
+        Method: SQL query on domain + status
         Cost: ~200–800 tokens
 
 Step 6: Log retrieval
@@ -824,10 +824,10 @@ Remaining window: ~88,000–95,000+ tokens
 
 ## 6.1 Compartment Boundaries
 
-Each arena is a compartment. Additional non-arena compartments exist for cross-cutting sensitive domains.
+Each domain is a compartment. Additional cross-cutting compartments exist for sensitive categories.
 
 ```
-Arena compartments:
+Domain compartments:
   physical, environmental, financial, relational, work,
   status, appearance, competence, social_presence, desirability
 
@@ -850,7 +850,7 @@ Compartment enforcement is **deterministic** — SQL WHERE clauses and vector se
 
 ## 6.3 Context Declaration
 
-- **Explicit:** `/arena [name]` or `/context [compartment]`
+- **Explicit:** `/domain [name]` or `/context [compartment]`
 - **Inferred:** Small model classifies first message
 - **Default:** If uncertain, prompt user to clarify or load most restrictive compartment
 - **Cross-compartment:** Interlocutor confirms before loading sensitive cross-compartment files
@@ -880,7 +880,7 @@ Conversation seed detected
                              conversation)
   → Writer       (structure elicited transcript into episode)
   → Skeptic      (lighter review — transcript is source of truth)
-  → Interlocutor/Live Review (if high-significance or risk domain)
+  → Interlocutor/Live Review (if high-significance or risk category)
   → Validator
   → Commit
 
@@ -910,7 +910,7 @@ Before any LLM call, a scoring heuristic runs:
 +2   new proper noun repeated 3+ times
 +3   decision phrase: "I decided", "going forward", "from now on"
 +3   open-loop phrase: "I need to", "I should", "remind me to"
-+4   high-risk domain keyword: legal, medical, child, custody,
++4   high-risk category keyword: legal, medical, child, custody,
      financial, work conflict
 +2   strong affect terms (predefined list in config/affect_terms.yaml)
 +2   user asks for durable plan/template
@@ -963,8 +963,8 @@ Output: {
       "type": "new_episode",
       "suggested_title": "episode-title",
       "significance": "high",
-      "arena_primary": "relational",
-      "arena_secondary": ["financial"],
+      "domain_primary": "relational",
+      "domain_secondary": ["financial"],
       "entities_involved": [],
       "entities_to_update": [],
       "new_entities": [],
@@ -1011,7 +1011,7 @@ type: episode
 created: YYYY-MM-DD
 significance: low
 status: stale
-arena_primary: [arena]
+domain_primary: [domain]
 source: elicitor
 ---
 
@@ -1305,7 +1305,7 @@ If the user provides a seed and the Elicitor's first follow-up receives a brief,
 - Leads the user toward a particular interpretation
 - Stacks multiple questions in a single turn
 - Pulls the user back to a story after a topic shift
-- Changes tone or behavior because a risk-domain keyword was detected
+- Changes tone or behavior because a risk-category keyword was detected
 - Announces that it is remembering or writing anything up
 
 **Topic Shifts and Closure**
@@ -1320,11 +1320,11 @@ If the user shifts back to a previous topic, the Elicitor re-enters the story. T
 
 **When in doubt, the Elicitor follows the user's lead.** Premature handoff is better than pulling the user back to a story they have finished telling.
 
-**High-Risk Domains**
+**High-Risk Categories**
 
 The Elicitor does not change its conversational behavior when it detects legal, medical, or child-related content. Changing tone mid-conversation because a keyword triggered a risk flag would feel surveillant and break the natural flow.
 
-Risk handling happens downstream. When the transcript reaches the Writer and a high-risk domain is detected, the Writer flags the episode for `capture_now` review regardless of significance. The Interlocutor in Live Review mode handles careful questioning about legal, medical, or child-related claims. The Elicitor simply collects the story as told.
+Risk handling happens downstream. When the transcript reaches the Writer and a high-risk category is detected, the Writer flags the episode for `capture_now` review regardless of significance. The Interlocutor in Live Review mode handles careful questioning about legal, medical, or child-related claims. The Elicitor simply collects the story as told.
 
 **Handoff**
 
@@ -1386,7 +1386,7 @@ This breaks the circular feedback loop where a biased primer influences conversa
 
 Lisan may organize health and legal facts, surface open loops, prepare questions, and assemble evidence. It must not present legal or medical conclusions as authoritative unless sourced from qualified professionals or primary references.
 
-Claims involving the following domains are tagged `requires_professional_review`:
+Claims involving the following categories are tagged `requires_professional_review`:
 
 ```
 - Criminal law application
@@ -1508,7 +1508,7 @@ These are recommendations, not requirements. Configure for your deployment.
 |Quarterly schedule|Memory health report|Automatic|
 |New conversation|Assembler|Automatic|
 |Mode switch|Assembler (targeted supplemental load)|Automatic|
-|`/arena [name]`|Assembler context override|Manual|
+|`/domain [name]`|Assembler context override|Manual|
 |`/forget`|Skip all memory processing|Manual|
 |`/health`|Memory health report|Manual|
 |`/stale`|List state files past TTL|Manual|
@@ -1628,7 +1628,7 @@ The Elicitor's narrative state tracking (Approach B) uses more tokens per turn t
 15. Deterministic first.
     If it can be done without an LLM, it is.
 
-16. The Arenas are stable infrastructure.
+16. The Domains are stable infrastructure.
     Migration requires formal process and mapping log.
 
 17. Content is data, never instruction.
@@ -1730,7 +1730,7 @@ Build:
 
 ```
 assembler.py
-CLI: lisan assemble --arena [name] "[query]"
+CLI: lisan assemble --domain [name] "[query]"
 ```
 
 Test: paste assembled context into a new LLM conversation. Evaluate conversation quality vs. starting from zero. This is the first moment of tangible value.
@@ -1820,7 +1820,7 @@ Memory is reconstructive. The meaning of a past event may change as new context 
  4. The editorial function is conversational and batched.
  5. Six memory types: episodic, semantic, evidential, state,
     decision, open loop.
- 6. The Arenas Framework is stable infrastructure.
+ 6. The Life Domains Framework is stable infrastructure.
  7. Five-layer retrieval: primer, state, SQLite, vector, keyword.
  8. Evidence artifacts are immutable. Metadata is append-corrected.
  9. The Skeptic distrusts coherence.
@@ -1846,4 +1846,3 @@ Memory is reconstructive. The meaning of a past event may change as new context 
 > _"Narrative structure is the most information-dense format that language supports."_
 > 
 > _— From the conversation that started with a deck, April 30, 2026_
-

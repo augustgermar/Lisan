@@ -7,6 +7,7 @@ from typing import Any
 
 from ..frontmatter import FrontmatterError, load_markdown
 from ..paths import vault_root
+from .domain_fields import normalize_domain_fields
 from ..tools.common import iter_markdown_files, parse_date
 
 
@@ -20,7 +21,7 @@ def generate_manifests(vault: Path | None = None, write: bool = True) -> dict[st
             doc = load_markdown(path)
         except FrontmatterError:
             continue
-        fm = doc.frontmatter
+        fm = normalize_domain_fields(doc.frontmatter)
         if not fm:
             continue
         records.append(
@@ -29,7 +30,7 @@ def generate_manifests(vault: Path | None = None, write: bool = True) -> dict[st
                 "type": str(fm.get("type", "")),
                 "status": str(fm.get("status", "")),
                 "significance": str(fm.get("significance", "")),
-                "arena_primary": str(fm.get("arena_primary", "")),
+                "domain_primary": str(fm.get("domain_primary", "")),
                 "summary": str(fm.get("summary", "")),
                 "created": str(fm.get("created", "")),
                 "updated": str(fm.get("updated", "")),
@@ -122,4 +123,3 @@ def main(argv: list[str] | None = None) -> int:
     generate_manifests(write=True)
     print("Manifests generated.")
     return 0
-

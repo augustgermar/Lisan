@@ -6,6 +6,7 @@ from typing import Any
 
 from ..frontmatter import load_markdown, write_markdown
 from ..utils import slugify, today_iso
+from .domain_fields import with_domain_fields
 
 
 ENTITY_DIRS = {
@@ -47,8 +48,8 @@ def new_entity(
     vault: Path,
     name: str,
     subtype: str = "person",
-    arena_primary: str = "cross_arena",
-    arena_secondary: list[str] | None = None,
+    domain_primary: str = "cross_arena",
+    domain_secondary: list[str] | None = None,
     privacy: str = "personal",
     significance: str = "low",
     summary: str | None = None,
@@ -84,8 +85,8 @@ def new_entity(
         "updated": today,
         "status": "active",
         "significance": significance,
-        "arena_primary": arena_primary,
-        "arena_secondary": arena_secondary or [],
+        "domain_primary": domain_primary,
+        "domain_secondary": domain_secondary or [],
         "privacy": privacy,
         "compartments": compartments or [],
         "allowed_contexts": allowed_contexts or ["all"],
@@ -106,7 +107,7 @@ def new_entity(
     }
     body_summary = summary or f"{canonical_name or name} is a {subtype}."
     body = f"# {canonical_name or name}\n\n{body_summary}\n"
-    write_markdown(path, frontmatter, body)
+    write_markdown(path, with_domain_fields(frontmatter), body)
     return CreatedRecord(path=path, created=True)
 
 
@@ -114,8 +115,8 @@ def new_knowledge(
     vault: Path,
     title: str,
     category: str = "frameworks",
-    arena_primary: str = "cross_arena",
-    arena_secondary: list[str] | None = None,
+    domain_primary: str = "cross_arena",
+    domain_secondary: list[str] | None = None,
     privacy: str = "personal",
     significance: str = "low",
     summary: str | None = None,
@@ -140,8 +141,8 @@ def new_knowledge(
         "updated": today,
         "status": "active",
         "significance": significance,
-        "arena_primary": arena_primary,
-        "arena_secondary": arena_secondary or [],
+        "domain_primary": domain_primary,
+        "domain_secondary": domain_secondary or [],
         "privacy": privacy,
         "compartments": [],
         "allowed_contexts": ["all"],
@@ -154,15 +155,15 @@ def new_knowledge(
         "review_after": review_after or today,
     }
     body = f"# {title}\n\nKnowledge entry created from the CLI.\n"
-    write_markdown(path, frontmatter, body)
+    write_markdown(path, with_domain_fields(frontmatter), body)
     return CreatedRecord(path=path, created=True)
 
 
 def new_episode(
     vault: Path,
     title: str,
-    arena_primary: str = "cross_arena",
-    arena_secondary: list[str] | None = None,
+    domain_primary: str = "cross_arena",
+    domain_secondary: list[str] | None = None,
     privacy: str = "personal",
     significance: str = "low",
     source: str = "manual",
@@ -190,8 +191,8 @@ def new_episode(
         "updated": today,
         "status": "active",
         "significance": significance,
-        "arena_primary": arena_primary,
-        "arena_secondary": arena_secondary or [],
+        "domain_primary": domain_primary,
+        "domain_secondary": domain_secondary or [],
         "privacy": privacy,
         "compartments": [],
         "allowed_contexts": ["all"],
@@ -209,15 +210,15 @@ def new_episode(
         "source": source,
     }
     body = _episode_body(title, claims_required=significance == "high")
-    write_markdown(path, frontmatter, body)
+    write_markdown(path, with_domain_fields(frontmatter), body)
     return CreatedRecord(path=path, created=True)
 
 
 def new_decision(
     vault: Path,
     title: str,
-    arena_primary: str = "cross_arena",
-    arena_secondary: list[str] | None = None,
+    domain_primary: str = "cross_arena",
+    domain_secondary: list[str] | None = None,
     privacy: str = "personal",
     significance: str = "low",
     summary: str | None = None,
@@ -243,8 +244,8 @@ def new_decision(
         "updated": today,
         "status": "active",
         "significance": significance,
-        "arena_primary": arena_primary,
-        "arena_secondary": arena_secondary or [],
+        "domain_primary": domain_primary,
+        "domain_secondary": domain_secondary or [],
         "privacy": privacy,
         "compartments": [],
         "allowed_contexts": ["all"],
@@ -276,15 +277,15 @@ def new_decision(
 
 {revisit}
 """
-    write_markdown(path, frontmatter, body)
+    write_markdown(path, with_domain_fields(frontmatter), body)
     return CreatedRecord(path=path, created=True)
 
 
 def new_open_loop(
     vault: Path,
     title: str,
-    arena_primary: str = "cross_arena",
-    arena_secondary: list[str] | None = None,
+    domain_primary: str = "cross_arena",
+    domain_secondary: list[str] | None = None,
     privacy: str = "personal",
     significance: str = "low",
     summary: str | None = None,
@@ -311,8 +312,8 @@ def new_open_loop(
         "updated": today,
         "status": "active",
         "significance": significance,
-        "arena_primary": arena_primary,
-        "arena_secondary": arena_secondary or [],
+        "domain_primary": domain_primary,
+        "domain_secondary": domain_secondary or [],
         "privacy": privacy,
         "compartments": [],
         "allowed_contexts": ["all"],
@@ -329,15 +330,15 @@ def new_open_loop(
         "blocked_by": blocked_by,
     }
     body = f"# {title}\n\n## Next Action\n\n{next_action}\n"
-    write_markdown(path, frontmatter, body)
+    write_markdown(path, with_domain_fields(frontmatter), body)
     return CreatedRecord(path=path, created=True)
 
 
 def new_state(
     vault: Path,
-    arena_primary: str,
+    state_category: str,
     summary: str,
-    arena_secondary: list[str] | None = None,
+    state_secondary: list[str] | None = None,
     privacy: str = "personal",
     confidence: str = "low",
     confidence_basis: str = "User-authored placeholder",
@@ -347,24 +348,24 @@ def new_state(
     ttl_days: int | None = None,
 ) -> CreatedRecord:
     today = today_iso()
-    if arena_primary not in STATE_TTLS:
-        raise ValueError(f"Unsupported state arena: {arena_primary}")
-    path = vault / "state" / f"{arena_primary}-current.md"
+    if state_category not in STATE_TTLS:
+        raise ValueError(f"Unsupported state category: {state_category}")
+    path = vault / "state" / f"{state_category}-current.md"
     if path.exists():
         raise FileExistsError(path)
 
     frontmatter = {
-        "id": f"state.{arena_primary}",
+        "id": f"state.{state_category}",
         "type": "state",
         "created": today,
         "updated": today,
         "status": "active",
-        "significance": "medium" if arena_primary in {"physical", "financial", "relational", "work"} else "low",
-        "arena_primary": arena_primary,
-        "arena_secondary": arena_secondary or [],
+        "significance": "medium" if state_category in {"physical", "financial", "relational", "work"} else "low",
+        "domain_primary": state_category,
+        "domain_secondary": state_secondary or [],
         "privacy": privacy,
-        "compartments": [arena_primary] if arena_primary != "status" else ["agent_design"],
-        "allowed_contexts": [arena_primary],
+        "compartments": [state_category] if state_category != "status" else ["agent_design"],
+        "allowed_contexts": [state_category],
         "blocked_contexts": [],
         "summary": summary,
         "links": [],
@@ -372,19 +373,19 @@ def new_state(
         "confidence_basis": confidence_basis,
         "last_confirmed": last_confirmed or today,
         "review_after": review_after or today,
-        "ttl_days": ttl_days or STATE_TTLS[arena_primary],
+        "ttl_days": ttl_days or STATE_TTLS[state_category],
         "sources": sources or [],
     }
-    body = f"# {arena_primary.title()} State\n\n{summary}\n"
-    write_markdown(path, frontmatter, body)
+    body = f"# {state_category.title()} State\n\n{summary}\n"
+    write_markdown(path, with_domain_fields(frontmatter), body)
     return CreatedRecord(path=path, created=True)
 
 
 def upsert_state(
     vault: Path,
-    arena_primary: str,
+    state_category: str,
     summary: str,
-    arena_secondary: list[str] | None = None,
+    state_secondary: list[str] | None = None,
     privacy: str = "personal",
     confidence: str = "low",
     confidence_basis: str = "User-authored placeholder",
@@ -394,21 +395,21 @@ def upsert_state(
     ttl_days: int | None = None,
 ) -> CreatedRecord:
     today = today_iso()
-    if arena_primary not in STATE_TTLS:
-        raise ValueError(f"Unsupported state arena: {arena_primary}")
-    path = vault / "state" / f"{arena_primary}-current.md"
+    if state_category not in STATE_TTLS:
+        raise ValueError(f"Unsupported state category: {state_category}")
+    path = vault / "state" / f"{state_category}-current.md"
     frontmatter = {
-        "id": f"state.{arena_primary}",
+        "id": f"state.{state_category}",
         "type": "state",
         "created": today,
         "updated": today,
         "status": "active",
-        "significance": "medium" if arena_primary in {"physical", "financial", "relational", "work"} else "low",
-        "arena_primary": arena_primary,
-        "arena_secondary": arena_secondary or [],
+        "significance": "medium" if state_category in {"physical", "financial", "relational", "work"} else "low",
+        "domain_primary": state_category,
+        "domain_secondary": state_secondary or [],
         "privacy": privacy,
-        "compartments": [arena_primary] if arena_primary != "status" else ["agent_design"],
-        "allowed_contexts": [arena_primary],
+        "compartments": [state_category] if state_category != "status" else ["agent_design"],
+        "allowed_contexts": [state_category],
         "blocked_contexts": [],
         "summary": summary,
         "links": [],
@@ -416,11 +417,11 @@ def upsert_state(
         "confidence_basis": confidence_basis,
         "last_confirmed": last_confirmed or today,
         "review_after": review_after or today,
-        "ttl_days": ttl_days or STATE_TTLS[arena_primary],
+        "ttl_days": ttl_days or STATE_TTLS[state_category],
         "sources": sources or [],
     }
-    body = f"# {arena_primary.title()} State\n\n{summary}\n"
-    write_markdown(path, frontmatter, body)
+    body = f"# {state_category.title()} State\n\n{summary}\n"
+    write_markdown(path, with_domain_fields(frontmatter), body)
     return CreatedRecord(path=path, created=True)
 
 
@@ -428,8 +429,8 @@ def new_evidence(
     vault: Path,
     title: str,
     subtype: str = "document",
-    arena_primary: str = "cross_arena",
-    arena_secondary: list[str] | None = None,
+    domain_primary: str = "cross_arena",
+    domain_secondary: list[str] | None = None,
     privacy: str = "personal",
     significance: str = "low",
     summary: str | None = None,
@@ -458,8 +459,8 @@ def new_evidence(
         "updated": today,
         "status": "active",
         "significance": significance,
-        "arena_primary": arena_primary,
-        "arena_secondary": arena_secondary or [],
+        "domain_primary": domain_primary,
+        "domain_secondary": domain_secondary or [],
         "privacy": privacy,
         "compartments": [],
         "allowed_contexts": ["all"],
@@ -476,7 +477,7 @@ def new_evidence(
         "corrections": corrections or [],
     }
     body = f"# {title}\n\nEvidence record for {title}.\n"
-    write_markdown(record_path, frontmatter, body)
+    write_markdown(record_path, with_domain_fields(frontmatter), body)
     return CreatedRecord(path=record_path, created=True)
 
 
@@ -509,7 +510,7 @@ def new_evidence_correction(
         "approved_by": approved_by,
     }
     body = f"# Evidence Correction\n\nCorrection for `{evidence_record_path.stem}`.\n"
-    write_markdown(path, frontmatter, body)
+    write_markdown(path, with_domain_fields(frontmatter), body)
     return CreatedRecord(path=path, created=True)
 
 

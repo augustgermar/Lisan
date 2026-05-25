@@ -19,7 +19,7 @@ The working system now includes:
 - Memory type routing: Listener classifies input as episode, decision, open_loop, state, knowledge, or entity; Writer selects the correct specialist prompt automatically
 - Open loop fan-out: Writer output `open_loops_to_create` is materialized as immediate vault records (open loops are always capture_now)
 - Decision fan-out: Writer output `decisions_to_create` materializes decision records in both extraction and elicitor pipelines
-- State update fan-out: Writer output `state_updates` is applied to arena state files immediately after each conversation turn
+- State update fan-out: Writer output `state_updates` is applied to life-domain state files immediately after each conversation turn
 - Entity stub fan-out: Writer output `entities_to_create` creates entity stubs with conversation-sourced summaries
 - Direct advice responses for non-memory questions in chat, with vault context loaded so personal recall questions ("how many cats do I have?") are answered from stored records
 - First-run onboarding flow: blank primer detection triggers a short Q&A that populates `identity.md` and `operating-style.md`
@@ -39,7 +39,7 @@ The working system now includes:
 - Active contradiction injection into assembled context (spec §10.3)
 - `/remember` and `/forget` prefix stripping before transcript and agent calls
 - `/logs [N]` command in interactive chat
-- `/arena [name]` command to override retrieval arena for the current session (empty to clear)
+- `/domain [name]` command to override retrieval domain for the current session (legacy `/arena` still works)
 
 The repo is usable as a local memory vault CLI now. Most remaining work is refinement, prompt calibration, and optional automation, not core plumbing.
 
@@ -64,7 +64,7 @@ That keeps your personal memories, transcripts, drafts, and reports outside the 
 For a fresh checkout:
 
 ```bash
-cd /Users/august/Code/Lisan
+cd /path/to/Lisan
 export LISAN_VAULT="$HOME/Library/Application Support/Lisan/vault"
 python3 -m lisan init
 python3 -m lisan sync
@@ -115,7 +115,8 @@ The architecture is intentionally deterministic-first. If a feature can be done 
 
 - `lisan-vault/`: checked-in seed vault content used when `LISAN_VAULT` is unset
 - `lisan-vault/primer/`: identity, operating style, and current brief
-- `lisan-vault/state/`: per-arena state files
+- `lisan-vault/state/`: per-domain state files
+- `lisan-vault/domains/`: domain definitions and migration notes
 - `lisan-vault/entities/`: entity records
 - `lisan-vault/episodes/`: episode records
 - `lisan-vault/knowledge/`: durable knowledge records
@@ -143,8 +144,8 @@ Required universal frontmatter fields:
 - `updated`
 - `status`
 - `significance`
-- `arena_primary`
-- `arena_secondary`
+- `domain_primary` (mirrors legacy `arena_primary` during migration)
+- `domain_secondary` (mirrors legacy `arena_secondary` during migration)
 - `privacy`
 - `compartments`
 - `allowed_contexts`
@@ -192,12 +193,12 @@ The validator enforces field presence, enum values, frontmatter/body consistency
 
 It does all of the following:
 
-- Infers arena context from the query when not explicitly provided
+- Infers domain context from the query when not explicitly provided
 - Loads primer files
-- Reads active state files for the selected arena
+- Reads active state files for the selected domain
 - Applies compartment gating before load
 - Scores candidates with:
-  - arena match
+  - domain match
   - type priors
   - keyword overlap
   - FTS hits
@@ -213,7 +214,7 @@ Compartment enforcement is deterministic:
 - `allowed_contexts` and `blocked_contexts` are checked in retrieval
 - `compartments` are treated as boundaries
 - Cross-compartment leakage is logged and rejected
-- State files can carry arena-specific compartments
+- State files can carry domain-specific compartments
 
 ## Capture Pipeline
 
@@ -292,7 +293,7 @@ Writer output also drives three fan-out actions applied immediately after each p
 
 - `entities_to_create` → entity stub records with conversation-sourced summaries
 - `open_loops_to_create` → open loop records (always captured immediately per spec)
-- `state_updates` → arena state file upserts
+- `state_updates` → life-domain state file upserts
 
 ### Skeptic
 
@@ -460,7 +461,7 @@ Provider and prompt inspection:
 python3 -m lisan prompts
 python3 -m lisan agent advice "What can I make with tuna, pasta, celery, and mayo?"
 python3 -m lisan prompt show writer_episode_v1
-python3 -m lisan agent assembler "Need context for the work arena"
+python3 -m lisan agent assembler "Need context for the work domain"
 python3 -m lisan agent listener "forget this"
 python3 -m lisan agent writer --task questions --dry-run "What should I ask next?"
 python3 -m lisan agent dreamer --task primer --dry-run "Build the yearly primer"

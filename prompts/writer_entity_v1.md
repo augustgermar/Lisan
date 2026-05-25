@@ -23,4 +23,4 @@ Return JSON with:
 - `questions`: array of clarifying questions (0-3, focused on identity disambiguation)
 - `significance_rationale`: why this significance level was chosen
 - `entities_to_create`: array — may include this entity plus others mentioned in the same input
-- `state_updates`: array — if introducing this entity changes arena state (e.g. "I have two cats" → environmental state)
+- `state_updates`: array — if introducing this entity changes life-domain state (e.g. "I have two cats" → environmental state)

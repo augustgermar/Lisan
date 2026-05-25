@@ -153,7 +153,7 @@ def run_chat(
     advice_history: list[dict[str, str]] = []
     advice_context_active = False
     advice_topic: str | None = None
-    arena_override: str | None = None
+    domain_override: str | None = None
 
     while True:
         try:
@@ -204,14 +204,14 @@ def run_chat(
             print()
             continue
 
-        if lowered.startswith("/arena"):
+        if lowered.startswith("/domain") or lowered.startswith("/arena"):
             parts = raw.split(maxsplit=1)
             if len(parts) > 1:
-                arena_override = parts[1].strip().lower() or None
-                print(_c(f"  Arena context set to: {arena_override}", DIM))
+                domain_override = parts[1].strip().lower() or None
+                print(_c(f"  Domain context set to: {domain_override}", DIM))
             else:
-                arena_override = None
-                print(_c("  Arena context cleared (auto-detect)", DIM))
+                domain_override = None
+                print(_c("  Domain context cleared (auto-detect)", DIM))
             print()
             continue
 
@@ -273,8 +273,9 @@ def run_chat(
                 continue
 
         effective_policy = dict(policy.as_dict())
-        if arena_override:
-            effective_policy["arena_override"] = arena_override
+        if domain_override:
+            effective_policy["domain_override"] = domain_override
+            effective_policy["arena_override"] = domain_override
 
         try:
             result = _run_with_thinking_indicator(
@@ -347,7 +348,7 @@ def _print_help() -> None:
     print(_c("  /status     re-run system health check", DIM))
     print(_c("  /id         show the current conversation ID", DIM))
     print(_c("  /logs [N]   show last N log lines (default 20)", DIM))
-    print(_c("  /arena [name]  override retrieval arena (empty to clear)", DIM))
+    print(_c("  /domain [name] override retrieval domain (legacy /arena)", DIM))
     print(_c("  /help       show this message", DIM))
     print(_c("  /quit       exit", DIM))
     print()

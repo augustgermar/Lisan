@@ -10,6 +10,7 @@ from typing import Any
 
 from ..frontmatter import FrontmatterError, load_markdown
 from ..paths import embeddings_path, repo_root, sqlite_path, vault_root
+from .domain_fields import normalize_domain_fields
 from ..tools.common import iter_markdown_files, parse_date
 from ..utils import hash_embedding
 
@@ -23,8 +24,8 @@ CREATE TABLE IF NOT EXISTS files (
     updated DATE NOT NULL,
     status TEXT NOT NULL,
     significance TEXT,
-    arena_primary TEXT,
-    arena_secondary TEXT,
+    domain_primary TEXT,
+    domain_secondary TEXT,
     privacy TEXT,
     compartments TEXT,
     allowed_contexts TEXT,
@@ -81,7 +82,7 @@ CREATE TABLE IF NOT EXISTS retrieval_log (
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
     conversation_id TEXT,
     user_query TEXT,
-    arena_context TEXT,
+    domain_context TEXT,
     classification_confidence REAL,
     files_loaded TEXT,
     files_rejected TEXT,
@@ -135,7 +136,7 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
                 doc = load_markdown(path)
             except FrontmatterError:
                 continue
-            fm = doc.frontmatter
+            fm = normalize_domain_fields(doc.frontmatter)
             file_type = str(fm.get("type", ""))
             file_id = str(fm.get("id", ""))
             if not file_id or not file_type:
@@ -153,8 +154,8 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
                 "updated": str(fm.get("updated", "")),
                 "status": str(fm.get("status", "")),
                 "significance": str(fm.get("significance", "")),
-                "arena_primary": str(fm.get("arena_primary", "")),
-                "arena_secondary": json.dumps(fm.get("arena_secondary", [])),
+                "domain_primary": str(fm.get("domain_primary", fm.get("arena_primary", ""))),
+                "domain_secondary": json.dumps(fm.get("domain_secondary", fm.get("arena_secondary", []))),
                 "privacy": str(fm.get("privacy", "")),
                 "compartments": json.dumps(fm.get("compartments", [])),
                 "allowed_contexts": json.dumps(fm.get("allowed_contexts", [])),
@@ -172,13 +173,13 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
             conn.execute(
                 """
                 INSERT INTO files (
-                    id, type, path, created, updated, status, significance, arena_primary,
-                    arena_secondary, privacy, compartments, allowed_contexts, blocked_contexts,
+                    id, type, path, created, updated, status, significance, domain_primary,
+                    domain_secondary, privacy, compartments, allowed_contexts, blocked_contexts,
                     confidence, confidence_basis, last_confirmed, review_after, summary,
                     content_hash, word_count, token_count_approx
                 ) VALUES (
-                    :id, :type, :path, :created, :updated, :status, :significance, :arena_primary,
-                    :arena_secondary, :privacy, :compartments, :allowed_contexts, :blocked_contexts,
+                    :id, :type, :path, :created, :updated, :status, :significance, :domain_primary,
+                    :domain_secondary, :privacy, :compartments, :allowed_contexts, :blocked_contexts,
                     :confidence, :confidence_basis, :last_confirmed, :review_after, :summary,
                     :content_hash, :word_count, :token_count_approx
                 )

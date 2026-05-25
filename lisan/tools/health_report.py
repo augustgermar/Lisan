@@ -37,7 +37,7 @@ def generate_health_report(vault: Path | None = None, db_path: Path | None = Non
                 if age > ttl:
                     stale_states.append((path.name, age, ttl))
 
-        lines.append("## Stale State")
+        lines.append("## Stale Domains")
         if stale_states:
             for name, age, ttl in stale_states:
                 lines.append(f"- `{name}` is {age} day(s) old, TTL {ttl}")
