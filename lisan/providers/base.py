@@ -47,6 +47,186 @@ class ProviderClient(ABC):
         raise NotImplementedError
 
 
+class MockClient(ProviderClient):
+    name = "mock"
+
+    def complete(
+        self,
+        prompt: str,
+        schema: dict[str, Any] | None = None,
+        temperature: float = 0.2,
+        agent: str = "writer",
+        significance: str = "medium",
+        model: str | None = None,
+    ) -> LLMResponse:
+        text = self._response_for(agent=agent, prompt=prompt, schema=schema)
+        if schema and not text.strip().startswith("{"):
+            text = json.dumps({"response": text}, indent=2, ensure_ascii=True)
+        return LLMResponse(text=text, provider=self.name, model=model or "mock")
+
+    def _response_for(self, *, agent: str, prompt: str, schema: dict[str, Any] | None) -> str:
+        lowered = prompt.lower()
+        if agent == "listener":
+            if any(marker in lowered for marker in ["/remember", "name is august", "daughter alice", "two cats", "pip", "lana"]):
+                return json.dumps(
+                    {
+                        "worth_remembering": True,
+                        "mode": "writer",
+                        "reason": ["memory-worthy"],
+                        "memory_events": [],
+                        "action": "full",
+                        "score": 9,
+                        "seed_score": 8,
+                        "narrative_score": 1,
+                        "memory_type": "knowledge",
+                    }
+                )
+            return json.dumps(
+                {
+                    "worth_remembering": False,
+                    "mode": "skip",
+                    "reason": ["routine chat"],
+                    "memory_events": [],
+                    "action": "skip",
+                    "score": 1,
+                    "seed_score": 0,
+                    "narrative_score": 0,
+                }
+            )
+        if agent == "writer":
+            summary = "Memory draft"
+            if "daughter alice" in lowered:
+                summary = "August is here with his daughter Alice watching a YouTube video about mixing ice cream flavors."
+            elif "two cats" in lowered or "pip" in lowered or "lana" in lowered:
+                summary = "August has two cats named Pip and Lana."
+            elif "name is august" in lowered:
+                summary = "August said his name is August."
+            return json.dumps(
+                {
+                    "record_type": "episode",
+                    "summary": summary,
+                    "significance": "medium",
+                    "frontmatter": {
+                        "summary": summary,
+                        "significance": "medium",
+                        "confidence": "low",
+                        "confidence_basis": "mock provider",
+                        "review_after": "",
+                        "links": [],
+                    },
+                    "sections": {"event_timeline": prompt[:120]},
+                    "questions": [],
+                    "significance_rationale": "mock",
+                    "entities_to_create": [{"name": "August", "subtype": "person", "summary": "August mentioned in conversation."}],
+                    "evidence_to_create": [{"title": "Conversation evidence", "summary": summary, "source_type": "manual_note", "arena": "cross_arena", "reliability": "medium", "sensitivity": "low"}],
+                    "claims_to_create": [{"claim_text": summary, "status": "active", "confidence": 0.6, "summary": summary}],
+                    "state_updates": [{"category": "relational", "summary": summary, "confidence": "low"}],
+                    "open_loops_to_create": [],
+                    "decisions_to_create": [],
+                }
+            )
+        if agent == "skeptic":
+            return json.dumps(
+                {
+                    "approved": True,
+                    "approved_for_dreamer": True,
+                    "issues": [],
+                    "risk": "low",
+                    "recommended_action": "approve",
+                    "priority_questions": [],
+                    "observed_facts": [],
+                    "interpretations": [],
+                    "alternative_hypotheses": [],
+                    "evidence_needed": [],
+                    "claim_updates": [],
+                    "confidence_adjustments": [],
+                    "reasoning_errors": [],
+                    "reviewed_record_id": "",
+                    "reviewed_record_type": "draft",
+                    "pattern_status": "approved",
+                    "counterexample_search": {"performed": True},
+                    "summary": "Approved",
+                }
+            )
+        if agent == "interlocutor":
+            if "daughter alice" in lowered:
+                return json.dumps(
+                    {
+                        "response": "You're here with your daughter Alice, watching a YouTube video about mixing ice cream flavors.",
+                        "questions": [],
+                        "recommended_action": "auto_commit",
+                        "updated_narrative_state": {"next_step": "Continue", "mode_status": "developing"},
+                    }
+                )
+            if "two cats" in lowered or "pip" in lowered or "lana" in lowered:
+                return json.dumps(
+                    {
+                        "response": "Got it. You have two cats, Pip and Lana.",
+                        "questions": [],
+                        "recommended_action": "auto_commit",
+                        "updated_narrative_state": {"next_step": "Continue", "mode_status": "developing"},
+                    }
+                )
+            if "name is august" in lowered:
+                return json.dumps(
+                    {
+                        "response": "You want me to remember that you go by August.",
+                        "questions": [],
+                        "recommended_action": "auto_commit",
+                        "updated_narrative_state": {"next_step": "Continue", "mode_status": "developing"},
+                    }
+                )
+            return json.dumps(
+                {
+                    "response": "Got it.",
+                    "questions": [],
+                    "recommended_action": "auto_commit",
+                    "updated_narrative_state": {"next_step": "Continue", "mode_status": "developing"},
+                }
+            )
+        if agent == "elicitor":
+            if "daughter alice" in lowered:
+                return json.dumps(
+                    {
+                        "response": "Got it. Alice is your daughter, and you're watching a YouTube video about mixing ice cream flavors.",
+                        "updated_narrative_state": {"mode_status": "developing", "next_step": "Continue"},
+                        "questions": [],
+                    }
+                )
+            if "two cats" in lowered or "pip" in lowered or "lana" in lowered:
+                return json.dumps(
+                    {
+                        "response": "Got it. You have two cats, Pip and Lana.",
+                        "updated_narrative_state": {"mode_status": "developing", "next_step": "Continue"},
+                        "questions": [],
+                    }
+                )
+            if "name is august" in lowered:
+                return json.dumps(
+                    {
+                        "response": "You want me to remember that you go by August.",
+                        "updated_narrative_state": {"mode_status": "developing", "next_step": "Continue"},
+                        "questions": [],
+                    }
+                )
+            return json.dumps(
+                {
+                    "response": "Tell me more.",
+                    "updated_narrative_state": {"mode_status": "developing", "next_step": "Continue"},
+                    "questions": [],
+                }
+            )
+        if agent == "advice":
+            if "psychologically manipulate" in lowered or "manipulate" in lowered:
+                return "I can’t help with manipulating someone. Use boundaries, specific asks, de-escalation, and clear communication instead."
+            if "what is your name" in lowered or "what are you" in lowered:
+                return "My name is Lisan. I am your local personal assistant and memory system."
+            if "do you know my name now" in lowered or "what is my name" in lowered:
+                return "Your name is August."
+            return "Sure."
+        return "OK"
+
+
 class LisanLLM:
     def __init__(self, config: dict[str, Any] | None = None, db_path: Path | None = None):
         self.config = config or load_config()
@@ -69,12 +249,14 @@ class LisanLLM:
         start = time.time()
         response_text = ""
         error_text: str | None = None
+        error_type: str | None = None
         try:
             response = client.complete(prompt, schema=schema, temperature=temperature, agent=agent, significance=significance, model=selected.model)
             response_text = response.text
             return response
         except Exception as exc:
             error_text = str(exc)
+            error_type = exc.__class__.__name__
             raise
         finally:
             latency_ms = int((time.time() - start) * 1000)
@@ -87,6 +269,7 @@ class LisanLLM:
                 elapsed_ms=latency_ms,
                 success=error_text is None,
                 error=error_text,
+                error_type=error_type,
             )
             _log_call(
                 db_path=self.db_path,
@@ -118,6 +301,8 @@ def _default_model(config: dict[str, Any], provider: str) -> str:
 
 def _client_for(provider: str, config: dict[str, Any]) -> "ProviderClient":
     provider = provider.lower()
+    if provider == "mock":
+        return MockClient(config)
     if provider == "openai":
         from .openai import OpenAIClient
 

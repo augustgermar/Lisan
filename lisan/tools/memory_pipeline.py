@@ -51,7 +51,7 @@ def run_memory_pipeline(
     text = fw.text  # use sanitized version for all downstream agents
     prior_state = load_narrative_state(vault=vault, conversation_id=conversation_id)
     record_inline_step("memory_pipeline.listener")
-    listener = ListenerAgent(vault=vault).run_json(text, provider=provider, model=model)
+    listener = ListenerAgent(vault=vault).run_json(text, provider=provider, model=model, provider_error_mode="raise")
     action = str(listener.get("action", "skip"))
     mode = str(listener.get("mode", "skip"))
 
@@ -116,6 +116,7 @@ def run_memory_pipeline(
         significance="high" if action == "full" else "medium",
         provider=provider,
         model=model,
+        provider_error_mode="raise",
         task=task,
         context=context,
         transcript=str(transcript_path.relative_to(vault)),
@@ -127,6 +128,7 @@ def run_memory_pipeline(
         significance="medium",
         provider=provider,
         model=model,
+        provider_error_mode="raise",
         conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     )
     record_inline_step("memory_pipeline.interlocutor")
@@ -135,6 +137,7 @@ def run_memory_pipeline(
         significance="medium",
         provider=provider,
         model=model,
+        provider_error_mode="raise",
         conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     )
     draft_path = _write_draft(vault, text, transcript_path, listener, writer, skeptic, interlocutor, task, mode, action)

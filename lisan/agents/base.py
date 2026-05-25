@@ -63,9 +63,12 @@ class PromptAgent:
         provider: str | None = None,
         model: str | None = None,
         schema: dict[str, Any] | None = None,
+        provider_error_mode: str = "fallback",
         **kwargs: Any,
     ) -> AgentResult:
-        prompt = self.render_input(user_input, **kwargs)
+        render_kwargs = dict(kwargs)
+        render_kwargs.pop("provider_error_mode", None)
+        prompt = self.render_input(user_input, **render_kwargs)
         schema = schema or self.output_schema()
         try:
             response = self.llm.complete(
@@ -88,7 +91,11 @@ class PromptAgent:
         except ProviderError as exc:
             from ..tools.log import log_error
             log_error(self.vault, f"{self.name}.llm", exc)
-            fallback = self.fallback_output(user_input, significance=significance, **kwargs)
+            if provider_error_mode == "raise":
+                raise
+            fallback_kwargs = dict(kwargs)
+            fallback_kwargs.pop("provider_error_mode", None)
+            fallback = self.fallback_output(user_input, significance=significance, **fallback_kwargs)
             return AgentResult(text=fallback, response=None, data=self.parse_output(fallback))
 
     def run_json(
@@ -98,6 +105,7 @@ class PromptAgent:
         provider: str | None = None,
         model: str | None = None,
         schema: dict[str, Any] | None = None,
+        provider_error_mode: str = "fallback",
         **kwargs: Any,
     ) -> dict[str, Any]:
         result = self.run(
@@ -106,6 +114,7 @@ class PromptAgent:
             provider=provider,
             model=model,
             schema=schema,
+            provider_error_mode=provider_error_mode,
             **kwargs,
         )
         if isinstance(result.data, dict):

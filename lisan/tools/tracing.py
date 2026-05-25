@@ -50,6 +50,7 @@ class TurnTrace:
         elapsed_ms: int,
         success: bool,
         error: str | None = None,
+        error_type: str | None = None,
     ) -> None:
         self.llm_calls.append(
             {
@@ -61,6 +62,7 @@ class TurnTrace:
                 "elapsed_ms": elapsed_ms,
                 "success": bool(success),
                 "error": error or "",
+                "error_type": error_type or "",
             }
         )
 
@@ -141,6 +143,7 @@ def record_llm_call(
     elapsed_ms: int,
     success: bool,
     error: str | None = None,
+    error_type: str | None = None,
 ) -> None:
     trace = get_current_turn_trace()
     if trace is not None:
@@ -153,6 +156,7 @@ def record_llm_call(
             elapsed_ms=elapsed_ms,
             success=success,
             error=error,
+            error_type=error_type,
         )
 
 
