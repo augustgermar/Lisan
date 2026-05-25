@@ -13,8 +13,9 @@ from .elicitor_session import run_elicitor_session
 from .domain_fields import with_domain_fields
 from .firewall import scan_text
 from .log import log_error
+from .epistemic import listify
 from .narrative_state import load_narrative_state
-from .record_factory import STATE_TTLS, new_decision, new_entity, new_open_loop, upsert_state
+from .record_factory import STATE_TTLS, new_claim, new_decision, new_evidence, new_entity, new_open_loop, upsert_state
 from .transcripts import append_transcript
 
 
@@ -129,6 +130,8 @@ def run_memory_pipeline(
     )
     draft_path = _write_draft(vault, text, transcript_path, listener, writer, skeptic, interlocutor, task, mode, action)
     _create_entity_stubs(vault, writer, str(draft_path.relative_to(vault)))
+    _create_evidence_records(vault, writer, transcript_path, str(draft_path.relative_to(vault)))
+    _create_claim_records(vault, writer, str(draft_path.relative_to(vault)))
     _apply_state_updates(vault, writer)
     _create_open_loops(vault, writer)
     _create_decisions(vault, writer)
@@ -312,6 +315,77 @@ def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel_path: st
             pass  # entity already exists — skip silently
 
 
+def _create_evidence_records(vault: Path, writer: dict[str, Any], transcript_path: Path, draft_rel_path: str) -> None:
+    evidence_items = writer.get("evidence_to_create") or []
+    transcript_rel = str(transcript_path.relative_to(vault))
+    for entry in evidence_items:
+        title = str(entry.get("title") or entry.get("summary") or "").strip()
+        if not title:
+            continue
+        try:
+            new_evidence(
+                vault=vault,
+                title=title,
+                source_type=str(entry.get("source_type") or "manual_note").strip(),
+                source_uri=str(entry.get("source_uri") or transcript_rel),
+                artifact_ref=str(entry.get("artifact_ref") or transcript_rel),
+                artifact_hash=str(entry.get("artifact_hash") or "").strip() or None,
+                timestamp_of_artifact=str(entry.get("timestamp_of_artifact") or "").strip() or None,
+                actors=listify(entry.get("actors")),
+                arena=str(entry.get("arena") or "cross_arena").strip(),
+                compartments=listify(entry.get("compartments")),
+                sensitivity=str(entry.get("sensitivity") or "low").strip(),
+                reliability=str(entry.get("reliability") or "medium").strip(),
+                summary=str(entry.get("summary") or title),
+                observed_facts=listify(entry.get("observed_facts")),
+                verbatim_excerpt=str(entry.get("verbatim_excerpt") or "").strip() or None,
+                linked_claims=listify(entry.get("linked_claims")),
+                linked_episodes=listify(entry.get("linked_episodes")) or [draft_rel_path],
+                confidence_basis="Auto-extracted from conversation",
+            )
+        except FileExistsError:
+            pass
+        except Exception as exc:
+            log_error(vault, "memory_pipeline.evidence", exc)
+
+
+def _create_claim_records(vault: Path, writer: dict[str, Any], draft_rel_path: str) -> None:
+    claims = writer.get("claims_to_create") or []
+    for entry in claims:
+        claim_text = str(entry.get("claim_text") or entry.get("summary") or "").strip()
+        if not claim_text:
+            continue
+        claim_confidence = entry.get("confidence", 0.5)
+        try:
+            confidence = float(claim_confidence)
+        except (TypeError, ValueError):
+            confidence = 0.5
+        try:
+            new_claim(
+                vault=vault,
+                claim_text=claim_text,
+                claim_class=str(entry.get("claim_class") or "interpretation").strip(),
+                owner=str(entry.get("owner") or "user").strip(),
+                status=str(entry.get("status") or "active").strip(),
+                confidence=confidence,
+                supporting_evidence=listify(entry.get("supporting_evidence")),
+                contradicting_evidence=listify(entry.get("contradicting_evidence")),
+                linked_patterns=listify(entry.get("linked_patterns")),
+                first_seen=str(entry.get("first_seen") or "").strip() or None,
+                last_reviewed=str(entry.get("last_reviewed") or "").strip() or None,
+                review_notes=str(entry.get("review_notes") or "").strip(),
+                arena=str(entry.get("arena") or "cross_arena").strip(),
+                compartments=list(entry.get("compartments") or []),
+                privacy=str(entry.get("privacy") or "personal").strip(),
+                significance=str(entry.get("significance") or "low").strip(),
+                summary=str(entry.get("summary") or claim_text[:120]),
+            )
+        except FileExistsError:
+            pass
+        except Exception as exc:
+            log_error(vault, "memory_pipeline.claim", exc)
+
+
 def _create_decisions(vault: Path, writer: dict[str, Any]) -> None:
     decisions = writer.get("decisions_to_create") or []
     for entry in decisions:
@@ -319,8 +393,8 @@ def _create_decisions(vault: Path, writer: dict[str, Any]) -> None:
         summary = str(entry.get("summary") or "").strip()
         arena = str(entry.get("domain", entry.get("arena")) or "cross_arena").strip()
         significance = str(entry.get("significance") or "low").strip()
-        alternatives = list(entry.get("alternatives_considered") or [])
-        revisit = list(entry.get("revisit_conditions") or [])
+        alternatives = listify(entry.get("alternatives_considered"))
+        revisit = listify(entry.get("revisit_conditions"))
         if not title or not summary:
             continue
         if significance not in ("low", "medium", "high"):

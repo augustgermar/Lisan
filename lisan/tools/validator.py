@@ -65,7 +65,60 @@ TYPE_FIELDS = {
     "entity": {"subtype", "canonical_name", "aliases", "disambiguation", "epoch", "epoch_started", "previous_epochs"},
     "episode": {"entities", "evidence", "claims", "source"},
     "knowledge": set(),
-    "evidence": {"subtype", "date_of_artifact", "supports", "corrections"},
+    "evidence": {
+        "source_type",
+        "actors",
+        "sensitivity",
+        "reliability",
+        "observed_facts",
+        "linked_claims",
+        "linked_episodes",
+    },
+    "claim": {
+        "claim_text",
+        "claim_class",
+        "owner",
+        "supporting_evidence",
+        "contradicting_evidence",
+        "linked_patterns",
+        "first_seen",
+        "last_reviewed",
+        "review_notes",
+    },
+    "skeptical_review": {
+        "reviewed_record_id",
+        "reviewed_record_type",
+        "approved",
+        "approved_for_dreamer",
+        "risk",
+        "recommended_action",
+        "issues",
+        "priority_questions",
+        "alternative_hypotheses",
+        "evidence_needed",
+        "claim_updates",
+        "confidence_adjustments",
+        "reasoning_errors",
+        "pattern_status",
+        "counterexample_search",
+    },
+    "pattern": {
+        "pattern_type",
+        "hypothesis",
+        "supporting_records",
+        "counterexamples",
+        "alternative_explanations",
+        "confidence",
+        "status",
+        "first_seen",
+        "last_reviewed",
+        "predictions",
+        "review_notes",
+        "counterexample_search",
+        "strength_override",
+        "integration_override",
+    },
+    "evidence_correction": {"corrects", "date", "field_corrected", "original_value", "corrected_value", "basis", "approved_by"},
     "state": {"ttl_days", "sources", "confidence", "confidence_basis", "last_confirmed"},
     "decision": {"revisit_after", "revisit_conditions", "alternatives_considered"},
     "open_loop": {"priority", "owner", "next_action", "blocked_by", "review_after"},
@@ -74,8 +127,38 @@ TYPE_FIELDS = {
 }
 
 ENUMS = {
-    "type": {"entity", "episode", "knowledge", "evidence", "state", "decision", "open_loop", "report", "contradiction_log"},
-    "status": {"active", "archived", "stale", "resolved", "disputed", "stale_unresolved"},
+    "type": {
+        "entity",
+        "episode",
+        "knowledge",
+        "evidence",
+        "claim",
+        "pattern",
+        "skeptical_review",
+        "evidence_correction",
+        "state",
+        "decision",
+        "open_loop",
+        "report",
+        "contradiction_log",
+    },
+    "status": {
+        "active",
+        "archived",
+        "stale",
+        "resolved",
+        "disputed",
+        "stale_unresolved",
+        "confirmed",
+        "rejected",
+        "superseded",
+        "candidate",
+        "active_hypothesis",
+        "skeptic_reviewed",
+        "supported",
+        "integrated",
+        "retired",
+    },
     "significance": {"high", "medium", "low"},
     "domain_primary": {
         "physical",
@@ -100,11 +183,66 @@ ENUMS = {
         "health",
         "children",
         "business",
+        "sealed",
     },
     "confidence": {"high", "medium", "low"},
     "source": {"elicitor", "extraction", "manual"},
     "priority": {"high", "medium", "low"},
+    "source_type": {
+        "email",
+        "text",
+        "calendar",
+        "ticket",
+        "document",
+        "financial_txn",
+        "chat",
+        "journal",
+        "browser_event",
+        "git_commit",
+        "file",
+        "manual_note",
+        "other",
+    },
+    "sensitivity": {"low", "medium", "high", "restricted", "sealed"},
+    "reliability": {"low", "medium", "high"},
+    "claim_class": {
+        "observation",
+        "inference",
+        "interpretation",
+        "prediction",
+        "motive_hypothesis",
+        "value_statement",
+        "identity_claim",
+        "psychological_hypothesis",
+    },
+    "claim_owner": {"user", "agent", "external_actor"},
+    "pattern_type": {
+        "interpretation",
+        "emotional_trigger",
+        "avoidance_loop",
+        "decision_loop",
+        "relational_loop",
+        "work_loop",
+        "authority_response",
+        "value_behavior_gap",
+        "confidence_evidence_mismatch",
+        "identity_claim",
+        "psychological_hypothesis",
+        "other",
+    },
     "subtype": {"person", "place", "thing", "project", "organization", "text_message", "photo", "document", "call_log", "receipt", "legal", "screenshot"},
+}
+
+BANNED_PATTERN_TERMS = {
+    "narcissistic",
+    "borderline",
+    "autistic",
+    "bipolar",
+    "trauma disorder",
+    "personality disorder",
+    "pathological",
+    "delusional",
+    "paranoid",
 }
 
 
@@ -173,7 +311,9 @@ def _validate_universal(path: Path, frontmatter: dict[str, Any], report: Validat
         value = frontmatter.get(field)
         if value is None:
             continue
-        if field in {"domain_primary", "privacy", "status", "significance", "confidence", "source", "priority"} and str(value) not in allowed:
+        if field == "confidence" and str(frontmatter.get("type")) in {"claim", "pattern"}:
+            continue
+        if field in {"domain_primary", "privacy", "status", "significance", "confidence", "source", "priority", "source_type", "sensitivity", "reliability"} and str(value) not in allowed:
             report.add(path, f"Invalid {field}: {value}")
     for field in ["domain_secondary", "arena_secondary", "compartments", "allowed_contexts", "blocked_contexts", "links"]:
         if field in frontmatter and not isinstance(frontmatter[field], list):
@@ -185,6 +325,78 @@ def _validate_type_specific(path: Path, frontmatter: dict[str, Any], report: Val
     missing = TYPE_FIELDS[file_type] - frontmatter.keys()
     for field in sorted(missing):
         report.add(path, f"Missing required {file_type} field: {field}")
+    if file_type == "claim":
+        confidence = frontmatter.get("confidence")
+        if not isinstance(confidence, (int, float)):
+            report.add(path, "claim confidence must be numeric")
+        elif not 0.0 <= float(confidence) <= 1.0:
+            report.add(path, "claim confidence must be between 0.0 and 1.0")
+        if str(frontmatter.get("claim_class", "")) not in ENUMS["claim_class"]:
+            report.add(path, f"Invalid claim_class: {frontmatter.get('claim_class')}")
+        if str(frontmatter.get("owner", "")) not in ENUMS["claim_owner"]:
+            report.add(path, f"Invalid owner: {frontmatter.get('owner')}")
+    elif file_type == "pattern":
+        confidence = frontmatter.get("confidence")
+        if not isinstance(confidence, (int, float)):
+            report.add(path, "pattern confidence must be numeric")
+        elif not 0.0 <= float(confidence) <= 1.0:
+            report.add(path, "pattern confidence must be between 0.0 and 1.0")
+        if str(frontmatter.get("pattern_type", "")) not in ENUMS["pattern_type"]:
+            report.add(path, f"Invalid pattern_type: {frontmatter.get('pattern_type')}")
+        if _pattern_has_banned_language(frontmatter):
+            report.add(path, "Pattern hypotheses must not use diagnostic or pathologizing language")
+        supporting_records = frontmatter.get("supporting_records") or []
+        if not isinstance(supporting_records, list):
+            report.add(path, "supporting_records must be a list")
+        else:
+            if float(confidence) >= 0.5 and len(supporting_records) < 2:
+                report.add(path, "Patterns with medium/high confidence need at least two supporting_records")
+            if float(confidence) < 0.5 and len(supporting_records) < 1:
+                report.add(path, "Low-confidence patterns still need at least one supporting_record or explicit fallback evidence")
+        if not (frontmatter.get("alternative_explanations") or []):
+            report.add(path, "pattern requires at least one alternative_explanation")
+        counterexample_search = frontmatter.get("counterexample_search") or {}
+        if not isinstance(counterexample_search, dict):
+            report.add(path, "counterexample_search must be an object")
+        else:
+            if not bool(counterexample_search.get("performed", False)):
+                report.add(path, "pattern requires a performed counterexample search")
+            if not (counterexample_search.get("counterexamples") or frontmatter.get("counterexamples") or []):
+                report.add(path, "pattern requires a counterexample search result")
+        if "strength_override" not in frontmatter:
+            report.add(path, "pattern requires an explicit strength_override field")
+        integration_override = frontmatter.get("integration_override")
+        if not isinstance(integration_override, dict):
+            report.add(path, "integration_override must be an object")
+        else:
+            if "enabled" not in integration_override or "reason" not in integration_override or "approved_by" not in integration_override:
+                report.add(path, "integration_override requires enabled, reason, and approved_by")
+        if not (frontmatter.get("evidence_needed") or []):
+            report.add(path, "pattern requires evidence_needed guidance")
+    elif file_type == "evidence":
+        if str(frontmatter.get("source_type", "")) not in ENUMS["source_type"]:
+            report.add(path, f"Invalid source_type: {frontmatter.get('source_type')}")
+        if str(frontmatter.get("sensitivity", "")) not in ENUMS["sensitivity"]:
+            report.add(path, f"Invalid sensitivity: {frontmatter.get('sensitivity')}")
+        if str(frontmatter.get("reliability", "")) not in ENUMS["reliability"]:
+            report.add(path, f"Invalid reliability: {frontmatter.get('reliability')}")
+    elif file_type == "skeptical_review":
+        if str(frontmatter.get("risk", "")) not in {"low", "medium", "high"}:
+            report.add(path, f"Invalid risk: {frontmatter.get('risk')}")
+        if str(frontmatter.get("recommended_action", "")) not in {"approve", "revise", "hold"}:
+            report.add(path, f"Invalid recommended_action: {frontmatter.get('recommended_action')}")
+        if "approved_for_dreamer" in frontmatter and not isinstance(frontmatter.get("approved_for_dreamer"), bool):
+            report.add(path, "approved_for_dreamer must be boolean")
+        if "counterexample_search" in frontmatter and not isinstance(frontmatter.get("counterexample_search"), dict):
+            report.add(path, "counterexample_search must be an object")
+
+
+def _pattern_has_banned_language(frontmatter: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(frontmatter.get(field, ""))
+        for field in ["hypothesis", "summary", "review_notes"]
+    ).lower()
+    return any(term in text for term in BANNED_PATTERN_TERMS)
 
 
 def _validate_schema(path: Path, frontmatter: dict[str, Any], schemas: dict[str, dict[str, Any]], report: ValidationReport) -> None:
@@ -381,11 +593,11 @@ def _is_structured_record(path: Path, vault: Path) -> bool:
         return False
     if not rel.parts:
         return False
-    if rel.parts[0] in {"primer", "domains", "transcripts", "manifests", "reports"}:
+    if rel.parts[0] in {"primer", "domains", "transcripts", "manifests"}:
         return False
     if rel.name == "backup.md":
         return False
-    return rel.parts[0] in {"entities", "episodes", "knowledge", "evidence", "state", "decisions", "open_loops", "archive"}
+    return rel.parts[0] in {"entities", "episodes", "knowledge", "evidence", "state", "decisions", "open_loops", "claims", "patterns", "reviews", "reports", "contradictions", "archive"}
 
 
 def format_report(report: ValidationReport) -> str:

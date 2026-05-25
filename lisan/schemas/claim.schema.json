@@ -1,22 +1,23 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "evidence",
+  "title": "claim",
   "type": "object",
   "required": [
     "id", "type", "created", "created_at", "updated", "status", "significance",
     "domain_primary", "domain_secondary", "arena", "privacy", "compartments",
     "allowed_contexts", "blocked_contexts", "summary", "links",
     "confidence", "confidence_basis", "last_confirmed", "review_after",
-    "source_type", "actors", "sensitivity", "reliability", "observed_facts",
-    "linked_claims", "linked_episodes"
+    "claim_text", "claim_class", "owner", "supporting_evidence",
+    "contradicting_evidence", "linked_patterns", "first_seen", "last_reviewed",
+    "review_notes"
   ],
   "properties": {
     "id": {"type": "string"},
-    "type": {"type": "string", "enum": ["evidence"]},
+    "type": {"type": "string", "enum": ["claim"]},
     "created": {"type": "string"},
     "created_at": {"type": "string"},
     "updated": {"type": "string"},
-    "status": {"type": "string"},
+    "status": {"type": "string", "enum": ["active", "disputed", "confirmed", "rejected", "stale", "superseded"]},
     "significance": {"type": "string"},
     "domain_primary": {"type": "string"},
     "domain_secondary": {"type": "array", "items": {"type": "string"}},
@@ -29,21 +30,30 @@
     "blocked_contexts": {"type": "array", "items": {"type": "string"}},
     "summary": {"type": "string"},
     "links": {"type": "array", "items": {"type": "string"}},
-    "confidence": {"type": "string"},
+    "confidence": {"type": ["number", "string"]},
     "confidence_basis": {"type": "string"},
     "last_confirmed": {"type": "string"},
     "review_after": {"type": "string"},
-    "source_type": {"type": "string"},
-    "source_uri": {"type": ["string", "null"]},
-    "artifact_ref": {"type": ["string", "null"]},
-    "artifact_hash": {"type": ["string", "null"]},
-    "timestamp_of_artifact": {"type": ["string", "null"]},
-    "actors": {"type": "array", "items": {"type": "string"}},
-    "sensitivity": {"type": "string", "enum": ["low", "medium", "high", "restricted", "sealed"]},
-    "reliability": {"type": "string", "enum": ["low", "medium", "high"]},
-    "observed_facts": {"type": "array", "items": {"type": "string"}},
-    "verbatim_excerpt": {"type": "string"},
-    "linked_claims": {"type": "array", "items": {"type": "string"}},
-    "linked_episodes": {"type": "array", "items": {"type": "string"}}
+    "claim_text": {"type": "string"},
+    "claim_class": {
+      "type": "string",
+        "enum": [
+          "observation",
+          "inference",
+          "interpretation",
+          "prediction",
+        "motive_hypothesis",
+        "value_statement",
+        "identity_claim",
+        "psychological_hypothesis"
+      ]
+    },
+    "owner": {"type": "string", "enum": ["user", "agent", "external_actor"]},
+    "supporting_evidence": {"type": "array", "items": {"type": "string"}},
+    "contradicting_evidence": {"type": "array", "items": {"type": "string"}},
+    "linked_patterns": {"type": "array", "items": {"type": "string"}},
+    "first_seen": {"type": "string"},
+    "last_reviewed": {"type": "string"},
+    "review_notes": {"type": "string"}
   }
 }

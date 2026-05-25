@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2
+
+- Hardened Analyst pattern generation against overfitting and duplicate hypotheses.
+- Added formal pattern lifecycle governance and Dreamer eligibility checks.
+- Added pattern audit tooling and anti-diagnosis validation.
+- Removed publish-time personal identifiers from package metadata and example text.
+
 ## 0.1.1
 
 - Renamed the public memory concept from arenas to domains.

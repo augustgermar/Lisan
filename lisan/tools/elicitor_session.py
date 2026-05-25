@@ -11,6 +11,7 @@ from ..frontmatter import write_markdown
 from ..utils import slugify, today_iso
 from .assembler import assemble_context
 from .domain_fields import with_domain_fields
+from .epistemic import listify
 from .log import log_error
 from .narrative_state import (
     conversation_history,
@@ -19,7 +20,7 @@ from .narrative_state import (
     save_narrative_state,
     update_narrative_state,
 )
-from .record_factory import STATE_TTLS, new_decision
+from .record_factory import STATE_TTLS, new_claim, new_decision, new_evidence
 from .transcripts import append_transcript
 
 # Force Writer handoff after this many turns when enough has been established.
@@ -217,6 +218,8 @@ Elicitor mode closure was detected.
 {text.strip()}
 """
     write_markdown(path, with_domain_fields(frontmatter), body)
+    _create_elicitor_evidence_records(vault, writer, transcript_path, str(path.relative_to(vault)))
+    _create_elicitor_claim_records(vault, writer, str(path.relative_to(vault)))
     _apply_elicitor_state_updates(vault, writer)
     _create_elicitor_open_loops(vault, writer)
     _create_elicitor_decisions(vault, writer)
@@ -253,6 +256,76 @@ def _create_elicitor_open_loops(vault: Path, writer: dict[str, Any]) -> None:
             log_error(vault, "elicitor_session.open_loop", exc)
 
 
+def _create_elicitor_evidence_records(vault: Path, writer: dict[str, Any], transcript_path: Path, draft_rel_path: str) -> None:
+    evidence_items = writer.get("evidence_to_create") or []
+    transcript_rel = str(transcript_path.relative_to(vault))
+    for entry in evidence_items:
+        title = str(entry.get("title") or entry.get("summary") or "").strip()
+        if not title:
+            continue
+        try:
+            new_evidence(
+                vault=vault,
+                title=title,
+                source_type=str(entry.get("source_type") or "manual_note").strip(),
+                source_uri=str(entry.get("source_uri") or transcript_rel),
+                artifact_ref=str(entry.get("artifact_ref") or transcript_rel),
+                artifact_hash=str(entry.get("artifact_hash") or "").strip() or None,
+                timestamp_of_artifact=str(entry.get("timestamp_of_artifact") or "").strip() or None,
+                actors=listify(entry.get("actors")),
+                arena=str(entry.get("arena") or "cross_arena").strip(),
+                compartments=listify(entry.get("compartments")),
+                sensitivity=str(entry.get("sensitivity") or "low").strip(),
+                reliability=str(entry.get("reliability") or "medium").strip(),
+                summary=str(entry.get("summary") or title),
+                observed_facts=listify(entry.get("observed_facts")),
+                verbatim_excerpt=str(entry.get("verbatim_excerpt") or "").strip() or None,
+                linked_claims=listify(entry.get("linked_claims")),
+                linked_episodes=listify(entry.get("linked_episodes")) or [draft_rel_path],
+                confidence_basis="Auto-extracted from elicitor conversation",
+            )
+        except FileExistsError:
+            pass
+        except Exception as exc:
+            log_error(vault, "elicitor_session.evidence", exc)
+
+
+def _create_elicitor_claim_records(vault: Path, writer: dict[str, Any], draft_rel_path: str) -> None:
+    claims = writer.get("claims_to_create") or []
+    for entry in claims:
+        claim_text = str(entry.get("claim_text") or entry.get("summary") or "").strip()
+        if not claim_text:
+            continue
+        try:
+            confidence = float(entry.get("confidence", 0.5))
+        except (TypeError, ValueError):
+            confidence = 0.5
+        try:
+            new_claim(
+                vault=vault,
+                claim_text=claim_text,
+                claim_class=str(entry.get("claim_class") or "interpretation").strip(),
+                owner=str(entry.get("owner") or "user").strip(),
+                status=str(entry.get("status") or "active").strip(),
+                confidence=confidence,
+                supporting_evidence=listify(entry.get("supporting_evidence")),
+                contradicting_evidence=listify(entry.get("contradicting_evidence")),
+                linked_patterns=listify(entry.get("linked_patterns")),
+                first_seen=str(entry.get("first_seen") or "").strip() or None,
+                last_reviewed=str(entry.get("last_reviewed") or "").strip() or None,
+                review_notes=str(entry.get("review_notes") or "").strip(),
+                arena=str(entry.get("arena") or "cross_arena").strip(),
+                compartments=listify(entry.get("compartments")),
+                privacy=str(entry.get("privacy") or "personal").strip(),
+                significance=str(entry.get("significance") or "low").strip(),
+                summary=str(entry.get("summary") or claim_text[:120]),
+            )
+        except FileExistsError:
+            pass
+        except Exception as exc:
+            log_error(vault, "elicitor_session.claim", exc)
+
+
 def _apply_elicitor_state_updates(vault: Path, writer: dict[str, Any]) -> None:
     from .record_factory import upsert_state
     updates = writer.get("state_updates") or []
@@ -283,8 +356,8 @@ def _create_elicitor_decisions(vault: Path, writer: dict[str, Any]) -> None:
         summary = str(entry.get("summary") or "").strip()
         arena = str(entry.get("domain", entry.get("arena")) or "cross_arena").strip()
         significance = str(entry.get("significance") or "low").strip()
-        alternatives = list(entry.get("alternatives_considered") or [])
-        revisit = list(entry.get("revisit_conditions") or [])
+        alternatives = listify(entry.get("alternatives_considered"))
+        revisit = listify(entry.get("revisit_conditions"))
         if not title or not summary:
             continue
         if significance not in ("low", "medium", "high"):

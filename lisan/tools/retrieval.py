@@ -82,27 +82,38 @@ def assemble_context(
             sections.append(path.read_text(encoding="utf-8").strip())
             sections.append("")
 
-    sections.append("## State")
-    state_files = [item for item in result.loaded if item.type == "state"]
-    found_state = False
-    for item in state_files:
-        path = vault / item.path
-        if path.exists():
-            sections.append(f"### {item.path}")
-            sections.append(path.read_text(encoding="utf-8").strip())
-            sections.append("")
-            found_state = True
-    if not found_state:
-        sections.append("- None")
-        sections.append("")
+    groups = {
+        "evidence": [item for item in result.loaded if item.type == "evidence"],
+        "claim": [item for item in result.loaded if item.type == "claim"],
+        "pattern": [item for item in result.loaded if item.type == "pattern"],
+        "skeptical_review": [item for item in result.loaded if item.type == "skeptical_review"],
+        "episode": [item for item in result.loaded if item.type == "episode"],
+        "report": [item for item in result.loaded if item.type == "report"],
+        "state": [item for item in result.loaded if item.type == "state"],
+        "other": [item for item in result.loaded if item.type not in {"evidence", "claim", "pattern", "skeptical_review", "episode", "report", "state"}],
+    }
 
-    sections.append("## Relevant Records")
-    if result.loaded:
-        for item in result.loaded:
-            sections.append(f"- `{item.id}` | {item.type} | {item.summary} | `{item.path}` | {item.reason}")
-    else:
-        sections.append("- None")
-    sections.append("")
+    section_order = [
+        ("## Evidence", groups["evidence"]),
+        ("## Claims", groups["claim"]),
+        ("## Patterns", groups["pattern"]),
+        ("## Skeptical Reviews", groups["skeptical_review"]),
+        ("## Episodes", groups["episode"]),
+        ("## Dreamer Summaries", groups["report"]),
+        ("## State", groups["state"]),
+        ("## Relevant Records", groups["other"]),
+    ]
+    for heading, items in section_order:
+        sections.append(heading)
+        if not items:
+            sections.append("- None")
+            sections.append("")
+            continue
+        for item in items:
+            path = vault / item.path
+            details = _format_item_detail(item, path)
+            sections.append(details)
+        sections.append("")
 
     if result.rejected:
         sections.append("## Rejected By Compartment")
@@ -138,12 +149,10 @@ def retrieve_context(
     conn.row_factory = sqlite3.Row
     try:
         fts_ids = _fts_candidate_ids(conn, query)
-        file_rows = conn.execute(
-            "SELECT id, type, path, summary, domain_primary, domain_secondary, privacy, compartments, allowed_contexts, blocked_contexts, significance, status, updated, created FROM files"
-        ).fetchall()
+        file_rows = conn.execute("SELECT * FROM files").fetchall()
         all_items = [_score_row(row, query, inferred_domain, vault, active_contexts, fts_ids) for row in file_rows]
         loaded = [item for item in all_items if item is not None]
-        loaded.sort(key=lambda item: (item.score, item.summary), reverse=True)
+        loaded.sort(key=lambda item: (_type_boost(item.type), item.score, item.summary), reverse=True)
         loaded = loaded[:15]
         loaded_ids = {item.id for item in loaded}
         rejected = [item for item in all_items if item is not None and item.id not in loaded_ids and item.reason.startswith("compartment")]
@@ -223,26 +232,55 @@ def _score_row(
     reasons: list[str] = []
     lowered = query.lower()
     summary = str(row["summary"])
-    haystack = f"{summary}\n{row['id']}\n{row['path']}".lower()
+    haystack = _metadata_haystack(row)
 
     if row["domain_primary"] == arena or row["domain_primary"] == "cross_arena":
         score += 2.0
         reasons.append("domain_match")
-    if row["type"] == "state":
-        score += 2.0
-    elif row["type"] == "decision":
+    score += _type_boost(str(row["type"]))
+    if row["type"] == "evidence":
         score += 1.5
-    elif row["type"] == "open_loop":
-        score += 1.5
-    elif row["type"] == "episode":
+    elif row["type"] == "claim":
+        score += 1.2
+    elif row["type"] == "pattern":
+        score += 1.4
+    elif row["type"] == "skeptical_review":
+        score += 1.1
+    elif row["type"] == "report":
         score += 1.0
-    elif row["type"] == "entity":
-        score += 0.8
+    elif row["type"] == "episode":
+        score += 0.9
 
     query_terms = [term for term in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]+", lowered) if len(term) > 2]
     if query_terms and any(term in haystack for term in query_terms):
         score += 2.5
         reasons.append("text_match")
+    if row["type"] == "evidence":
+        actors = {item.lower() for item in _json_list(row["actors"])}
+        if any(term in actors for term in query_terms):
+            score += 1.5
+            reasons.append("actor_match")
+        if any(term == str(row["source_type"]).lower() for term in query_terms):
+            score += 1.0
+            reasons.append("source_type")
+    elif row["type"] == "claim":
+        if any(term == str(row["claim_class"]).lower() for term in query_terms):
+            score += 1.0
+            reasons.append("claim_class")
+        if any(term == str(row["status"]).lower() for term in query_terms):
+            score += 0.8
+            reasons.append("claim_status")
+    elif row["type"] == "pattern":
+        if any(term == str(row["pattern_type"]).lower() for term in query_terms):
+            score += 1.1
+            reasons.append("pattern_type")
+        if any(term in {"pattern", "hypothesis", "loop", "trigger", "gap"} for term in query_terms):
+            score += 0.5
+            reasons.append("pattern_query")
+    elif row["type"] == "skeptical_review":
+        if any(term == str(row["reviewed_record_id"]).lower() for term in query_terms):
+            score += 1.0
+            reasons.append("review_link")
 
     if str(row["id"]) in fts_ids:
         score += 2.0
@@ -255,8 +293,13 @@ def _score_row(
 
     if str(row["status"]) == "active":
         score += 0.5
+    elif str(row["status"]) in {"confirmed", "disputed"}:
+        score += 0.2
     if str(row["significance"]) == "high":
         score += 0.7
+    confidence_score = row["confidence_score"] if "confidence_score" in row.keys() else None
+    if isinstance(confidence_score, (int, float)):
+        score += float(confidence_score) * 0.3
 
     if not reasons:
         return None
@@ -269,6 +312,116 @@ def _score_row(
         score=round(score, 3),
         reason=",".join(reasons),
     )
+
+
+def _type_boost(record_type: str) -> float:
+    boosts = {
+        "evidence": 3.0,
+        "claim": 2.6,
+        "pattern": 2.4,
+        "skeptical_review": 2.2,
+        "report": 1.8,
+        "contradiction_log": 1.7,
+        "episode": 1.4,
+        "decision": 1.2,
+        "open_loop": 1.1,
+        "state": 1.0,
+        "entity": 0.8,
+        "knowledge": 0.7,
+    }
+    return boosts.get(record_type, 0.0)
+
+
+def _metadata_haystack(row: sqlite3.Row) -> str:
+    parts = [
+        str(row["summary"]),
+        str(row["id"]),
+        str(row["path"]),
+        str(row["source_type"] or ""),
+        str(row["arena"] or ""),
+        str(row["pattern_type"] or ""),
+        str(row["hypothesis"] or ""),
+        str(row["claim_class"] or ""),
+        str(row["owner"] or ""),
+        str(row["status"] or ""),
+        str(row["risk"] or ""),
+        str(row["recommended_action"] or ""),
+        str(row["reviewed_record_id"] or ""),
+        str(row["reviewed_record_type"] or ""),
+    ]
+    for field in ["actors", "compartments", "linked_claims", "linked_episodes", "supporting_evidence", "contradicting_evidence", "linked_patterns", "reasoning_errors", "supporting_records", "counterexamples", "alternative_explanations", "predictions"]:
+        parts.extend(_json_list(row[field]) if field in row.keys() else [])
+    return "\n".join(parts).lower()
+
+
+def _format_item_detail(item: RetrievalItem, path: Path) -> str:
+    if not path.exists():
+        return f"- `{item.id}` | {item.type} | {item.summary} | `{item.path}` | {item.reason}"
+    try:
+        doc = load_markdown(path)
+    except Exception:
+        return f"- `{item.id}` | {item.type} | {item.summary} | `{item.path}` | {item.reason}"
+    fm = doc.frontmatter
+    if item.type == "evidence":
+        return (
+            f"### `{item.id}`\n"
+            f"- summary: {fm.get('summary', item.summary)}\n"
+            f"- source_type: {fm.get('source_type', 'unknown')}\n"
+            f"- actors: {', '.join(_json_list(fm.get('actors'))) or 'none'}\n"
+            f"- reliability: {fm.get('reliability', 'unknown')}\n"
+            f"- observed_facts: {', '.join(_json_list(fm.get('observed_facts'))) or 'none'}\n"
+            f"- link: `{item.path}`\n"
+            f"- reason: {item.reason}"
+        )
+    if item.type == "claim":
+        return (
+            f"### `{item.id}`\n"
+            f"- claim_text: {fm.get('claim_text', item.summary)}\n"
+            f"- class: {fm.get('claim_class', 'unknown')}\n"
+            f"- owner: {fm.get('owner', 'unknown')}\n"
+            f"- status: {fm.get('status', 'unknown')}\n"
+            f"- confidence: {fm.get('confidence', 'unknown')}\n"
+            f"- supporting_evidence: {', '.join(_json_list(fm.get('supporting_evidence'))) or 'none'}\n"
+            f"- contradicting_evidence: {', '.join(_json_list(fm.get('contradicting_evidence'))) or 'none'}\n"
+            f"- link: `{item.path}`\n"
+            f"- reason: {item.reason}"
+        )
+    if item.type == "pattern":
+        return (
+            f"### `{item.id}`\n"
+            f"- hypothesis: {fm.get('hypothesis', item.summary)}\n"
+            f"- pattern_type: {fm.get('pattern_type', 'unknown')}\n"
+            f"- confidence: {fm.get('confidence', 'unknown')}\n"
+            f"- supporting_records: {', '.join(_json_list(fm.get('supporting_records'))) or 'none'}\n"
+            f"- counterexamples: {', '.join(_json_list(fm.get('counterexamples'))) or 'none'}\n"
+            f"- alternative_explanations: {', '.join(_json_list(fm.get('alternative_explanations'))) or 'none'}\n"
+            f"- predictions: {', '.join(_json_list(fm.get('predictions'))) or 'none'}\n"
+            f"- evidence_needed: {', '.join(_json_list(fm.get('evidence_needed'))) or 'none'}\n"
+            f"- link: `{item.path}`\n"
+            f"- reason: {item.reason}"
+        )
+    if item.type == "skeptical_review":
+        return (
+            f"### `{item.id}`\n"
+            f"- summary: {fm.get('summary', item.summary)}\n"
+            f"- reviewed_record_id: {fm.get('reviewed_record_id', 'unknown')}\n"
+            f"- risk: {fm.get('risk', 'unknown')}\n"
+            f"- recommended_action: {fm.get('recommended_action', 'unknown')}\n"
+            f"- reasoning_errors: {', '.join(_json_list(fm.get('reasoning_errors'))) or 'none'}\n"
+            f"- link: `{item.path}`\n"
+            f"- reason: {item.reason}"
+        )
+    if item.type == "report":
+        return (
+            f"### `{item.id}`\n"
+            f"- summary: {fm.get('summary', item.summary)}\n"
+            f"- task: {fm.get('task', 'unknown')}\n"
+            f"- link: `{item.path}`\n"
+            f"- reason: {item.reason}"
+        )
+    if item.type == "episode":
+        return f"### `{item.id}`\n- summary: {fm.get('summary', item.summary)}\n- link: `{item.path}`\n- reason: {item.reason}"
+    return f"- `{item.id}` | {item.type} | {item.summary} | `{item.path}` | {item.reason}"
 
 
 def _vector_score(query: str, file_id: str, vault: Path) -> float:

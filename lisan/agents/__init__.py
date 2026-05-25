@@ -1,5 +1,6 @@
 from .advice import AdviceAgent
 from .assembler import AssemblerAgent
+from .analyst import AnalystAgent
 from .dreamer import DreamerAgent
 from .elicitor import ElicitorAgent
 from .interlocutor import InterlocutorAgent
@@ -11,6 +12,7 @@ from .writer import WriterAgent
 __all__ = [
     "AdviceAgent",
     "AssemblerAgent",
+    "AnalystAgent",
     "DreamerAgent",
     "ElicitorAgent",
     "InterlocutorAgent",

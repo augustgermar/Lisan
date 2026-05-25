@@ -5,6 +5,7 @@
   "required": ["approved", "issues", "risk", "recommended_action"],
   "properties": {
     "approved": { "type": "boolean" },
+    "approved_for_dreamer": { "type": "boolean" },
     "issues": {
       "type": "array",
       "items": {
@@ -18,6 +19,26 @@
     },
     "risk": { "type": "string", "enum": ["low", "medium", "high"] },
     "recommended_action": { "type": "string", "enum": ["approve", "revise", "hold"] },
-    "priority_questions": { "type": "array", "items": { "type": "string" } }
+    "priority_questions": { "type": "array", "items": { "type": "string" } },
+    "observed_facts": { "type": "array", "items": { "type": "string" } },
+    "interpretations": { "type": "array", "items": { "type": "string" } },
+    "alternative_hypotheses": { "type": "array", "items": { "type": "string" } },
+    "evidence_needed": { "type": "array", "items": { "type": "string" } },
+    "claim_updates": { "type": "array", "items": { "type": "object" } },
+    "confidence_adjustments": { "type": "array", "items": { "type": "object" } },
+    "reasoning_errors": { "type": "array", "items": { "type": "string" } },
+    "reviewed_record_id": { "type": "string" },
+    "reviewed_record_type": { "type": "string" },
+    "pattern_status": { "type": "string" },
+    "counterexample_search": {
+      "type": "object",
+      "properties": {
+        "performed": { "type": "boolean" },
+        "search_terms": { "type": "array", "items": { "type": "string" } },
+        "result_summary": { "type": "string" },
+        "counterexamples": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "summary": { "type": "string" }
   }
 }

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .config import load_config, save_default_config
-from .agents import AdviceAgent, AssemblerAgent, DreamerAgent, ElicitorAgent, InterlocutorAgent, ListenerAgent, RouterAgent, SkepticAgent, WriterAgent
+from .agents import AdviceAgent, AnalystAgent, AssemblerAgent, DreamerAgent, ElicitorAgent, InterlocutorAgent, ListenerAgent, RouterAgent, SkepticAgent, WriterAgent
 from .paths import ensure_repo_layout, repo_root, sqlite_path, vault_root, write_seed_files
 from .providers.base import LisanLLM, ProviderError
 from .prompts import list_prompts, load_prompt
@@ -17,9 +17,10 @@ from .tools.chat import run_chat
 from .tools.capture import capture_text
 from .tools.current_brief import write_current_brief
 from .tools.conversation_digest import write_conversation_digest
-from .tools.dreamer_ops import run_dreamer_task
+from .tools.dreamer_ops import audit_patterns, format_pattern_audit, run_dreamer_task
 from .tools.draft_review import review_draft
 from .tools.archive import archive_open_loop
+from .tools.analyst_ops import run_analyst_scan
 from .tools.backup import backup_status, create_backup, latest_backup_path, test_backup, write_backup_log
 from .tools.batch_review import generate_batch_review, write_batch_review
 from .tools.epochs import epoch_entity
@@ -31,7 +32,7 @@ from .tools.confidence_decay import detect_decay_candidates
 from .tools.manifest_gen import generate_manifests
 from .tools.migrator import run_migration
 from .tools.primer_audit import run_primer_audit
-from .tools.record_factory import new_decision, new_evidence, new_evidence_correction, new_entity, new_episode, new_knowledge, new_open_loop, new_state, upsert_state
+from .tools.record_factory import new_claim, new_decision, new_evidence, new_evidence_correction, new_entity, new_episode, new_knowledge, new_open_loop, new_state, upsert_state
 from .tools.rebuild_index import rebuild_index
 from .tools.narrative_state import conversation_history, load_narrative_state, render_narrative_state, reset_narrative_state
 from .tools.transcripts import append_transcript
@@ -188,19 +189,44 @@ def build_parser() -> argparse.ArgumentParser:
     new_evidence_cmd = new_subparsers.add_parser("evidence", help="Create a new evidence record")
     new_evidence_cmd.add_argument("--vault", type=Path, default=vault_root())
     new_evidence_cmd.add_argument("title")
-    new_evidence_cmd.add_argument("--subtype", default="document")
-    new_evidence_cmd.add_argument("--domain-primary", "--arena-primary", dest="domain_primary", default="cross_arena")
-    new_evidence_cmd.add_argument("--domain-secondary", "--arena-secondary", dest="domain_secondary", action="append", default=[])
+    new_evidence_cmd.add_argument("--source-type", default="manual_note")
+    new_evidence_cmd.add_argument("--source-uri", default=None)
+    new_evidence_cmd.add_argument("--artifact-ref", default=None)
+    new_evidence_cmd.add_argument("--artifact-hash", default=None)
+    new_evidence_cmd.add_argument("--artifact-timestamp", default=None)
+    new_evidence_cmd.add_argument("--actor", action="append", default=[])
+    new_evidence_cmd.add_argument("--arena", default="cross_arena")
+    new_evidence_cmd.add_argument("--compartment", action="append", default=[])
+    new_evidence_cmd.add_argument("--sensitivity", default="low")
+    new_evidence_cmd.add_argument("--reliability", default="medium")
     new_evidence_cmd.add_argument("--privacy", default="personal")
     new_evidence_cmd.add_argument("--significance", default="low")
     new_evidence_cmd.add_argument("--summary", default=None)
-    new_evidence_cmd.add_argument("--supports", action="append", default=[])
-    new_evidence_cmd.add_argument("--correction", action="append", default=[])
-    new_evidence_cmd.add_argument("--link", action="append", default=[])
-    new_evidence_cmd.add_argument("--confidence", default="high")
+    new_evidence_cmd.add_argument("--observed-fact", action="append", default=[])
+    new_evidence_cmd.add_argument("--verbatim-excerpt", default=None)
+    new_evidence_cmd.add_argument("--linked-claim", action="append", default=[])
+    new_evidence_cmd.add_argument("--linked-episode", action="append", default=[])
     new_evidence_cmd.add_argument("--confidence-basis", default="User-authored placeholder")
     new_evidence_cmd.add_argument("--review-after", default=None)
-    new_evidence_cmd.add_argument("--artifact-text", default=None)
+
+    new_claim_cmd = new_subparsers.add_parser("claim", help="Create a new claim record")
+    new_claim_cmd.add_argument("--vault", type=Path, default=vault_root())
+    new_claim_cmd.add_argument("claim_text")
+    new_claim_cmd.add_argument("--claim-class", default="interpretation")
+    new_claim_cmd.add_argument("--owner", default="user")
+    new_claim_cmd.add_argument("--status", default="active")
+    new_claim_cmd.add_argument("--confidence", type=float, default=0.5)
+    new_claim_cmd.add_argument("--supporting-evidence", action="append", default=[])
+    new_claim_cmd.add_argument("--contradicting-evidence", action="append", default=[])
+    new_claim_cmd.add_argument("--linked-pattern", action="append", default=[])
+    new_claim_cmd.add_argument("--first-seen", default=None)
+    new_claim_cmd.add_argument("--last-reviewed", default=None)
+    new_claim_cmd.add_argument("--review-notes", default="")
+    new_claim_cmd.add_argument("--arena", default="cross_arena")
+    new_claim_cmd.add_argument("--compartment", action="append", default=[])
+    new_claim_cmd.add_argument("--privacy", default="personal")
+    new_claim_cmd.add_argument("--significance", default="low")
+    new_claim_cmd.add_argument("--summary", default=None)
 
     evidence = subparsers.add_parser("evidence", help="Evidence-specific operations")
     evidence_subparsers = evidence.add_subparsers(dest="evidence_command", required=True)
@@ -244,7 +270,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--vault", type=Path, default=vault_root())
 
     agent = subparsers.add_parser("agent", help="Run a named agent against input text")
-    agent.add_argument("name", choices=["advice", "assembler", "dreamer", "elicitor", "interlocutor", "listener", "router", "skeptic", "writer"])
+    agent.add_argument("name", choices=["advice", "analyst", "assembler", "dreamer", "elicitor", "interlocutor", "listener", "router", "skeptic", "writer"])
     agent.add_argument("input", nargs="+")
     agent.add_argument("--vault", type=Path, default=vault_root())
     agent.add_argument("--significance", default="medium")
@@ -362,6 +388,18 @@ def build_parser() -> argparse.ArgumentParser:
         dreamer_task.add_argument("--vault", type=Path, default=vault_root())
         dreamer_task.add_argument("--provider", default=None)
         dreamer_task.add_argument("--model", default=None)
+
+    analyst = subparsers.add_parser("analyst", help="Run longitudinal pattern analysis")
+    analyst_subparsers = analyst.add_subparsers(dest="analyst_command", required=True)
+    analyst_scan = analyst_subparsers.add_parser("scan", help="Scan for recurring pattern hypotheses")
+    analyst_scan.add_argument("--vault", type=Path, default=vault_root())
+    analyst_scan.add_argument("--provider", default=None)
+    analyst_scan.add_argument("--model", default=None)
+
+    patterns = subparsers.add_parser("patterns", help="Inspect pattern governance")
+    patterns_subparsers = patterns.add_subparsers(dest="patterns_command", required=True)
+    patterns_audit = patterns_subparsers.add_parser("audit", help="Audit pattern lifecycle and Dreamer eligibility")
+    patterns_audit.add_argument("--vault", type=Path, default=vault_root())
 
     return parser
 
@@ -762,6 +800,22 @@ def main(argv: list[str] | None = None) -> int:
         print(out)
         return 0
 
+    if args.command == "analyst":
+        if args.analyst_command == "scan":
+            try:
+                result = run_analyst_scan(vault=args.vault, provider=args.provider, model=args.model)
+            except (FileNotFoundError, ValueError, ProviderError) as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            print(result.report_path)
+            return 0
+
+    if args.command == "patterns":
+        if args.patterns_command == "audit":
+            report = audit_patterns(args.vault)
+            print(format_pattern_audit(report))
+            return 0
+
     parser.print_help()
     return 1
 
@@ -862,19 +916,45 @@ def _handle_new(args: argparse.Namespace) -> int:
             record = new_evidence(
                 vault,
                 args.title,
-                subtype=args.subtype,
-                domain_primary=args.domain_primary,
-                domain_secondary=args.domain_secondary,
+                source_type=args.source_type,
+                source_uri=args.source_uri,
+                artifact_ref=args.artifact_ref,
+                artifact_hash=args.artifact_hash,
+                timestamp_of_artifact=args.artifact_timestamp,
+                actors=args.actor,
+                arena=args.arena,
+                compartments=args.compartment,
+                sensitivity=args.sensitivity,
+                reliability=args.reliability,
                 privacy=args.privacy,
                 significance=args.significance,
                 summary=args.summary,
-                supports=args.supports,
-                corrections=args.correction,
-                links=args.link,
-                confidence=args.confidence,
                 confidence_basis=args.confidence_basis,
                 review_after=args.review_after,
-                artifact_text=args.artifact_text,
+                observed_facts=args.observed_fact,
+                verbatim_excerpt=args.verbatim_excerpt,
+                linked_claims=args.linked_claim,
+                linked_episodes=args.linked_episode,
+            )
+        elif args.new_command == "claim":
+            record = new_claim(
+                vault,
+                args.claim_text,
+                claim_class=args.claim_class,
+                owner=args.owner,
+                status=args.status,
+                confidence=args.confidence,
+                supporting_evidence=args.supporting_evidence,
+                contradicting_evidence=args.contradicting_evidence,
+                linked_patterns=args.linked_pattern,
+                first_seen=args.first_seen,
+                last_reviewed=args.last_reviewed,
+                review_notes=args.review_notes,
+                arena=args.arena,
+                compartments=args.compartment,
+                privacy=args.privacy,
+                significance=args.significance,
+                summary=args.summary,
             )
         elif args.new_command == "state":
             record = new_state(
@@ -903,6 +983,7 @@ def _handle_agent(args: argparse.Namespace) -> int:
     text = " ".join(args.input)
     agent_map = {
         "advice": AdviceAgent,
+        "analyst": AnalystAgent,
         "assembler": AssemblerAgent,
         "dreamer": DreamerAgent,
         "elicitor": ElicitorAgent,
@@ -934,6 +1015,8 @@ def _handle_agent(args: argparse.Namespace) -> int:
             "overfitting": "dreamer_overfitting_v1",
             "identity_anchor": "dreamer_identity_anchor_v1",
         }.get(args.task or "compress", "dreamer_compress_v1")
+    elif args.name == "analyst":
+        prompt_file = "analyst_v1"
     elif args.name == "listener":
         prompt_file = "listener_v1"
     elif args.name == "elicitor":

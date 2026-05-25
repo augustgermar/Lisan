@@ -1,18 +1,20 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "evidence",
+  "title": "skeptical_review",
   "type": "object",
   "required": [
     "id", "type", "created", "created_at", "updated", "status", "significance",
     "domain_primary", "domain_secondary", "arena", "privacy", "compartments",
     "allowed_contexts", "blocked_contexts", "summary", "links",
     "confidence", "confidence_basis", "last_confirmed", "review_after",
-    "source_type", "actors", "sensitivity", "reliability", "observed_facts",
-    "linked_claims", "linked_episodes"
+    "reviewed_record_id", "reviewed_record_type", "approved", "risk",
+    "recommended_action", "issues", "priority_questions",
+    "alternative_hypotheses", "evidence_needed", "claim_updates",
+    "confidence_adjustments", "reasoning_errors"
   ],
   "properties": {
     "id": {"type": "string"},
-    "type": {"type": "string", "enum": ["evidence"]},
+    "type": {"type": "string", "enum": ["skeptical_review"]},
     "created": {"type": "string"},
     "created_at": {"type": "string"},
     "updated": {"type": "string"},
@@ -33,17 +35,27 @@
     "confidence_basis": {"type": "string"},
     "last_confirmed": {"type": "string"},
     "review_after": {"type": "string"},
-    "source_type": {"type": "string"},
-    "source_uri": {"type": ["string", "null"]},
-    "artifact_ref": {"type": ["string", "null"]},
-    "artifact_hash": {"type": ["string", "null"]},
-    "timestamp_of_artifact": {"type": ["string", "null"]},
-    "actors": {"type": "array", "items": {"type": "string"}},
-    "sensitivity": {"type": "string", "enum": ["low", "medium", "high", "restricted", "sealed"]},
-    "reliability": {"type": "string", "enum": ["low", "medium", "high"]},
-    "observed_facts": {"type": "array", "items": {"type": "string"}},
-    "verbatim_excerpt": {"type": "string"},
-    "linked_claims": {"type": "array", "items": {"type": "string"}},
-    "linked_episodes": {"type": "array", "items": {"type": "string"}}
+    "reviewed_record_id": {"type": "string"},
+    "reviewed_record_type": {"type": "string"},
+    "approved": {"type": "boolean"},
+    "risk": {"type": "string", "enum": ["low", "medium", "high"]},
+    "recommended_action": {"type": "string", "enum": ["approve", "revise", "hold"]},
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "message"],
+        "properties": {
+          "type": {"type": "string"},
+          "message": {"type": "string"}
+        }
+      }
+    },
+    "priority_questions": {"type": "array", "items": {"type": "string"}},
+    "alternative_hypotheses": {"type": "array", "items": {"type": "string"}},
+    "evidence_needed": {"type": "array", "items": {"type": "string"}},
+    "claim_updates": {"type": "array", "items": {"type": "object"}},
+    "confidence_adjustments": {"type": "array", "items": {"type": "object"}},
+    "reasoning_errors": {"type": "array", "items": {"type": "string"}}
   }
 }
