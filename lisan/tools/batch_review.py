@@ -23,13 +23,36 @@ class BatchReviewItem:
 def generate_batch_review(vault: Path | None = None, db_path: Path | None = None) -> str:
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
-    lines = ["# Batch Review Digest", "", f"generated: {date.today().isoformat()}", ""]
+    today = date.today().isoformat()
 
     items = _collect_items(vault, db_path)
+    frontmatter = {
+        "id": f"report.batch-review.{today}",
+        "type": "report",
+        "created": today,
+        "updated": today,
+        "status": "active",
+        "significance": "low",
+        "domain_primary": "cross_arena",
+        "domain_secondary": [],
+        "privacy": "personal",
+        "compartments": [],
+        "allowed_contexts": ["all"],
+        "blocked_contexts": [],
+        "summary": "Batch review digest",
+        "links": [],
+        "confidence": "low",
+        "confidence_basis": "Generated batch review digest",
+        "last_confirmed": today,
+        "review_after": today,
+        "generated": today,
+    }
+    lines = ["# Batch Review Digest", "", f"generated: {today}", ""]
     if not items:
         lines.append("No review items are currently due.")
         lines.append("")
-        return "\n".join(lines).rstrip() + "\n"
+        body = "\n".join(lines).rstrip() + "\n"
+        return _render_report(frontmatter, body)
 
     grouped: dict[str, list[BatchReviewItem]] = {}
     for item in items:
@@ -43,7 +66,8 @@ def generate_batch_review(vault: Path | None = None, db_path: Path | None = None
         for item in grouped[category]:
             lines.append(f"- `{item.identifier}` | {item.summary} | due={item.due} | `{item.path}`")
         lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+    body = "\n".join(lines).rstrip() + "\n"
+    return _render_report(frontmatter, body)
 
 
 def write_batch_review(vault: Path | None = None, db_path: Path | None = None) -> Path:
@@ -52,6 +76,10 @@ def write_batch_review(vault: Path | None = None, db_path: Path | None = None) -
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(generate_batch_review(vault, db_path), encoding="utf-8")
     return out
+
+
+def _render_report(frontmatter: dict[str, Any], body: str) -> str:
+    return f"---\n{json.dumps(frontmatter, indent=2, ensure_ascii=True)}\n---\n\n{body.rstrip()}\n"
 
 
 def _collect_items(vault: Path, db_path: Path) -> list[BatchReviewItem]:

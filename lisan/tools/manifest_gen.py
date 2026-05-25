@@ -44,6 +44,7 @@ def generate_manifests(vault: Path | None = None, write: bool = True) -> dict[st
         "manifest-entities.md": _build_typed_manifest(records, {"entity"}),
         "manifest-knowledge.md": _build_typed_manifest(records, {"knowledge"}),
         "manifest-evidence.md": _build_typed_manifest(records, {"evidence"}),
+        "manifest-patterns.md": _build_typed_manifest(records, {"pattern"}),
         "manifest-decisions.md": _build_typed_manifest(records, {"decision"}),
         "manifest-open-loops.md": _build_typed_manifest(records, {"open_loop"}),
         "manifest-archive.md": _build_archive_manifest(records),

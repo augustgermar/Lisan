@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "analyst_output",
+  "type": "object",
+  "required": ["summary", "patterns", "notes"],
+  "properties": {
+    "summary": {"type": "string"},
+    "patterns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "pattern_type", "hypothesis", "supporting_records", "counterexamples",
+          "alternative_explanations", "confidence", "status", "first_seen",
+          "last_reviewed", "predictions", "review_notes", "evidence_needed"
+        ],
+        "properties": {
+          "pattern_type": {"type": "string"},
+          "hypothesis": {"type": "string"},
+          "supporting_records": {"type": "array", "items": {"type": "string"}},
+          "counterexamples": {"type": "array", "items": {"type": "string"}},
+          "alternative_explanations": {"type": "array", "items": {"type": "string"}},
+          "confidence": {"type": "number"},
+          "status": {"type": "string"},
+          "first_seen": {"type": "string"},
+          "last_reviewed": {"type": "string"},
+          "predictions": {"type": "array", "items": {"type": "string"}},
+          "review_notes": {"type": "string"},
+          "evidence_needed": {"type": "array", "items": {"type": "string"}},
+          "counterexample_search": {"type": "object"},
+          "strength_override": {"type": "boolean"},
+          "integration_override": {"type": "object"}
+        }
+      }
+    },
+    "notes": {"type": "array", "items": {"type": "string"}}
+  }
+}

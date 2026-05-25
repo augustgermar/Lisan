@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "pattern",
+  "type": "object",
+  "required": [
+    "id", "type", "created", "created_at", "updated", "status", "significance",
+    "domain_primary", "domain_secondary", "arena", "privacy", "compartments",
+    "allowed_contexts", "blocked_contexts", "summary", "links",
+    "confidence", "confidence_basis", "last_confirmed", "review_after",
+    "pattern_type", "hypothesis", "supporting_records", "counterexamples",
+    "alternative_explanations", "first_seen", "last_reviewed", "predictions",
+    "review_notes", "evidence_needed", "counterexample_search",
+    "strength_override", "integration_override"
+  ],
+  "properties": {
+    "id": {"type": "string"},
+    "type": {"type": "string", "enum": ["pattern"]},
+    "created": {"type": "string"},
+    "created_at": {"type": "string"},
+    "updated": {"type": "string"},
+    "status": {
+      "type": "string",
+      "enum": [
+        "candidate",
+        "active_hypothesis",
+        "skeptic_reviewed",
+        "supported",
+        "integrated",
+        "disputed",
+        "stale",
+        "rejected",
+        "retired",
+        "active",
+        "confirmed",
+        "superseded"
+      ]
+    },
+    "significance": {"type": "string"},
+    "domain_primary": {"type": "string"},
+    "domain_secondary": {"type": "array", "items": {"type": "string"}},
+    "arena": {"type": "string"},
+    "arena_primary": {"type": "string"},
+    "arena_secondary": {"type": "array", "items": {"type": "string"}},
+    "privacy": {"type": "string"},
+    "compartments": {"type": "array", "items": {"type": "string"}},
+    "allowed_contexts": {"type": "array", "items": {"type": "string"}},
+    "blocked_contexts": {"type": "array", "items": {"type": "string"}},
+    "summary": {"type": "string"},
+    "links": {"type": "array", "items": {"type": "string"}},
+    "confidence": {"type": "number"},
+    "confidence_basis": {"type": "string"},
+    "last_confirmed": {"type": "string"},
+    "review_after": {"type": "string"},
+    "pattern_type": {
+      "type": "string",
+      "enum": [
+        "interpretation",
+        "emotional_trigger",
+        "avoidance_loop",
+        "decision_loop",
+        "relational_loop",
+        "work_loop",
+        "authority_response",
+        "value_behavior_gap",
+        "confidence_evidence_mismatch",
+        "identity_claim",
+        "psychological_hypothesis",
+        "other"
+      ]
+    },
+    "hypothesis": {"type": "string"},
+    "supporting_records": {"type": "array", "items": {"type": "string"}},
+    "counterexamples": {"type": "array", "items": {"type": "string"}},
+    "alternative_explanations": {"type": "array", "items": {"type": "string"}},
+    "first_seen": {"type": "string"},
+    "last_reviewed": {"type": "string"},
+    "predictions": {"type": "array", "items": {"type": "string"}},
+    "review_notes": {"type": "string"},
+    "evidence_needed": {"type": "array", "items": {"type": "string"}},
+    "counterexample_search": {
+      "type": "object",
+      "required": ["performed", "search_terms", "result_summary", "counterexamples"],
+      "properties": {
+        "performed": {"type": "boolean"},
+        "search_terms": {"type": "array", "items": {"type": "string"}},
+        "result_summary": {"type": "string"},
+        "counterexamples": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "strength_override": {"type": "boolean"},
+    "integration_override": {
+      "type": "object",
+      "required": ["enabled", "reason", "approved_by"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "reason": {"type": "string"},
+        "approved_by": {"type": "string"}
+      }
+    }
+  }
+}

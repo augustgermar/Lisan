@@ -35,8 +35,9 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["arena", "summary"],
+        "required": ["category", "summary"],
         "properties": {
+          "category":   { "type": "string" },
           "arena":      { "type": "string" },
           "summary":    { "type": "string" },
           "confidence": { "type": "string", "enum": ["low", "medium", "high"] }
@@ -53,6 +54,7 @@
           "next_action": { "type": "string" },
           "summary":     { "type": "string" },
           "priority":    { "type": "string", "enum": ["low", "medium", "high"] },
+          "domain":      { "type": "string" },
           "arena":       { "type": "string" }
         }
       }
@@ -65,10 +67,59 @@
         "properties": {
           "title":                  { "type": "string" },
           "summary":                { "type": "string" },
+          "domain":                 { "type": "string" },
           "arena":                  { "type": "string" },
           "significance":           { "type": "string", "enum": ["low", "medium", "high"] },
           "alternatives_considered":{ "type": "array", "items": { "type": "string" } },
           "revisit_conditions":     { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "evidence_to_create": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "source_type", "summary", "observed_facts"],
+        "properties": {
+          "title": {"type": "string"},
+          "source_type": {"type": "string"},
+          "source_uri": {"type": ["string", "null"]},
+          "artifact_ref": {"type": ["string", "null"]},
+          "artifact_hash": {"type": ["string", "null"]},
+          "timestamp_of_artifact": {"type": ["string", "null"]},
+          "actors": {"type": "array", "items": {"type": "string"}},
+          "arena": {"type": "string"},
+          "compartments": {"type": "array", "items": {"type": "string"}},
+          "sensitivity": {"type": "string"},
+          "reliability": {"type": "string"},
+          "summary": {"type": "string"},
+          "observed_facts": {"type": "array", "items": {"type": "string"}},
+          "verbatim_excerpt": {"type": ["string", "null"]},
+          "linked_claims": {"type": "array", "items": {"type": "string"}},
+          "linked_episodes": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "claims_to_create": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claim_text", "claim_class", "owner", "confidence"],
+        "properties": {
+          "claim_text": {"type": "string"},
+          "claim_class": {"type": "string"},
+          "owner": {"type": "string"},
+          "status": {"type": "string"},
+          "confidence": {"type": "number"},
+          "supporting_evidence": {"type": "array", "items": {"type": "string"}},
+          "contradicting_evidence": {"type": "array", "items": {"type": "string"}},
+          "linked_patterns": {"type": "array", "items": {"type": "string"}},
+          "first_seen": {"type": ["string", "null"]},
+          "last_reviewed": {"type": ["string", "null"]},
+          "review_notes": {"type": "string"},
+          "arena": {"type": "string"},
+          "compartments": {"type": "array", "items": {"type": "string"}},
+          "summary": {"type": "string"}
         }
       }
     }
