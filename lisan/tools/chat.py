@@ -7,17 +7,18 @@ import sqlite3
 import sys
 import time
 import threading
+import uuid
 from pathlib import Path
 from typing import Any
 
 from ..config import load_config
 from ..paths import sqlite_path, vault_root
 from ..utils import today_iso
+from .chat_turns import classify_turn, is_production_chat_vault
 from .conversation_policy import assess_conversation_turn
-from .heuristic_gate import score_text
 from .log import log_error, tail_log
 from .transcripts import append_transcript
-from .turn_router import decide_turn_route
+from .tracing import finalize_turn_trace, record_inline_step, record_jobs_queued, reset_current_turn_trace, start_turn_trace
 
 
 # ── ANSI helpers ─────────────────────────────────────────────────────────────
@@ -126,9 +127,16 @@ def run_chat(
     conversation_id: str | None = None,
     provider: str | None = None,
     model: str | None = None,
+    trace: bool = False,
+    db_path: Path | None = None,
 ) -> int:
     from .. import __version__
     from .onboarding import needs_onboarding, run_onboarding
+
+    ok, reason = is_production_chat_vault(vault)
+    if not ok:
+        print(_c(f"  Refusing to start production chat: {reason}", RED), file=sys.stderr)
+        return 1
 
     config = load_config()
     ready = startup_check(vault, config)
@@ -147,7 +155,6 @@ def run_chat(
 
     _enable_readline()
 
-    from ..tools.capture import capture_text
     from ..tools.narrative_state import reset_narrative_state
 
     advice_history: list[dict[str, str]] = []
@@ -215,90 +222,167 @@ def run_chat(
             print()
             continue
 
-        # Strip /remember and /forget prefixes before routing and capture
-        text = raw
-        if lowered.startswith("/remember "):
-            text = raw[len("/remember "):].strip()
-        elif lowered.startswith("/forget "):
-            text = raw[len("/forget "):].strip()
-
-        listener_score = score_text(raw, config, db_path=sqlite_path())
-        current_state = _load_current_state(vault, conv_id)
-        route_hint = _run_with_thinking_indicator(
-            lambda: decide_turn_route(
-                vault=vault,
-                text=text,
-                conversation_id=conv_id,
-                provider=provider,
-                model=model,
-                listener_score=listener_score.as_dict(),
-                advice_context_active=advice_context_active,
-                advice_topic=advice_topic,
-            )
-        )
-        policy = assess_conversation_turn(
-            text,
-            state=current_state,
-            listener=listener_score.as_dict(),
+        turn_result = _process_chat_turn(
+            vault=vault,
+            conversation_id=conv_id,
+            text=raw,
+            provider=provider,
+            model=model,
+            advice_history=advice_history,
             advice_context_active=advice_context_active,
             advice_topic=advice_topic,
-            route_hint=route_hint.as_dict(),
+            domain_override=domain_override,
+            db_path=db_path,
         )
-        if _should_answer_directly(text, listener_score, advice_context_active, policy, route_hint=route_hint.as_dict()):
-            try:
-                response = _run_with_thinking_indicator(
-                    lambda: _run_advice_response(
-                        vault=vault,
-                        text=text,
-                        provider=provider,
-                        model=model,
-                        history=advice_history,
-                        conversation_policy=policy,
-                    )
-                )
-            except Exception as exc:
-                log_error(vault, "chat.run_chat.advice", exc)
-                print(_c(f"\n  Error: {exc}\n", RED))
-                continue
+        if turn_result.get("error"):
+            print(_c(f"\n  Error: {turn_result['error']}\n", RED))
+            continue
 
-            if response:
+        response = str(turn_result.get("response") or "").strip()
+        if response:
+            if turn_result.get("route") == "advice":
                 advice_context_active = True
-                advice_topic = route_hint.topic_hint or policy.topic
-                advice_history.append({"speaker": "user", "text": text})
+                advice_topic = str(turn_result.get("topic") or advice_topic or "")
+                advice_history.append({"speaker": "user", "text": str(turn_result.get("content_text") or raw)})
                 advice_history.append({"speaker": "assistant", "text": response})
                 append_transcript(vault=vault, conversation_id=conv_id, speaker="LISAN", text=response)
-                print()
-                print(_c("Lisan: ", CYAN) + response)
-                print()
-                continue
+            else:
+                advice_context_active = False
+                if turn_result.get("route") != "advice":
+                    advice_topic = None
+            print()
+            print(_c("Lisan: ", CYAN) + response)
+            print()
+        else:
+            advice_context_active = False
+            if turn_result.get("route") != "advice":
+                advice_topic = None
 
-        effective_policy = dict(policy.as_dict())
+        queued_jobs = turn_result.get("queued_jobs") or []
+        if queued_jobs:
+            job_list = ", ".join(f"{job['job_type']}:{job['job_id']}" for job in queued_jobs if isinstance(job, dict))
+            print(_c(f"  queued jobs: {job_list}", DIM))
+        if trace:
+            trace_text = str(turn_result.get("trace_summary") or "")
+            if trace_text:
+                print(_c(f"  {trace_text}", DIM))
+
+
+def _process_chat_turn(
+    *,
+    vault: Path,
+    conversation_id: str,
+    text: str,
+    provider: str | None,
+    model: str | None,
+    advice_history: list[dict[str, str]],
+    advice_context_active: bool,
+    advice_topic: str | None,
+    domain_override: str | None,
+    db_path: Path | None = None,
+) -> dict[str, Any]:
+    from .capture import capture_text
+
+    classification = classify_turn(text)
+    lowered = text.lower().strip()
+    content_text = text
+    if lowered.startswith("/remember "):
+        content_text = text[len("/remember "):].strip()
+    elif lowered.startswith("/forget "):
+        content_text = text[len("/forget "):].strip()
+    turn_id = f"turn.{time.strftime('%Y%m%d%H%M%S')}.{uuid.uuid4().hex[:8]}"
+    trace, token = start_turn_trace(turn_id, text, classification.label, classification.fast_path_used)
+    record_inline_step("classify_turn")
+    result: dict[str, Any] = {
+        "route": classification.route,
+        "kind": classification.label,
+        "fast_path_used": classification.fast_path_used,
+        "topic": advice_topic,
+        "content_text": content_text,
+        "queued_jobs": [],
+        "trace_summary": None,
+        "response": "",
+        "error": None,
+    }
+    try:
+        if classification.fast_path_used and classification.deterministic_response:
+            record_inline_step("fast_path_response")
+            result["response"] = classification.deterministic_response
+            result["route"] = "advice"
+            return result
+
+        if classification.route == "advice":
+            policy = assess_conversation_turn(
+                content_text,
+                state=_load_current_state(vault, conversation_id),
+                listener={},
+                advice_context_active=advice_context_active,
+                advice_topic=advice_topic,
+                route_hint={"route": "advice"},
+            )
+            record_inline_step("advice_response")
+            response = _run_with_thinking_indicator(
+                lambda: _run_advice_response(
+                    vault=vault,
+                    text=content_text,
+                    provider=provider,
+                    model=model,
+                    history=advice_history,
+                    conversation_policy=policy,
+                )
+            )
+            result["response"] = response
+            result["topic"] = policy.topic
+            return result
+
+        record_inline_step("memory_capture")
+        effective_policy = assess_conversation_turn(
+            content_text,
+            state=_load_current_state(vault, conversation_id),
+            listener={},
+            advice_context_active=advice_context_active,
+            advice_topic=advice_topic,
+            route_hint={"route": "memory"},
+        ).as_dict()
         if domain_override:
             effective_policy["domain_override"] = domain_override
             effective_policy["arena_override"] = domain_override
-
-        try:
-            result = _run_with_thinking_indicator(
-                lambda: capture_text(
-                    vault=vault,
-                    text=text,
-                conversation_id=conv_id,
+        response_bundle = _run_with_thinking_indicator(
+            lambda: capture_text(
+                vault=vault,
+                text=content_text,
+                conversation_id=conversation_id,
                 speaker="USER",
                 provider=provider,
                 model=model,
                 conversation_policy=effective_policy,
+                db_path=db_path,
             )
-            )
-        except Exception as exc:
-            log_error(vault, "chat.run_chat", exc)
-            print(_c(f"\n  Error: {exc}\n", RED))
-            continue
+        )
+        result["queued_jobs"] = response_bundle.get("queued_jobs") or []
+        record_jobs_queued(len(result["queued_jobs"]))
+        result["response"] = _extract_capture_response(response_bundle)
+        result["trace_summary"] = trace.summary()
+        return result
+    except Exception as exc:
+        log_error(vault, "chat.process_chat_turn", exc)
+        result["error"] = str(exc)
+        return result
+    finally:
+        finalized = finalize_turn_trace(trace, db_path=db_path or sqlite_path(), vault=vault)
+        result["trace_summary"] = finalized.summary()
+        result["trace"] = finalized.as_dict()
+        reset_current_turn_trace(token)
 
-        if policy.route != "advice" or result.get("mode") != "skip":
-            advice_context_active = False
-            if policy.route != "advice":
-                advice_topic = None
-        _render_response(result, vault=vault, conversation_id=conv_id)
+
+def _extract_capture_response(result: dict[str, Any]) -> str:
+    mode = str(result.get("mode") or "skip")
+    elicitor = result.get("elicitor") or {}
+    response_text = str(elicitor.get("response") or "").strip()
+    if not response_text and mode == "extraction":
+        interlocutor = result.get("interlocutor") or {}
+        response_text = str(interlocutor.get("response") or "").strip()
+    return response_text
 
 
 # ── Response rendering ────────────────────────────────────────────────────────

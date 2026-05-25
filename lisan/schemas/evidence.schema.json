@@ -38,6 +38,7 @@
     "artifact_ref": {"type": ["string", "null"]},
     "artifact_hash": {"type": ["string", "null"]},
     "timestamp_of_artifact": {"type": ["string", "null"]},
+    "batch_id": {"type": ["string", "null"]},
     "actors": {"type": "array", "items": {"type": "string"}},
     "sensitivity": {"type": "string", "enum": ["low", "medium", "high", "restricted", "sealed"]},
     "reliability": {"type": "string", "enum": ["low", "medium", "high"]},

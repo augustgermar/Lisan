@@ -17,6 +17,9 @@ from .epistemic import (
     normalize_skeptical_review_frontmatter,
     listify,
 )
+from .ingest import ensure_ingestion_manifest_table
+from .ingest_batches import ensure_ingestion_batches_table
+from .jobs import ensure_jobs_table
 from ..tools.common import iter_markdown_files, parse_date
 from ..utils import hash_embedding
 
@@ -49,6 +52,18 @@ CREATE TABLE IF NOT EXISTS files (
     artifact_ref TEXT,
     artifact_hash TEXT,
     timestamp_of_artifact TEXT,
+    batch_id TEXT,
+    source_path TEXT,
+    file_name TEXT,
+    file_ext TEXT,
+    mime_type TEXT,
+    size_bytes INTEGER,
+    modified_at TEXT,
+    imported_at TEXT,
+    ingestion_status TEXT,
+    extracted_text_ref TEXT,
+    linked_evidence TEXT,
+    parse_errors TEXT,
     actors TEXT,
     sensitivity TEXT,
     reliability TEXT,
@@ -138,8 +153,12 @@ CREATE TABLE IF NOT EXISTS retrieval_log (
     domain_context TEXT,
     classification_confidence REAL,
     files_loaded TEXT,
+    direct_files_loaded TEXT,
+    graph_files_loaded TEXT,
     files_rejected TEXT,
     rejection_reasons TEXT,
+    graph_blocked_count INTEGER,
+    graph_blocked_reasons TEXT,
     token_count INTEGER,
     privacy_level TEXT,
     cross_compartment BOOLEAN,
@@ -160,6 +179,64 @@ CREATE TABLE IF NOT EXISTS llm_call_log (
     latency_ms INTEGER,
     success BOOLEAN
 );
+
+CREATE TABLE IF NOT EXISTS ingestion_manifest (
+    source_path TEXT PRIMARY KEY,
+    artifact_hash TEXT,
+    last_seen TEXT,
+    last_ingested TEXT,
+    status TEXT NOT NULL,
+    artifact_id TEXT,
+    batch_id TEXT,
+    error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS ingestion_batches (
+    id TEXT PRIMARY KEY,
+    source_root TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    requested_by TEXT,
+    options_json TEXT,
+    summary_json TEXT,
+    error TEXT,
+    notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS jobs (
+    id TEXT PRIMARY KEY,
+    job_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 100,
+    coalesce_key TEXT,
+    unique_group TEXT,
+    replaces_job_id TEXT,
+    coalesced_count INTEGER NOT NULL DEFAULT 0,
+    payload_json TEXT NOT NULL,
+    result_json TEXT,
+    result_ref TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
+    created_at TEXT NOT NULL,
+    scheduled_for TEXT,
+    started_at TEXT,
+    finished_at TEXT,
+    error TEXT,
+    worker_id TEXT,
+    batch_id TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_jobs_status_priority
+    ON jobs(status, priority, scheduled_for, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_jobs_type_status
+    ON jobs(job_type, status, finished_at);
+
+CREATE INDEX IF NOT EXISTS idx_jobs_coalesce
+    ON jobs(job_type, coalesce_key, status);
 """
 
 
@@ -167,6 +244,9 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
     embeddings_file = embeddings_file or embeddings_path()
+    jobs_backup = _backup_jobs(db_path) if db_path.exists() else []
+    manifest_backup = _backup_ingestion_manifest(db_path) if db_path.exists() else []
+    batch_backup = _backup_ingestion_batches(db_path) if db_path.exists() else []
 
     if db_path.exists():
         db_path.unlink()
@@ -177,6 +257,12 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
     conn.row_factory = sqlite3.Row
     try:
         conn.executescript(SCHEMA_SQL)
+        ensure_jobs_table(conn)
+        ensure_ingestion_manifest_table(conn)
+        ensure_ingestion_batches_table(conn)
+        _restore_jobs(conn, jobs_backup)
+        _restore_ingestion_manifest(conn, manifest_backup)
+        _restore_ingestion_batches(conn, batch_backup)
         _maybe_create_fts(conn)
         counts = {"files": 0, "links": 0, "claims": 0, "aliases": 0, "epochs": 0}
         embeddings_lines: list[str] = []
@@ -241,6 +327,18 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
                 "artifact_ref": str(fm.get("artifact_ref", "")) if fm.get("artifact_ref") is not None else None,
                 "artifact_hash": str(fm.get("artifact_hash", "")) if fm.get("artifact_hash") is not None else None,
                 "timestamp_of_artifact": str(fm.get("timestamp_of_artifact", "")) if fm.get("timestamp_of_artifact") is not None else None,
+                "batch_id": str(fm.get("batch_id", "")) if fm.get("batch_id") is not None else None,
+                "source_path": str(fm.get("source_path", "")) if fm.get("source_path") is not None else None,
+                "file_name": str(fm.get("file_name", "")) if fm.get("file_name") is not None else None,
+                "file_ext": str(fm.get("file_ext", "")) if fm.get("file_ext") is not None else None,
+                "mime_type": str(fm.get("mime_type", "")) if fm.get("mime_type") is not None else None,
+                "size_bytes": int(fm.get("size_bytes")) if fm.get("size_bytes") is not None else None,
+                "modified_at": str(fm.get("modified_at", "")) if fm.get("modified_at") is not None else None,
+                "imported_at": str(fm.get("imported_at", "")) if fm.get("imported_at") is not None else None,
+                "ingestion_status": str(fm.get("ingestion_status", "")) if fm.get("ingestion_status") is not None else None,
+                "extracted_text_ref": str(fm.get("extracted_text_ref", "")) if fm.get("extracted_text_ref") is not None else None,
+                "linked_evidence": json.dumps(listify(fm.get("linked_evidence"))),
+                "parse_errors": json.dumps(listify(fm.get("parse_errors"))),
                 "actors": json.dumps(listify(fm.get("actors"))),
                 "sensitivity": str(fm.get("sensitivity") or ""),
                 "reliability": str(fm.get("reliability") or ""),
@@ -293,6 +391,8 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
                     domain_secondary, arena, privacy, compartments, allowed_contexts, blocked_contexts,
                     confidence, confidence_score, confidence_basis, last_confirmed, review_after, summary,
                     source_type, source_uri, artifact_ref, artifact_hash, timestamp_of_artifact,
+                    batch_id, source_path, file_name, file_ext, mime_type, size_bytes, modified_at, imported_at,
+                    ingestion_status, extracted_text_ref, linked_evidence, parse_errors,
                     actors, sensitivity, reliability, claim_class, owner, pattern_type, hypothesis,
                     supporting_records, counterexamples, alternative_explanations, supporting_evidence,
                     contradicting_evidence, linked_patterns, first_seen, last_reviewed, review_notes,
@@ -306,6 +406,8 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
                     :domain_secondary, :arena, :privacy, :compartments, :allowed_contexts, :blocked_contexts,
                     :confidence, :confidence_score, :confidence_basis, :last_confirmed, :review_after, :summary,
                     :source_type, :source_uri, :artifact_ref, :artifact_hash, :timestamp_of_artifact,
+                    :batch_id, :source_path, :file_name, :file_ext, :mime_type, :size_bytes, :modified_at, :imported_at,
+                    :ingestion_status, :extracted_text_ref, :linked_evidence, :parse_errors,
                     :actors, :sensitivity, :reliability, :claim_class, :owner, :pattern_type, :hypothesis,
                     :supporting_records, :counterexamples, :alternative_explanations, :supporting_evidence,
                     :contradicting_evidence, :linked_patterns, :first_seen, :last_reviewed, :review_notes,
@@ -393,6 +495,29 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
                             (file_id, link, None),
                         )
                         counts["links"] += 1
+            if file_type == "artifact":
+                for target in listify(fm.get("linked_evidence")):
+                    if target:
+                        conn.execute(
+                            "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
+                            (file_id, target, "linked_evidence"),
+                        )
+                        counts["links"] += 1
+                for target in listify(fm.get("linked_claims")):
+                    if target:
+                        conn.execute(
+                            "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
+                            (file_id, target, "linked_claims"),
+                        )
+                        counts["links"] += 1
+            if file_type in {"evidence", "claim"}:
+                artifact_ref = str(fm.get("artifact_ref") or "").strip()
+                if artifact_ref:
+                    conn.execute(
+                        "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
+                        (artifact_ref, file_id, "artifact_provenance"),
+                    )
+                    counts["links"] += 1
             for source_key, relationship in [
                 ("supporting_evidence", "supports"),
                 ("contradicting_evidence", "contradicts"),
@@ -420,6 +545,129 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
         return counts
     finally:
         conn.close()
+
+
+def _backup_jobs(db_path: Path) -> list[dict[str, Any]]:
+    if not db_path.exists():
+        return []
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        try:
+            rows = conn.execute("SELECT * FROM jobs").fetchall()
+        except sqlite3.Error:
+            return []
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def _backup_ingestion_manifest(db_path: Path) -> list[dict[str, Any]]:
+    if not db_path.exists():
+        return []
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        try:
+            rows = conn.execute("SELECT * FROM ingestion_manifest").fetchall()
+        except sqlite3.Error:
+            return []
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def _backup_ingestion_batches(db_path: Path) -> list[dict[str, Any]]:
+    if not db_path.exists():
+        return []
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        try:
+            rows = conn.execute("SELECT * FROM ingestion_batches").fetchall()
+        except sqlite3.Error:
+            return []
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def _restore_jobs(conn: sqlite3.Connection, jobs_backup: list[dict[str, Any]]) -> None:
+    if not jobs_backup:
+        return
+    for job in jobs_backup:
+        row = {
+            "id": job.get("id"),
+            "job_type": job.get("job_type"),
+            "status": job.get("status"),
+            "priority": job.get("priority", 100),
+            "batch_id": job.get("batch_id"),
+            "coalesce_key": job.get("coalesce_key"),
+            "unique_group": job.get("unique_group"),
+            "replaces_job_id": job.get("replaces_job_id"),
+            "coalesced_count": job.get("coalesced_count", 0),
+            "payload_json": job.get("payload_json") or "{}",
+            "result_json": job.get("result_json"),
+            "result_ref": job.get("result_ref"),
+            "attempts": job.get("attempts", 0),
+            "max_attempts": job.get("max_attempts", 3),
+            "created_at": job.get("created_at"),
+            "scheduled_for": job.get("scheduled_for"),
+            "started_at": job.get("started_at"),
+            "finished_at": job.get("finished_at"),
+            "error": job.get("error"),
+            "worker_id": job.get("worker_id"),
+        }
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO jobs (
+                id, job_type, status, priority, batch_id, coalesce_key, unique_group, replaces_job_id,
+                coalesced_count, payload_json, result_json, result_ref, attempts, max_attempts,
+                created_at, scheduled_for, started_at, finished_at, error, worker_id
+            ) VALUES (
+                :id, :job_type, :status, :priority, :batch_id, :coalesce_key, :unique_group, :replaces_job_id,
+                :coalesced_count, :payload_json, :result_json, :result_ref, :attempts, :max_attempts,
+                :created_at, :scheduled_for, :started_at, :finished_at, :error, :worker_id
+            )
+            """,
+            row,
+        )
+
+
+def _restore_ingestion_manifest(conn: sqlite3.Connection, manifest_backup: list[dict[str, Any]]) -> None:
+    if not manifest_backup:
+        return
+    for row in manifest_backup:
+        normalized = dict(row)
+        normalized.setdefault("batch_id", None)
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO ingestion_manifest (
+                source_path, artifact_hash, last_seen, last_ingested, status, artifact_id, batch_id, error
+            ) VALUES (
+                :source_path, :artifact_hash, :last_seen, :last_ingested, :status, :artifact_id, :batch_id, :error
+            )
+            """,
+            normalized,
+        )
+
+
+def _restore_ingestion_batches(conn: sqlite3.Connection, batch_backup: list[dict[str, Any]]) -> None:
+    if not batch_backup:
+        return
+    for row in batch_backup:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO ingestion_batches (
+                id, source_root, mode, status, created_at, started_at, finished_at, requested_by,
+                options_json, summary_json, error, notes
+            ) VALUES (
+                :id, :source_root, :mode, :status, :created_at, :started_at, :finished_at, :requested_by,
+                :options_json, :summary_json, :error, :notes
+            )
+            """,
+            row,
+        )
 
 
 def _extract_claims_from_episode(body: str, episode_id: str) -> list[tuple[Any, ...]]:

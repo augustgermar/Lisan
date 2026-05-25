@@ -65,6 +65,20 @@ TYPE_FIELDS = {
     "entity": {"subtype", "canonical_name", "aliases", "disambiguation", "epoch", "epoch_started", "previous_epochs"},
     "episode": {"entities", "evidence", "claims", "source"},
     "knowledge": set(),
+    "artifact": {
+        "source_type",
+        "source_path",
+        "artifact_hash",
+        "file_name",
+        "file_ext",
+        "size_bytes",
+        "modified_at",
+        "imported_at",
+        "ingestion_status",
+        "sensitivity",
+        "linked_evidence",
+        "linked_claims",
+    },
     "evidence": {
         "source_type",
         "actors",
@@ -131,6 +145,7 @@ ENUMS = {
         "entity",
         "episode",
         "knowledge",
+        "artifact",
         "evidence",
         "claim",
         "pattern",
@@ -158,6 +173,12 @@ ENUMS = {
         "supported",
         "integrated",
         "retired",
+        "discovered",
+        "parsed",
+        "evidence_extracted",
+        "failed",
+        "skipped",
+        "quarantined",
     },
     "significance": {"high", "medium", "low"},
     "domain_primary": {
@@ -202,6 +223,11 @@ ENUMS = {
         "file",
         "manual_note",
         "other",
+        "markdown",
+        "pdf",
+        "image",
+        "email_export",
+        "sms_export",
     },
     "sensitivity": {"low", "medium", "high", "restricted", "sealed"},
     "reliability": {"low", "medium", "high"},
@@ -380,6 +406,27 @@ def _validate_type_specific(path: Path, frontmatter: dict[str, Any], report: Val
             report.add(path, f"Invalid sensitivity: {frontmatter.get('sensitivity')}")
         if str(frontmatter.get("reliability", "")) not in ENUMS["reliability"]:
             report.add(path, f"Invalid reliability: {frontmatter.get('reliability')}")
+    elif file_type == "artifact":
+        if str(frontmatter.get("source_type", "")) not in {"file", "markdown", "text", "pdf", "image", "email_export", "sms_export", "other"}:
+            report.add(path, f"Invalid source_type: {frontmatter.get('source_type')}")
+        if not str(frontmatter.get("source_path", "")).strip():
+            report.add(path, "Missing source_path")
+        if not str(frontmatter.get("artifact_hash", "")).strip():
+            report.add(path, "Missing artifact_hash")
+        if not str(frontmatter.get("file_name", "")).strip():
+            report.add(path, "Missing file_name")
+        if not str(frontmatter.get("file_ext", "")).strip():
+            report.add(path, "Missing file_ext")
+        try:
+            size_bytes = int(frontmatter.get("size_bytes"))
+            if size_bytes < 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            report.add(path, f"Invalid size_bytes: {frontmatter.get('size_bytes')}")
+        if str(frontmatter.get("ingestion_status", "")) not in {"discovered", "parsed", "evidence_extracted", "failed", "skipped", "quarantined"}:
+            report.add(path, f"Invalid ingestion_status: {frontmatter.get('ingestion_status')}")
+        if str(frontmatter.get("sensitivity", "")) not in ENUMS["sensitivity"]:
+            report.add(path, f"Invalid sensitivity: {frontmatter.get('sensitivity')}")
     elif file_type == "skeptical_review":
         if str(frontmatter.get("risk", "")) not in {"low", "medium", "high"}:
             report.add(path, f"Invalid risk: {frontmatter.get('risk')}")

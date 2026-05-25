@@ -7,6 +7,7 @@ from typing import Any
 
 from ..agents import RouterAgent
 from .narrative_state import conversation_history, load_narrative_state
+from .chat_turns import classify_turn
 
 
 @dataclass(slots=True)
@@ -45,6 +46,18 @@ def decide_turn_route(
         return _skip("empty turn")
     if stripped.startswith("/") and not stripped.lower().startswith("/remember") and not stripped.lower().startswith("/forget"):
         return _skip("command input")
+
+    fast_path = classify_turn(text)
+    if fast_path.fast_path_used:
+        route = fast_path.route if fast_path.route in {"advice", "memory", "skip"} else "advice"
+        return TurnRouteDecision(
+            route=route,
+            confidence="high",
+            reason=fast_path.reason,
+            topic_hint="",
+            source="heuristic",
+            raw=fast_path.as_dict(),
+        )
 
     state = load_narrative_state(vault, conversation_id)
     history = conversation_history(vault, conversation_id)

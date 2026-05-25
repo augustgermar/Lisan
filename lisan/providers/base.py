@@ -13,6 +13,7 @@ from urllib import error, request
 from ..config import load_config
 from ..paths import sqlite_path
 from .config import select_provider
+from ..tools.tracing import record_llm_call
 
 
 @dataclass(slots=True)
@@ -65,31 +66,39 @@ class LisanLLM:
         chosen_provider = selected.provider
         client = _client_for(chosen_provider, self.config)
         prompt_version = f"{agent}_{significance}"
-        input_hash = _sha(prompt)
         start = time.time()
-        success = False
         response_text = ""
-        raw: dict[str, Any] | None = None
+        error_text: str | None = None
         try:
             response = client.complete(prompt, schema=schema, temperature=temperature, agent=agent, significance=significance, model=selected.model)
             response_text = response.text
-            raw = response.raw
-            success = True
             return response
+        except Exception as exc:
+            error_text = str(exc)
+            raise
         finally:
             latency_ms = int((time.time() - start) * 1000)
-            output_hash = _sha(response_text) if response_text else None
+            record_llm_call(
+                call_name=agent,
+                provider=chosen_provider,
+                model=selected.model or _default_model(self.config, chosen_provider),
+                prompt=prompt,
+                output=response_text,
+                elapsed_ms=latency_ms,
+                success=error_text is None,
+                error=error_text,
+            )
             _log_call(
                 db_path=self.db_path,
                 agent=agent,
                 provider=chosen_provider,
                 model=selected.model or _default_model(self.config, chosen_provider),
                 prompt_version=prompt_version,
-                input_hash=input_hash,
-                output_hash=output_hash,
+                input_hash=_sha(prompt),
+                output_hash=_sha(response_text) if response_text else None,
                 schema_version=_schema_version(schema),
                 latency_ms=latency_ms,
-                success=success,
+                success=error_text is None,
             )
 
 

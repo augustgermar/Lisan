@@ -76,6 +76,7 @@
     "last_reviewed": {"type": "string"},
     "predictions": {"type": "array", "items": {"type": "string"}},
     "review_notes": {"type": "string"},
+    "batch_id": {"type": ["string", "null"]},
     "evidence_needed": {"type": "array", "items": {"type": "string"}},
     "counterexample_search": {
       "type": "object",

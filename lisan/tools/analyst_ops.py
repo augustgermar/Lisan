@@ -58,7 +58,7 @@ def run_analyst_scan(
                 "hypothesis": str(pattern.get("hypothesis") or ""),
             }
         )
-        review = _review_pattern(vault, created.path, pattern, provider=provider, model=model)
+        review = review_pattern(vault, created.path, pattern, provider=provider, model=model)
         if review is not None:
             review_paths.append(review.path)
     report_path = _write_report(vault, response, pattern_paths, review_paths)
@@ -135,8 +135,9 @@ def _materialize_pattern(vault: Path, bundle: str, pattern: dict[str, Any], exis
         return None
 
 
-def _review_pattern(vault: Path, pattern_path: Path, pattern: dict[str, Any], provider: str | None = None, model: str | None = None):
+def review_pattern(vault: Path, pattern_path: Path, pattern: dict[str, Any] | None = None, provider: str | None = None, model: str | None = None):
     doc = load_markdown(pattern_path)
+    pattern = pattern or {}
     skeptical = SkepticAgent(vault=vault).run_json(
         json.dumps(
             {
