@@ -27,9 +27,9 @@ This is intentional:
 ### Typical remediation
 
 ```bash
-mkdir -p /Users/august/.codex/sessions
-chmod 700 /Users/august/.codex /Users/august/.codex/sessions
-chown -R august:staff /Users/august/.codex
+mkdir -p "$HOME/.codex/sessions"
+chmod 700 "$HOME/.codex" "$HOME/.codex/sessions"
+chown -R "$(id -un)":"$(id -gn)" "$HOME/.codex"
 ```
 
 ## Exit states

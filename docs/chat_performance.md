@@ -101,9 +101,9 @@ python3 -m lisan provider check
 For the local Codex provider, the most common issue is permissions on `~/.codex/sessions`. A typical fix is:
 
 ```bash
-mkdir -p /Users/august/.codex/sessions
-chmod 700 /Users/august/.codex /Users/august/.codex/sessions
-chown -R august:staff /Users/august/.codex
+mkdir -p "$HOME/.codex/sessions"
+chmod 700 "$HOME/.codex" "$HOME/.codex/sessions"
+chown -R "$(id -un)":"$(id -gn)" "$HOME/.codex"
 ```
 
 If the provider check fails, live evals should report infrastructure failure separately from any behavioral scoring.
