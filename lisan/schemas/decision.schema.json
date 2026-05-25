@@ -4,7 +4,7 @@
   "type": "object",
   "required": [
     "id", "type", "created", "updated", "status", "significance",
-    "arena_primary", "arena_secondary", "privacy", "compartments",
+    "domain_primary", "domain_secondary", "privacy", "compartments",
     "allowed_contexts", "blocked_contexts", "summary", "links",
     "confidence", "confidence_basis", "last_confirmed", "review_after",
     "revisit_after", "revisit_conditions", "alternatives_considered"
@@ -16,6 +16,8 @@
     "updated": {"type": "string"},
     "status": {"type": "string"},
     "significance": {"type": "string"},
+    "domain_primary": {"type": "string"},
+    "domain_secondary": {"type": "array", "items": {"type": "string"}},
     "arena_primary": {"type": "string"},
     "arena_secondary": {"type": "array", "items": {"type": "string"}},
     "privacy": {"type": "string"},
@@ -33,4 +35,3 @@
     "alternatives_considered": {"type": "array", "items": {"type": "string"}}
   }
 }
-

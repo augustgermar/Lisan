@@ -41,14 +41,14 @@ _IDENTITY_TEMPLATE = "# Identity\n"
 
 _OPERATING_STYLE_TEMPLATE = "# Operating Style\n"
 
-_ARENAS_TEMPLATE = """\
-# Arenas Definition
+_DOMAINS_TEMPLATE = """\
+# Life Domains Definition
 
-> Stable infrastructure. Changes to this file require a migration log entry in arena-migration-log.md.
+> Stable infrastructure. Changes to this file require a migration log entry in domain-migration-log.md.
 
-## Internal Arenas
+## Internal Life Domains
 
-| # | Arena | Core Question |
+| # | Domain | Core Question |
 |---|-------|---------------|
 | 1 | **Physical** | Is the user's body and mind supporting the life they want to live? |
 | 2 | **Environmental** | Does the user's environment make them more capable, calm, and effective? |
@@ -56,15 +56,25 @@ _ARENAS_TEMPLATE = """\
 | 4 | **Relational** | Are the user's relationships nourishing, honest, and aligned? |
 | 5 | **Work** | Is the user producing useful work that increases income, leverage, skill, or optionality? |
 
-## External Arenas
+## External Life Domains
 
-| # | Arena | Core Question |
+| # | Domain | Core Question |
 |---|-------|---------------|
 | 6 | **Status** | Does the user appear credible, competent, respectable, and socially legible? |
 | 7 | **Appearance** | Does the user visually present as attractive, healthy, competent, and intentional? |
 | 8 | **Competence** | Do others experience the user as capable, reliable, intelligent, and effective? |
 | 9 | **Social Presence** | Does the user's presence make people want more contact, trust, and cooperation? |
 | 10 | **Desirability** | Does the user present as someone others can desire, respect, and feel emotionally safe with? |
+"""
+
+_DOMAIN_MIGRATION_LOG_TEMPLATE = """\
+# Domain Migration Log
+
+> Stable infrastructure. If the life-domain taxonomy ever changes, record the mapping from old categories to new categories here.
+
+## Log
+
+<!-- Entries are added only when the domain taxonomy changes. -->
 """
 
 _BACKUP_LOG_TEMPLATE = """\
@@ -94,7 +104,8 @@ def write_seed_files(vault: Path) -> list[str]:
     seeds = {
         vault / "primer" / "identity.md": _IDENTITY_TEMPLATE,
         vault / "primer" / "operating-style.md": _OPERATING_STYLE_TEMPLATE,
-        vault / "arenas" / "arenas-definition.md": _ARENAS_TEMPLATE,
+        vault / "domains" / "domains-definition.md": _DOMAINS_TEMPLATE,
+        vault / "domains" / "domain-migration-log.md": _DOMAIN_MIGRATION_LOG_TEMPLATE,
         vault / "backup.md": _BACKUP_LOG_TEMPLATE,
     }
     for path, content in seeds.items():
@@ -129,7 +140,7 @@ def ensure_repo_layout(base: Path | None = None) -> None:
         "transcripts",
         "transcripts/narrative",
         "manifests",
-        "arenas",
+        "domains",
         "archive/episodes",
         "archive/entities",
         "archive/open_loops",

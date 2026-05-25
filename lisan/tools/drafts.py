@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..frontmatter import load_markdown, write_markdown
+from .domain_fields import normalize_domain_fields, with_domain_fields
 from ..tools.record_factory import new_decision, new_entity, new_episode, new_knowledge, new_open_loop, new_state
 from ..utils import slugify, today_iso
 
@@ -11,7 +12,7 @@ def promote_draft_to_episode(draft_path: Path, vault: Path) -> Path:
     if not draft_path.exists():
         raise FileNotFoundError(draft_path)
     doc = load_markdown(draft_path)
-    fm = dict(doc.frontmatter)
+    fm = normalize_domain_fields(dict(doc.frontmatter))
     pipeline = fm.get("pipeline", {}) if isinstance(fm.get("pipeline"), dict) else {}
     task = str(pipeline.get("task") or "episode")
     summary = str(fm.get("summary", draft_path.stem))
@@ -40,8 +41,8 @@ def promote_draft_to_episode(draft_path: Path, vault: Path) -> Path:
         "updated": today_iso(),
         "status": "active",
         "significance": str(fm.get("significance", "low")),
-        "arena_primary": str(fm.get("arena_primary", "cross_arena")),
-        "arena_secondary": fm.get("arena_secondary", []),
+        "domain_primary": str(fm.get("domain_primary", fm.get("arena_primary", "cross_arena"))),
+        "domain_secondary": fm.get("domain_secondary", fm.get("arena_secondary", [])),
         "privacy": str(fm.get("privacy", "personal")),
         "compartments": fm.get("compartments", []),
         "allowed_contexts": fm.get("allowed_contexts", ["all"]),
@@ -96,7 +97,7 @@ What details still need confirmation?
 | ID | Claim | Type | Confidence | Source | Evidence | Status |
 |----|-------|------|------------|--------|----------|--------|
 """
-    write_markdown(episode_path, frontmatter, body)
+    write_markdown(episode_path, with_domain_fields(frontmatter), body)
     return episode_path
 
 
@@ -130,12 +131,12 @@ def _promote_to_open_loop(vault: Path, fm: dict, summary: str, created: str, bod
 
 
 def _promote_to_state(vault: Path, fm: dict, summary: str, body: str) -> Path:
-    arena_primary = str(fm.get("arena_primary", "work"))
+    domain_primary = str(fm.get("domain_primary", fm.get("arena_primary", "work")))
     record = new_state(
         vault,
-        arena_primary,
+        domain_primary,
         summary,
-        arena_secondary=list(fm.get("arena_secondary", [])),
+        arena_secondary=list(fm.get("arena_secondary", fm.get("domain_secondary", []))),
         privacy=str(fm.get("privacy", "personal")),
         confidence=str(fm.get("confidence", "low")),
         confidence_basis=str(fm.get("confidence_basis", "Promoted from draft")),

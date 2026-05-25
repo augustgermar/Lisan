@@ -10,6 +10,7 @@ from ..agents import ElicitorAgent, InterlocutorAgent, SkepticAgent, WriterAgent
 from ..frontmatter import write_markdown
 from ..utils import slugify, today_iso
 from .assembler import assemble_context
+from .domain_fields import with_domain_fields
 from .log import log_error
 from .narrative_state import (
     conversation_history,
@@ -49,8 +50,8 @@ def run_elicitor_session(
     transcript_path = transcript_path or append_transcript(vault=vault, conversation_id=conversation_id, speaker=speaker, text=text)
     state = load_narrative_state(vault, conversation_id)
     history = conversation_history(vault, conversation_id)
-    arena = str((conversation_policy or {}).get("arena_override") or "") or None
-    context = assemble_context(text, arena=arena, vault=vault, conversation_id=conversation_id)
+    domain = str((conversation_policy or {}).get("domain_override") or (conversation_policy or {}).get("arena_override") or "") or None
+    context = assemble_context(text, domain=domain, vault=vault, conversation_id=conversation_id)
     elicitor = ElicitorAgent(vault=vault).run_json(
         text,
         significance="medium",
@@ -166,8 +167,8 @@ def _write_elicitor_draft(
         "updated": today_iso(),
         "status": "pending",
         "significance": str(writer.get("significance", "high")),
-        "arena_primary": "cross_arena",
-        "arena_secondary": [],
+        "domain_primary": "cross_arena",
+        "domain_secondary": [],
         "privacy": "personal",
         "compartments": [],
         "allowed_contexts": ["all"],
@@ -215,7 +216,7 @@ Elicitor mode closure was detected.
 
 {text.strip()}
 """
-    write_markdown(path, frontmatter, body)
+    write_markdown(path, with_domain_fields(frontmatter), body)
     _apply_elicitor_state_updates(vault, writer)
     _create_elicitor_open_loops(vault, writer)
     _create_elicitor_decisions(vault, writer)
@@ -230,7 +231,7 @@ def _create_elicitor_open_loops(vault: Path, writer: dict[str, Any]) -> None:
         next_action = str(loop.get("next_action") or "").strip()
         summary = str(loop.get("summary") or "").strip()
         priority = str(loop.get("priority") or "medium").strip()
-        arena = str(loop.get("arena") or "cross_arena").strip()
+        arena = str(loop.get("domain", loop.get("arena")) or "cross_arena").strip()
         if not title or not next_action:
             continue
         if priority not in ("low", "medium", "high"):
@@ -239,7 +240,7 @@ def _create_elicitor_open_loops(vault: Path, writer: dict[str, Any]) -> None:
             new_open_loop(
                 vault=vault,
                 title=title,
-                arena_primary=arena if arena in STATE_TTLS else "cross_arena",
+                domain_primary=arena if arena in STATE_TTLS else "cross_arena",
                 summary=summary or title,
                 next_action=next_action,
                 priority=priority,
@@ -256,17 +257,17 @@ def _apply_elicitor_state_updates(vault: Path, writer: dict[str, Any]) -> None:
     from .record_factory import upsert_state
     updates = writer.get("state_updates") or []
     for update in updates:
-        arena = str(update.get("arena") or "").strip().lower()
+        state_category = str(update.get("category", update.get("arena")) or "").strip().lower()
         summary = str(update.get("summary") or "").strip()
         confidence = str(update.get("confidence") or "low").strip()
-        if not arena or not summary or arena not in STATE_TTLS:
+        if not state_category or not summary or state_category not in STATE_TTLS:
             continue
         if confidence not in ("low", "medium", "high"):
             confidence = "low"
         try:
             upsert_state(
                 vault=vault,
-                arena_primary=arena,
+                state_category=state_category,
                 summary=summary,
                 confidence=confidence,
                 confidence_basis="Auto-extracted from elicitor conversation",
@@ -280,7 +281,7 @@ def _create_elicitor_decisions(vault: Path, writer: dict[str, Any]) -> None:
     for entry in decisions:
         title = str(entry.get("title") or "").strip()
         summary = str(entry.get("summary") or "").strip()
-        arena = str(entry.get("arena") or "cross_arena").strip()
+        arena = str(entry.get("domain", entry.get("arena")) or "cross_arena").strip()
         significance = str(entry.get("significance") or "low").strip()
         alternatives = list(entry.get("alternatives_considered") or [])
         revisit = list(entry.get("revisit_conditions") or [])
@@ -292,7 +293,7 @@ def _create_elicitor_decisions(vault: Path, writer: dict[str, Any]) -> None:
             new_decision(
                 vault=vault,
                 title=title,
-                arena_primary=arena if arena in STATE_TTLS else "cross_arena",
+                domain_primary=arena if arena in STATE_TTLS else "cross_arena",
                 summary=summary,
                 significance=significance,
                 confidence="low",

@@ -56,9 +56,9 @@ def build_parser() -> argparse.ArgumentParser:
     state_subparsers = state.add_subparsers(dest="state_command", required=True)
     state_update = state_subparsers.add_parser("update", help="Overwrite a current state file")
     state_update.add_argument("--vault", type=Path, default=vault_root())
-    state_update.add_argument("arena_primary", choices=["physical", "environmental", "financial", "relational", "work", "status", "appearance", "competence", "social_presence", "desirability"])
+    state_update.add_argument("state_category", choices=["physical", "environmental", "financial", "relational", "work", "status", "appearance", "competence", "social_presence", "desirability"])
     state_update.add_argument("summary")
-    state_update.add_argument("--arena-secondary", action="append", default=[])
+    state_update.add_argument("--state-secondary", "--arena-secondary", dest="state_secondary", action="append", default=[])
     state_update.add_argument("--privacy", default="personal")
     state_update.add_argument("--confidence", default="low")
     state_update.add_argument("--confidence-basis", default="User-authored placeholder")
@@ -105,8 +105,8 @@ def build_parser() -> argparse.ArgumentParser:
     new_entity_cmd.add_argument("--vault", type=Path, default=vault_root())
     new_entity_cmd.add_argument("name")
     new_entity_cmd.add_argument("--subtype", default="person")
-    new_entity_cmd.add_argument("--arena-primary", default="cross_arena")
-    new_entity_cmd.add_argument("--arena-secondary", action="append", default=[])
+    new_entity_cmd.add_argument("--domain-primary", "--arena-primary", dest="domain_primary", default="cross_arena")
+    new_entity_cmd.add_argument("--domain-secondary", "--arena-secondary", dest="domain_secondary", action="append", default=[])
     new_entity_cmd.add_argument("--privacy", default="personal")
     new_entity_cmd.add_argument("--significance", default="low")
     new_entity_cmd.add_argument("--summary", default=None)
@@ -123,8 +123,8 @@ def build_parser() -> argparse.ArgumentParser:
     new_episode_cmd = new_subparsers.add_parser("episode", help="Create a new episode record")
     new_episode_cmd.add_argument("--vault", type=Path, default=vault_root())
     new_episode_cmd.add_argument("title")
-    new_episode_cmd.add_argument("--arena-primary", default="cross_arena")
-    new_episode_cmd.add_argument("--arena-secondary", action="append", default=[])
+    new_episode_cmd.add_argument("--domain-primary", "--arena-primary", dest="domain_primary", default="cross_arena")
+    new_episode_cmd.add_argument("--domain-secondary", "--arena-secondary", dest="domain_secondary", action="append", default=[])
     new_episode_cmd.add_argument("--privacy", default="personal")
     new_episode_cmd.add_argument("--significance", default="low")
     new_episode_cmd.add_argument("--source", default="manual")
@@ -141,8 +141,8 @@ def build_parser() -> argparse.ArgumentParser:
     new_decision_cmd = new_subparsers.add_parser("decision", help="Create a new decision record")
     new_decision_cmd.add_argument("--vault", type=Path, default=vault_root())
     new_decision_cmd.add_argument("title")
-    new_decision_cmd.add_argument("--arena-primary", default="cross_arena")
-    new_decision_cmd.add_argument("--arena-secondary", action="append", default=[])
+    new_decision_cmd.add_argument("--domain-primary", "--arena-primary", dest="domain_primary", default="cross_arena")
+    new_decision_cmd.add_argument("--domain-secondary", "--arena-secondary", dest="domain_secondary", action="append", default=[])
     new_decision_cmd.add_argument("--privacy", default="personal")
     new_decision_cmd.add_argument("--significance", default="low")
     new_decision_cmd.add_argument("--summary", default=None)
@@ -157,8 +157,8 @@ def build_parser() -> argparse.ArgumentParser:
     new_loop_cmd = new_subparsers.add_parser("loop", help="Create a new open loop record")
     new_loop_cmd.add_argument("--vault", type=Path, default=vault_root())
     new_loop_cmd.add_argument("title")
-    new_loop_cmd.add_argument("--arena-primary", default="cross_arena")
-    new_loop_cmd.add_argument("--arena-secondary", action="append", default=[])
+    new_loop_cmd.add_argument("--domain-primary", "--arena-primary", dest="domain_primary", default="cross_arena")
+    new_loop_cmd.add_argument("--domain-secondary", "--arena-secondary", dest="domain_secondary", action="append", default=[])
     new_loop_cmd.add_argument("--privacy", default="personal")
     new_loop_cmd.add_argument("--significance", default="low")
     new_loop_cmd.add_argument("--summary", default=None)
@@ -175,8 +175,8 @@ def build_parser() -> argparse.ArgumentParser:
     new_knowledge_cmd.add_argument("--vault", type=Path, default=vault_root())
     new_knowledge_cmd.add_argument("title")
     new_knowledge_cmd.add_argument("--category", default="frameworks")
-    new_knowledge_cmd.add_argument("--arena-primary", default="cross_arena")
-    new_knowledge_cmd.add_argument("--arena-secondary", action="append", default=[])
+    new_knowledge_cmd.add_argument("--domain-primary", "--arena-primary", dest="domain_primary", default="cross_arena")
+    new_knowledge_cmd.add_argument("--domain-secondary", "--arena-secondary", dest="domain_secondary", action="append", default=[])
     new_knowledge_cmd.add_argument("--privacy", default="personal")
     new_knowledge_cmd.add_argument("--significance", default="low")
     new_knowledge_cmd.add_argument("--summary", default=None)
@@ -189,8 +189,8 @@ def build_parser() -> argparse.ArgumentParser:
     new_evidence_cmd.add_argument("--vault", type=Path, default=vault_root())
     new_evidence_cmd.add_argument("title")
     new_evidence_cmd.add_argument("--subtype", default="document")
-    new_evidence_cmd.add_argument("--arena-primary", default="cross_arena")
-    new_evidence_cmd.add_argument("--arena-secondary", action="append", default=[])
+    new_evidence_cmd.add_argument("--domain-primary", "--arena-primary", dest="domain_primary", default="cross_arena")
+    new_evidence_cmd.add_argument("--domain-secondary", "--arena-secondary", dest="domain_secondary", action="append", default=[])
     new_evidence_cmd.add_argument("--privacy", default="personal")
     new_evidence_cmd.add_argument("--significance", default="low")
     new_evidence_cmd.add_argument("--summary", default=None)
@@ -215,9 +215,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     new_state_cmd = new_subparsers.add_parser("state", help="Create a new state record")
     new_state_cmd.add_argument("--vault", type=Path, default=vault_root())
-    new_state_cmd.add_argument("arena_primary", choices=["physical", "environmental", "financial", "relational", "work", "status", "appearance", "competence", "social_presence", "desirability"])
+    new_state_cmd.add_argument("state_category", choices=["physical", "environmental", "financial", "relational", "work", "status", "appearance", "competence", "social_presence", "desirability"])
     new_state_cmd.add_argument("summary")
-    new_state_cmd.add_argument("--arena-secondary", action="append", default=[])
+    new_state_cmd.add_argument("--state-secondary", "--arena-secondary", dest="state_secondary", action="append", default=[])
     new_state_cmd.add_argument("--privacy", default="personal")
     new_state_cmd.add_argument("--confidence", default="low")
     new_state_cmd.add_argument("--confidence-basis", default="User-authored placeholder")
@@ -227,7 +227,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     assemble = subparsers.add_parser("assemble", help="Assemble context for a query")
     assemble.add_argument("query", nargs="+")
-    assemble.add_argument("--arena", default=None)
+    assemble.add_argument("--arena", "--domain", dest="domain", default=None)
     assemble.add_argument("--vault", type=Path, default=vault_root())
 
     heuristic = subparsers.add_parser("heuristic", help="Score text for memory processing")
@@ -503,7 +503,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "assemble":
         query = " ".join(args.query)
-        print(assemble_context(query, arena=args.arena, vault=args.vault))
+        print(assemble_context(query, domain=args.domain, vault=args.vault))
         return 0
 
     if args.command == "heuristic":
@@ -617,9 +617,9 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 record = upsert_state(
                     args.vault,
-                    args.arena_primary,
+                    args.state_category,
                     args.summary,
-                    arena_secondary=args.arena_secondary,
+                    state_secondary=args.state_secondary,
                     privacy=args.privacy,
                     confidence=args.confidence,
                     confidence_basis=args.confidence_basis,
@@ -774,8 +774,8 @@ def _handle_new(args: argparse.Namespace) -> int:
                 vault,
                 args.name,
                 subtype=args.subtype,
-                arena_primary=args.arena_primary,
-                arena_secondary=args.arena_secondary,
+                domain_primary=args.domain_primary,
+                domain_secondary=args.domain_secondary,
                 privacy=args.privacy,
                 significance=args.significance,
                 summary=args.summary,
@@ -793,8 +793,8 @@ def _handle_new(args: argparse.Namespace) -> int:
             record = new_episode(
                 vault,
                 args.title,
-                arena_primary=args.arena_primary,
-                arena_secondary=args.arena_secondary,
+                domain_primary=args.domain_primary,
+                domain_secondary=args.domain_secondary,
                 privacy=args.privacy,
                 significance=args.significance,
                 source=args.source,
@@ -812,8 +812,8 @@ def _handle_new(args: argparse.Namespace) -> int:
             record = new_decision(
                 vault,
                 args.title,
-                arena_primary=args.arena_primary,
-                arena_secondary=args.arena_secondary,
+                domain_primary=args.domain_primary,
+                domain_secondary=args.domain_secondary,
                 privacy=args.privacy,
                 significance=args.significance,
                 summary=args.summary,
@@ -829,8 +829,8 @@ def _handle_new(args: argparse.Namespace) -> int:
             record = new_open_loop(
                 vault,
                 args.title,
-                arena_primary=args.arena_primary,
-                arena_secondary=args.arena_secondary,
+                domain_primary=args.domain_primary,
+                domain_secondary=args.domain_secondary,
                 privacy=args.privacy,
                 significance=args.significance,
                 summary=args.summary,
@@ -848,8 +848,8 @@ def _handle_new(args: argparse.Namespace) -> int:
                 vault,
                 args.title,
                 category=args.category,
-                arena_primary=args.arena_primary,
-                arena_secondary=args.arena_secondary,
+                domain_primary=args.domain_primary,
+                domain_secondary=args.domain_secondary,
                 privacy=args.privacy,
                 significance=args.significance,
                 summary=args.summary,
@@ -863,8 +863,8 @@ def _handle_new(args: argparse.Namespace) -> int:
                 vault,
                 args.title,
                 subtype=args.subtype,
-                arena_primary=args.arena_primary,
-                arena_secondary=args.arena_secondary,
+                domain_primary=args.domain_primary,
+                domain_secondary=args.domain_secondary,
                 privacy=args.privacy,
                 significance=args.significance,
                 summary=args.summary,
@@ -879,9 +879,9 @@ def _handle_new(args: argparse.Namespace) -> int:
         elif args.new_command == "state":
             record = new_state(
                 vault,
-                args.arena_primary,
+                args.state_category,
                 args.summary,
-                arena_secondary=args.arena_secondary,
+                state_secondary=args.state_secondary,
                 privacy=args.privacy,
                 confidence=args.confidence,
                 confidence_basis=args.confidence_basis,

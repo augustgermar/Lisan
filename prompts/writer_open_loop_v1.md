@@ -20,4 +20,4 @@ Return JSON with:
 - `questions`: array of clarifying questions (0-2 max — keep it low friction)
 - `significance_rationale`: why this significance level was chosen
 - `entities_to_create`: array of `{name, subtype, summary}` for people/places/things mentioned
-- `state_updates`: array of `{arena, summary, confidence}` if relevant
+- `state_updates`: array of `{category, summary, confidence}` if relevant. The `category` field names the life domain affected.

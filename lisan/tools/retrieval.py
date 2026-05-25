@@ -14,7 +14,7 @@ from ..tools.common import iter_markdown_files
 from ..utils import approx_word_count, hash_embedding
 
 
-ARENA_KEYWORDS: dict[str, set[str]] = {
+DOMAIN_KEYWORDS: dict[str, set[str]] = {
     "physical": {"body", "sleep", "health", "fitness", "exercise", "pain", "energy"},
     "environmental": {"home", "room", "space", "environment", "apartment", "house"},
     "financial": {"money", "budget", "cash", "expense", "income", "tax", "finance"},
@@ -46,20 +46,31 @@ class RetrievalItem:
 
 @dataclass(slots=True)
 class RetrievalResult:
-    arena: str
+    domain: str
     confidence: float
     loaded: list[RetrievalItem]
     rejected: list[RetrievalItem]
     prompt: str
 
+    @property
+    def arena(self) -> str:
+        return self.domain
 
-def assemble_context(query: str, arena: str | None = None, vault: Path | None = None, db_path: Path | None = None, conversation_id: str | None = None) -> str:
+
+def assemble_context(
+    query: str,
+    domain: str | None = None,
+    arena: str | None = None,
+    vault: Path | None = None,
+    db_path: Path | None = None,
+    conversation_id: str | None = None,
+) -> str:
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
-    result = retrieve_context(query=query, arena=arena, vault=vault, db_path=db_path, conversation_id=conversation_id)
+    result = retrieve_context(query=query, domain=domain, arena=arena, vault=vault, db_path=db_path, conversation_id=conversation_id)
     sections: list[str] = ["# Assembled Context", ""]
-    sections.append(f"arena: {result.arena}")
-    sections.append(f"arena_confidence: {result.confidence:.2f}")
+    sections.append(f"domain: {result.domain}")
+    sections.append(f"domain_confidence: {result.confidence:.2f}")
     sections.append("")
     sections.append(f"query: {query}")
     sections.append("")
@@ -112,6 +123,7 @@ def assemble_context(query: str, arena: str | None = None, vault: Path | None = 
 
 def retrieve_context(
     query: str,
+    domain: str | None = None,
     arena: str | None = None,
     vault: Path | None = None,
     db_path: Path | None = None,
@@ -119,17 +131,17 @@ def retrieve_context(
 ) -> RetrievalResult:
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
-    inferred_arena, confidence = _infer_arena(query, arena)
-    active_contexts = _active_contexts(inferred_arena, query)
+    inferred_domain, confidence = _infer_domain(query, domain or arena)
+    active_contexts = _active_contexts(inferred_domain, query)
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         fts_ids = _fts_candidate_ids(conn, query)
         file_rows = conn.execute(
-            "SELECT id, type, path, summary, arena_primary, arena_secondary, privacy, compartments, allowed_contexts, blocked_contexts, significance, status, updated, created FROM files"
+            "SELECT id, type, path, summary, domain_primary, domain_secondary, privacy, compartments, allowed_contexts, blocked_contexts, significance, status, updated, created FROM files"
         ).fetchall()
-        all_items = [_score_row(row, query, inferred_arena, vault, active_contexts, fts_ids) for row in file_rows]
+        all_items = [_score_row(row, query, inferred_domain, vault, active_contexts, fts_ids) for row in file_rows]
         loaded = [item for item in all_items if item is not None]
         loaded.sort(key=lambda item: (item.score, item.summary), reverse=True)
         loaded = loaded[:15]
@@ -139,26 +151,26 @@ def retrieve_context(
             conn,
             conversation_id=conversation_id,
             query=query,
-            arena=inferred_arena,
+            arena=inferred_domain,
             confidence=confidence,
             loaded=loaded,
             rejected=rejected,
         )
-        return RetrievalResult(arena=inferred_arena, confidence=confidence, loaded=loaded, rejected=rejected, prompt=query)
+        return RetrievalResult(domain=inferred_domain, confidence=confidence, loaded=loaded, rejected=rejected, prompt=query)
     finally:
         conn.close()
 
 
-def _infer_arena(query: str, explicit: str | None) -> tuple[str, float]:
+def _infer_domain(query: str, explicit: str | None) -> tuple[str, float]:
     if explicit:
         return explicit, 1.0
     lowered = query.lower()
     best = "cross_arena"
     best_score = 0
-    for arena, keywords in ARENA_KEYWORDS.items():
+    for domain_name, keywords in DOMAIN_KEYWORDS.items():
         score = sum(1 for keyword in keywords if keyword in lowered)
         if score > best_score:
-            best = arena
+            best = domain_name
             best_score = score
     confidence = min(1.0, 0.35 + (best_score * 0.15))
     if best_score == 0:
@@ -201,7 +213,7 @@ def _score_row(
         if not set(allowed_contexts).intersection(active_contexts):
             return _blocked()
 
-    # Sensitive compartments (non-arena privacy domains) restrict independently of allowed_contexts
+    # Sensitive compartments (non-life-domain privacy boundaries) restrict independently of allowed_contexts
     _SENSITIVE = {"legal", "health", "children"}
     sensitive = _SENSITIVE.intersection(compartments)
     if sensitive and not sensitive.intersection(active_contexts):
@@ -213,9 +225,9 @@ def _score_row(
     summary = str(row["summary"])
     haystack = f"{summary}\n{row['id']}\n{row['path']}".lower()
 
-    if row["arena_primary"] == arena or row["arena_primary"] == "cross_arena":
+    if row["domain_primary"] == arena or row["domain_primary"] == "cross_arena":
         score += 2.0
-        reasons.append("arena_match")
+        reasons.append("domain_match")
     if row["type"] == "state":
         score += 2.0
     elif row["type"] == "decision":
@@ -336,7 +348,7 @@ def _log_retrieval(
         conn.execute(
             """
             INSERT INTO retrieval_log (
-                conversation_id, user_query, arena_context, classification_confidence,
+                conversation_id, user_query, domain_context, classification_confidence,
                 files_loaded, files_rejected, rejection_reasons, token_count, privacy_level,
                 cross_compartment, model_used
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
