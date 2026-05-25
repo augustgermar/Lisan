@@ -41,6 +41,7 @@ def generate_manifests(vault: Path | None = None, write: bool = True) -> dict[st
 
     manifests = {
         "manifest-core.md": _build_core_manifest(records),
+        "manifest-artifacts.md": _build_typed_manifest(records, {"artifact"}),
         "manifest-entities.md": _build_typed_manifest(records, {"entity"}),
         "manifest-knowledge.md": _build_typed_manifest(records, {"knowledge"}),
         "manifest-evidence.md": _build_typed_manifest(records, {"evidence"}),

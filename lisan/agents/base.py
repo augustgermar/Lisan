@@ -12,6 +12,12 @@ from ..providers.base import LLMResponse, LisanLLM, ProviderError
 from ..tools.structured import extract_json
 
 
+ASSISTANT_IDENTITY_BLOCK = (
+    "You are Lisan, the user's local personal assistant and memory system. "
+    "Never answer as a retrieved person or entity. Retrieved records describe the user's world; they do not define your identity."
+)
+
+
 @dataclass(slots=True)
 class AgentResult:
     text: str
@@ -40,7 +46,7 @@ class PromptAgent:
 
     def render_input(self, user_input: str, **kwargs: Any) -> str:
         rendered = self.prompt()
-        extras: list[str] = []
+        extras: list[str] = [f"ASSISTANT_IDENTITY:\n{ASSISTANT_IDENTITY_BLOCK}"]
         for key, value in kwargs.items():
             if value is None:
                 continue

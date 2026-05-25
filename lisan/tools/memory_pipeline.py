@@ -15,6 +15,7 @@ from .firewall import scan_text
 from .log import log_error
 from .epistemic import listify
 from .narrative_state import load_narrative_state
+from .tracing import record_inline_step
 from .record_factory import STATE_TTLS, new_claim, new_decision, new_evidence, new_entity, new_open_loop, upsert_state
 from .transcripts import append_transcript
 
@@ -43,10 +44,13 @@ def run_memory_pipeline(
     model: str | None = None,
     conversation_policy: dict[str, Any] | None = None,
 ) -> MemoryPipelineResult:
+    record_inline_step("memory_pipeline.start")
     transcript_path = append_transcript(vault=vault, conversation_id=conversation_id, speaker=speaker, text=text)
+    record_inline_step("memory_pipeline.transcript")
     fw = scan_text(text, vault=vault)
     text = fw.text  # use sanitized version for all downstream agents
     prior_state = load_narrative_state(vault=vault, conversation_id=conversation_id)
+    record_inline_step("memory_pipeline.listener")
     listener = ListenerAgent(vault=vault).run_json(text, provider=provider, model=model)
     action = str(listener.get("action", "skip"))
     mode = str(listener.get("mode", "skip"))
@@ -78,6 +82,7 @@ def run_memory_pipeline(
         )
 
     if mode == "elicitor":
+        record_inline_step("memory_pipeline.elicitor")
         elicitor_result = run_elicitor_session(
             vault=vault,
             text=text,
@@ -102,8 +107,10 @@ def run_memory_pipeline(
             narrative_state=elicitor_result.narrative_state,
         )
 
+    record_inline_step("memory_pipeline.assembler")
     context = AssemblerAgent(vault=vault).run(text).text
     task = _choose_task(text=text, listener=listener)
+    record_inline_step("memory_pipeline.writer")
     writer = WriterAgent(vault=vault).run_json(
         text,
         significance="high" if action == "full" else "medium",
@@ -114,6 +121,7 @@ def run_memory_pipeline(
         transcript=str(transcript_path.relative_to(vault)),
         conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     )
+    record_inline_step("memory_pipeline.skeptic")
     skeptic = SkepticAgent(vault=vault).run_json(
         json.dumps(writer, indent=2, ensure_ascii=True),
         significance="medium",
@@ -121,6 +129,7 @@ def run_memory_pipeline(
         model=model,
         conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     )
+    record_inline_step("memory_pipeline.interlocutor")
     interlocutor = InterlocutorAgent(vault=vault).run_json(
         json.dumps({"writer": writer, "skeptic": skeptic, "listener": listener}, indent=2, ensure_ascii=True),
         significance="medium",
@@ -129,6 +138,7 @@ def run_memory_pipeline(
         conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     )
     draft_path = _write_draft(vault, text, transcript_path, listener, writer, skeptic, interlocutor, task, mode, action)
+    record_inline_step("memory_pipeline.fanout")
     _create_entity_stubs(vault, writer, str(draft_path.relative_to(vault)))
     _create_evidence_records(vault, writer, transcript_path, str(draft_path.relative_to(vault)))
     _create_claim_records(vault, writer, str(draft_path.relative_to(vault)))

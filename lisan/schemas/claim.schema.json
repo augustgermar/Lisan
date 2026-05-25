@@ -54,6 +54,7 @@
     "linked_patterns": {"type": "array", "items": {"type": "string"}},
     "first_seen": {"type": "string"},
     "last_reviewed": {"type": "string"},
-    "review_notes": {"type": "string"}
+    "review_notes": {"type": "string"},
+    "batch_id": {"type": ["string", "null"]}
   }
 }

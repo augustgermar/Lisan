@@ -30,6 +30,8 @@ def _policy_dict(value: Any) -> dict[str, Any]:
 
 def _fallback_answer(text: str, policy: dict[str, Any] | None = None) -> str:
     lowered = text.lower()
+    if any(marker in lowered for marker in ["what is your name", "what's your name", "who are you", "what are you"]):
+        return "My name is Lisan. I am your local personal assistant and memory system."
     tone = str((policy or {}).get("tone") or "").lower()
     style = str((policy or {}).get("response_style") or "").lower()
     transition = str((policy or {}).get("transition") or "").lower()

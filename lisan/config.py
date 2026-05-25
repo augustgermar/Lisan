@@ -59,6 +59,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "bored", "busy", "sick", "lonely", "cozy", "cold", "warm",
         ],
     },
+    "ingest": {
+        "max_file_size_bytes": 5 * 1024 * 1024,
+        "text_preview_chars": 4000,
+        "skip_if_inside_vault": True,
+    },
     "backup": {
         "destination_dir": "backups",
         "encrypt_by_default": False,

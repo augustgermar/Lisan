@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -156,6 +157,115 @@ def new_knowledge(
         "review_after": review_after or today,
     }
     body = f"# {title}\n\nKnowledge entry created from the CLI.\n"
+    write_markdown(path, with_domain_fields(frontmatter), body)
+    return CreatedRecord(path=path, created=True)
+
+
+def new_artifact(
+    vault: Path,
+    source_path: str,
+    source_type: str,
+    artifact_hash: str,
+    file_name: str,
+    file_ext: str,
+    imported_at: str,
+    modified_at: str,
+    size_bytes: int,
+    sensitivity: str = "medium",
+    compartments: list[str] | None = None,
+    arena: str = "cross_arena",
+    source_uri: str | None = None,
+    mime_type: str | None = None,
+    summary: str | None = None,
+    extracted_text_ref: str | None = None,
+    linked_evidence: list[str] | None = None,
+    linked_claims: list[str] | None = None,
+    parse_errors: list[str] | None = None,
+    ingestion_status: str = "discovered",
+    privacy: str | None = None,
+    batch_id: str | None = None,
+) -> CreatedRecord:
+    today = imported_at[:10] if imported_at else today_iso()
+    source_hash = hashlib.sha256(str(source_path).encode("utf-8")).hexdigest()[:8]
+    artifact_hash_hex = str(artifact_hash).replace("sha256:", "").strip() or "unknown"
+    safe_slug = slugify(Path(file_name).stem or Path(source_path).stem or "artifact")
+    artifact_id = f"artifact.{safe_slug}.{source_hash}.{artifact_hash_hex[:8]}"
+    path = vault / "evidence" / "artifacts" / f"{safe_slug}-{source_hash}-{artifact_hash_hex[:8]}.md"
+    if path.exists():
+        raise FileExistsError(path)
+
+    linked_evidence = linked_evidence or []
+    linked_claims = linked_claims or []
+    parse_errors = parse_errors or []
+    privacy = privacy or ("sealed" if sensitivity == "sealed" else "personal_sensitive" if sensitivity in {"high", "restricted"} else "personal")
+    frontmatter = {
+        "id": artifact_id,
+        "type": "artifact",
+        "created": today,
+        "created_at": imported_at,
+        "updated": today,
+        "status": ingestion_status,
+        "significance": "low",
+        "domain_primary": arena,
+        "domain_secondary": [],
+        "arena": arena,
+        "privacy": privacy,
+        "compartments": compartments or [],
+        "allowed_contexts": [arena] if arena else ["all"],
+        "blocked_contexts": [],
+        "summary": summary or file_name,
+        "links": list(dict.fromkeys(linked_evidence + linked_claims)),
+        "confidence": "low",
+        "confidence_basis": "Local artifact imported from filesystem",
+        "last_confirmed": today,
+        "review_after": today,
+        "source_type": source_type,
+        "source_path": source_path,
+        "source_uri": source_uri,
+        "batch_id": batch_id,
+        "artifact_hash": artifact_hash,
+        "file_name": file_name,
+        "file_ext": file_ext,
+        "mime_type": mime_type,
+        "size_bytes": int(size_bytes),
+        "modified_at": modified_at,
+        "imported_at": imported_at,
+        "ingestion_status": ingestion_status,
+        "sensitivity": sensitivity,
+        "extracted_text_ref": extracted_text_ref,
+        "linked_evidence": linked_evidence,
+        "linked_claims": linked_claims,
+        "parse_errors": parse_errors,
+    }
+    body_lines = [
+        f"# Artifact: {file_name}",
+        "",
+        "## Source",
+        "",
+        f"- source_path: {source_path}",
+        f"- source_uri: {source_uri or 'none'}",
+        f"- source_type: {source_type}",
+        f"- artifact_hash: {artifact_hash}",
+        f"- file_ext: {file_ext}",
+        f"- mime_type: {mime_type or 'unknown'}",
+        f"- size_bytes: {int(size_bytes)}",
+        f"- modified_at: {modified_at}",
+        f"- imported_at: {imported_at}",
+        f"- batch_id: {batch_id or 'none'}",
+        "",
+        "## Ingestion",
+        "",
+        f"- ingestion_status: {ingestion_status}",
+        f"- sensitivity: {sensitivity}",
+        f"- extracted_text_ref: {extracted_text_ref or 'none'}",
+        f"- linked_evidence: {', '.join(linked_evidence) or 'none'}",
+        f"- linked_claims: {', '.join(linked_claims) or 'none'}",
+    ]
+    if summary:
+        body_lines.extend(["", "## Summary", "", summary.strip()])
+    if parse_errors:
+        body_lines.extend(["", "## Parse Errors", "", "\n".join(f"- {item}" for item in parse_errors)])
+    body = "\n".join(body_lines).rstrip() + "\n"
     write_markdown(path, with_domain_fields(frontmatter), body)
     return CreatedRecord(path=path, created=True)
 
@@ -429,6 +539,7 @@ def upsert_state(
 def new_evidence(
     vault: Path,
     title: str,
+    record_date: str | None = None,
     source_type: str = "manual_note",
     source_uri: str | None = None,
     artifact_ref: str | None = None,
@@ -449,8 +560,9 @@ def new_evidence(
     confidence_basis: str = "Source reliability assessed by the user or agent",
     last_confirmed: str | None = None,
     review_after: str | None = None,
+    batch_id: str | None = None,
 ) -> CreatedRecord:
-    today = today_iso()
+    today = record_date or today_iso()
     safe_slug = slugify(title)
     record_path = vault / "evidence" / "records" / f"{today}-{safe_slug}.md"
     if record_path.exists():
@@ -485,6 +597,7 @@ def new_evidence(
         "artifact_ref": artifact_ref,
         "artifact_hash": artifact_hash,
         "timestamp_of_artifact": timestamp_of_artifact,
+        "batch_id": batch_id,
         "actors": actors or [],
         "sensitivity": sensitivity,
         "reliability": reliability,
@@ -510,6 +623,7 @@ def new_evidence(
 - artifact_ref: {artifact_ref or 'none'}
 - artifact_hash: {artifact_hash or 'none'}
 - timestamp_of_artifact: {timestamp_of_artifact or 'none'}
+- batch_id: {batch_id or 'none'}
 """
     if verbatim_excerpt:
         body += f"\n## Verbatim Excerpt\n\n{verbatim_excerpt.strip()}\n"
@@ -520,6 +634,7 @@ def new_evidence(
 def new_claim(
     vault: Path,
     claim_text: str,
+    record_date: str | None = None,
     claim_class: str = "interpretation",
     owner: str = "user",
     status: str = "active",
@@ -530,13 +645,19 @@ def new_claim(
     first_seen: str | None = None,
     last_reviewed: str | None = None,
     review_notes: str = "",
+    source_type: str | None = None,
+    source_uri: str | None = None,
+    artifact_ref: str | None = None,
+    artifact_hash: str | None = None,
+    timestamp_of_artifact: str | None = None,
+    batch_id: str | None = None,
     arena: str = "cross_arena",
     compartments: list[str] | None = None,
     privacy: str = "personal",
     significance: str = "low",
     summary: str | None = None,
 ) -> CreatedRecord:
-    today = today_iso()
+    today = record_date or today_iso()
     safe_slug = slugify(claim_text)[:80]
     record_path = vault / "claims" / f"{today}-{safe_slug}.md"
     if record_path.exists():
@@ -544,6 +665,9 @@ def new_claim(
 
     support = supporting_evidence or []
     contradict = contradicting_evidence or []
+    artifact_links = []
+    if artifact_ref and "://" not in artifact_ref:
+        artifact_links.append(artifact_ref)
     frontmatter = {
         "id": f"claim.{safe_slug}",
         "type": "claim",
@@ -560,7 +684,7 @@ def new_claim(
         "allowed_contexts": [arena] if arena else ["all"],
         "blocked_contexts": [],
         "summary": summary or claim_text[:120],
-        "links": support + contradict,
+        "links": artifact_links + support + contradict,
         "confidence": float(confidence),
         "confidence_basis": "Claim confidence assessed from supporting and contradicting evidence",
         "last_confirmed": today,
@@ -574,6 +698,12 @@ def new_claim(
         "first_seen": first_seen or today,
         "last_reviewed": last_reviewed or today,
         "review_notes": review_notes,
+        "source_type": source_type,
+        "source_uri": source_uri,
+        "artifact_ref": artifact_ref,
+        "artifact_hash": artifact_hash,
+        "timestamp_of_artifact": timestamp_of_artifact,
+        "batch_id": batch_id,
     }
     body = f"""# Claim
 
@@ -591,6 +721,14 @@ def new_claim(
 """
     if review_notes:
         body += f"\n## Review Notes\n\n{review_notes.strip()}\n"
+    if artifact_ref or source_type or source_uri:
+        body += "\n## Source\n\n"
+        body += f"- source_type: {source_type or 'none'}\n"
+        body += f"- source_uri: {source_uri or 'none'}\n"
+        body += f"- artifact_ref: {artifact_ref or 'none'}\n"
+        body += f"- artifact_hash: {artifact_hash or 'none'}\n"
+        body += f"- timestamp_of_artifact: {timestamp_of_artifact or 'none'}\n"
+        body += f"- batch_id: {batch_id or 'none'}\n"
     write_markdown(record_path, with_domain_fields(frontmatter), body)
     return CreatedRecord(path=record_path, created=True)
 

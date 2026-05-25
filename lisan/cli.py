@@ -21,22 +21,44 @@ from .tools.dreamer_ops import audit_patterns, format_pattern_audit, run_dreamer
 from .tools.draft_review import review_draft
 from .tools.archive import archive_open_loop
 from .tools.analyst_ops import run_analyst_scan
+from .tools.jobs import audit_jobs, cancel_job, format_job_audit, format_job_list, get_job, list_jobs, reap_stuck_jobs, retry_job, run_jobs_worker
 from .tools.backup import backup_status, create_backup, latest_backup_path, test_backup, write_backup_log
 from .tools.batch_review import generate_batch_review, write_batch_review
 from .tools.epochs import epoch_entity
 from .tools.drafts import promote_draft_to_episode
 from .tools.editor import edit_record
 from .tools.health_report import generate_health_report
+from .tools.ingest import (
+    audit_ingestion,
+    format_ingest_audit,
+    format_ingest_batch_audit,
+    format_ingest_batch_summary,
+    format_ingest_batches,
+    format_ingest_plan,
+    format_ingest_status,
+    plan_scan_path,
+    scan_path,
+    show_artifact,
+)
+from .tools.ingest_batches import get_batch, list_batches, quarantine_batch, summarize_batch
 from .tools.heuristic_gate import score_text
 from .tools.confidence_decay import detect_decay_candidates
 from .tools.manifest_gen import generate_manifests
 from .tools.migrator import run_migration
 from .tools.primer_audit import run_primer_audit
+from .tools.seed_evaluation import run_seed_evaluation
 from .tools.record_factory import new_claim, new_decision, new_evidence, new_evidence_correction, new_entity, new_episode, new_knowledge, new_open_loop, new_state, upsert_state
 from .tools.rebuild_index import rebuild_index
 from .tools.narrative_state import conversation_history, load_narrative_state, render_narrative_state, reset_narrative_state
+from .tools.tracing import format_recent_turn_traces, format_turn_trace, list_recent_turn_traces, load_turn_trace
 from .tools.transcripts import append_transcript
 from .tools.validator import format_report, validate_vault
+
+
+def _split_csv_values(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -52,6 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     chat.add_argument("--conversation-id", default=None)
     chat.add_argument("--provider", default=None)
     chat.add_argument("--model", default=None)
+    chat.add_argument("--trace", action="store_true", help="Print a compact trace summary after each turn")
 
     state = subparsers.add_parser("state", help="Inspect or update state files")
     state_subparsers = state.add_subparsers(dest="state_command", required=True)
@@ -76,6 +99,57 @@ def build_parser() -> argparse.ArgumentParser:
     manifest = subparsers.add_parser("manifest", help="Generate derived manifests")
     manifest.add_argument("--vault", type=Path, default=vault_root())
     manifest.add_argument("--no-write", action="store_true")
+
+    ingest = subparsers.add_parser("ingest", help="Discover and process local artifacts")
+    ingest_subparsers = ingest.add_subparsers(dest="ingest_command", required=True)
+    ingest_scan = ingest_subparsers.add_parser("scan", help="Scan a file or directory for ingestible artifacts")
+    ingest_scan.add_argument("--vault", type=Path, default=vault_root())
+    ingest_scan.add_argument("--db-path", type=Path, default=sqlite_path())
+    ingest_scan.add_argument("--dry-run", action="store_true", help="Preview what would be ingested without writing anything")
+    ingest_scan.add_argument("--review", action="store_true", help="Preview first and ask for confirmation before writing")
+    ingest_scan.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+    ingest_scan.add_argument("--include-ext", default=None, help="Comma-separated list of extensions to include")
+    ingest_scan.add_argument("--exclude-ext", default=None, help="Comma-separated list of extensions to exclude")
+    ingest_scan.add_argument("--max-size-mb", type=float, default=None, help="Maximum file size in megabytes for ingestion")
+    ingest_scan.add_argument("--include-hidden", action="store_true", help="Include hidden files and directories")
+    ingest_scan.add_argument("--allow-restricted", action="store_true", help="Allow restricted sensitivity files")
+    ingest_scan.add_argument("--allow-high", action="store_true", help="Allow high sensitivity files")
+    ingest_scan.add_argument("--allow-sealed", action="store_true", help="Dangerous: allow sealed files to be scanned")
+    ingest_scan.add_argument("path", type=Path)
+    ingest_status = ingest_subparsers.add_parser("status", help="Show ingest manifest status")
+    ingest_status.add_argument("--vault", type=Path, default=vault_root())
+    ingest_status.add_argument("--db-path", type=Path, default=sqlite_path())
+    ingest_run = ingest_subparsers.add_parser("run", help="Run queued ingest jobs")
+    ingest_run.add_argument("--vault", type=Path, default=vault_root())
+    ingest_run.add_argument("--db-path", type=Path, default=sqlite_path())
+    ingest_run.add_argument("--provider", default=None)
+    ingest_run.add_argument("--model", default=None)
+    ingest_run.add_argument("--worker-id", default=None)
+    ingest_run.add_argument("--max-jobs", type=int, default=None)
+    ingest_show = ingest_subparsers.add_parser("show", help="Show an artifact record and manifest entry")
+    ingest_show.add_argument("--vault", type=Path, default=vault_root())
+    ingest_show.add_argument("--db-path", type=Path, default=sqlite_path())
+    ingest_show.add_argument("artifact_id")
+    ingest_audit = ingest_subparsers.add_parser("audit", help="Audit discovery, parsing, and extraction state")
+    ingest_audit.add_argument("--vault", type=Path, default=vault_root())
+    ingest_audit.add_argument("--db-path", type=Path, default=sqlite_path())
+    ingest_batches = ingest_subparsers.add_parser("batches", help="List ingestion batches")
+    ingest_batches.add_argument("--db-path", type=Path, default=sqlite_path())
+    ingest_batches.add_argument("--limit", type=int, default=50)
+    ingest_batches.add_argument("--status", default=None)
+    ingest_batch = ingest_subparsers.add_parser("batch", help="Inspect or quarantine an ingestion batch")
+    ingest_batch_subparsers = ingest_batch.add_subparsers(dest="ingest_batch_command", required=True)
+    ingest_batch_show = ingest_batch_subparsers.add_parser("show", help="Show a batch summary")
+    ingest_batch_show.add_argument("--db-path", type=Path, default=sqlite_path())
+    ingest_batch_show.add_argument("batch_id")
+    ingest_batch_audit = ingest_batch_subparsers.add_parser("audit", help="Audit a batch")
+    ingest_batch_audit.add_argument("--db-path", type=Path, default=sqlite_path())
+    ingest_batch_audit.add_argument("batch_id")
+    ingest_batch_quarantine = ingest_batch_subparsers.add_parser("quarantine", help="Quarantine a batch")
+    ingest_batch_quarantine.add_argument("--vault", type=Path, default=vault_root())
+    ingest_batch_quarantine.add_argument("--db-path", type=Path, default=sqlite_path())
+    ingest_batch_quarantine.add_argument("--reason", required=True)
+    ingest_batch_quarantine.add_argument("batch_id")
 
     rebuild = subparsers.add_parser("rebuild-index", help="Rebuild SQLite and embeddings")
     rebuild.add_argument("--vault", type=Path, default=vault_root())
@@ -381,6 +455,15 @@ def build_parser() -> argparse.ArgumentParser:
     logs.add_argument("--vault", type=Path, default=vault_root())
     logs.add_argument("--tail", type=int, default=50, metavar="N")
 
+    traces = subparsers.add_parser("traces", help="Inspect recent chat turn traces")
+    traces_subparsers = traces.add_subparsers(dest="traces_command", required=True)
+    traces_recent = traces_subparsers.add_parser("recent", help="Show recent turn traces")
+    traces_recent.add_argument("--db-path", type=Path, default=None)
+    traces_recent.add_argument("--limit", type=int, default=20)
+    traces_show = traces_subparsers.add_parser("show", help="Show one turn trace")
+    traces_show.add_argument("--db-path", type=Path, default=None)
+    traces_show.add_argument("turn_id")
+
     dreamer = subparsers.add_parser("dreamer", help="Run Dreamer maintenance analyses")
     dreamer_subparsers = dreamer.add_subparsers(dest="dreamer_command", required=True)
     for task_name in ["compress", "primer", "contradict", "confidence", "epoch", "overfitting", "identity-anchor"]:
@@ -396,10 +479,47 @@ def build_parser() -> argparse.ArgumentParser:
     analyst_scan.add_argument("--provider", default=None)
     analyst_scan.add_argument("--model", default=None)
 
+    evaluate = subparsers.add_parser("evaluate", help="Run an evaluation corpus")
+    evaluate_subparsers = evaluate.add_subparsers(dest="evaluate_command", required=True)
+    evaluate_seed = evaluate_subparsers.add_parser("seed", help="Run the seeded self-model evaluation")
+    evaluate_seed.add_argument("--vault", type=Path, default=vault_root())
+    evaluate_seed.add_argument("--db-path", type=Path, default=None)
+    evaluate_seed.add_argument("--embeddings-file", type=Path, default=None)
+
     patterns = subparsers.add_parser("patterns", help="Inspect pattern governance")
     patterns_subparsers = patterns.add_subparsers(dest="patterns_command", required=True)
     patterns_audit = patterns_subparsers.add_parser("audit", help="Audit pattern lifecycle and Dreamer eligibility")
     patterns_audit.add_argument("--vault", type=Path, default=vault_root())
+
+    jobs = subparsers.add_parser("jobs", help="Inspect and run the durable background job queue")
+    jobs_subparsers = jobs.add_subparsers(dest="jobs_command", required=True)
+    jobs_run = jobs_subparsers.add_parser("run", help="Run queued jobs until the queue is empty")
+    jobs_run.add_argument("--vault", type=Path, default=vault_root())
+    jobs_run.add_argument("--db-path", type=Path, default=None)
+    jobs_run.add_argument("--provider", default=None)
+    jobs_run.add_argument("--model", default=None)
+    jobs_run.add_argument("--worker-id", default=None)
+    jobs_run.add_argument("--max-jobs", type=int, default=None)
+    jobs_list = jobs_subparsers.add_parser("list", help="List jobs")
+    jobs_list.add_argument("--db-path", type=Path, default=None)
+    jobs_list.add_argument("--status", default=None)
+    jobs_list.add_argument("--limit", type=int, default=50)
+    jobs_show = jobs_subparsers.add_parser("show", help="Show a job record")
+    jobs_show.add_argument("job_id")
+    jobs_show.add_argument("--db-path", type=Path, default=None)
+    jobs_retry = jobs_subparsers.add_parser("retry", help="Move a failed/retry_wait job back to queued")
+    jobs_retry.add_argument("job_id")
+    jobs_retry.add_argument("--db-path", type=Path, default=None)
+    jobs_cancel = jobs_subparsers.add_parser("cancel", help="Cancel a job")
+    jobs_cancel.add_argument("job_id")
+    jobs_cancel.add_argument("--db-path", type=Path, default=None)
+    jobs_audit = jobs_subparsers.add_parser("audit", help="Audit queue health and failure state")
+    jobs_audit.add_argument("--db-path", type=Path, default=None)
+    jobs_audit.add_argument("--vault", type=Path, default=vault_root())
+    jobs_reap = jobs_subparsers.add_parser("reap-stuck", help="Move stale running jobs back to retry_wait or failed")
+    jobs_reap.add_argument("--db-path", type=Path, default=None)
+    jobs_reap.add_argument("--timeout-minutes", type=int, default=15)
+    jobs_reap.add_argument("--fail", action="store_true")
 
     return parser
 
@@ -413,12 +533,26 @@ def main(argv: list[str] | None = None) -> int:
         print(tail_log(args.vault, lines=args.tail))
         return 0
 
+    if args.command == "traces":
+        if args.traces_command == "recent":
+            traces = list_recent_turn_traces(limit=args.limit, db_path=args.db_path)
+            print(format_recent_turn_traces(traces))
+            return 0
+        if args.traces_command == "show":
+            trace = load_turn_trace(args.turn_id, db_path=args.db_path)
+            if trace is None:
+                print(f"Missing trace: {args.turn_id}", file=sys.stderr)
+                return 1
+            print(format_turn_trace(trace))
+            return 0
+
     if args.command == "chat":
         return run_chat(
             vault=args.vault,
             conversation_id=args.conversation_id,
             provider=args.provider,
             model=args.model,
+            trace=args.trace,
         )
 
     if args.command == "init":
@@ -451,6 +585,139 @@ def main(argv: list[str] | None = None) -> int:
         manifests = generate_manifests(args.vault, write=not args.no_write)
         print("\n".join(sorted(manifests)))
         return 0
+
+    if args.command == "ingest":
+        if args.ingest_command == "scan":
+            include_ext = _split_csv_values(args.include_ext)
+            exclude_ext = _split_csv_values(args.exclude_ext)
+            if args.allow_sealed:
+                print("WARNING: --allow-sealed is dangerous and should only be used for explicit, intentional imports.", file=sys.stderr)
+            if args.review:
+                preview = plan_scan_path(
+                    args.path,
+                    vault=args.vault,
+                    db_path=args.db_path,
+                    max_file_size_bytes=int(args.max_size_mb * 1024 * 1024) if args.max_size_mb else None,
+                    include_ext=include_ext,
+                    exclude_ext=exclude_ext,
+                    include_hidden=args.include_hidden,
+                    allow_restricted=args.allow_restricted,
+                    allow_high=args.allow_high,
+                    allow_sealed=args.allow_sealed,
+                )
+                if args.json:
+                    print(json.dumps(preview, indent=2, default=str))
+                else:
+                    print(format_ingest_plan(preview))
+                prompt = (
+                    "Proceed with the actual ingest writes? "
+                    f"(files={preview['summary']['total_files_seen']}, "
+                    f"would_ingest={preview['summary']['would_ingest']}, "
+                    f"would_skip={preview['summary']['would_skip']}) [y/N]: "
+                )
+                answer = input(prompt).strip().lower()
+                if answer not in {"y", "yes"}:
+                    print("Ingest review declined. No writes performed.")
+                    return 0
+                result = scan_path(
+                    args.path,
+                    vault=args.vault,
+                    db_path=args.db_path,
+                    queue_jobs=True,
+                    max_file_size_bytes=int(args.max_size_mb * 1024 * 1024) if args.max_size_mb else None,
+                    dry_run=False,
+                    include_ext=include_ext,
+                    exclude_ext=exclude_ext,
+                    include_hidden=args.include_hidden,
+                    allow_restricted=args.allow_restricted,
+                    allow_high=args.allow_high,
+                    allow_sealed=args.allow_sealed,
+                    batch_mode="review",
+                )
+                print(json.dumps(result, indent=2, default=str))
+                return 0
+            if args.dry_run:
+                result = scan_path(
+                    args.path,
+                    vault=args.vault,
+                    db_path=args.db_path,
+                    queue_jobs=False,
+                    max_file_size_bytes=int(args.max_size_mb * 1024 * 1024) if args.max_size_mb else None,
+                    dry_run=True,
+                    include_ext=include_ext,
+                    exclude_ext=exclude_ext,
+                    include_hidden=args.include_hidden,
+                    allow_restricted=args.allow_restricted,
+                    allow_high=args.allow_high,
+                    allow_sealed=args.allow_sealed,
+                )
+                if args.json:
+                    print(json.dumps(result, indent=2, default=str))
+                else:
+                    print(format_ingest_plan(result))
+                return 0
+            result = scan_path(
+                args.path,
+                vault=args.vault,
+                db_path=args.db_path,
+                queue_jobs=True,
+                max_file_size_bytes=int(args.max_size_mb * 1024 * 1024) if args.max_size_mb else None,
+                include_ext=include_ext,
+                exclude_ext=exclude_ext,
+                include_hidden=args.include_hidden,
+                allow_restricted=args.allow_restricted,
+                allow_high=args.allow_high,
+                allow_sealed=args.allow_sealed,
+                batch_mode="scan",
+            )
+            print(json.dumps(result, indent=2, default=str))
+            return 0
+        if args.ingest_command == "status":
+            report = audit_ingestion(vault=args.vault, db_path=args.db_path)
+            print(format_ingest_status(report))
+            return 0
+        if args.ingest_command == "run":
+            result = run_jobs_worker(
+                vault=args.vault,
+                db_path=args.db_path,
+                provider=args.provider,
+                model=args.model,
+                worker_id=args.worker_id,
+                max_jobs=args.max_jobs,
+            )
+            print(json.dumps(result, indent=2, default=str))
+            return 0
+        if args.ingest_command == "show":
+            result = show_artifact(args.artifact_id, vault=args.vault, db_path=args.db_path)
+            if result is None:
+                print(f"Missing artifact: {args.artifact_id}", file=sys.stderr)
+                return 1
+            print(json.dumps(result, indent=2, default=str))
+            return 0
+        if args.ingest_command == "audit":
+            report = audit_ingestion(vault=args.vault, db_path=args.db_path)
+            print(format_ingest_audit(report))
+            return 0
+        if args.ingest_command == "batches":
+            batches = list_batches(limit=args.limit, status=args.status, db_path=args.db_path)
+            print(format_ingest_batches(batches))
+            return 0
+        if args.ingest_command == "batch":
+            if args.ingest_batch_command == "show":
+                report = summarize_batch(args.batch_id, vault=args.vault, db_path=args.db_path)
+                print(format_ingest_batch_summary(report))
+                return 0
+            if args.ingest_batch_command == "audit":
+                report = summarize_batch(args.batch_id, vault=args.vault, db_path=args.db_path)
+                print(format_ingest_batch_audit(report))
+                return 0
+            if args.ingest_batch_command == "quarantine":
+                report = quarantine_batch(args.batch_id, args.reason, vault=args.vault, db_path=args.db_path)
+                if report is None:
+                    print(f"Missing batch: {args.batch_id}", file=sys.stderr)
+                    return 1
+                print(format_ingest_batch_summary(report))
+                return 0
 
     if args.command == "rebuild-index":
         counts = rebuild_index(args.vault)
@@ -810,10 +1077,65 @@ def main(argv: list[str] | None = None) -> int:
             print(result.report_path)
             return 0
 
+    if args.command == "evaluate":
+        if args.evaluate_command == "seed":
+            db_path = args.db_path or (args.vault.parent / "lisan.sqlite")
+            embeddings_file = args.embeddings_file or (args.vault.parent / "embeddings.bin")
+            result = run_seed_evaluation(vault=args.vault, db_path=db_path, embeddings_file=embeddings_file)
+            print(result.report_text)
+            print(result.report_path)
+            return 0 if result.validation_after.ok else 1
+
     if args.command == "patterns":
         if args.patterns_command == "audit":
             report = audit_patterns(args.vault)
             print(format_pattern_audit(report))
+            return 0
+
+    if args.command == "jobs":
+        if args.jobs_command == "run":
+            result = run_jobs_worker(
+                vault=args.vault,
+                db_path=args.db_path,
+                provider=args.provider,
+                model=args.model,
+                worker_id=args.worker_id,
+                max_jobs=args.max_jobs,
+            )
+            print(json.dumps(result, indent=2, default=str))
+            return 0
+        if args.jobs_command == "list":
+            jobs = list_jobs(status=args.status, limit=args.limit, db_path=args.db_path)
+            print(format_job_list(jobs))
+            return 0
+        if args.jobs_command == "show":
+            job = get_job(args.job_id, db_path=args.db_path)
+            if job is None:
+                print(f"Missing job: {args.job_id}", file=sys.stderr)
+                return 1
+            print(json.dumps(job, indent=2, default=str))
+            return 0
+        if args.jobs_command == "retry":
+            job = retry_job(args.job_id, db_path=args.db_path)
+            if job is None:
+                print(f"Missing job: {args.job_id}", file=sys.stderr)
+                return 1
+            print(json.dumps(job, indent=2, default=str))
+            return 0
+        if args.jobs_command == "cancel":
+            job = cancel_job(args.job_id, db_path=args.db_path)
+            if job is None:
+                print(f"Missing job: {args.job_id}", file=sys.stderr)
+                return 1
+            print(json.dumps(job, indent=2, default=str))
+            return 0
+        if args.jobs_command == "audit":
+            report = audit_jobs(vault=args.vault, db_path=args.db_path)
+            print(format_job_audit(report))
+            return 0
+        if args.jobs_command == "reap-stuck":
+            report = reap_stuck_jobs(db_path=args.db_path, timeout_minutes=args.timeout_minutes, retry=not args.fail)
+            print(json.dumps(report, indent=2, default=str))
             return 0
 
     parser.print_help()
