@@ -16,7 +16,7 @@ An observation is directly visible in an artifact.
 
 Example:
 
-- "Steve asked Alex to present the rollout plan to management."
+- "Person A asked Person B to present the project update."
 - "The ticket was assigned on 2026-05-25."
 
 These belong in `evidence.observed_facts`.
@@ -27,8 +27,8 @@ An interpretation is a reading of what an observation means.
 
 Example:
 
-- "Steve tried to scapegoat Alex."
-- "Leadership trusts Alex with strategy."
+- "Person A tried to scapegoat Person B."
+- "Leadership trusts Person B with strategy."
 
 These belong in `claim` records, not in `evidence`.
 
@@ -38,7 +38,7 @@ A hypothesis is a tentative explanation that remains open to challenge.
 
 Example:
 
-- "Steve may have been delegating work."
+- "Person A may have been delegating work."
 - "The meeting may have been routine coordination."
 
 These should be stored as claims with a suitable `claim_class`, usually `motive_hypothesis` or `psychological_hypothesis` when the statement concerns intent or inner state.
@@ -57,19 +57,19 @@ These should be stored as claims with a suitable `claim_class`, usually `motive_
   "source_uri": "mail://thread/123",
   "artifact_hash": "sha256:...",
   "timestamp_of_artifact": "2026-05-25T09:10:00-07:00",
-  "actors": ["Steve", "Alex"],
+  "actors": ["Person A", "Person B"],
   "arena": "work",
   "compartments": [],
   "sensitivity": "low",
   "reliability": "high",
-  "summary": "Steve asked Alex to present the rollout plan to management.",
+  "summary": "Person A asked Person B to present the project update to leadership.",
   "observed_facts": [
-    "Steve asked Alex to present the rollout plan.",
-    "The message referenced management."
+    "Person A asked Person B to present the project update.",
+    "The message referenced leadership."
   ],
-  "verbatim_excerpt": "Please present the rollout plan to management tomorrow.",
+  "verbatim_excerpt": "Please present the project update to leadership tomorrow.",
   "linked_claims": ["claim.scapegoat-risk"],
-  "linked_episodes": ["episode.2026-05-25.rollout"]
+  "linked_episodes": ["episode.2026-05-25.update"]
 }
 ```
 
@@ -81,7 +81,7 @@ These should be stored as claims with a suitable `claim_class`, usually `motive_
   "id": "claim.scapegoat-risk",
   "created": "2026-05-25",
   "created_at": "2026-05-25",
-  "claim_text": "Steve tried to scapegoat Alex.",
+  "claim_text": "Person A tried to scapegoat Person B.",
   "claim_class": "motive_hypothesis",
   "owner": "user",
   "status": "disputed",

@@ -46,7 +46,7 @@ class IngestionTests(unittest.TestCase):
     def test_scan_creates_artifacts_and_extracts_provenance(self) -> None:
         note = self.src / "note.md"
         note.write_text(
-            "# Note\n\nAlex asked Jordan to share the update.\nJordan maybe thought the request was unusual.\n",
+            "# Note\n\nPerson A asked Person B to share the update.\nPerson B maybe thought the request was unusual.\n",
             encoding="utf-8",
         )
         data = self.src / "data.json"
@@ -91,7 +91,7 @@ class IngestionTests(unittest.TestCase):
         self.assertTrue(any(str(fm.get("artifact_ref")) == note_artifact_id for fm in claim_docs))
         self.assertTrue(all(str(fm.get("status")) != "confirmed" for fm in claim_docs))
 
-        context = assemble_context("Steve rollout plan management", vault=self.vault, db_path=self.db_path)
+        context = assemble_context("project rollout plan management", vault=self.vault, db_path=self.db_path)
         self.assertIn("## Artifacts", context)
         self.assertIn(note_artifact_id, context)
         self.assertIn("## Evidence", context)
@@ -193,7 +193,7 @@ class IngestionTests(unittest.TestCase):
 
     def test_dry_run_creates_no_writes_and_reports_planned_actions(self) -> None:
         note = self.src / "note.md"
-        note.write_text("# Note\n\nAlex asked Jordan to share the update.\n", encoding="utf-8")
+        note.write_text("# Note\n\nPerson A asked Person B to share the update.\n", encoding="utf-8")
         secret = self.src / "secret.env"
         secret.write_text("API_KEY=abc123\n", encoding="utf-8")
         image = self.src / "diagram.png"
@@ -214,7 +214,7 @@ class IngestionTests(unittest.TestCase):
 
     def test_dry_run_json_is_valid_and_includes_planned_actions(self) -> None:
         note = self.src / "note.md"
-        note.write_text("# Note\n\nAlex asked Jordan to share the update.\n", encoding="utf-8")
+        note.write_text("# Note\n\nPerson A asked Person B to share the update.\n", encoding="utf-8")
         buf = io.StringIO()
         with redirect_stdout(buf):
             exit_code = main(["ingest", "scan", str(self.src), "--dry-run", "--json", "--vault", str(self.vault), "--db-path", str(self.db_path)])
@@ -226,7 +226,7 @@ class IngestionTests(unittest.TestCase):
 
     def test_review_mode_declines_without_writes(self) -> None:
         note = self.src / "note.md"
-        note.write_text("# Note\n\nAlex asked Jordan to share the update.\n", encoding="utf-8")
+        note.write_text("# Note\n\nPerson A asked Person B to share the update.\n", encoding="utf-8")
         stdout = io.StringIO()
         stderr = io.StringIO()
         with patch("builtins.input", return_value="n"), redirect_stdout(stdout), redirect_stderr(stderr):

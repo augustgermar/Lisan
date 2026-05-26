@@ -14,7 +14,7 @@ from typing import Any
 from ..config import load_config
 from ..paths import sqlite_path, vault_root
 from ..utils import today_iso
-from .chat_turns import classify_turn, is_production_chat_vault
+from .chat_turns import classify_turn
 from .conversation_policy import assess_conversation_turn
 from .log import log_error, tail_log
 from .transcripts import append_transcript
@@ -133,11 +133,6 @@ def run_chat(
 ) -> int:
     from .. import __version__
     from .onboarding import needs_onboarding, run_onboarding
-
-    ok, reason = is_production_chat_vault(vault)
-    if not ok:
-        print(_c(f"  Refusing to start production chat: {reason}", RED), file=sys.stderr)
-        return 1
 
     config = load_config()
     ready = startup_check(vault, config)

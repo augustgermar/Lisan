@@ -1,6 +1,6 @@
 # Chat Performance And Identity
 
-This page covers the fast path for trivial turns, the turn trace commands, and the guardrails that keep production chat from drifting into eval personas or retrieved identities.
+This page covers the fast path for trivial turns, the turn trace commands, and the guardrails that keep production chat from drifting into retrieved identities.
 
 ## Fast Path
 
@@ -92,7 +92,7 @@ If a simple turn feels slow:
 
 ## Provider Preflight
 
-If you are seeing provider failures on startup or during live evals, run:
+If you are seeing provider failures on startup or during a long chat session, run:
 
 ```bash
 python3 -m lisan provider check
@@ -106,18 +106,13 @@ chmod 700 "$HOME/.codex" "$HOME/.codex/sessions"
 chown -R "$(id -un)":"$(id -gn)" "$HOME/.codex"
 ```
 
-If the provider check fails, live evals should report infrastructure failure separately from any behavioral scoring.
+If the provider check fails, fix the provider or session setup before chatting.
 
 ## Identity Contamination
 
-Production chat is guarded against eval and retrieved-person contamination.
+Production chat is guarded against retrieved-person contamination.
 
-Lisan will refuse to start chat if:
-
-- the vault path is inside `.lisan_eval_runs`
-- an eval marker file exists in the vault root
-
-If a retrieved record mentions a person named `Maya`, `Dana`, `Steve`, or anyone else, that record is still just data about the user's world. It must never override assistant identity.
+If a retrieved record mentions a person name, that record is still just data about the user's world. It must never override assistant identity.
 
 If identity looks wrong:
 

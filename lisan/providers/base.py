@@ -67,7 +67,7 @@ class MockClient(ProviderClient):
     def _response_for(self, *, agent: str, prompt: str, schema: dict[str, Any] | None) -> str:
         lowered = prompt.lower()
         if agent == "listener":
-            if any(marker in lowered for marker in ["/remember", "name is jordan", "daughter maya", "two cats", "pip", "varga"]):
+            if any(marker in lowered for marker in ["/remember", "name is person a", "child one", "two pets", "pet one", "pet two"]):
                 return json.dumps(
                     {
                         "worth_remembering": True,
@@ -95,12 +95,12 @@ class MockClient(ProviderClient):
             )
         if agent == "writer":
             summary = "Memory draft"
-            if "daughter maya" in lowered:
-                summary = "Jordan is here with his daughter Maya watching a YouTube video about mixing ice cream flavors."
-            elif "two cats" in lowered or "pip" in lowered or "varga" in lowered:
-                summary = "Jordan has two cats named Momo and Boots."
-            elif "name is jordan" in lowered:
-                summary = "Jordan said his name is Jordan."
+            if "child one" in lowered:
+                summary = "Person A is here with their child One watching a video about mixing ice cream flavors."
+            elif "two pets" in lowered or "pet one" in lowered or "pet two" in lowered:
+                summary = "Person A has two pets named Pet One and Pet Two."
+            elif "name is person a" in lowered:
+                summary = "Person A said their name is Person A."
             return json.dumps(
                 {
                     "record_type": "episode",
@@ -117,7 +117,7 @@ class MockClient(ProviderClient):
                     "sections": {"event_timeline": prompt[:120]},
                     "questions": [],
                     "significance_rationale": "mock",
-                    "entities_to_create": [{"name": "Jordan", "subtype": "person", "summary": "Jordan mentioned in conversation."}],
+                    "entities_to_create": [{"name": "Person A", "subtype": "person", "summary": "Person A mentioned in conversation."}],
                     "evidence_to_create": [{"title": "Conversation evidence", "summary": summary, "source_type": "manual_note", "arena": "cross_arena", "reliability": "medium", "sensitivity": "low"}],
                     "claims_to_create": [{"claim_text": summary, "status": "active", "confidence": 0.6, "summary": summary}],
                     "state_updates": [{"category": "relational", "summary": summary, "confidence": "low"}],
@@ -149,28 +149,28 @@ class MockClient(ProviderClient):
                 }
             )
         if agent == "interlocutor":
-            if "daughter maya" in lowered:
+            if "child one" in lowered:
                 return json.dumps(
                     {
-                        "response": "You're here with your daughter Maya, watching a YouTube video about mixing ice cream flavors.",
+                        "response": "You're here with your child One, watching a video about mixing ice cream flavors.",
                         "questions": [],
                         "recommended_action": "auto_commit",
                         "updated_narrative_state": {"next_step": "Continue", "mode_status": "developing"},
                     }
                 )
-            if "two cats" in lowered or "pip" in lowered or "varga" in lowered:
+            if "two pets" in lowered or "pet one" in lowered or "pet two" in lowered:
                 return json.dumps(
                     {
-                        "response": "Got it. You have two cats, Momo and Boots.",
+                        "response": "Got it. You have two pets, Pet One and Pet Two.",
                         "questions": [],
                         "recommended_action": "auto_commit",
                         "updated_narrative_state": {"next_step": "Continue", "mode_status": "developing"},
                     }
                 )
-            if "name is jordan" in lowered:
+            if "name is person a" in lowered:
                 return json.dumps(
                     {
-                        "response": "You want me to remember that you go by Jordan.",
+                        "response": "You want me to remember that you go by Person A.",
                         "questions": [],
                         "recommended_action": "auto_commit",
                         "updated_narrative_state": {"next_step": "Continue", "mode_status": "developing"},
@@ -185,26 +185,26 @@ class MockClient(ProviderClient):
                 }
             )
         if agent == "elicitor":
-            if "daughter maya" in lowered:
+            if "child one" in lowered:
                 return json.dumps(
                     {
-                        "response": "Got it. Maya is your daughter, and you're watching a YouTube video about mixing ice cream flavors.",
+                        "response": "Got it. Child One is your child, and you're watching a video about mixing ice cream flavors.",
                         "updated_narrative_state": {"mode_status": "developing", "next_step": "Continue"},
                         "questions": [],
                     }
                 )
-            if "two cats" in lowered or "pip" in lowered or "varga" in lowered:
+            if "two pets" in lowered or "pet one" in lowered or "pet two" in lowered:
                 return json.dumps(
                     {
-                        "response": "Got it. You have two cats, Momo and Boots.",
+                        "response": "Got it. You have two pets, Pet One and Pet Two.",
                         "updated_narrative_state": {"mode_status": "developing", "next_step": "Continue"},
                         "questions": [],
                     }
                 )
-            if "name is jordan" in lowered:
+            if "name is person a" in lowered:
                 return json.dumps(
                     {
-                        "response": "You want me to remember that you go by Jordan.",
+                        "response": "You want me to remember that you go by Person A.",
                         "updated_narrative_state": {"mode_status": "developing", "next_step": "Continue"},
                         "questions": [],
                     }
@@ -222,7 +222,7 @@ class MockClient(ProviderClient):
             if "what is your name" in lowered or "what are you" in lowered:
                 return "My name is Lisan. I am your local personal assistant and memory system."
             if "do you know my name now" in lowered or "what is my name" in lowered:
-                return "Your name is Jordan."
+                return "Your name is Person A."
             return "Sure."
         return "OK"
 

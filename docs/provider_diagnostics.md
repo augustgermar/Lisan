@@ -1,6 +1,6 @@
 # Provider Diagnostics
 
-`python3 -m lisan provider check` runs a preflight against the selected provider before you start a live eval or a long chat session.
+`python3 -m lisan provider check` runs a preflight against the selected provider before you start a long chat session.
 
 ## What it checks
 
@@ -16,13 +16,13 @@
 
 For the local Codex provider, the diagnostics focus on the session directory under `~/.codex/sessions`.
 
-If the provider supports a configurable home or session root, Lisan can use an isolated provider home for experiments. For normal evals, the default is to use the user's shared authenticated Codex home and keep only the Lisan vault/state isolated.
+If the provider supports a configurable home or session root, Lisan can use an isolated provider home for experiments. For normal use, the default is to use the user's shared authenticated Codex home.
 
 This is intentional:
 
 - vault/state isolation protects user memory and traces
 - provider auth isolation is separate and optional
-- if Codex auth is only present in the shared home, evals should use `--provider-auth shared`
+  - if Codex auth is only present in the shared home, use the shared home for authentication
 
 ### Typical remediation
 
@@ -36,7 +36,7 @@ chown -R "$(id -un)":"$(id -gn)" "$HOME/.codex"
 
 - `ok`: the provider and session path are usable
 - `warning`: completion worked, but there are non-fatal issues worth fixing
-- `failed`: the provider is not usable and live evals should be marked as infrastructure failures
+- `failed`: the provider is not usable and chat sessions should be blocked until the issue is fixed
 
 ## Auth vs permissions
 
@@ -50,10 +50,10 @@ Typical signs:
 
 Suggested fixes for auth failure:
 
-- rerun the eval with `--provider-auth shared`
+- rerun the provider check with shared authentication
 - authenticate Codex in the isolated provider home if you intentionally want isolation
-- use `--provider-auth mock` for harness-only tests
+- use an isolated provider home if you intentionally want isolation
 
 ## Why this exists
 
-Without a preflight, a local provider failure can look like a behavioral regression. That is misleading. The preflight lets the harness fail fast and report infrastructure problems separately from memory, retrieval, or oracle failures.
+Without a preflight, a local provider failure can look like an application regression. That is misleading. The preflight lets the app fail fast and report infrastructure problems separately from chat or retrieval failures.

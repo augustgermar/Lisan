@@ -499,7 +499,7 @@ domain_primary: physical | environmental | financial |
                cross_arena
 domain_secondary: []
 privacy: personal | personal_sensitive | family | legal |
-         work | financial | health | children | business
+         work | financial | health | dependents | business
 compartments: []
 allowed_contexts: []
 blocked_contexts: []
@@ -832,7 +832,7 @@ Domain compartments:
   status, appearance, competence, social_presence, desirability
 
 Additional compartments:
-  legal, health, children, agent_design
+  legal, health, dependents, agent_design
 ```
 
 ## 6.2 Enforcement Rules
@@ -876,7 +876,7 @@ Co-construction memory formation (Elicitor mode):
 
 Conversation seed detected
   → Assembler    (load relevant context before Elicitor starts)
-  → Interlocutor/Elicitor  (co-construct story through natural
+  → Interlocutor/Elicitor  (co-construct structured context through natural
                              conversation)
   → Writer       (structure elicited transcript into episode)
   → Skeptic      (lighter review — transcript is source of truth)
