@@ -30,7 +30,7 @@
 
 ## Event Timeline
 
-- August volunteered to demo the rollout at all-hands.
+- Jordan volunteered to demo the rollout at all-hands.
 
 ## Documented Evidence
 

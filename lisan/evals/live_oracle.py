@@ -387,11 +387,11 @@ def _looks_like_role_inversion(output_text: str, combined_records: str) -> bool:
 def _looks_like_identity_contamination(output_text: str, combined_records: str) -> bool:
     text = f"{output_text}\n{combined_records}".lower()
     contamination_markers = (
-        "my name is august",
-        "i am august",
-        "i'm august",
-        "assistant is august",
-        "lisan is august",
+        "my name is jordan",
+        "i am jordan",
+        "i'm jordan",
+        "assistant is jordan",
+        "lisan is jordan",
         "i am the user's daughter",
     )
     return any(marker in text for marker in contamination_markers)

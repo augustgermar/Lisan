@@ -14,7 +14,7 @@
   "compartments": [],
   "allowed_contexts": ["all"],
   "blocked_contexts": [],
-  "summary": "The manager asked for edits because the timeline slipped, not because August was being singled out.",
+  "summary": "The manager asked for edits because the timeline slipped, not because Jordan was being singled out.",
   "links": ["episode.manager_feedback"],
   "confidence": "high",
   "confidence_basis": "Planning note",
@@ -25,7 +25,7 @@
   "artifact_ref": "manager-feedback-20260505",
   "artifact_hash": "sha256:manager-feedback-005",
   "timestamp_of_artifact": "2026-05-05T14:30:00-07:00",
-  "actors": ["manager", "August"],
+  "actors": ["manager", "Jordan"],
   "sensitivity": "low",
   "reliability": "high",
   "observed_facts": [

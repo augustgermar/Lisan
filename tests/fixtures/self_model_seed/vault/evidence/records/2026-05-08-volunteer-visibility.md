@@ -14,7 +14,7 @@
   "compartments": [],
   "allowed_contexts": ["all"],
   "blocked_contexts": [],
-  "summary": "August volunteered to present an update publicly.",
+  "summary": "Jordan volunteered to present an update publicly.",
   "links": ["claim.avoid_visibility"],
   "confidence": "high",
   "confidence_basis": "Observed note",
@@ -25,12 +25,12 @@
   "artifact_ref": "volunteer-visibility-20260508",
   "artifact_hash": "sha256:volunteer-visibility-008",
   "timestamp_of_artifact": "2026-05-08T12:00:00-07:00",
-  "actors": ["August", "team"],
+  "actors": ["Jordan", "team"],
   "sensitivity": "low",
   "reliability": "high",
   "observed_facts": [
-    "August volunteered to present an update publicly.",
-    "August did not avoid visibility in this case."
+    "Jordan volunteered to present an update publicly.",
+    "Jordan did not avoid visibility in this case."
   ],
   "linked_claims": ["claim.avoid_visibility"],
   "linked_episodes": ["episode.positive_visibility"],
@@ -42,5 +42,5 @@
 
 ## Observed Facts
 
-- August volunteered to present an update publicly.
+- Jordan volunteered to present an update publicly.
 - This is a counterexample to any absolute visibility-avoidance claim.

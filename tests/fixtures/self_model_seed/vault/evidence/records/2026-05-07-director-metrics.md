@@ -14,7 +14,7 @@
   "compartments": [],
   "allowed_contexts": ["all"],
   "blocked_contexts": [],
-  "summary": "A director asked August for metrics because the weekly report was due.",
+  "summary": "A director asked Jordan for metrics because the weekly report was due.",
   "links": ["episode.director_report"],
   "confidence": "high",
   "confidence_basis": "Report request",
@@ -25,11 +25,11 @@
   "artifact_ref": "director-metrics-20260507",
   "artifact_hash": "sha256:director-metrics-007",
   "timestamp_of_artifact": "2026-05-07T15:10:00-07:00",
-  "actors": ["director", "August"],
+  "actors": ["director", "Jordan"],
   "sensitivity": "low",
   "reliability": "high",
   "observed_facts": [
-    "A director asked August for metrics.",
+    "A director asked Jordan for metrics.",
     "The reason given was the weekly report deadline."
   ],
   "linked_claims": [],
@@ -42,5 +42,5 @@
 
 ## Observed Facts
 
-- A director asked August for metrics.
+- A director asked Jordan for metrics.
 - The request was tied to a normal deadline.

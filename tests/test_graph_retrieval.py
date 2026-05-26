@@ -74,11 +74,11 @@ class GraphRetrievalTests(unittest.TestCase):
             title=evidence_title,
             source_type="email",
             source_uri="mail://thread/123",
-            actors=["Steve", "August"],
+            actors=["Steve", "Jordan"],
             arena="work",
             reliability="high",
-            summary="Steve asked August to present the GitHub rollout plan to management.",
-            observed_facts=["Steve asked August to present the GitHub rollout plan to management."],
+            summary="Steve asked Jordan to present the GitHub rollout plan to management.",
+            observed_facts=["Steve asked Jordan to present the GitHub rollout plan to management."],
             linked_claims=[claim_id],
             linked_episodes=[],
         )
@@ -96,7 +96,7 @@ class GraphRetrievalTests(unittest.TestCase):
         self.assertIn("expansion_reason", context)
 
     def test_claim_retrieves_supporting_evidence(self) -> None:
-        claim_text = "August should approve the zebra."
+        claim_text = "Jordan should approve the zebra."
         claim_id = self._record_id("claim", claim_text)
         evidence_title = "Coordination file"
         evidence_id = self._record_id("evidence", evidence_title)
@@ -131,7 +131,7 @@ class GraphRetrievalTests(unittest.TestCase):
         for idx in range(16):
             new_claim(
                 vault=self.vault,
-                claim_text=f"August should approve the zebra {idx}",
+                claim_text=f"Jordan should approve the zebra {idx}",
                 claim_class="observation",
                 owner="user",
                 status="active",
@@ -144,7 +144,7 @@ class GraphRetrievalTests(unittest.TestCase):
             )
         self._rebuild()
 
-        result = retrieve_context("work relationship August should approve the zebra", domain="work", vault=self.vault, db_path=self.db_path)
+        result = retrieve_context("work relationship Jordan should approve the zebra", domain="work", vault=self.vault, db_path=self.db_path)
         self.assertTrue(any(item.id == claim_id for item in result.direct_loaded))
         self.assertTrue(any(item.id == evidence_id for item in result.expanded_loaded))
         evidence_item = next(item for item in result.expanded_loaded if item.id == evidence_id)
@@ -228,7 +228,7 @@ class GraphRetrievalTests(unittest.TestCase):
             title=evidence_title,
             source_type="document",
             source_uri="doc://legal/contract",
-            actors=["August", "Counsel"],
+            actors=["Jordan", "Counsel"],
             arena="work",
             compartments=["legal"],
             reliability="high",
@@ -274,11 +274,11 @@ class GraphRetrievalTests(unittest.TestCase):
             title=evidence_title,
             source_type="email",
             source_uri="mail://thread/456",
-            actors=["Steve", "August"],
+            actors=["Steve", "Jordan"],
             arena="work",
             reliability="high",
-            summary="Steve asked August to present the rollout plan to management.",
-            observed_facts=["Steve asked August to present the rollout plan to management."],
+            summary="Steve asked Jordan to present the rollout plan to management.",
+            observed_facts=["Steve asked Jordan to present the rollout plan to management."],
             linked_claims=[claim_id],
             linked_episodes=[],
         )

@@ -39,7 +39,7 @@
     "What evidence shows exceptions to the claim?"
   ],
   "alternative_hypotheses": [
-    "August sometimes avoids visibility but not always",
+    "Jordan sometimes avoids visibility but not always",
     "Comfort with visibility depends on context"
   ],
   "evidence_needed": [

@@ -14,7 +14,7 @@
   "compartments": [],
   "allowed_contexts": ["all"],
   "blocked_contexts": [],
-  "summary": "Steve asked August to present the GitHub rollout plan to management.",
+  "summary": "Steve asked Jordan to present the GitHub rollout plan to management.",
   "links": ["claim.scapegoat_risk", "episode.rollout_request"],
   "confidence": "high",
   "confidence_basis": "Direct email artifact",
@@ -25,11 +25,11 @@
   "artifact_ref": "mail-thread-001",
   "artifact_hash": "sha256:rollout-request-001",
   "timestamp_of_artifact": "2026-05-01T09:12:00-07:00",
-  "actors": ["Steve", "August", "management"],
+  "actors": ["Steve", "Jordan", "management"],
   "sensitivity": "low",
   "reliability": "high",
   "observed_facts": [
-    "Steve asked August to present the GitHub rollout plan.",
+    "Steve asked Jordan to present the GitHub rollout plan.",
     "The message references management visibility."
   ],
   "linked_claims": ["claim.scapegoat_risk"],
@@ -42,8 +42,8 @@
 
 ## Observed Facts
 
-- Steve asked August to present the GitHub rollout plan to management.
-- The request increased August's visibility in a management setting.
+- Steve asked Jordan to present the GitHub rollout plan to management.
+- The request increased Jordan's visibility in a management setting.
 
 ## Source
 

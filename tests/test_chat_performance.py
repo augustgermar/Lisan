@@ -65,10 +65,10 @@ class ChatPerformanceTests(unittest.TestCase):
                     "sections": {"event_timeline": prompt[:80]},
                     "questions": ["What detail matters most here?"],
                     "significance_rationale": "test",
-                    "entities_to_create": [{"name": "August", "subtype": "person", "summary": "August mentioned in conversation."}],
+                    "entities_to_create": [{"name": "Jordan", "subtype": "person", "summary": "Jordan mentioned in conversation."}],
                     "evidence_to_create": [{"title": "Conversation evidence", "summary": "Conversation evidence", "source_type": "manual_note", "arena": "cross_arena", "reliability": "medium", "sensitivity": "low"}],
-                    "claims_to_create": [{"claim_text": "August spoke about a memory.", "status": "active", "confidence": 0.6, "summary": "August spoke about a memory."}],
-                    "state_updates": [{"category": "relational", "summary": "August mentioned a personal memory.", "confidence": "low"}],
+                    "claims_to_create": [{"claim_text": "Jordan spoke about a memory.", "status": "active", "confidence": 0.6, "summary": "Jordan spoke about a memory."}],
+                    "state_updates": [{"category": "relational", "summary": "Jordan mentioned a personal memory.", "confidence": "low"}],
                     "open_loops_to_create": [],
                     "decisions_to_create": [],
                 }
@@ -275,7 +275,7 @@ class ChatPerformanceTests(unittest.TestCase):
         self.assertIn("Refusing to start production chat", stderr.getvalue())
 
     def test_trace_records_all_llm_calls_and_elapsed_time(self) -> None:
-        memory_text = "/remember my name is August and I have two cats named Pip and Lana."
+        memory_text = "/remember my name is Jordan and I have two cats named Pip and Lana."
         result = _process_chat_turn(
             vault=self.vault,
             conversation_id="demo",
@@ -304,7 +304,7 @@ class ChatPerformanceTests(unittest.TestCase):
         self.assertEqual(len(loaded["llm_calls"]), len(trace["llm_calls"]))
 
     def test_memory_turn_can_queue_background_jobs(self) -> None:
-        memory_text = "/remember my name is August and I have two cats named Pip and Lana."
+        memory_text = "/remember my name is Jordan and I have two cats named Pip and Lana."
         result = _process_chat_turn(
             vault=self.vault,
             conversation_id="demo",
@@ -327,7 +327,7 @@ class ChatPerformanceTests(unittest.TestCase):
         result = _process_chat_turn(
             vault=self.vault,
             conversation_id="demo",
-            text="my name is August",
+            text="my name is Jordan",
             provider=None,
             model=None,
             advice_history=[],

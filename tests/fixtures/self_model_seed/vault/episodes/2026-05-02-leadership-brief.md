@@ -12,7 +12,7 @@
   "compartments": [],
   "allowed_contexts": ["all"],
   "blocked_contexts": [],
-  "summary": "A second authority request that August interpreted as possible political pressure.",
+  "summary": "A second authority request that Jordan interpreted as possible political pressure.",
   "links": ["evidence.leadership_brief.20260502"],
   "confidence": "medium",
   "confidence_basis": "Artifact plus interpretation",
@@ -30,7 +30,7 @@
 
 ## Event Timeline
 
-- A manager asked August to brief leadership on the release timeline.
+- A manager asked Jordan to brief leadership on the release timeline.
 
 ## Documented Evidence
 
@@ -38,7 +38,7 @@
 
 ## User-Reported Context
 
-- August interpreted the request as a visibility test.
+- Jordan interpreted the request as a visibility test.
 
 ## Interpretations
 
@@ -46,7 +46,7 @@
 
 ## Operational Consequences
 
-- August took extra care in the draft.
+- Jordan took extra care in the draft.
 
 ## Open Questions
 

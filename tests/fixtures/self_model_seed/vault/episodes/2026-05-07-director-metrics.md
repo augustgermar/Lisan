@@ -30,7 +30,7 @@
 
 ## Event Timeline
 
-- A director asked August for metrics because the weekly report was due.
+- A director asked Jordan for metrics because the weekly report was due.
 
 ## Documented Evidence
 
@@ -38,7 +38,7 @@
 
 ## User-Reported Context
 
-- August wondered whether the request meant added scrutiny.
+- Jordan wondered whether the request meant added scrutiny.
 
 ## Interpretations
 
@@ -46,7 +46,7 @@
 
 ## Operational Consequences
 
-- August sent the metrics.
+- Jordan sent the metrics.
 
 ## Open Questions
 

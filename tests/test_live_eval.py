@@ -61,16 +61,16 @@ class FakeLiveConversation:
         elif lower == "do you know my name?":
             response = "I don't have your name saved yet."
             kind = "advice"
-        elif lower == "my name is august":
-            state["name"] = "August"
-            response = "You want me to remember that you go by August."
+        elif lower == "my name is jordan":
+            state["name"] = "Jordan"
+            response = "You want me to remember that you go by Jordan."
             kind = "memory"
             route = "memory"
             llm_calls = self._memory_calls()
             writes.append((
                 "state/user-identity.md",
-                {"type": "state", "summary": "August is the user."},
-                "# User Identity\n\nUser is August.\n",
+                {"type": "state", "summary": "Jordan is the user."},
+                "# User Identity\n\nUser is Jordan.\n",
             ))
             if self.write_cycle_marker and conversation_id.endswith("cycle_001"):
                 writes.append((
@@ -79,7 +79,7 @@ class FakeLiveConversation:
                     "# Cycle One Marker\n\nThis file should never appear in later cycles.\n",
                 ))
         elif lower == "do you know my name now?":
-            response = "Yes, your name is August."
+            response = "Yes, your name is Jordan."
             kind = "advice"
         elif lower.startswith("i am here with my daughter alice"):
             state["alice"] = "Alice"
@@ -95,18 +95,18 @@ class FakeLiveConversation:
                 "state/family-context.md",
                 {
                     "type": "state",
-                    "summary": "August is with Alice watching a YouTube ice cream video.",
+                    "summary": "Jordan is with Alice watching a YouTube ice cream video.",
                 },
-                "# Family Context\n\nAugust is here with Alice watching a YouTube video about mixing ice cream flavors.\n",
+                "# Family Context\n\nJordan is here with Alice watching a YouTube video about mixing ice cream flavors.\n",
             ))
             writes.append((
                 "entities/people/alice.md",
                 {
                     "type": "entity",
-                    "summary": "Alice is August's daughter.",
+                    "summary": "Alice is Jordan's daughter.",
                     "canonical_name": "Alice",
                 },
-                "# Alice\n\nAlice is August's daughter.\n",
+                "# Alice\n\nAlice is Jordan's daughter.\n",
             ))
         elif lower == "who is alice?":
             response = "Alice is your daughter." if state.get("alice") else "I don't have Alice saved yet."
@@ -162,7 +162,7 @@ class FakeLiveConversation:
             )
             kind = "advice"
         elif lower == "what is my name?":
-            response = "Your name is August." if state.get("name") else "I don't have your name saved yet."
+            response = "Your name is Jordan." if state.get("name") else "I don't have your name saved yet."
             kind = "advice"
         else:
             response = "Okay."
@@ -272,13 +272,13 @@ class LiveEvalTests(unittest.TestCase):
         self.assertTrue(any("role inversion" in failure for failure in result.failures))
 
     def test_oracle_detects_identity_contamination(self) -> None:
-        step = ScenarioStep(kind="user", text="my name is August", expectation=TurnExpectation(require_no_identity_contamination=True))
+        step = ScenarioStep(kind="user", text="my name is Jordan", expectation=TurnExpectation(require_no_identity_contamination=True))
         turn = {
-            "user_input": "my name is August",
-            "assistant_output": "I am August.",
+            "user_input": "my name is Jordan",
+            "assistant_output": "I am Jordan.",
             "fast_path_used": False,
             "trace": {"llm_calls": [{"elapsed_ms": 1}], "retrieval_used": False, "jobs_queued": 0, "elapsed_ms": 400},
-            "durable_records": [{"record_type": "state", "text": "I am August."}],
+            "durable_records": [{"record_type": "state", "text": "I am Jordan."}],
             "transient_records": [],
         }
         result = evaluate_turn("basic_identity", 1, turn, step)
