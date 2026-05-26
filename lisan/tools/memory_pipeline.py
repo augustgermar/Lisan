@@ -16,7 +16,12 @@ from .firewall import scan_text
 from .log import log_error
 from .epistemic import listify
 from .narrative_state import load_narrative_state
-from .record_fanout import register_claim_reference, resolve_claim_links
+from .record_fanout import (
+    register_claim_reference,
+    register_evidence_reference,
+    resolve_claim_links,
+    resolve_evidence_links,
+)
 from .tracing import record_inline_step
 from .record_factory import (
     STATE_TTLS,
@@ -98,14 +103,17 @@ def run_memory_pipeline(
 
     # Finding 9: Turn-1 elicitor preference.
     # An opening emotional turn deserves to be heard before it is processed.
-    # If we're at the very start of a conversation and the message carries
-    # affect/distress signals, prefer elicitor over extraction even when the
-    # listener rated it "full". Memory still gets formed on later turns or via
-    # background jobs; the user gets a warm response immediately.
+    # We compute turn position from the transcript (v0.1.7) — narrative state
+    # only ticks on the elicitor path, so extraction-only conversations would
+    # otherwise stay at turn_count=0 forever and the preference would mis-fire
+    # on later turns. The transcript already includes this turn's appended
+    # line, so the very first turn comes back as 1 and the preference is
+    # gated to "first turn only".
+    transcript_turn_index = _conversation_turn_count(vault, conversation_id)
     if (
         action != "skip"
         and mode == "extraction"
-        and prior_state.turn_count <= 1
+        and transcript_turn_index <= 1
         and _has_distress_signal(listener, text)
     ):
         mode = "elicitor"
@@ -203,8 +211,18 @@ def run_memory_pipeline(
     _create_open_loops(vault, writer, draft_rel)
     _create_decisions(vault, writer, draft_rel)
     if skeptic_approved:
-        claim_id_map = _create_claim_records(vault, writer, draft_rel, db_path=db_path)
-        _create_evidence_records(vault, writer, transcript_path, draft_rel, claim_id_map)
+        # Evidence runs before claims so claim.supporting_evidence can be
+        # resolved through evidence_id_map (Finding 4). Claims run before the
+        # state update so the state can reference resolved claim IDs in future
+        # passes.
+        evidence_id_map = _create_evidence_records(
+            vault, writer, transcript_path, draft_rel,
+        )
+        claim_id_map = _create_claim_records(
+            vault, writer, draft_rel,
+            db_path=db_path,
+            evidence_id_map=evidence_id_map,
+        )
         _apply_state_updates(vault, writer, draft_rel)
     else:
         record_inline_step("memory_pipeline.fanout.skeptic_blocked")
@@ -271,12 +289,56 @@ def _has_distress_signal(listener: dict[str, Any], text: str) -> bool:
     if any("affect" in r or "high-risk" in r or "biograph" in r for r in reasons):
         return True
     lowered = text.lower()
-    distress_terms = (
+    distress_phrases = (
         "i don't know what to do", "i'm worried", "i'm scared", "i'm anxious",
         "freaking out", "falling apart", "can't handle", "feel awful",
         "hurts", "miss", "lonely", "overwhelmed", "stressed", "exhausted",
+        # v0.1.7: distress can be third-person too (talking about a loved one)
+        "sounded scared", "she's scared", "he's scared", "they're scared",
+        "scared in a way", "shaken", "blindsided", "heavy",
+        "i don't know what", "trying not to", "kept asking",
     )
-    return any(term in lowered for term in distress_terms)
+    if any(term in lowered for term in distress_phrases):
+        return True
+    # Lone affect tokens are sufficient too — broader catch for short messages
+    # that name an emotion without a full phrase ("I'm afraid", "feels heavy").
+    distress_tokens = {
+        "scared", "afraid", "fear", "fearful", "worried", "anxious",
+        "panic", "terrified", "dread", "heartbroken", "devastated",
+    }
+    if any(token in lowered.split() for token in distress_tokens):
+        return True
+    return False
+
+
+def _conversation_turn_count(vault: Path, conversation_id: str | None) -> int:
+    """Count completed USER turns for `conversation_id` from today's transcript.
+
+    v0.1.7: narrative state only increments on the elicitor path, so the
+    extraction-only conversations end up with `turn_count` permanently at 0.
+    Computing turn position deterministically from the transcript avoids that
+    blind spot and lets the Turn-1 elicitor preference fire only once per
+    conversation, not on every extraction turn that happens to carry affect.
+    """
+    if not conversation_id:
+        return 0
+    today_file = vault / "transcripts" / f"{today_iso()}.md"
+    if not today_file.exists():
+        return 0
+    try:
+        text = today_file.read_text(encoding="utf-8")
+    except Exception:
+        return 0
+    marker = f"[{conversation_id}]"
+    blocks = text.split("## Conversation — ")
+    count = 0
+    for block in blocks:
+        if marker not in block:
+            continue
+        for line in block.splitlines():
+            if line.strip().startswith("USER:"):
+                count += 1
+    return count
 
 
 def _write_draft(
@@ -484,7 +546,13 @@ def _basis_or_default(entry: Any, default: str) -> str:
 # ── Fanout: open loops ────────────────────────────────────────────────────────
 
 def _create_open_loops(vault: Path, writer: dict[str, Any], draft_rel: str) -> None:
-    """Materialize open loops immediately — open loops are always capture_now per spec."""
+    """Materialize open loops immediately — open loops are always capture_now per spec.
+
+    Finding 3 (v0.1.7): skip any loop whose `owner` is not the user. The
+    writer prompt now asks for explicit ownership, and we filter as a backstop
+    so other people's pending questions (Elena wondering whether to tell her
+    sister; Mom's medication concern) never become user-owned todos.
+    """
     loops = writer.get("open_loops_to_create") or []
     entity_names = _entity_canonical_names(writer)
     for loop in loops:
@@ -492,6 +560,7 @@ def _create_open_loops(vault: Path, writer: dict[str, Any], draft_rel: str) -> N
         next_action = str(loop.get("next_action") or "").strip()
         summary = str(loop.get("summary") or "").strip()
         priority = str(loop.get("priority") or "medium").strip()
+        owner = str(loop.get("owner") or "user").strip().lower()
         explicit_domain = str(loop.get("domain", loop.get("arena")) or "").strip()
         domain = _infer_domain(
             explicit_domain,
@@ -500,6 +569,9 @@ def _create_open_loops(vault: Path, writer: dict[str, Any], draft_rel: str) -> N
             entity_names=entity_names,
         )
         if not title or not next_action:
+            continue
+        if owner not in {"user", "self", "me", ""}:
+            # Other people's pending actions aren't user loops.
             continue
         if priority not in ("low", "medium", "high"):
             priority = "medium"
@@ -560,15 +632,41 @@ def _apply_state_updates(vault: Path, writer: dict[str, Any], draft_rel: str) ->
 # ── Fanout: entities ──────────────────────────────────────────────────────────
 
 def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel: str) -> None:
+    """Finding 1 (v0.1.7): dedupe across short/full name variants.
+
+    The writer regularly extracts the same person twice — once by first name
+    ("Devon") and once by full name ("Devon Park"). We dedupe within the
+    current writer output and against the vault: if the proposed name matches
+    or is a fragment of an existing entity's canonical name / aliases, we add
+    the new variant to that entity's aliases instead of creating a sibling
+    file.
+    """
     entities = writer.get("entities_to_create") or []
+    if not entities:
+        return
+    index = _load_entity_index(vault)
+    seen_in_pass: set[str] = set()
     for entry in entities:
         name = str(entry.get("name") or "").strip()
         subtype = str(entry.get("subtype") or "person").strip()
         summary = str(entry.get("summary") or "").strip()
         if not name:
             continue
+        normalized = name.lower()
+        if normalized in seen_in_pass:
+            continue
+        seen_in_pass.add(normalized)
+
+        existing = _match_existing_entity(name, subtype, index)
+        if existing is not None:
+            _append_entity_alias(existing, name)
+            # Refresh the in-memory index so the next sibling in the same pass
+            # also resolves to this canonical entity.
+            for alias_form in (name, name.lower()):
+                index.setdefault(alias_form, existing)
+            continue
         try:
-            new_entity(
+            created = new_entity(
                 vault=vault,
                 name=name,
                 subtype=subtype,
@@ -577,7 +675,81 @@ def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel: str) ->
                 confidence_basis=_basis_or_default(entry, "Auto-extracted from conversation"),
             )
         except FileExistsError:
-            pass  # entity already exists — skip silently
+            continue
+        # Track the new file so later iterations dedupe against it.
+        index[name.lower()] = created.path
+        canonical = name
+        for token in canonical.split():
+            index.setdefault(token.lower(), created.path)
+
+
+def _load_entity_index(vault: Path) -> dict[str, Path]:
+    """Map every alias / canonical-name token to its entity file path."""
+    index: dict[str, Path] = {}
+    entities_root = vault / "entities"
+    if not entities_root.exists():
+        return index
+    for path in entities_root.rglob("*.md"):
+        try:
+            doc = load_markdown(path)
+        except Exception:
+            continue
+        canonical = str(doc.frontmatter.get("canonical_name") or "").strip()
+        aliases = doc.frontmatter.get("aliases") or []
+        names = [canonical] + [str(a) for a in aliases if isinstance(a, str)]
+        for name in names:
+            if not name:
+                continue
+            index.setdefault(name.lower(), path)
+            # Also index each individual word so "Devon" matches "Devon Park".
+            for token in name.split():
+                index.setdefault(token.lower(), path)
+    return index
+
+
+def _match_existing_entity(name: str, subtype: str, index: dict[str, Path]) -> Path | None:
+    """Find an entity that this proposed name should fold into, if any."""
+    direct = index.get(name.lower())
+    if direct is not None and _entity_subtype(direct) == subtype:
+        return direct
+    # If the proposed name is multi-word and one of its tokens is in the
+    # index, treat that as the canonical entity. This handles the writer
+    # introducing "Devon Park" after "Devon" already exists.
+    tokens = [t.lower() for t in name.split() if t]
+    for token in tokens:
+        candidate = index.get(token)
+        if candidate is None:
+            continue
+        if _entity_subtype(candidate) != subtype:
+            continue
+        return candidate
+    return None
+
+
+def _entity_subtype(path: Path) -> str:
+    try:
+        return str(load_markdown(path).frontmatter.get("subtype") or "")
+    except Exception:
+        return ""
+
+
+def _append_entity_alias(path: Path, alias: str) -> None:
+    """Add `alias` to the entity record at `path` if it's not already present."""
+    try:
+        doc = load_markdown(path)
+    except Exception:
+        return
+    fm = dict(doc.frontmatter)
+    canonical = str(fm.get("canonical_name") or "").strip()
+    if not alias.strip() or alias.strip() == canonical:
+        return
+    aliases = list(fm.get("aliases") or [])
+    if alias in aliases:
+        return
+    aliases.append(alias)
+    fm["aliases"] = aliases
+    fm["updated"] = today_iso()
+    write_markdown(path, fm, doc.body)
 
 
 # ── Fanout: evidence ──────────────────────────────────────────────────────────
@@ -587,16 +759,21 @@ def _create_evidence_records(
     writer: dict[str, Any],
     transcript_path: Path,
     draft_rel: str,
-    claim_id_map: dict[str, str] | None = None,
-) -> None:
+) -> dict[str, str]:
+    """Create evidence records and return a title→evidence_id map.
+
+    Evidence is materialized BEFORE claims in the v0.1.7 fanout order so the
+    claim-creation step can resolve `supporting_evidence` strings that the
+    writer expressed as evidence titles (Finding 4).
+    """
     evidence_items = writer.get("evidence_to_create") or []
     transcript_rel = str(transcript_path.relative_to(vault))
     entity_names = _entity_canonical_names(writer)
+    evidence_id_map: dict[str, str] = {}
     for entry in evidence_items:
         title = str(entry.get("title") or entry.get("summary") or "").strip()
         if not title:
             continue
-        resolved_claims = resolve_claim_links(listify(entry.get("linked_claims")), claim_id_map or {})
         arena = _infer_domain(
             str(entry.get("arena") or ""),
             fallback="cross_arena",
@@ -604,7 +781,7 @@ def _create_evidence_records(
             entity_names=entity_names,
         )
         try:
-            new_evidence(
+            created = new_evidence(
                 vault=vault,
                 title=title,
                 source_type=str(entry.get("source_type") or "manual_note").strip(),
@@ -620,14 +797,22 @@ def _create_evidence_records(
                 summary=str(entry.get("summary") or title),
                 observed_facts=listify(entry.get("observed_facts")),
                 verbatim_excerpt=str(entry.get("verbatim_excerpt") or "").strip() or None,
-                linked_claims=resolved_claims,
+                # Claims haven't been created yet at this point; we record the
+                # raw writer-supplied link strings and let the rebuild-index
+                # pass resolve them later. Episodes always include the draft.
+                linked_claims=listify(entry.get("linked_claims")),
                 linked_episodes=_merge_links(entry.get("linked_episodes"), [draft_rel]),
                 confidence_basis=_basis_or_default(entry, "Auto-extracted from conversation"),
             )
+            evidence_doc = load_markdown(created.path)
+            evidence_id = str(evidence_doc.frontmatter.get("id") or "")
+            if evidence_id:
+                register_evidence_reference(evidence_id_map, entry, evidence_id)
         except FileExistsError:
             pass
         except Exception as exc:
             log_error(vault, "memory_pipeline.evidence", exc)
+    return evidence_id_map
 
 
 # ── Fanout: claims ────────────────────────────────────────────────────────────
@@ -637,6 +822,7 @@ def _create_claim_records(
     writer: dict[str, Any],
     draft_rel: str,
     db_path: Path | None = None,
+    evidence_id_map: dict[str, str] | None = None,
 ) -> dict[str, str]:
     claims = writer.get("claims_to_create") or []
     claim_id_map: dict[str, str] = {}
@@ -656,6 +842,14 @@ def _create_claim_records(
             text=claim_text,
             entity_names=entity_names,
         )
+        # Finding 4: rewrite writer-supplied evidence titles into evidence IDs
+        # so the claim links resolve under validation.
+        supporting = resolve_evidence_links(
+            listify(entry.get("supporting_evidence")), evidence_id_map or {},
+        ) or listify(entry.get("supporting_evidence"))
+        contradicting = resolve_evidence_links(
+            listify(entry.get("contradicting_evidence")), evidence_id_map or {},
+        ) or listify(entry.get("contradicting_evidence"))
         try:
             created = new_claim(
                 vault=vault,
@@ -664,8 +858,8 @@ def _create_claim_records(
                 owner=str(entry.get("owner") or "user").strip(),
                 status=str(entry.get("status") or "active").strip(),
                 confidence=confidence,
-                supporting_evidence=listify(entry.get("supporting_evidence")),
-                contradicting_evidence=listify(entry.get("contradicting_evidence")),
+                supporting_evidence=supporting,
+                contradicting_evidence=contradicting,
                 linked_patterns=listify(entry.get("linked_patterns")),
                 first_seen=str(entry.get("first_seen") or "").strip() or None,
                 last_reviewed=str(entry.get("last_reviewed") or "").strip() or None,
@@ -675,6 +869,9 @@ def _create_claim_records(
                 privacy=str(entry.get("privacy") or "personal").strip(),
                 significance=str(entry.get("significance") or "low").strip(),
                 summary=str(entry.get("summary") or claim_text[:120]),
+                confidence_basis=_basis_or_default(
+                    entry, "Claim confidence assessed from supporting and contradicting evidence",
+                ),
             )
             claim_doc = load_markdown(created.path)
             claim_id = str(claim_doc.frontmatter.get("id") or "")

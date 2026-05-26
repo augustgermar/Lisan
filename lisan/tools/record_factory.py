@@ -735,6 +735,7 @@ def new_claim(
     privacy: str = "personal",
     significance: str = "low",
     summary: str | None = None,
+    confidence_basis: str = "Claim confidence assessed from supporting and contradicting evidence",
 ) -> CreatedRecord:
     today = record_date or today_iso()
     safe_slug = slugify(claim_text)[:80]
@@ -768,7 +769,7 @@ def new_claim(
         "summary": summary or claim_text[:120],
         "links": artifact_links + support + contradict,
         "confidence": float(confidence),
-        "confidence_basis": "Claim confidence assessed from supporting and contradicting evidence",
+        "confidence_basis": confidence_basis,
         "last_confirmed": today,
         "review_after": today,
         "claim_text": claim_text,

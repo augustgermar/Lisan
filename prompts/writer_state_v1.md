@@ -23,5 +23,5 @@ Return JSON with:
 - `sections`: object with `current_state` (present-tense description of current reality for this domain)
 - `questions`: array of clarifying questions (0-2 — only for genuinely ambiguous facts)
 - `significance_rationale`: why this significance level was chosen
-- `entities_to_create`: array of `{name, subtype, summary}` for people/places/things mentioned
-- `state_updates`: array with one entry for the domain being written — `{category, summary, confidence}`
+- `entities_to_create`: array of `{name, subtype, summary, confidence_basis}` for people/places/things mentioned. Use the most complete name form available. `confidence_basis` is one short sentence about how the entity was identified.
+- `state_updates`: array with one entry for the domain being written — `{category, summary, confidence, confidence_basis}`. `confidence_basis` is one short sentence describing what in the conversation supports the state assessment.

@@ -373,4 +373,10 @@ def _get_affect_terms(config: dict[str, Any] | None) -> list[str]:
         "nice", "rough", "tough", "hard",
         "exhausted", "drained", "overwhelmed", "stressed", "annoyed",
         "bored", "busy", "sick", "lonely", "proud", "cozy", "cold", "warm",
+        # v0.1.7: distress / fear vocabulary the prior list missed
+        "scared", "scary", "fear", "fearful", "worried", "worry", "dread",
+        "dreading", "panic", "panicked", "terrified", "uneasy", "shaken",
+        "unsettled", "heavy", "heartbroken", "devastated", "ashamed",
+        "guilty", "regretful", "bitter", "resentful", "betrayed",
+        "blindsided", "humiliated",
     ]
