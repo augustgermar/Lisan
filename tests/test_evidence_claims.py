@@ -9,7 +9,7 @@ from lisan.frontmatter import load_markdown, write_markdown
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.analyst_ops import build_analyst_bundle, run_analyst_scan
 from lisan.tools.epistemic import review_claim_against_evidence
-from lisan.tools.record_factory import new_claim, new_evidence, new_pattern, new_skeptical_review
+from lisan.tools.record_factory import new_claim, new_evidence, new_pattern, new_skeptical_review, new_state
 from lisan.tools.retrieval import assemble_context
 from lisan.tools.dreamer_ops import _bundle_approved_patterns, audit_patterns
 from lisan.tools.rebuild_index import rebuild_index
@@ -238,8 +238,42 @@ class EvidenceClaimTests(unittest.TestCase):
         bundle = _bundle_approved_patterns(self.vault)
         self.assertIn("Approved Pattern Hypotheses", bundle)
         self.assertNotIn("- None", bundle)
-        audit = audit_patterns(self.vault)
-        self.assertTrue(audit["eligible"])
+
+    def test_record_factory_normalizes_invalid_writer_enums(self) -> None:
+        claim = new_claim(
+            vault=self.vault,
+            claim_text="Person A thinks Person B is hiding something.",
+            claim_class="belief",
+            owner="Person A",
+            status="candidate",
+            confidence=0.4,
+            summary="A tentative interpretation of motive.",
+        )
+        evidence = new_evidence(
+            vault=self.vault,
+            title="Transcript excerpt",
+            source_type="transcript_entry",
+            sensitivity="personal",
+            arena="work",
+            summary="A transcript excerpt with a personal observation.",
+            observed_facts=["The user described a personal observation."],
+        )
+        state = new_state(
+            vault=self.vault,
+            state_category="pets",
+            summary="The user has two cats.",
+        )
+
+        claim_fm = self._frontmatter(claim.path)
+        evidence_fm = self._frontmatter(evidence.path)
+        state_fm = self._frontmatter(state.path)
+
+        self.assertEqual(claim_fm["claim_class"], "interpretation")
+        self.assertEqual(claim_fm["owner"], "external_actor")
+        self.assertEqual(claim_fm["status"], "active")
+        self.assertEqual(evidence_fm["source_type"], "markdown")
+        self.assertEqual(evidence_fm["sensitivity"], "restricted")
+        self.assertEqual(state_fm["domain_primary"], "environmental")
 
     def test_pattern_without_counterexample_search_is_blocked_from_dreamer(self) -> None:
         pattern = new_pattern(

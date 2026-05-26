@@ -905,6 +905,7 @@ def main(argv: list[str] | None = None) -> int:
             speaker=args.speaker,
             provider=args.provider,
             model=args.model,
+            append_response_to_transcript=True,
         )
         print(json.dumps(result, indent=2))
         return 0

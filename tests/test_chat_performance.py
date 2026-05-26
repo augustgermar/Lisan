@@ -3,11 +3,16 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from lisan.frontmatter import load_markdown
 from lisan.paths import ensure_repo_layout, vault_root
+from lisan.tools.capture import capture_text
 from lisan.tools.chat import _process_chat_turn, run_chat
+from lisan.tools.memory_pipeline import _create_decisions
+from lisan.tools.transcripts import append_transcript
 from lisan.tools.tracing import list_recent_turn_traces, load_turn_trace
 from lisan.providers.base import LLMResponse, ProviderError
 
@@ -321,6 +326,59 @@ class ChatPerformanceTests(unittest.TestCase):
             if any(part in {"entities", "episodes", "knowledge", "evidence", "claims", "state", "open_loops", "decisions", "patterns", "drafts"} for part in path.parts)
         ]
         self.assertFalse(durable_paths)
+
+    def test_capture_appends_lisan_response_to_transcript(self) -> None:
+        transcript_path = self.vault / "transcripts" / "2026-05-26.md"
+        append_transcript(vault=self.vault, conversation_id="demo", speaker="USER", text="Please remember this.")
+        fake_result = SimpleNamespace(
+            transcript_path=transcript_path,
+            draft_path=None,
+            listener={"action": "full"},
+            writer={},
+            skeptic={},
+            interlocutor={},
+            elicitor={"response": "I will keep that in mind."},
+            mode="elicitor",
+            action="full",
+            narrative_state_path=None,
+            narrative_state=None,
+        )
+
+        with patch("lisan.tools.capture.run_memory_pipeline", return_value=fake_result):
+            out = capture_text(
+                vault=self.vault,
+                text="Please remember this.",
+                conversation_id="demo",
+                append_response_to_transcript=True,
+                queue_background=False,
+            )
+
+        transcript = transcript_path.read_text(encoding="utf-8")
+        self.assertIn("USER: Please remember this.", transcript)
+        self.assertIn("LISAN: I will keep that in mind.", transcript)
+        self.assertEqual(out["response"], "I will keep that in mind.")
+
+    def test_decision_turn_synthesizes_record_when_writer_is_sparse(self) -> None:
+        _create_decisions(
+            self.vault,
+            {
+                "record_type": "decision",
+                "summary": "Person A decided to automate the weekly reminder.",
+                "significance": "medium",
+                "frontmatter": {
+                    "domain_primary": "work",
+                    "alternatives_considered": ["Keep doing it manually"],
+                    "revisit_conditions": ["If the reminder stops being useful"],
+                },
+                "decisions_to_create": [],
+            },
+        )
+
+        decision_docs = list((self.vault / "decisions").glob("*.md"))
+        self.assertEqual(len(decision_docs), 1)
+        fm = load_markdown(decision_docs[0]).frontmatter
+        self.assertEqual(fm["summary"], "Person A decided to automate the weekly reminder.")
+        self.assertEqual(fm["domain_primary"], "work")
 
 
 if __name__ == "__main__":
