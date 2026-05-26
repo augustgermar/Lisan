@@ -46,19 +46,19 @@ class EvidenceClaimTests(unittest.TestCase):
             title="Rollout planning email",
             source_type="email",
             source_uri="mail://thread/123",
-            actors=["Steve", "Alex"],
+            actors=["Person A", "Person B"],
             arena="work",
             compartments=[],
             reliability="high",
-            summary="Steve asked Alex to present the GitHub rollout plan to management.",
+            summary="Person A asked Person B to present the project rollout plan to management.",
             observed_facts=[
-                "Steve asked Alex to present the rollout plan.",
-                "The message references management and a GitHub rollout plan.",
+                "Person A asked Person B to present the rollout plan.",
+                "The message references management and a project rollout plan.",
             ],
             linked_episodes=[],
         )
         review = review_claim_against_evidence(
-            "Steve tried to scapegoat Alex.",
+            "Person A tried to scapegoat Person B.",
             evidence_items=[self._frontmatter(evidence.path)],
         )
         self.assertEqual(review["status"], "disputed")
@@ -72,14 +72,14 @@ class EvidenceClaimTests(unittest.TestCase):
             title="Planning ticket",
             source_type="ticket",
             source_uri="ticket://JIRA-42",
-            actors=["Alex", "Team"],
+            actors=["Person B", "Team"],
             arena="work",
             reliability="medium",
-            summary="A planning ticket assigned Alex to prepare a rollout brief.",
-            observed_facts=["A ticket assigned Alex to prepare a rollout brief."],
+            summary="A planning ticket assigned Person B to prepare a rollout brief.",
+            observed_facts=["A ticket assigned Person B to prepare a rollout brief."],
         )
         review = review_claim_against_evidence(
-            "This proves leadership trusts Alex with strategy.",
+            "This proves leadership trusts Person B with strategy.",
             evidence_items=[self._frontmatter(evidence.path)],
         )
         self.assertIn(review["recommended_action"], {"revise", "hold"})
@@ -97,25 +97,25 @@ class EvidenceClaimTests(unittest.TestCase):
             title="Rollout request",
             source_type="email",
             source_uri="mail://thread/alpha",
-            actors=["Morgan", "Alex"],
+            actors=["Manager", "Person B"],
             arena="work",
             reliability="high",
-            summary="Morgan asked Alex to present the rollout plan.",
-            observed_facts=["Morgan asked Alex to present the rollout plan."],
+            summary="Manager asked Person B to present the rollout plan.",
+            observed_facts=["Manager asked Person B to present the rollout plan."],
         )
         evidence_b = new_evidence(
             vault=self.vault,
             title="Follow-up note",
             source_type="document",
             source_uri="doc://notes/77",
-            actors=["Morgan", "Alex"],
+            actors=["Manager", "Person B"],
             arena="work",
             reliability="high",
-            summary="The follow-up note confirmed Alex would present the rollout plan.",
-            observed_facts=["The note confirmed Alex would present the rollout plan."],
+            summary="The follow-up note confirmed Person B would present the rollout plan.",
+            observed_facts=["The note confirmed Person B would present the rollout plan."],
         )
         review = review_claim_against_evidence(
-            "Morgan asked Alex to present the rollout plan.",
+            "Manager asked Person B to present the rollout plan.",
             evidence_items=[self._frontmatter(evidence_a.path), self._frontmatter(evidence_b.path)],
         )
         self.assertTrue(review["supporting_evidence"])
@@ -128,14 +128,14 @@ class EvidenceClaimTests(unittest.TestCase):
             title="Clarifying email",
             source_type="email",
             source_uri="mail://thread/beta",
-            actors=["Steve", "Alex"],
+            actors=["Person A", "Person B"],
             arena="work",
             reliability="high",
             summary="There is no evidence of blame or secrecy in the email.",
             observed_facts=["The email did not mention blame.", "The email did not mention secrecy."],
         )
         review = review_claim_against_evidence(
-            "Steve was trying to hide the rollout.",
+            "Person A was trying to hide the rollout.",
             evidence_items=[self._frontmatter(evidence.path)],
         )
         self.assertTrue(review["contradicting_evidence"])
@@ -148,16 +148,16 @@ class EvidenceClaimTests(unittest.TestCase):
             title="Rollout email",
             source_type="email",
             source_uri="mail://thread/gamma",
-            actors=["Steve", "Alex"],
+            actors=["Person A", "Person B"],
             arena="work",
             reliability="high",
-            summary="Steve asked Alex to present the rollout plan to management.",
-            observed_facts=["Steve asked Alex to present the rollout plan to management."],
+            summary="Person A asked Person B to present the rollout plan to management.",
+            observed_facts=["Person A asked Person B to present the rollout plan to management."],
             linked_episodes=[],
         )
         claim = new_claim(
             vault=self.vault,
-            claim_text="Steve was trying to scapegoat Alex.",
+            claim_text="Person A was trying to scapegoat Person B.",
             claim_class="motive_hypothesis",
             owner="user",
             status="disputed",
@@ -181,7 +181,7 @@ class EvidenceClaimTests(unittest.TestCase):
             priority_questions=["What did the email actually say?"],
             alternative_hypotheses=["Delegation", "normal coordination"],
             evidence_needed=["Direct wording from the email"],
-            claim_updates=[{"claim_text": "Steve was trying to scapegoat Alex.", "status": "disputed"}],
+            claim_updates=[{"claim_text": "Person A was trying to scapegoat Person B.", "status": "disputed"}],
             confidence_adjustments=[{"target": str(self._frontmatter(evidence.path)["id"]), "delta": 0.1}],
             reasoning_errors=["mind_reading"],
         )
@@ -191,7 +191,7 @@ class EvidenceClaimTests(unittest.TestCase):
         self.assertTrue(report.ok, report.summary())
 
         rebuild_index(vault=self.vault, db_path=self.db_path, embeddings_file=self.embeddings_path)
-        context = assemble_context("Steve rollout management", vault=self.vault, db_path=self.db_path)
+        context = assemble_context("project rollout management", vault=self.vault, db_path=self.db_path)
         assembled = context
         self.assertIn("## Evidence", assembled)
         self.assertIn("## Claims", assembled)

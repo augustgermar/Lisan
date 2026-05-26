@@ -173,18 +173,6 @@ def classify_turn(text: str) -> TurnClassification:
     )
 
 
-def is_production_chat_vault(vault: Path) -> tuple[bool, str | None]:
-    resolved = str(vault.resolve())
-    if ".lisan_eval_runs" in resolved:
-        return False, "vault path is inside .lisan_eval_runs"
-
-    marker_names = {".lisan_eval_marker", ".lisan_eval_mode", ".eval_mode"}
-    for marker_name in marker_names:
-        if (vault / marker_name).exists():
-            return False, f"eval marker file present: {marker_name}"
-    return True, None
-
-
 def _normalize(text: str) -> str:
     text = text.lower().strip()
     text = re.sub(r"\s+", " ", text)

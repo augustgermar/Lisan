@@ -243,7 +243,7 @@ The heuristic gate scores text using:
 - Open-loop phrases ("I need to", "remind me to", etc.): +3
 - High-risk keywords (legal, medical, custody, etc.): +4
 - Affect terms: +2 base, +1 per additional hit up to +4
-- Biographical density (multiple family/life facts): +3
+- Biographical density (multiple personal-detail facts): +3
 - Durable plan phrases: +2
 - Pure code formatting: -3
 - Factual lookup (single question, no personal stake): -3

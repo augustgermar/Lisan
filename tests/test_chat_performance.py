@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import io
 import json
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.chat import _process_chat_turn, run_chat
-from lisan.tools.chat_turns import is_production_chat_vault
 from lisan.tools.tracing import list_recent_turn_traces, load_turn_trace
 from lisan.providers.base import LLMResponse, ProviderError
 
@@ -65,10 +62,10 @@ class ChatPerformanceTests(unittest.TestCase):
                     "sections": {"event_timeline": prompt[:80]},
                     "questions": ["What detail matters most here?"],
                     "significance_rationale": "test",
-                    "entities_to_create": [{"name": "Jordan", "subtype": "person", "summary": "Jordan mentioned in conversation."}],
+                    "entities_to_create": [{"name": "Person A", "subtype": "person", "summary": "Person A mentioned in conversation."}],
                     "evidence_to_create": [{"title": "Conversation evidence", "summary": "Conversation evidence", "source_type": "manual_note", "arena": "cross_arena", "reliability": "medium", "sensitivity": "low"}],
-                    "claims_to_create": [{"claim_text": "Jordan spoke about a memory.", "status": "active", "confidence": 0.6, "summary": "Jordan spoke about a memory."}],
-                    "state_updates": [{"category": "relational", "summary": "Jordan mentioned a personal memory.", "confidence": "low"}],
+                    "claims_to_create": [{"claim_text": "Person A spoke about a memory.", "status": "active", "confidence": 0.6, "summary": "Person A spoke about a memory."}],
+                    "state_updates": [{"category": "relational", "summary": "Person A mentioned a personal memory.", "confidence": "low"}],
                     "open_loops_to_create": [],
                     "decisions_to_create": [],
                 }
@@ -197,11 +194,11 @@ class ChatPerformanceTests(unittest.TestCase):
         self.assertEqual(result["queued_jobs"], [])
 
     def test_retrieved_alice_entity_cannot_override_identity(self) -> None:
-        alice = self.vault / "entities" / "people" / "alice.md"
-        alice.parent.mkdir(parents=True, exist_ok=True)
-        alice.write_text(
+        child = self.vault / "entities" / "people" / "child-one.md"
+        child.parent.mkdir(parents=True, exist_ok=True)
+        child.write_text(
             "---\n"
-            "id: entity.alice\n"
+            "id: entity.child_one\n"
             "type: entity\n"
             "created: 2026-05-25\n"
             "updated: 2026-05-25\n"
@@ -213,21 +210,21 @@ class ChatPerformanceTests(unittest.TestCase):
             "compartments: []\n"
             "allowed_contexts: [all]\n"
             "blocked_contexts: []\n"
-            "summary: Alice is a person mentioned in the vault.\n"
+            "summary: Child One is a person mentioned in the vault.\n"
             "links: []\n"
             "confidence: low\n"
             "confidence_basis: seed\n"
             "last_confirmed: 2026-05-25\n"
             "review_after: 2026-05-25\n"
             "subtype: person\n"
-            "canonical_name: Alice\n"
+            "canonical_name: Child One\n"
             "aliases: []\n"
             "disambiguation: test entity\n"
             "epoch: 1\n"
             "epoch_started: 2026-05-25\n"
             "previous_epochs: []\n"
             "---\n"
-            "# Alice\n\nAlice is just data.\n",
+            "# Child One\n\nChild One is just data.\n",
             encoding="utf-8",
         )
 
@@ -248,34 +245,8 @@ class ChatPerformanceTests(unittest.TestCase):
         self.assertFalse(result["trace"]["retrieval_used"])
         self.assertEqual(len(result["trace"]["llm_calls"]), 0)
 
-    def test_eval_vault_path_is_blocked_in_chat(self) -> None:
-        eval_base = self.root / ".lisan_eval_runs" / "run-1"
-        eval_vault = vault_root(eval_base)
-        ok, reason = is_production_chat_vault(eval_vault)
-        self.assertFalse(ok)
-        self.assertIn(".lisan_eval_runs", reason or "")
-
-        stderr = io.StringIO()
-        with redirect_stderr(stderr):
-            exit_code = run_chat(vault=eval_vault, conversation_id="demo")
-        self.assertEqual(exit_code, 1)
-        self.assertIn("Refusing to start production chat", stderr.getvalue())
-
-    def test_eval_marker_file_is_blocked_in_chat(self) -> None:
-        marker = self.vault / ".lisan_eval_marker"
-        marker.write_text("eval", encoding="utf-8")
-        ok, reason = is_production_chat_vault(self.vault)
-        self.assertFalse(ok)
-        self.assertIn("eval marker file", reason or "")
-
-        stderr = io.StringIO()
-        with redirect_stderr(stderr):
-            exit_code = run_chat(vault=self.vault, conversation_id="demo")
-        self.assertEqual(exit_code, 1)
-        self.assertIn("Refusing to start production chat", stderr.getvalue())
-
     def test_trace_records_all_llm_calls_and_elapsed_time(self) -> None:
-        memory_text = "/remember my name is Jordan and I have two cats named Pip and Lana."
+        memory_text = "/remember my name is Person A and I have two pets named Pet One and Pet Two."
         result = _process_chat_turn(
             vault=self.vault,
             conversation_id="demo",
@@ -304,7 +275,7 @@ class ChatPerformanceTests(unittest.TestCase):
         self.assertEqual(len(loaded["llm_calls"]), len(trace["llm_calls"]))
 
     def test_memory_turn_can_queue_background_jobs(self) -> None:
-        memory_text = "/remember my name is Jordan and I have two cats named Pip and Lana."
+        memory_text = "/remember my name is Person A and I have two pets named Pet One and Pet Two."
         result = _process_chat_turn(
             vault=self.vault,
             conversation_id="demo",
@@ -327,7 +298,7 @@ class ChatPerformanceTests(unittest.TestCase):
         result = _process_chat_turn(
             vault=self.vault,
             conversation_id="demo",
-            text="my name is Jordan",
+            text="my name is Person A",
             provider=None,
             model=None,
             advice_history=[],

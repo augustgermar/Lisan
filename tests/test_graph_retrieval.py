@@ -50,7 +50,7 @@ class GraphRetrievalTests(unittest.TestCase):
         write_markdown(path, fm, doc.body)
 
     def test_direct_evidence_retrieves_linked_claim(self) -> None:
-        claim_text = "Steve may be setting me up as a scapegoat."
+        claim_text = "Person A may be setting me up as a scapegoat."
         claim_id = self._record_id("claim", claim_text)
         evidence_title = "Rollout request"
         evidence_id = self._record_id("evidence", evidence_title)
@@ -74,29 +74,29 @@ class GraphRetrievalTests(unittest.TestCase):
             title=evidence_title,
             source_type="email",
             source_uri="mail://thread/123",
-            actors=["Steve", "Jordan"],
+            actors=["Person A", "Person B"],
             arena="work",
             reliability="high",
-            summary="Steve asked Jordan to present the GitHub rollout plan to management.",
-            observed_facts=["Steve asked Jordan to present the GitHub rollout plan to management."],
+            summary="Person A asked Person B to present the project rollout plan to management.",
+            observed_facts=["Person A asked Person B to present the project rollout plan to management."],
             linked_claims=[claim_id],
             linked_episodes=[],
         )
         self._rebuild()
 
-        result = retrieve_context("work relationship GitHub rollout plan", domain="work", vault=self.vault, db_path=self.db_path)
+        result = retrieve_context("work relationship project rollout plan", domain="work", vault=self.vault, db_path=self.db_path)
         self.assertTrue(any(item.id == evidence_id for item in result.direct_loaded))
         self.assertTrue(any(item.id == claim_id for item in result.expanded_loaded))
         claim_item = next(item for item in result.expanded_loaded if item.id == claim_id)
         self.assertEqual(claim_item.expansion_source, evidence_id)
         self.assertIn("linked_claims", claim_item.expansion_reason)
 
-        context = assemble_context("work relationship GitHub rollout plan", domain="work", vault=self.vault, db_path=self.db_path)
+        context = assemble_context("work relationship project rollout plan", domain="work", vault=self.vault, db_path=self.db_path)
         self.assertIn("expansion_source", context)
         self.assertIn("expansion_reason", context)
 
     def test_claim_retrieves_supporting_evidence(self) -> None:
-        claim_text = "Jordan should approve the zebra."
+        claim_text = "Person B should approve the proposal."
         claim_id = self._record_id("claim", claim_text)
         evidence_title = "Coordination file"
         evidence_id = self._record_id("evidence", evidence_title)
@@ -131,7 +131,7 @@ class GraphRetrievalTests(unittest.TestCase):
         for idx in range(16):
             new_claim(
                 vault=self.vault,
-                claim_text=f"Jordan should approve the zebra {idx}",
+                claim_text=f"Person B should approve the proposal {idx}",
                 claim_class="observation",
                 owner="user",
                 status="active",
@@ -144,7 +144,7 @@ class GraphRetrievalTests(unittest.TestCase):
             )
         self._rebuild()
 
-        result = retrieve_context("work relationship Jordan should approve the zebra", domain="work", vault=self.vault, db_path=self.db_path)
+        result = retrieve_context("work relationship proposal approval", domain="work", vault=self.vault, db_path=self.db_path)
         self.assertTrue(any(item.id == claim_id for item in result.direct_loaded))
         self.assertTrue(any(item.id == evidence_id for item in result.expanded_loaded))
         evidence_item = next(item for item in result.expanded_loaded if item.id == evidence_id)
@@ -228,7 +228,7 @@ class GraphRetrievalTests(unittest.TestCase):
             title=evidence_title,
             source_type="document",
             source_uri="doc://legal/contract",
-            actors=["Jordan", "Counsel"],
+            actors=["Person B", "Counsel"],
             arena="work",
             compartments=["legal"],
             reliability="high",
@@ -267,18 +267,18 @@ class GraphRetrievalTests(unittest.TestCase):
     def test_cross_domain_expansion_is_blocked_without_justification(self) -> None:
         evidence_title = "Rollout request"
         evidence_id = self._record_id("evidence", evidence_title)
-        claim_text = "Steve may be setting me up as a scapegoat."
+        claim_text = "Person A may be setting me up as a scapegoat."
         claim_id = self._record_id("claim", claim_text)
         evidence = new_evidence(
             vault=self.vault,
             title=evidence_title,
             source_type="email",
             source_uri="mail://thread/456",
-            actors=["Steve", "Jordan"],
+            actors=["Person A", "Person B"],
             arena="work",
             reliability="high",
-            summary="Steve asked Jordan to present the rollout plan to management.",
-            observed_facts=["Steve asked Jordan to present the rollout plan to management."],
+            summary="Person A asked Person B to present the rollout plan to management.",
+            observed_facts=["Person A asked Person B to present the rollout plan to management."],
             linked_claims=[claim_id],
             linked_episodes=[],
         )
@@ -300,13 +300,13 @@ class GraphRetrievalTests(unittest.TestCase):
         self._retarget_record(claim.path, domain_primary="status")
         self._rebuild()
 
-        blocked = retrieve_context("rollout request", domain="work", vault=self.vault, db_path=self.db_path)
+        blocked = retrieve_context("project rollout request", domain="work", vault=self.vault, db_path=self.db_path)
         self.assertTrue(any(item.id == evidence_id for item in blocked.direct_loaded))
         self.assertFalse(any(item.id == claim_id for item in blocked.loaded))
         self.assertTrue(any(item.id == claim_id for item in blocked.graph_blocked))
         self.assertTrue(any("cross_domain" in item.reason for item in blocked.graph_blocked))
 
-        justified = retrieve_context("work relationship rollout request", domain="work", vault=self.vault, db_path=self.db_path)
+        justified = retrieve_context("work relationship project rollout request", domain="work", vault=self.vault, db_path=self.db_path)
         self.assertTrue(any(item.id == claim_id for item in justified.expanded_loaded))
         claim_item = next(item for item in justified.expanded_loaded if item.id == claim_id)
         self.assertEqual(claim_item.expansion_source, evidence_id)
