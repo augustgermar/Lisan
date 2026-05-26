@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from lisan.frontmatter import load_markdown
+from lisan.config import load_config
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.capture import capture_text
-from lisan.tools.chat import _process_chat_turn, run_chat
+from lisan.tools.chat import _process_chat_turn, run_chat, startup_check
 from lisan.tools.memory_pipeline import _create_decisions
 from lisan.tools.transcripts import append_transcript
 from lisan.tools.tracing import list_recent_turn_traces, load_turn_trace
@@ -160,6 +163,19 @@ class ChatPerformanceTests(unittest.TestCase):
                 self.assertIn("Lisan", result["response"])
                 self.assertEqual(len(result["trace"]["llm_calls"]), 0)
                 self.assertFalse(result["trace"]["retrieval_used"])
+
+    def test_startup_check_shows_local_provider_error(self) -> None:
+        self.client.complete.side_effect = ProviderError("Connection refused to http://localhost:11434/v1/chat/completions")
+        config = load_config()
+        buffer = io.StringIO()
+
+        with redirect_stdout(buffer):
+            ready = startup_check(self.vault, config)
+
+        output = buffer.getvalue()
+        self.assertFalse(ready)
+        self.assertIn("Provider: local not reachable", output)
+        self.assertIn("Connection refused to http://localhost:11434/v1/chat/completions", output)
 
     def test_thanks_schedules_no_background_jobs(self) -> None:
         result = _process_chat_turn(

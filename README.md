@@ -387,8 +387,8 @@ This repo treats prompt files and schemas as part of the interface contract.
 
 Default routing:
 
-- `codex` is the default provider for all agents
-- No API key is required for local use when the Codex CLI is available
+- `local` is the default provider for all agents
+- No API key is required for local use when the local model server is available
 
 Supported providers:
 
