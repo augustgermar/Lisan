@@ -487,6 +487,44 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
                     )
                     counts["claims"] += 1
 
+            # Standalone claim records (written by the capture fanout) belong
+            # in the claims table too — without this, the writer's claims
+            # never make it to retrieval / contradiction detection / Dreamer.
+            if file_type == "claim":
+                episode_id = ""
+                for link_target in listify(fm.get("linked_episodes")) or links:
+                    text = str(link_target).strip()
+                    if text:
+                        episode_id = text
+                        break
+                claim_row = (
+                    file_id,
+                    episode_id,
+                    str(fm.get("claim_text") or fm.get("summary") or ""),
+                    str(fm.get("claim_class") or "interpretation"),
+                    str(fm.get("confidence") or "0.5"),
+                    str(fm.get("sensitivity") or "low"),
+                    str(fm.get("confidence_basis") or fm.get("review_notes") or ""),
+                    ", ".join(listify(fm.get("supporting_evidence"))),
+                    str(fm.get("status") or "active"),
+                    str(fm.get("created") or fm.get("first_seen") or ""),
+                    str(fm.get("last_reviewed") or ""),
+                    str(fm.get("review_after") or ""),
+                )
+                try:
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO claims (
+                            id, episode_id, claim_text, claim_type, confidence, sensitivity,
+                            source_basis, evidence_id, status, created, last_reviewed, review_after
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        claim_row,
+                    )
+                    counts["claims"] += 1
+                except sqlite3.Error:
+                    pass
+
             if isinstance(links, list):
                 for link in links:
                     if isinstance(link, str):
