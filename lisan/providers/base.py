@@ -67,7 +67,7 @@ class MockClient(ProviderClient):
     def _response_for(self, *, agent: str, prompt: str, schema: dict[str, Any] | None) -> str:
         lowered = prompt.lower()
         if agent == "listener":
-            if any(marker in lowered for marker in ["/remember", "name is august", "daughter maya", "two cats", "pip", "varga"]):
+            if any(marker in lowered for marker in ["/remember", "name is jordan", "daughter maya", "two cats", "pip", "varga"]):
                 return json.dumps(
                     {
                         "worth_remembering": True,
@@ -96,11 +96,11 @@ class MockClient(ProviderClient):
         if agent == "writer":
             summary = "Memory draft"
             if "daughter maya" in lowered:
-                summary = "August is here with his daughter Maya watching a YouTube video about mixing ice cream flavors."
+                summary = "Jordan is here with his daughter Maya watching a YouTube video about mixing ice cream flavors."
             elif "two cats" in lowered or "pip" in lowered or "varga" in lowered:
-                summary = "August has two cats named Momo and Boots."
-            elif "name is august" in lowered:
-                summary = "August said his name is August."
+                summary = "Jordan has two cats named Momo and Boots."
+            elif "name is jordan" in lowered:
+                summary = "Jordan said his name is Jordan."
             return json.dumps(
                 {
                     "record_type": "episode",
@@ -117,7 +117,7 @@ class MockClient(ProviderClient):
                     "sections": {"event_timeline": prompt[:120]},
                     "questions": [],
                     "significance_rationale": "mock",
-                    "entities_to_create": [{"name": "August", "subtype": "person", "summary": "August mentioned in conversation."}],
+                    "entities_to_create": [{"name": "Jordan", "subtype": "person", "summary": "Jordan mentioned in conversation."}],
                     "evidence_to_create": [{"title": "Conversation evidence", "summary": summary, "source_type": "manual_note", "arena": "cross_arena", "reliability": "medium", "sensitivity": "low"}],
                     "claims_to_create": [{"claim_text": summary, "status": "active", "confidence": 0.6, "summary": summary}],
                     "state_updates": [{"category": "relational", "summary": summary, "confidence": "low"}],
@@ -167,10 +167,10 @@ class MockClient(ProviderClient):
                         "updated_narrative_state": {"next_step": "Continue", "mode_status": "developing"},
                     }
                 )
-            if "name is august" in lowered:
+            if "name is jordan" in lowered:
                 return json.dumps(
                     {
-                        "response": "You want me to remember that you go by August.",
+                        "response": "You want me to remember that you go by Jordan.",
                         "questions": [],
                         "recommended_action": "auto_commit",
                         "updated_narrative_state": {"next_step": "Continue", "mode_status": "developing"},
@@ -201,10 +201,10 @@ class MockClient(ProviderClient):
                         "questions": [],
                     }
                 )
-            if "name is august" in lowered:
+            if "name is jordan" in lowered:
                 return json.dumps(
                     {
-                        "response": "You want me to remember that you go by August.",
+                        "response": "You want me to remember that you go by Jordan.",
                         "updated_narrative_state": {"mode_status": "developing", "next_step": "Continue"},
                         "questions": [],
                     }
@@ -222,7 +222,7 @@ class MockClient(ProviderClient):
             if "what is your name" in lowered or "what are you" in lowered:
                 return "My name is Lisan. I am your local personal assistant and memory system."
             if "do you know my name now" in lowered or "what is my name" in lowered:
-                return "Your name is August."
+                return "Your name is Jordan."
             return "Sure."
         return "OK"
 

@@ -30,7 +30,7 @@
 
 ## Event Timeline
 
-- A supervisor asked August to join a check-in because a new stakeholder had been added.
+- A supervisor asked Jordan to join a check-in because a new stakeholder had been added.
 
 ## Documented Evidence
 
@@ -38,7 +38,7 @@
 
 ## User-Reported Context
 
-- August wondered if the meeting was a political test.
+- Jordan wondered if the meeting was a political test.
 
 ## Interpretations
 
@@ -46,7 +46,7 @@
 
 ## Operational Consequences
 
-- August prepared a short status summary.
+- Jordan prepared a short status summary.
 
 ## Open Questions
 

@@ -14,7 +14,7 @@
   "compartments": [],
   "allowed_contexts": ["all"],
   "blocked_contexts": [],
-  "summary": "August volunteered to demo the rollout at all-hands.",
+  "summary": "Jordan volunteered to demo the rollout at all-hands.",
   "links": ["episode.positive_visibility"],
   "confidence": "high",
   "confidence_basis": "Calendar invite and follow-up note",
@@ -25,12 +25,12 @@
   "artifact_ref": "calendar-all-hands-demo",
   "artifact_hash": "sha256:positive-demo-003",
   "timestamp_of_artifact": "2026-05-03T13:00:00-07:00",
-  "actors": ["August", "team"],
+  "actors": ["Jordan", "team"],
   "sensitivity": "low",
   "reliability": "high",
   "observed_facts": [
-    "August volunteered to demo the rollout at all-hands.",
-    "August framed the visibility as an opportunity."
+    "Jordan volunteered to demo the rollout at all-hands.",
+    "Jordan framed the visibility as an opportunity."
   ],
   "linked_claims": ["claim.avoid_visibility"],
   "linked_episodes": ["episode.positive_visibility"],
@@ -42,7 +42,7 @@
 
 ## Observed Facts
 
-- August volunteered to demo the rollout at all-hands.
+- Jordan volunteered to demo the rollout at all-hands.
 - The request was accepted without threat framing.
 
 ## Source

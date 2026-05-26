@@ -38,7 +38,7 @@
 
 ## User-Reported Context
 
-- August briefly worried the feedback signaled political risk.
+- Jordan briefly worried the feedback signaled political risk.
 
 ## Interpretations
 

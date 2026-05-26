@@ -12,7 +12,7 @@
   "compartments": [],
   "allowed_contexts": ["all"],
   "blocked_contexts": [],
-  "summary": "A neutral authority request that August initially framed as political risk.",
+  "summary": "A neutral authority request that Jordan initially framed as political risk.",
   "links": ["evidence.auth_request.rollout_20260501", "claim.scapegoat_risk"],
   "confidence": "medium",
   "confidence_basis": "Artifact plus user interpretation",
@@ -30,7 +30,7 @@
 
 ## Event Timeline
 
-- Steve asked August to present the GitHub rollout plan to management.
+- Steve asked Jordan to present the GitHub rollout plan to management.
 
 ## Documented Evidence
 
@@ -38,15 +38,15 @@
 
 ## User-Reported Context
 
-- August felt exposed because management would see the presentation.
+- Jordan felt exposed because management would see the presentation.
 
 ## Interpretations
 
-- August interpreted the request as possible political risk.
+- Jordan interpreted the request as possible political risk.
 
 ## Operational Consequences
 
-- August prepared a cautious presentation.
+- Jordan prepared a cautious presentation.
 
 ## Open Questions
 
@@ -54,4 +54,4 @@
 
 ## Counterexamples
 
-- Counterexample: August later volunteered to present a different update publicly, which weakens any absolute threat framing.
+- Counterexample: Jordan later volunteered to present a different update publicly, which weakens any absolute threat framing.

@@ -14,7 +14,7 @@
   "compartments": [],
   "allowed_contexts": ["all"],
   "blocked_contexts": [],
-  "summary": "August noted trying to avoid the spotlight for one meeting.",
+  "summary": "Jordan noted trying to avoid the spotlight for one meeting.",
   "links": ["claim.avoid_visibility"],
   "confidence": "medium",
   "confidence_basis": "Journal note",
@@ -25,11 +25,11 @@
   "artifact_ref": "journal-note-20260502",
   "artifact_hash": "sha256:avoidance-note-002",
   "timestamp_of_artifact": "2026-05-02T18:30:00-07:00",
-  "actors": ["August"],
+  "actors": ["Jordan"],
   "sensitivity": "low",
   "reliability": "medium",
   "observed_facts": [
-    "August noted trying to avoid the spotlight for one meeting."
+    "Jordan noted trying to avoid the spotlight for one meeting."
   ],
   "linked_claims": ["claim.avoid_visibility"],
   "linked_episodes": ["episode.positive_visibility"],
@@ -41,4 +41,4 @@
 
 ## Observed Facts
 
-- August noted trying to avoid the spotlight for one meeting.
+- Jordan noted trying to avoid the spotlight for one meeting.

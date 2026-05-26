@@ -74,11 +74,11 @@ def _scenario_basic_identity() -> ScenarioDefinition:
         description="Identity stability, name capture, and refusal to self-confuse.",
         steps=[
             _user("hi", _turn(fast_path=True, deterministic=True, retrieval_used=False, llm_calls_max=0, jobs_max=0, output_contains_any=("Lisan",)), label="greeting"),
-            _user("what is your name?", _turn(fast_path=True, deterministic=True, retrieval_used=False, llm_calls_max=0, jobs_max=0, output_contains_any=("Lisan",), output_not_contains=("August",)), label="assistant name"),
-            _user("what are you?", _turn(fast_path=True, deterministic=True, retrieval_used=False, llm_calls_max=0, jobs_max=0, output_contains_any=("Lisan",), output_not_contains=("August",)), label="assistant identity"),
-            _user("do you know my name?", _turn(fast_path=False, retrieval_used=None, output_contains_any=("don't", "not saved", "don't know", "not yet"), output_not_contains=("August",), require_no_identity_contamination=True), label="pre-name-check"),
-            _user("my name is August", _turn(fast_path=False, llm_calls_min=1, durable_record_contains_any=("August",), expected_record_types=("entity", "state", "claim", "episode", "knowledge"), require_no_identity_contamination=True), run_jobs_after=True, label="name capture"),
-            _user("do you know my name now?", _turn(fast_path=False, output_contains_any=("August", "yes"), output_not_contains=("don't have your name", "don't know"), require_no_identity_contamination=True), label="post-name-check"),
+            _user("what is your name?", _turn(fast_path=True, deterministic=True, retrieval_used=False, llm_calls_max=0, jobs_max=0, output_contains_any=("Lisan",), output_not_contains=("Jordan",)), label="assistant name"),
+            _user("what are you?", _turn(fast_path=True, deterministic=True, retrieval_used=False, llm_calls_max=0, jobs_max=0, output_contains_any=("Lisan",), output_not_contains=("Jordan",)), label="assistant identity"),
+            _user("do you know my name?", _turn(fast_path=False, retrieval_used=None, output_contains_any=("don't", "not saved", "don't know", "not yet"), output_not_contains=("Jordan",), require_no_identity_contamination=True), label="pre-name-check"),
+            _user("my name is Jordan", _turn(fast_path=False, llm_calls_min=1, durable_record_contains_any=("Jordan",), expected_record_types=("entity", "state", "claim", "episode", "knowledge"), require_no_identity_contamination=True), run_jobs_after=True, label="name capture"),
+            _user("do you know my name now?", _turn(fast_path=False, output_contains_any=("Jordan", "yes"), output_not_contains=("don't have your name", "don't know"), require_no_identity_contamination=True), label="post-name-check"),
         ],
         expectation=ScenarioExpectation(min_durable_records_total=1, require_no_identity_contamination=True),
     )
@@ -89,7 +89,7 @@ def _scenario_family_perspective() -> ScenarioDefinition:
         name="family_perspective",
         description="Family role directionality and perspective tracking.",
         steps=[
-            _user("my name is August", _turn(fast_path=False, llm_calls_min=1, durable_record_contains_any=("August",), expected_record_types=("entity", "state", "claim", "episode", "knowledge"), require_no_identity_contamination=True), run_jobs_after=True, label="name capture"),
+            _user("my name is Jordan", _turn(fast_path=False, llm_calls_min=1, durable_record_contains_any=("Jordan",), expected_record_types=("entity", "state", "claim", "episode", "knowledge"), require_no_identity_contamination=True), run_jobs_after=True, label="name capture"),
             _user(
                 "I am here with my daughter Maya. She is 7. We are watching a YouTube video about mixing ice cream flavors.",
                 _turn(
@@ -133,9 +133,9 @@ def _scenario_casual_no_memory() -> ScenarioDefinition:
         name="casual_no_memory",
         description="Casual turns should stay fast and avoid durable memory writes.",
         steps=[
-            _user("this video makes me want ice cream", _turn(fast_path=None, jobs_max=0, llm_calls_max=1, output_contains_any=("ice cream", "flavor", "vanilla", "What flavor"), durable_record_not_contains=("Pip", "Boots", "August", "Maya")), label="ice cream"),
-            _user("vanilla sounds good", _turn(fast_path=True, deterministic=True, jobs_max=0, llm_calls_max=0, output_contains_any=("Yep", "yes", "vanilla"), durable_record_not_contains=("August", "Maya")), label="vanilla"),
-            _user("thanks", _turn(fast_path=True, deterministic=True, jobs_max=0, llm_calls_max=0, output_contains_any=("Yep", "You're welcome", "sure"), durable_record_not_contains=("August", "Maya")), label="thanks"),
+            _user("this video makes me want ice cream", _turn(fast_path=None, jobs_max=0, llm_calls_max=1, output_contains_any=("ice cream", "flavor", "vanilla", "What flavor"), durable_record_not_contains=("Pip", "Boots", "Jordan", "Maya")), label="ice cream"),
+            _user("vanilla sounds good", _turn(fast_path=True, deterministic=True, jobs_max=0, llm_calls_max=0, output_contains_any=("Yep", "yes", "vanilla"), durable_record_not_contains=("Jordan", "Maya")), label="vanilla"),
+            _user("thanks", _turn(fast_path=True, deterministic=True, jobs_max=0, llm_calls_max=0, output_contains_any=("Yep", "You're welcome", "sure"), durable_record_not_contains=("Jordan", "Maya")), label="thanks"),
         ],
         expectation=ScenarioExpectation(max_durable_records_total=0, max_jobs_run_total=0, require_no_identity_contamination=True),
     )
@@ -167,11 +167,11 @@ def _scenario_retrieval_after_memory() -> ScenarioDefinition:
         name="retrieval_after_memory",
         description="Persisted facts remain retrievable after a reset/new conversation.",
         steps=[
-            _user("my name is August", _turn(fast_path=False, llm_calls_min=1, durable_record_contains_any=("August",), expected_record_types=("entity", "state", "claim", "episode", "knowledge"), require_no_identity_contamination=True), run_jobs_after=True, label="name"),
+            _user("my name is Jordan", _turn(fast_path=False, llm_calls_min=1, durable_record_contains_any=("Jordan",), expected_record_types=("entity", "state", "claim", "episode", "knowledge"), require_no_identity_contamination=True), run_jobs_after=True, label="name"),
             _user("I have a daughter named Maya.", _turn(fast_path=False, llm_calls_min=1, durable_record_contains_any=("Maya", "daughter"), expected_record_types=("entity", "claim", "episode", "knowledge")), run_jobs_after=True, label="daughter"),
             _user("I have two cats, Momo and Boots.", _turn(fast_path=False, llm_calls_min=1, durable_record_contains_all=("Pip", "Boots"), expected_record_types=("entity", "claim", "episode", "knowledge")), run_jobs_after=True, label="cats"),
             _reset("reset conversation"),
-            _user("what is my name?", _turn(output_contains_any=("August",), output_not_contains=("don't know", "not saved"), require_no_identity_contamination=True), label="retrieve name"),
+            _user("what is my name?", _turn(output_contains_any=("Jordan",), output_not_contains=("don't know", "not saved"), require_no_identity_contamination=True), label="retrieve name"),
             _user("who is Maya?", _turn(output_contains_any=("daughter", "child", "your daughter"), output_not_contains=("dad", "father"), require_no_role_inversion=True), label="retrieve maya"),
             _user("how many cats do I have?", _turn(output_contains_any=("two", "2"), output_not_contains=("three", "four"), require_no_identity_contamination=True), label="retrieve cats"),
         ],
@@ -186,7 +186,7 @@ def _scenario_latency_trace_budget() -> ScenarioDefinition:
         steps=[
             _user("hi", _turn(fast_path=True, deterministic=True, retrieval_used=False, llm_calls_max=0, jobs_max=0), label="hi"),
             _user("what is your name?", _turn(fast_path=True, deterministic=True, retrieval_used=False, llm_calls_max=0, jobs_max=0), label="identity"),
-            _user("my name is August", _turn(fast_path=False, llm_calls_min=1), run_jobs_after=True, label="name"),
+            _user("my name is Jordan", _turn(fast_path=False, llm_calls_min=1), run_jobs_after=True, label="name"),
             _user("I have a daughter named Maya.", _turn(fast_path=False, llm_calls_min=1), run_jobs_after=True, label="daughter"),
             _user("thanks", _turn(fast_path=True, deterministic=True, llm_calls_max=0, jobs_max=0), label="thanks"),
         ],

@@ -14,7 +14,7 @@
   "compartments": [],
   "allowed_contexts": ["all"],
   "blocked_contexts": [],
-  "summary": "A supervisor asked August to join a check-in because a new stakeholder had been added.",
+  "summary": "A supervisor asked Jordan to join a check-in because a new stakeholder had been added.",
   "links": ["episode.supervisor_checkin"],
   "confidence": "high",
   "confidence_basis": "Calendar note",
@@ -25,11 +25,11 @@
   "artifact_ref": "supervisor-checkin-20260506",
   "artifact_hash": "sha256:supervisor-checkin-006",
   "timestamp_of_artifact": "2026-05-06T08:30:00-07:00",
-  "actors": ["supervisor", "August", "stakeholder"],
+  "actors": ["supervisor", "Jordan", "stakeholder"],
   "sensitivity": "low",
   "reliability": "high",
   "observed_facts": [
-    "A supervisor asked August to join a check-in.",
+    "A supervisor asked Jordan to join a check-in.",
     "The stated reason was the addition of a new stakeholder."
   ],
   "linked_claims": [],
@@ -42,5 +42,5 @@
 
 ## Observed Facts
 
-- A supervisor asked August to join a check-in.
+- A supervisor asked Jordan to join a check-in.
 - The stated reason was coordination, not blame.
