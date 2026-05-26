@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..agents import AssemblerAgent, InterlocutorAgent, ListenerAgent, SkepticAgent, WriterAgent
-from ..frontmatter import write_markdown
+from ..frontmatter import load_markdown, write_markdown
 from ..utils import slugify, today_iso
 from .elicitor_session import run_elicitor_session
 from .domain_fields import with_domain_fields
@@ -15,8 +15,9 @@ from .firewall import scan_text
 from .log import log_error
 from .epistemic import listify
 from .narrative_state import load_narrative_state
+from .record_fanout import register_claim_reference, resolve_claim_links
 from .tracing import record_inline_step
-from .record_factory import STATE_TTLS, new_claim, new_decision, new_evidence, new_entity, new_open_loop, upsert_state
+from .record_factory import STATE_TTLS, new_claim, new_decision, new_evidence, new_entity, new_open_loop, normalize_state_category, upsert_state
 from .transcripts import append_transcript
 
 
@@ -143,8 +144,8 @@ def run_memory_pipeline(
     draft_path = _write_draft(vault, text, transcript_path, listener, writer, skeptic, interlocutor, task, mode, action)
     record_inline_step("memory_pipeline.fanout")
     _create_entity_stubs(vault, writer, str(draft_path.relative_to(vault)))
-    _create_evidence_records(vault, writer, transcript_path, str(draft_path.relative_to(vault)))
-    _create_claim_records(vault, writer, str(draft_path.relative_to(vault)))
+    claim_id_map = _create_claim_records(vault, writer, str(draft_path.relative_to(vault)))
+    _create_evidence_records(vault, writer, transcript_path, str(draft_path.relative_to(vault)), claim_id_map)
     _apply_state_updates(vault, writer)
     _create_open_loops(vault, writer)
     _create_decisions(vault, writer)
@@ -288,7 +289,7 @@ def _create_open_loops(vault: Path, writer: dict[str, Any]) -> None:
 def _apply_state_updates(vault: Path, writer: dict[str, Any]) -> None:
     updates = writer.get("state_updates") or []
     for update in updates:
-        state_category = str(update.get("category", update.get("arena")) or "").strip().lower()
+        state_category = normalize_state_category(update.get("category", update.get("arena")), summary=str(update.get("summary") or ""))
         summary = str(update.get("summary") or "").strip()
         confidence = str(update.get("confidence") or "low").strip()
         if not state_category or not summary or state_category not in STATE_TTLS:
@@ -328,13 +329,14 @@ def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel_path: st
             pass  # entity already exists — skip silently
 
 
-def _create_evidence_records(vault: Path, writer: dict[str, Any], transcript_path: Path, draft_rel_path: str) -> None:
+def _create_evidence_records(vault: Path, writer: dict[str, Any], transcript_path: Path, draft_rel_path: str, claim_id_map: dict[str, str] | None = None) -> None:
     evidence_items = writer.get("evidence_to_create") or []
     transcript_rel = str(transcript_path.relative_to(vault))
     for entry in evidence_items:
         title = str(entry.get("title") or entry.get("summary") or "").strip()
         if not title:
             continue
+        resolved_claims = resolve_claim_links(listify(entry.get("linked_claims")), claim_id_map or {})
         try:
             new_evidence(
                 vault=vault,
@@ -352,7 +354,7 @@ def _create_evidence_records(vault: Path, writer: dict[str, Any], transcript_pat
                 summary=str(entry.get("summary") or title),
                 observed_facts=listify(entry.get("observed_facts")),
                 verbatim_excerpt=str(entry.get("verbatim_excerpt") or "").strip() or None,
-                linked_claims=listify(entry.get("linked_claims")),
+                linked_claims=resolved_claims,
                 linked_episodes=listify(entry.get("linked_episodes")) or [draft_rel_path],
                 confidence_basis="Auto-extracted from conversation",
             )
@@ -362,8 +364,9 @@ def _create_evidence_records(vault: Path, writer: dict[str, Any], transcript_pat
             log_error(vault, "memory_pipeline.evidence", exc)
 
 
-def _create_claim_records(vault: Path, writer: dict[str, Any], draft_rel_path: str) -> None:
+def _create_claim_records(vault: Path, writer: dict[str, Any], draft_rel_path: str) -> dict[str, str]:
     claims = writer.get("claims_to_create") or []
+    claim_id_map: dict[str, str] = {}
     for entry in claims:
         claim_text = str(entry.get("claim_text") or entry.get("summary") or "").strip()
         if not claim_text:
@@ -374,7 +377,7 @@ def _create_claim_records(vault: Path, writer: dict[str, Any], draft_rel_path: s
         except (TypeError, ValueError):
             confidence = 0.5
         try:
-            new_claim(
+            created = new_claim(
                 vault=vault,
                 claim_text=claim_text,
                 claim_class=str(entry.get("claim_class") or "interpretation").strip(),
@@ -393,14 +396,31 @@ def _create_claim_records(vault: Path, writer: dict[str, Any], draft_rel_path: s
                 significance=str(entry.get("significance") or "low").strip(),
                 summary=str(entry.get("summary") or claim_text[:120]),
             )
+            claim_doc = load_markdown(created.path)
+            claim_id = str(claim_doc.frontmatter.get("id") or "")
+            if claim_id:
+                register_claim_reference(claim_id_map, entry, claim_id)
         except FileExistsError:
             pass
         except Exception as exc:
             log_error(vault, "memory_pipeline.claim", exc)
+    return claim_id_map
 
 
 def _create_decisions(vault: Path, writer: dict[str, Any]) -> None:
-    decisions = writer.get("decisions_to_create") or []
+    decisions = list(writer.get("decisions_to_create") or [])
+    if not decisions and str(writer.get("record_type") or "").strip().lower() == "decision":
+        summary = str(writer.get("summary") or "").strip()
+        if summary:
+            frontmatter = writer.get("frontmatter") or {}
+            decisions = [{
+                "title": summary,
+                "summary": summary,
+                "domain": frontmatter.get("domain_primary") or frontmatter.get("domain") or "cross_arena",
+                "significance": writer.get("significance") or "medium",
+                "alternatives_considered": listify(frontmatter.get("alternatives_considered")),
+                "revisit_conditions": listify(frontmatter.get("revisit_conditions")),
+            }]
     for entry in decisions:
         title = str(entry.get("title") or "").strip()
         summary = str(entry.get("summary") or "").strip()

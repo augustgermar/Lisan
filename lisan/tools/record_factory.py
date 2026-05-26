@@ -46,6 +46,81 @@ class CreatedRecord:
     created: bool
 
 
+_CLAIM_CLASS_ALIASES = {
+    "preference": "value_statement",
+    "opinion": "value_statement",
+    "subjective_assessment": "interpretation",
+    "subjective": "interpretation",
+    "assessment": "interpretation",
+    "belief": "interpretation",
+    "decision": "value_statement",
+    "intention": "value_statement",
+    "motivation": "motive_hypothesis",
+}
+
+_CLAIM_OWNER_ALIASES = {
+    "user": "user",
+    "august": "user",
+    "me": "user",
+    "myself": "user",
+    "i": "user",
+    "agent": "agent",
+    "assistant": "agent",
+    "lisan": "agent",
+    "writer": "agent",
+    "skeptic": "agent",
+    "interlocutor": "agent",
+    "elicitor": "agent",
+    "dreamer": "agent",
+    "analyst": "agent",
+}
+
+_CLAIM_STATUS_ALIASES = {
+    "unverified": "disputed",
+    "tentative": "disputed",
+    "provisional": "disputed",
+    "pending": "disputed",
+    "needs_revision": "disputed",
+    "under_review": "disputed",
+    "review_later": "disputed",
+    "draft": "disputed",
+    "candidate": "active",
+}
+
+_EVIDENCE_SOURCE_TYPE_ALIASES = {
+    "transcript": "markdown",
+    "transcript_entry": "markdown",
+    "transcript-entry": "markdown",
+    "transcript_excerpt": "text",
+    "transcript-excerpt": "text",
+    "conversation": "chat",
+    "chat_transcript": "chat",
+    "note": "manual_note",
+}
+
+_EVIDENCE_SENSITIVITY_ALIASES = {
+    "private": "restricted",
+    "personal": "restricted",
+    "personal_sensitive": "restricted",
+    "sensitive": "restricted",
+    "confidential": "restricted",
+    "secret": "sealed",
+}
+
+_STATE_CATEGORY_ALIASES = {
+    "pets": "environmental",
+    "pet": "environmental",
+    "home": "environmental",
+    "household": "environmental",
+    "family_school": "status",
+    "school": "status",
+    "education": "status",
+    "productivity": "work",
+    "routine": "work",
+    "habit": "work",
+}
+
+
 def new_entity(
     vault: Path,
     name: str,
@@ -459,7 +534,8 @@ def new_state(
     ttl_days: int | None = None,
 ) -> CreatedRecord:
     today = today_iso()
-    if state_category not in STATE_TTLS:
+    state_category = normalize_state_category(state_category, summary=summary)
+    if state_category is None:
         raise ValueError(f"Unsupported state category: {state_category}")
     path = vault / "state" / f"{state_category}-current.md"
     if path.exists():
@@ -506,7 +582,8 @@ def upsert_state(
     ttl_days: int | None = None,
 ) -> CreatedRecord:
     today = today_iso()
-    if state_category not in STATE_TTLS:
+    state_category = normalize_state_category(state_category, summary=summary)
+    if state_category is None:
         raise ValueError(f"Unsupported state category: {state_category}")
     path = vault / "state" / f"{state_category}-current.md"
     frontmatter = {
@@ -571,6 +648,8 @@ def new_evidence(
     artifact_links = []
     if artifact_ref and "://" not in artifact_ref:
         artifact_links.append(artifact_ref)
+    source_type = normalize_evidence_source_type(source_type)
+    sensitivity = normalize_evidence_sensitivity(sensitivity)
     frontmatter = {
         "id": f"evidence.{safe_slug}",
         "type": "evidence",
@@ -668,6 +747,9 @@ def new_claim(
     artifact_links = []
     if artifact_ref and "://" not in artifact_ref:
         artifact_links.append(artifact_ref)
+    claim_class = normalize_claim_class(claim_class)
+    owner = normalize_claim_owner(owner)
+    status = normalize_claim_status(status)
     frontmatter = {
         "id": f"claim.{safe_slug}",
         "type": "claim",
@@ -731,6 +813,91 @@ def new_claim(
         body += f"- batch_id: {batch_id or 'none'}\n"
     write_markdown(record_path, with_domain_fields(frontmatter), body)
     return CreatedRecord(path=record_path, created=True)
+
+
+def normalize_claim_class(value: Any) -> str:
+    key = _normalized_key(value)
+    allowed = {
+        "observation",
+        "inference",
+        "interpretation",
+        "prediction",
+        "motive_hypothesis",
+        "value_statement",
+        "identity_claim",
+        "psychological_hypothesis",
+    }
+    return _CLAIM_CLASS_ALIASES.get(key, key if key in allowed else "interpretation")
+
+
+def normalize_claim_owner(value: Any) -> str:
+    key = _normalized_key(value)
+    return _CLAIM_OWNER_ALIASES.get(key, "external_actor")
+
+
+def normalize_claim_status(value: Any) -> str:
+    key = _normalized_key(value)
+    allowed = {"active", "disputed", "confirmed", "rejected", "stale", "superseded"}
+    if key in allowed:
+        return key
+    return _CLAIM_STATUS_ALIASES.get(key, "active")
+
+
+def normalize_evidence_source_type(value: Any) -> str:
+    key = _normalized_key(value)
+    allowed = {
+        "email",
+        "text",
+        "calendar",
+        "ticket",
+        "document",
+        "financial_txn",
+        "chat",
+        "journal",
+        "browser_event",
+        "git_commit",
+        "file",
+        "manual_note",
+        "other",
+        "markdown",
+        "pdf",
+        "image",
+        "email_export",
+        "sms_export",
+    }
+    if key in allowed:
+        return key
+    return _EVIDENCE_SOURCE_TYPE_ALIASES.get(key, "manual_note")
+
+
+def normalize_evidence_sensitivity(value: Any) -> str:
+    key = _normalized_key(value)
+    allowed = {"low", "medium", "high", "restricted", "sealed"}
+    if key in allowed:
+        return key
+    return _EVIDENCE_SENSITIVITY_ALIASES.get(key, "low")
+
+
+def normalize_state_category(state_category: Any, summary: str | None = None) -> str | None:
+    key = _normalized_key(state_category)
+    if key in STATE_TTLS:
+        return key
+    if key in _STATE_CATEGORY_ALIASES:
+        return _STATE_CATEGORY_ALIASES[key]
+    lowered_summary = (summary or "").lower()
+    if any(term in lowered_summary for term in ("cat", "dog", "pet", "animal")):
+        return "environmental"
+    if any(term in lowered_summary for term in ("school", "teacher", "class", "grade", "placement", "student")):
+        return "status"
+    if any(term in lowered_summary for term in ("morning", "routine", "workflow", "productivity", "capture")):
+        return "work"
+    if any(term in lowered_summary for term in ("mom", "dad", "wife", "husband", "daughter", "son", "family")):
+        return "relational"
+    return None
+
+
+def _normalized_key(value: Any) -> str:
+    return " ".join(str(value or "").strip().lower().replace("-", " ").replace("_", " ").split()).replace(" ", "_")
 
 
 def new_skeptical_review(

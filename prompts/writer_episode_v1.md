@@ -14,6 +14,13 @@ Requirements:
 - Store user interpretations, agent hypotheses, motive claims, and psychological inferences as `claims_to_create` entries, not as facts.
 - Do not promote motive claims or psychological claims to fact unless the evidence is explicit and strong.
 - Preserve uncertainty and confidence in both evidence and claims.
+- Use only validator-safe enum values:
+  - `claim_class`: `observation`, `inference`, `interpretation`, `prediction`, `motive_hypothesis`, `value_statement`, `identity_claim`, `psychological_hypothesis`
+  - `owner`: `user`, `agent`, or `external_actor`
+  - `status`: `active`, `disputed`, `confirmed`, `rejected`, `stale`, or `superseded`
+  - `source_type`: prefer `email`, `text`, `calendar`, `ticket`, `document`, `financial_txn`, `chat`, `journal`, `browser_event`, `git_commit`, `file`, `manual_note`, `other`, `markdown`, `pdf`, `image`, `email_export`, or `sms_export`
+  - `sensitivity`: `low`, `medium`, `high`, `restricted`, or `sealed`
+- If you link evidence to claims, use claim text or claim IDs that can be resolved deterministically. Do not invent opaque references.
 
 Return JSON with:
 - `record_type`

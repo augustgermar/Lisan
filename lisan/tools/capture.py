@@ -18,6 +18,7 @@ def capture_text(
     conversation_policy: dict[str, Any] | None = None,
     queue_background: bool = True,
     db_path: Path | None = None,
+    append_response_to_transcript: bool = False,
 ) -> dict[str, Any]:
     try:
         result = run_memory_pipeline(
@@ -46,6 +47,12 @@ def capture_text(
         "narrative_state": result.narrative_state or {},
         "conversation_policy": conversation_policy or {},
     }
+    response_text = _extract_capture_response(result)
+    if append_response_to_transcript and response_text:
+        from .transcripts import append_transcript
+
+        append_transcript(vault=vault, conversation_id=conversation_id, speaker="LISAN", text=response_text)
+    out["response"] = response_text
     if queue_background and result.action != "skip":
         from .jobs import enqueue_job
         from .job_policy import which_jobs_for_turn
@@ -85,6 +92,16 @@ def capture_text(
         out["queued_jobs"] = queued_jobs
     log_capture(vault, text, out)
     return out
+
+
+def _extract_capture_response(result: Any) -> str:
+    mode = str(getattr(result, "mode", "") or "skip")
+    elicitor = getattr(result, "elicitor", None) or {}
+    response_text = str(elicitor.get("response") or "").strip()
+    if not response_text and mode == "extraction":
+        interlocutor = getattr(result, "interlocutor", None) or {}
+        response_text = str(interlocutor.get("response") or "").strip()
+    return response_text
 
 
 def _count_created_records(writer: dict[str, Any]) -> int:
