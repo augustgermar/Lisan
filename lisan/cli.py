@@ -390,6 +390,17 @@ def build_parser() -> argparse.ArgumentParser:
     capture.add_argument("--speaker", default="USER")
     capture.add_argument("--provider", default=None)
     capture.add_argument("--model", default=None)
+    capture_output = capture.add_mutually_exclusive_group()
+    capture_output.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Print only Lisan's spoken response to stdout (default for interactive use).",
+    )
+    capture_output.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print the full pipeline JSON bundle. Useful for debugging.",
+    )
     capture.add_argument("text", nargs="+")
 
     primer_audit = subparsers.add_parser("primer-audit", help="Run the yearly primer audit scaffold")
@@ -907,7 +918,19 @@ def main(argv: list[str] | None = None) -> int:
             model=args.model,
             append_response_to_transcript=True,
         )
-        print(json.dumps(result, indent=2))
+        # Default to quiet (only Lisan's spoken response). `--verbose` keeps
+        # the full pipeline JSON for debugging; explicit `--quiet` is a no-op
+        # but documents intent.
+        if args.verbose:
+            print(json.dumps(result, indent=2))
+        else:
+            response = str(result.get("response") or "").strip()
+            if response:
+                print(response)
+            elif result.get("mode") == "skip":
+                # Stay silent on skipped turns; print a marker if asked.
+                if args.quiet:
+                    pass
         return 0
 
     if args.command == "primer-audit":

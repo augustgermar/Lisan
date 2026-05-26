@@ -29,6 +29,7 @@ def capture_text(
             provider=provider,
             model=model,
             conversation_policy=conversation_policy,
+            db_path=db_path,
         )
     except Exception as exc:
         log_error(vault, "capture_text", exc)
