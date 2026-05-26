@@ -8,6 +8,7 @@ import sys
 import time
 import threading
 import uuid
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from .log import log_error, tail_log
 from .transcripts import append_transcript
 from .tracing import finalize_turn_trace, record_inline_step, record_jobs_queued, reset_current_turn_trace, start_turn_trace
 from ..providers.base import ProviderError
+from .provider_diagnostics import ProviderDiagnosticResult, diagnose_provider
 
 
 # ── ANSI helpers ─────────────────────────────────────────────────────────────
@@ -49,15 +51,20 @@ def startup_check(vault: Path, config: dict[str, Any]) -> bool:
 
     vault_ok = _check_vault(vault)
     index_ok = _check_index(vault)
-    provider_name, provider_ok = _check_provider(config)
+    provider_name, provider_ok, provider_diagnostic = _check_provider(config)
 
     if provider_ok:
         print(f"  {_c('✓', GREEN)} Provider: {provider_name}")
     else:
-        print(
-            f"  {_c('!', YELLOW)} Provider: {provider_name} not reachable\n"
-            f"    Set CODEX_BIN or add an API key, then update routing in config.yaml"
-        )
+        print(f"  {_c('!', YELLOW)} Provider: {provider_name} not reachable")
+        if provider_diagnostic is not None:
+            diagnostic = provider_diagnostic
+            for error_text in diagnostic.errors:
+                print(f"    {error_text}")
+            for fix in diagnostic.suggested_fixes:
+                print(f"    fix: {fix}")
+        else:
+            print("    Set CODEX_BIN or add an API key, then update routing in config.yaml")
 
     print()
     return vault_ok and index_ok and provider_ok
@@ -105,20 +112,34 @@ def _check_index(vault: Path) -> bool:
         return False
 
 
-def _check_provider(config: dict[str, Any]) -> tuple[str, bool]:
+def _check_provider(config: dict[str, Any]) -> tuple[str, bool, ProviderDiagnosticResult | None]:
     routing = config.get("routing", {})
-    name = str(routing.get("elicitor", {}).get("medium", "codex"))
+    name = str(routing.get("elicitor", {}).get("medium", "local"))
 
     if name == "codex":
         binary_env = config.get("providers", {}).get("codex", {}).get("binary_env", "CODEX_BIN")
         binary = os.environ.get(binary_env) or "codex"
-        return name, bool(shutil.which(binary))
+        return name, bool(shutil.which(binary)), None
 
     if name in ("openai", "anthropic", "google"):
         key_env = str(config.get("providers", {}).get(name, {}).get("api_key_env") or "")
-        return name, bool(key_env and os.environ.get(key_env))
+        return name, bool(key_env and os.environ.get(key_env)), None
 
-    return name, True  # local / unknown — assume reachable
+    if name == "local":
+        diagnostic = _diagnose_local_provider(config)
+        return name, diagnostic.status == "ok", diagnostic
+
+    return name, True, None  # local / unknown — assume reachable
+
+
+def _diagnose_local_provider(config: dict[str, Any]):
+    diag_config = deepcopy(config)
+    providers = dict(diag_config.get("providers", {}))
+    local_cfg = dict(providers.get("local", {}))
+    local_cfg["timeout_seconds"] = min(int(local_cfg.get("timeout_seconds", 120)), 5)
+    providers["local"] = local_cfg
+    diag_config["providers"] = providers
+    return diagnose_provider(provider="local", config=diag_config)
 
 
 # ── Chat loop ─────────────────────────────────────────────────────────────────

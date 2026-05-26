@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.8
+
+- Switched the default provider from `codex` to `local` in `config.yaml`, `lisan/config.py`, `lisan/providers/config.py`, and the README so a fresh checkout assumes a local model server rather than the Codex CLI.
+- `startup_check` now runs a real reachability probe for the `local` provider via `diagnose_provider`, surfacing the connection error and any suggested fixes (instead of the generic "set CODEX_BIN" message) when the local server is unreachable.
+- Added a regression test that the startup screen reports a clear local-provider error when the probe fails.
+
 ## 0.1.7
 
 - Entity fanout deduplicates against existing canonical names and aliases — repeated short / full name variants (Devon vs. Devon Park) now fold into a single record with the variant appended to `aliases` instead of creating a sibling file.
