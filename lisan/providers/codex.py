@@ -24,6 +24,34 @@ class CodexClient(ProviderClient):
         significance: str = "medium",
         model: str | None = None,
     ) -> LLMResponse:
+        # Codex occasionally returns a truncated JSON response — the model
+        # finishes mid-key when the streaming session is cut short by the
+        # backend. The reply is unrecoverable, but a single fresh invocation
+        # almost always succeeds. We retry once before surfacing the error.
+        last_error: ProviderError | None = None
+        for attempt in range(2):
+            try:
+                return self._complete_once(
+                    prompt=prompt, schema=schema, temperature=temperature,
+                    agent=agent, significance=significance, model=model,
+                )
+            except ProviderError as exc:
+                if not _is_truncated_json_error(exc):
+                    raise
+                last_error = exc
+        if last_error is not None:
+            raise last_error
+        raise ProviderError("codex retry loop exited without a response")
+
+    def _complete_once(
+        self,
+        prompt: str,
+        schema: dict[str, Any] | None,
+        temperature: float,
+        agent: str,
+        significance: str,
+        model: str | None,
+    ) -> LLMResponse:
         binary = os.getenv(self.config["providers"]["codex"].get("binary_env") or "", "codex")
         chosen_model = model or self.config["providers"]["codex"].get("default_model") or None
         if not binary:
@@ -80,3 +108,9 @@ class CodexClient(ProviderClient):
         finally:
             if output_path and output_path.exists():
                 output_path.unlink(missing_ok=True)
+
+
+def _is_truncated_json_error(exc: ProviderError) -> bool:
+    """True when the error message indicates Codex returned a truncated JSON stream."""
+    message = str(exc)
+    return "codex returned non-JSON" in message

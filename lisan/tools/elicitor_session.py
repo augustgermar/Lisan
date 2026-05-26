@@ -54,16 +54,10 @@ def run_elicitor_session(
     state = load_narrative_state(vault, conversation_id)
     history = conversation_history(vault, conversation_id)
     domain = str((conversation_policy or {}).get("domain_override") or (conversation_policy or {}).get("arena_override") or "") or None
+    # v0.1.7: the cross-conversation "Recent Activity" preamble lives in the
+    # assembler (retrieval.assemble_context) now, gated on whether the
+    # conversation is fresh. That way the extraction path gets it too.
     context = assemble_context(text, domain=domain, vault=vault, conversation_id=conversation_id)
-    # Finding 11: a new conversation should know what just happened in
-    # *other* conversations today. Prepend a cross-domain "Recent Activity"
-    # block on the first turn so Lisan reacts to cumulative load (e.g. a
-    # rough work day followed by a hard parenting moment), not just the
-    # conversation in front of it.
-    if state.turn_count == 0:
-        recent = _recent_activity_block(vault)
-        if recent:
-            context = recent + "\n\n" + context
     elicitor = ElicitorAgent(vault=vault).run_json(
         text,
         significance="medium",
@@ -98,53 +92,6 @@ def run_elicitor_session(
         draft_path=draft_path,
         topic_closed=topic_closed,
     )
-
-
-def _recent_activity_block(vault: Path) -> str:
-    """Summarize today's state updates and fresh open loops across all domains."""
-    today = today_iso()
-    lines: list[str] = []
-    state_lines: list[str] = []
-    state_dir = vault / "state"
-    if state_dir.exists():
-        for path in sorted(state_dir.glob("*-current.md")):
-            try:
-                doc = load_markdown(path)
-            except Exception:
-                continue
-            updated = str(doc.frontmatter.get("updated") or "").strip()
-            if updated != today:
-                continue
-            domain = str(doc.frontmatter.get("domain_primary") or path.stem.replace("-current", ""))
-            summary = str(doc.frontmatter.get("summary") or "").strip()
-            if summary:
-                state_lines.append(f"- {domain}: {summary}")
-    loop_lines: list[str] = []
-    loop_dir = vault / "open_loops"
-    if loop_dir.exists():
-        for path in sorted(loop_dir.glob(f"{today}-*.md")):
-            try:
-                doc = load_markdown(path)
-            except Exception:
-                continue
-            title = str(doc.frontmatter.get("summary") or path.stem)
-            next_action = str(doc.frontmatter.get("next_action") or "").strip()
-            domain = str(doc.frontmatter.get("domain_primary") or "")
-            suffix = f" → {next_action}" if next_action else ""
-            domain_tag = f" [{domain}]" if domain else ""
-            loop_lines.append(f"- {title}{domain_tag}{suffix}")
-    if not state_lines and not loop_lines:
-        return ""
-    lines.append("## Recent Activity (today, across all conversations)")
-    if state_lines:
-        lines.append("")
-        lines.append("### State updated today")
-        lines.extend(state_lines)
-    if loop_lines:
-        lines.append("")
-        lines.append("### Open loops opened today")
-        lines.extend(loop_lines)
-    return "\n".join(lines)
 
 
 def _topic_closed(text: str, elicitor: dict[str, Any], state: dict[str, Any]) -> bool:

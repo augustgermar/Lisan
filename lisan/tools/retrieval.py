@@ -13,7 +13,7 @@ from ..frontmatter import load_markdown
 from ..paths import embeddings_path, sqlite_path, vault_root
 from ..tools.common import iter_markdown_files
 from ..tools.tracing import record_retrieval_result
-from ..utils import approx_word_count, hash_embedding
+from ..utils import approx_word_count, hash_embedding, today_iso
 
 
 DOMAIN_KEYWORDS: dict[str, set[str]] = {
@@ -99,6 +99,19 @@ def assemble_context(
         if path.exists():
             sections.append(f"## {rel}")
             sections.append(path.read_text(encoding="utf-8").strip())
+            sections.append("")
+
+    # v0.1.7: cross-conversation "Recent Activity" preamble.
+    # When a conversation is freshly opened (no narrative state file AND no
+    # USER turns for that conversation_id in today's transcript), inject a
+    # compact summary of today's state updates and open loops across all
+    # domains. Lets a new conversation react to cumulative load from earlier
+    # conversations the same day. Lifted out of elicitor_session so the
+    # extraction path also gets it.
+    if conversation_id and _is_fresh_conversation(vault, conversation_id):
+        preamble = _recent_activity_block(vault)
+        if preamble:
+            sections.append(preamble)
             sections.append("")
 
     unique_loaded = _unique_items(result.loaded)
@@ -1116,3 +1129,80 @@ def _load_relevant_contradictions(vault: Path, query: str) -> list[str]:
                     pass
             notes.append(f"`{path.name}`{age}: {doc.frontmatter.get('summary', 'unresolved contradiction')}")
     return notes[:5]
+
+
+# ── Cross-conversation preamble (v0.1.7) ─────────────────────────────────────
+
+
+def _is_fresh_conversation(vault: Path, conversation_id: str) -> bool:
+    """True when this conversation has no narrative state and no prior USER turn today."""
+    narrative_path = vault / "transcripts" / "narrative" / f"{conversation_id}.json"
+    if narrative_path.exists():
+        return False
+    today_transcript = vault / "transcripts" / f"{today_iso()}.md"
+    if not today_transcript.exists():
+        return True
+    try:
+        text = today_transcript.read_text(encoding="utf-8")
+    except Exception:
+        return True
+    marker = f"[{conversation_id}]"
+    if marker not in text:
+        return True
+    # The current turn writes its USER line BEFORE the assembler runs. One
+    # USER line means this is still the opening turn; two or more means the
+    # conversation has history.
+    user_count = 0
+    for block in text.split("## Conversation — "):
+        if marker not in block:
+            continue
+        for line in block.splitlines():
+            if line.strip().startswith("USER:"):
+                user_count += 1
+    return user_count <= 1
+
+
+def _recent_activity_block(vault: Path) -> str:
+    """Summarize today\u2019s state updates and fresh open loops across all domains."""
+    today = today_iso()
+    state_lines: list[str] = []
+    state_dir = vault / "state"
+    if state_dir.exists():
+        for path in sorted(state_dir.glob("*-current.md")):
+            try:
+                doc = load_markdown(path)
+            except Exception:
+                continue
+            updated = str(doc.frontmatter.get("updated") or "").strip()
+            if updated != today:
+                continue
+            domain = str(doc.frontmatter.get("domain_primary") or path.stem.replace("-current", ""))
+            summary = str(doc.frontmatter.get("summary") or "").strip()
+            if summary:
+                state_lines.append(f"- {domain}: {summary}")
+    loop_lines: list[str] = []
+    loop_dir = vault / "open_loops"
+    if loop_dir.exists():
+        for path in sorted(loop_dir.glob(f"{today}-*.md")):
+            try:
+                doc = load_markdown(path)
+            except Exception:
+                continue
+            title = str(doc.frontmatter.get("summary") or path.stem)
+            next_action = str(doc.frontmatter.get("next_action") or "").strip()
+            domain = str(doc.frontmatter.get("domain_primary") or "")
+            suffix = f" \u2192 {next_action}" if next_action else ""
+            domain_tag = f" [{domain}]" if domain else ""
+            loop_lines.append(f"- {title}{domain_tag}{suffix}")
+    if not state_lines and not loop_lines:
+        return ""
+    lines = ["## Recent Activity (today, across all conversations)"]
+    if state_lines:
+        lines.append("")
+        lines.append("### State updated today")
+        lines.extend(state_lines)
+    if loop_lines:
+        lines.append("")
+        lines.append("### Open loops opened today")
+        lines.extend(loop_lines)
+    return "\n".join(lines)

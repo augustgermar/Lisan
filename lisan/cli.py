@@ -909,15 +909,26 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
     if args.command == "capture":
-        result = capture_text(
-            vault=args.vault,
-            text=" ".join(args.text),
-            conversation_id=args.conversation_id,
-            speaker=args.speaker,
-            provider=args.provider,
-            model=args.model,
-            append_response_to_transcript=True,
-        )
+        try:
+            result = capture_text(
+                vault=args.vault,
+                text=" ".join(args.text),
+                conversation_id=args.conversation_id,
+                speaker=args.speaker,
+                provider=args.provider,
+                model=args.model,
+                append_response_to_transcript=True,
+            )
+        except ProviderError as exc:
+            # Surface a human-readable message instead of a stack trace. The
+            # transcript already has the user's turn (and the dedup will
+            # suppress a duplicate on retry), so the user can simply rerun.
+            print(
+                "Provider returned a partial response. Please try again.\n"
+                f"  details: {str(exc)[:200]}",
+                file=sys.stderr,
+            )
+            return 1
         # Default to quiet (only Lisan's spoken response). `--verbose` keeps
         # the full pipeline JSON for debugging; explicit `--quiet` is a no-op
         # but documents intent.
