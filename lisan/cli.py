@@ -45,6 +45,7 @@ from .tools.heuristic_gate import score_text
 from .tools.confidence_decay import detect_decay_candidates
 from .tools.manifest_gen import generate_manifests
 from .tools.migrator import run_migration
+from .tools.purge import purge_installation
 from .tools.primer_audit import run_primer_audit
 from .tools.provider_diagnostics import diagnose_provider
 from .tools.record_factory import new_claim, new_decision, new_evidence, new_evidence_correction, new_entity, new_episode, new_knowledge, new_open_loop, new_state, upsert_state
@@ -68,6 +69,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("init", help="Create the default vault layout and config")
+    purge = subparsers.add_parser("purge", help="Delete personal vault data and reset to a fresh start")
+    purge.add_argument("--yes", action="store_true", help="Skip the confirmation prompt")
+    purge.add_argument("--preserve-config", action="store_const", const=True, default=None, help="Keep config.yaml instead of resetting it")
+    purge.add_argument("--backup-before", action="store_const", const=True, default=None, help="Create a backup before deleting anything")
+    purge.add_argument("--backup-destination", type=Path, default=None, help="Write the optional pre-purge backup to this directory")
 
     chat = subparsers.add_parser("chat", help="Start an interactive chat session")
     chat.add_argument("--vault", type=Path, default=vault_root())
@@ -584,6 +590,34 @@ def main(argv: list[str] | None = None) -> int:
                 "before capturing real data:\n\n"
                 '  export LISAN_VAULT="$HOME/Library/Application Support/Lisan/vault"\n'
             )
+        return 0
+
+    if args.command == "purge":
+        resolved = _resolve_purge_options(args)
+        if resolved is None:
+            print("Purge cancelled.")
+            return 1
+        preserve_config, backup_before = resolved
+        result = purge_installation(
+            preserve_config=preserve_config,
+            backup_before=backup_before,
+            backup_destination=args.backup_destination,
+        )
+        print(f"Purged vault: {result.vault}")
+        if result.backup_created and result.backup_archive_path:
+            print(f"Backup created: {result.backup_archive_path}")
+        if result.removed_paths:
+            print("Removed:")
+            for path in result.removed_paths:
+                print(f"  {path}")
+        if result.seeded_files:
+            print("Recreated seed files:")
+            for path in result.seeded_files:
+                print(f"  {path}")
+        if preserve_config:
+            print("Config preserved.")
+        else:
+            print("Config reset to defaults.")
         return 0
 
     if args.command == "validate":
@@ -1172,6 +1206,36 @@ def main(argv: list[str] | None = None) -> int:
 
     parser.print_help()
     return 1
+
+
+def _confirm_purge() -> bool:
+    warning = (
+        "WARNING: this will permanently destroy the active vault, backups, and indices. "
+        "Back up any files from memory before it runs."
+    )
+    print(warning)
+    response = input("Type PURGE to continue: ").strip()
+    return response == "PURGE"
+
+
+def _resolve_purge_options(args: argparse.Namespace) -> tuple[bool, bool] | None:
+    if args.yes:
+        return bool(args.preserve_config), bool(args.backup_before)
+
+    if not _confirm_purge():
+        return None
+
+    preserve_config = _prompt_yes_no("Preserve config.yaml?", default=False)
+    backup_before = _prompt_yes_no("Create a backup before deletion?", default=True)
+    return preserve_config, backup_before
+
+
+def _prompt_yes_no(question: str, *, default: bool) -> bool:
+    suffix = "[Y/n]" if default else "[y/N]"
+    answer = input(f"{question} {suffix}: ").strip().lower()
+    if not answer:
+        return default
+    return answer in {"y", "yes"}
 
 
 def _handle_new(args: argparse.Namespace) -> int:

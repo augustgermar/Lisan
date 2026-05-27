@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
-from .base import LLMResponse, ProviderClient, ProviderError, _post_json
+from .base import LLMResponse, ProviderClient, _post_json
 
 
 class LocalClient(ProviderClient):
@@ -18,8 +17,8 @@ class LocalClient(ProviderClient):
         significance: str = "medium",
         model: str | None = None,
     ) -> LLMResponse:
-        base_url = os.getenv("LISAN_LOCAL_MODEL_URL", self.config["providers"]["local"]["base_url"])
-        chosen_model = model or os.getenv("LISAN_LOCAL_MODEL", self.config["providers"]["local"]["default_model"])
+        base_url = self.config["providers"]["local"]["base_url"]
+        chosen_model = model or self.config["providers"]["local"]["default_model"]
         payload = {
             "model": chosen_model,
             "messages": [{"role": "user", "content": prompt}],

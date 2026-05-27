@@ -398,6 +398,23 @@ Supported providers:
 - `google`
 - `local`
 
+The `local` provider is configured by default to use a local LLM running on this machine.
+
+To switch providers, pass `--provider` on the command you are running, for example:
+
+```bash
+python3 -m lisan chat --provider local
+python3 -m lisan chat --provider openai
+python3 -m lisan agent writer --provider local
+```
+
+To change the default provider settings, edit `config.yaml` in the repo root. The provider settings live under the `providers` key, and routing lives under `routing`.
+
+The local provider defaults are:
+
+- Base URL: `http://127.0.0.1:8080/v1/chat/completions`
+- Model: a local model snapshot on this machine
+
 Environment variables:
 
 - `CODEX_BIN` for the coding agent binary
@@ -405,8 +422,6 @@ Environment variables:
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
 - `GOOGLE_API_KEY`
-- `LISAN_LOCAL_MODEL_URL`
-- `LISAN_LOCAL_MODEL`
 
 ## Important Commands
 
@@ -438,10 +453,16 @@ python3 -m lisan review batch
 python3 -m lisan review batch --write
 python3 -m lisan draft review --path "$LISAN_VAULT/drafts/your-draft-file.md"
 python3 -m lisan draft review --path "$LISAN_VAULT/drafts/your-draft-file.md" --apply
+python3 -m lisan purge
+python3 -m lisan purge --yes
+python3 -m lisan purge --yes --preserve-config --backup-before
+python3 -m lisan purge --yes --backup-before --backup-destination /tmp/lisan-purge-backups
 python3 -m lisan backup status
 python3 -m lisan backup create
 python3 -m lisan backup test
 ```
+
+`purge` deletes the active vault, backups, and indices, then recreates the fresh-start seed files. It prints a warning, then asks whether to preserve `config.yaml`, then asks whether to create a backup before deletion. Pass `--yes` to bypass all prompts for automated testing. Use `--preserve-config`, `--backup-before`, and `--backup-destination` with `--yes` to control the non-interactive behavior.
 
 Manual record creation:
 

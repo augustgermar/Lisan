@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from datetime import date
 from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -165,7 +166,7 @@ class ChatPerformanceTests(unittest.TestCase):
                 self.assertFalse(result["trace"]["retrieval_used"])
 
     def test_startup_check_shows_local_provider_error(self) -> None:
-        self.client.complete.side_effect = ProviderError("Connection refused to http://localhost:11434/v1/chat/completions")
+        self.client.complete.side_effect = ProviderError("Connection refused to http://127.0.0.1:8080/v1/chat/completions")
         config = load_config()
         buffer = io.StringIO()
 
@@ -175,7 +176,7 @@ class ChatPerformanceTests(unittest.TestCase):
         output = buffer.getvalue()
         self.assertFalse(ready)
         self.assertIn("Provider: local not reachable", output)
-        self.assertIn("Connection refused to http://localhost:11434/v1/chat/completions", output)
+        self.assertIn("Connection refused to http://127.0.0.1:8080/v1/chat/completions", output)
 
     def test_thanks_schedules_no_background_jobs(self) -> None:
         result = _process_chat_turn(
@@ -344,7 +345,7 @@ class ChatPerformanceTests(unittest.TestCase):
         self.assertFalse(durable_paths)
 
     def test_capture_appends_lisan_response_to_transcript(self) -> None:
-        transcript_path = self.vault / "transcripts" / "2026-05-26.md"
+        transcript_path = self.vault / "transcripts" / f"{date.today().isoformat()}.md"
         append_transcript(vault=self.vault, conversation_id="demo", speaker="USER", text="Please remember this.")
         fake_result = SimpleNamespace(
             transcript_path=transcript_path,
