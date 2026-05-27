@@ -396,6 +396,41 @@ class ChatPerformanceTests(unittest.TestCase):
         self.assertEqual(fm["summary"], "Person A decided to automate the weekly reminder.")
         self.assertEqual(fm["domain_primary"], "work")
 
+    def test_episode_path_calls_writer_twice_for_core_and_artifacts(self) -> None:
+        """v0.1.9: the episode path should make two writer calls — one for the
+        core (body + claims) and one for the artifacts (entities / loops /
+        decisions / state / evidence). Non-episode tasks stay single-shot."""
+        memory_text = "/remember my name is Person A and I have two pets named Pet One and Pet Two."
+        _process_chat_turn(
+            vault=self.vault,
+            conversation_id="demo",
+            text=memory_text,
+            provider=None,
+            model=None,
+            advice_history=[],
+            advice_context_active=False,
+            advice_topic=None,
+            domain_override=None,
+            db_path=self.db_path,
+        )
+
+        writer_calls = [
+            call for call in self.client.complete.call_args_list
+            if call.kwargs.get("agent") == "writer"
+        ]
+        # Episode mode should produce exactly two writer calls.
+        self.assertEqual(
+            len(writer_calls), 2,
+            f"expected 2 writer calls for episode path, got {len(writer_calls)}",
+        )
+        # The first call must be the core prompt; the second the artifact prompt.
+        first_prompt = writer_calls[0].args[0] if writer_calls[0].args else ""
+        second_prompt = writer_calls[1].args[0] if writer_calls[1].args else ""
+        self.assertIn("Writer Episode Core", first_prompt)
+        self.assertIn("Writer Episode Artifacts", second_prompt)
+        # The artifact pass must receive the core's output as PRIOR_WRITER_CORE.
+        self.assertIn("PRIOR_WRITER_CORE", second_prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

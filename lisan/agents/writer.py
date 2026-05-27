@@ -10,7 +10,11 @@ from .base import PromptAgent
 
 
 _TASK_PROMPT_FILES = {
-    "episode":   "writer_episode_v1",
+    # v0.1.9: the legacy single-shot episode prompt is kept as a fallback
+    # alias for callers that haven't migrated to the split.
+    "episode":           "writer_episode_v1",
+    "episode_core":      "writer_episode_core_v1",
+    "episode_artifacts": "writer_episode_artifacts_v1",
     "decision":  "writer_decision_v1",
     "open_loop": "writer_open_loop_v1",
     "state":     "writer_state_v1",

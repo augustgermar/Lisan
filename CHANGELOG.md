@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.9
+
+- Split the writer's episode pass into two sequential calls: `writer_episode_core_v1` produces the body, summary, frontmatter, and `claims_to_create`; `writer_episode_artifacts_v1` produces the derived `entities_to_create`, `open_loops_to_create`, `decisions_to_create`, `state_updates`, and `evidence_to_create`. The Skeptic and Interlocutor only see the core; the artifact call only runs when Skeptic approves the core, so a rejected draft never spends a second writer call.
+- Non-episode writer tasks (decision, open_loop, state, knowledge, entity, questions) stay single-shot — they're already small.
+- Added `_merge_writer_outputs` so the downstream fanout still sees a single merged dict and required no changes.
+- Added a regression test that asserts the episode path makes exactly two writer calls, the first using the core prompt and the second using the artifact prompt with `PRIOR_WRITER_CORE` in its input.
+
 ## 0.1.8
 
 - Switched the default provider from `codex` to `local` in `config.yaml`, `lisan/config.py`, `lisan/providers/config.py`, and the README so a fresh checkout assumes a local model server rather than the Codex CLI.
