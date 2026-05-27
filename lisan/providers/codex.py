@@ -24,7 +24,7 @@ class CodexClient(ProviderClient):
         significance: str = "medium",
         model: str | None = None,
     ) -> LLMResponse:
-        # Codex occasionally returns a truncated JSON response — the model
+        # The coding agent occasionally returns a truncated JSON response — the model
         # finishes mid-key when the streaming session is cut short by the
         # backend. The reply is unrecoverable, but a single fresh invocation
         # almost always succeeds. We retry once before surfacing the error.
@@ -41,7 +41,7 @@ class CodexClient(ProviderClient):
                 last_error = exc
         if last_error is not None:
             raise last_error
-        raise ProviderError("codex retry loop exited without a response")
+        raise ProviderError("coding agent retry loop exited without a response")
 
     def _complete_once(
         self,
@@ -87,7 +87,7 @@ class CodexClient(ProviderClient):
             proc = subprocess.run(args, input=full_prompt, capture_output=True, text=True, env=env)
             if proc.returncode != 0:
                 raise ProviderError(
-                    "codex exec failed with exit code "
+                    "coding agent exec failed with exit code "
                     f"{proc.returncode}: {proc.stderr.strip() or proc.stdout.strip()}"
                 )
 
@@ -97,7 +97,7 @@ class CodexClient(ProviderClient):
             if schema:
                 parsed = extract_json(text)
                 if not isinstance(parsed, dict):
-                    raise ProviderError(f"codex returned non-JSON: {text[:200]!r}")
+                    raise ProviderError(f"coding agent returned non-JSON: {text[:200]!r}")
                 text = json.dumps(parsed, indent=2, ensure_ascii=True)
             return LLMResponse(
                 text=text,
@@ -111,6 +111,6 @@ class CodexClient(ProviderClient):
 
 
 def _is_truncated_json_error(exc: ProviderError) -> bool:
-    """True when the error message indicates Codex returned a truncated JSON stream."""
+    """True when the error message indicates the coding agent returned a truncated JSON stream."""
     message = str(exc)
-    return "codex returned non-JSON" in message
+    return "coding agent returned non-JSON" in message

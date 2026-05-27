@@ -131,8 +131,8 @@ def _diagnose_codex(*, config: dict[str, Any], provider: str, model: str | None,
         "session_mode": _mode_string(session_home),
     }
     if binary_path is None:
-        errors.append(f"Missing Codex binary: {binary}")
-        fixes.append(f"Set {binary_env} to the Codex executable path or install codex on PATH.")
+        errors.append(f"Missing coding agent binary: {binary}")
+        fixes.append(f"Set {binary_env} to the coding agent executable path or install codex on PATH.")
 
     session_home_ok = _check_path_writable(session_home, errors, fixes, label="session home")
     session_path_ok = _check_path_writable(session_path, errors, fixes, label="session directory")
@@ -151,7 +151,7 @@ def _diagnose_codex(*, config: dict[str, Any], provider: str, model: str | None,
         except Exception as exc:
             failure_type = _classify_provider_error(exc)
             if failure_type == "provider_auth_failure":
-                errors.append("Codex auth is unavailable in the selected provider home.")
+                errors.append("Coding agent auth is unavailable in the selected provider home.")
             errors.append(str(exc))
             details["failure_type"] = failure_type
             if failure_type == "provider_auth_failure":
@@ -229,8 +229,8 @@ def _codex_permission_fixes(*, session_home: Path, session_path: Path) -> list[s
 
 def _codex_auth_fixes(*, session_home: Path) -> list[str]:
     return [
-        "Use --provider-auth shared so Codex uses the normal authenticated home directory.",
-        f"Authenticate Codex in the isolated home if you intentionally want isolation: {session_home}",
+        "Use --provider-auth shared so the coding agent uses the normal authenticated home directory.",
+        f"Authenticate the coding agent in the isolated home if you intentionally want isolation: {session_home}",
         "Use --provider-auth mock for harness-only tests that do not need real authentication.",
     ]
 

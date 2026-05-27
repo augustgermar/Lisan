@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.11
+
+- Removed local testing leftovers from the workspace, including the generated SQLite index and vault transcripts/logs, so a fresh checkout is back to a plain open-source-friendly codebase.
+- Reworded README, docs, prompts, and diagnostics so user-facing references use generic "coding agent" terminology instead of explicit Codex branding where possible.
+- Bumped the package version for the cleaned release.
+
 ## 0.1.10
 
 - Added hybrid retrieval: SQL, FTS, and vector layers each return their own ranked candidate sets, which are then combined with Reciprocal Rank Fusion (RRF) instead of summed into a single additive score. Layer signals stay separable, so a vector hit and a domain hit no longer cancel out as interchangeable numbers in the same bucket.
@@ -16,17 +22,17 @@
 
 ## 0.1.8
 
-- Switched the default provider from `codex` to `local` in `config.yaml`, `lisan/config.py`, `lisan/providers/config.py`, and the README so a fresh checkout assumes a local model server rather than the Codex CLI.
+- Switched the default provider from `codex` to `local` in `config.yaml`, `lisan/config.py`, `lisan/providers/config.py`, and the README so a fresh checkout assumes a local model server rather than the coding agent CLI.
 - `startup_check` now runs a real reachability probe for the `local` provider via `diagnose_provider`, surfacing the connection error and any suggested fixes (instead of the generic "set CODEX_BIN" message) when the local server is unreachable.
 - Added a regression test that the startup screen reports a clear local-provider error when the probe fails.
 
 ## 0.1.7
 
-- Entity fanout deduplicates against existing canonical names and aliases — repeated short / full name variants (Devon vs. Devon Park) now fold into a single record with the variant appended to `aliases` instead of creating a sibling file.
-- Codex provider retries once on truncated-JSON responses before raising; `lisan capture` catches `ProviderError` and prints a one-line message instead of a stack trace.
+- Entity fanout deduplicates against existing canonical names and aliases — repeated short / full name variants now fold into a single record with the variant appended to `aliases` instead of creating a sibling file.
+- The coding agent provider retries once on truncated-JSON responses before raising; `lisan capture` catches `ProviderError` and prints a one-line message instead of a stack trace.
 - Writer prompts (episode, decision, open_loop, state) now ask for per-entry `confidence_basis` on `state_updates`, `open_loops_to_create`, `decisions_to_create`, `claims_to_create`, `entities_to_create`, and `evidence_to_create`; `new_claim` accepts a `confidence_basis` argument so the writer's reasoning survives fanout.
 - Open-loop ownership is enforced in both prompts and fanout: only loops owned by the user are materialized, so other people's pending questions stop becoming the user's todos.
-- Evidence runs before claims in the fanout, and a new `resolve_evidence_links` helper rewrites writer-supplied evidence titles (e.g. "Transcript note: Devon staffing reflection") into resolvable `evidence.<slug>` IDs on `supporting_evidence` / `contradicting_evidence`.
+- Evidence runs before claims in the fanout, and a new `resolve_evidence_links` helper rewrites writer-supplied evidence titles into resolvable `evidence.<slug>` IDs on `supporting_evidence` / `contradicting_evidence`.
 - Heuristic gate's affect lexicon and `_has_distress_signal` cover the distress / fear vocabulary that the prior list missed (`scared`, `fear`, `worried`, `panic`, `blindsided`, etc.).
 - Conversation turn position is computed from the transcript instead of narrative state, so the Turn-1 elicitor preference fires only on actual opening turns of extraction-only conversations.
 - The cross-conversation "Recent Activity" preamble moved from the elicitor session into the assembler and is gated on a deterministic "fresh conversation" check, so the extraction path now also opens with awareness of today's other conversations.

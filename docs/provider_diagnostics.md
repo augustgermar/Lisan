@@ -12,17 +12,17 @@
 - elapsed time for the minimal request
 - structured errors and suggested fixes
 
-## Codex session path
+## Coding Agent Session Path
 
-For the local Codex provider, the diagnostics focus on the session directory under `~/.codex/sessions`.
+For the local coding agent provider, the diagnostics focus on the session directory under `~/.codex/sessions`.
 
-If the provider supports a configurable home or session root, Lisan can use an isolated provider home for experiments. For normal use, the default is to use the user's shared authenticated Codex home.
+If the provider supports a configurable home or session root, Lisan can use an isolated provider home for experiments. For normal use, the default is to use the user's shared authenticated coding agent home.
 
 This is intentional:
 
 - vault/state isolation protects user memory and traces
 - provider auth isolation is separate and optional
-  - if Codex auth is only present in the shared home, use the shared home for authentication
+  - if coding agent auth is only present in the shared home, use the shared home for authentication
 
 ### Typical remediation
 
@@ -51,7 +51,7 @@ Typical signs:
 Suggested fixes for auth failure:
 
 - rerun the provider check with shared authentication
-- authenticate Codex in the isolated provider home if you intentionally want isolation
+- authenticate the coding agent in the isolated provider home if you intentionally want isolation
 - use an isolated provider home if you intentionally want isolation
 
 ## Why this exists

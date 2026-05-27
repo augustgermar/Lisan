@@ -98,7 +98,7 @@ If you are seeing provider failures on startup or during a long chat session, ru
 python3 -m lisan provider check
 ```
 
-For the local Codex provider, the most common issue is permissions on `~/.codex/sessions`. A typical fix is:
+For the local coding agent provider, the most common issue is permissions on `~/.codex/sessions`. A typical fix is:
 
 ```bash
 mkdir -p "$HOME/.codex/sessions"

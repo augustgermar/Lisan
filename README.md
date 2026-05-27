@@ -2,7 +2,7 @@
 
 Local-first Python CLI framework for the Lisan memory vault.
 
-This repository is currently in an MVP-ready state. The codebase is designed so a future Codex session can work from the repository alone without reading `Draft5.md`.
+This repository is currently in an MVP-ready state. The codebase is designed so a future coding agent session can work from the repository alone without reading `Draft5.md`.
 
 ## Current System State
 
@@ -11,9 +11,9 @@ The working system now includes:
 - Deterministic vault validation and schema enforcement
 - Markdown records with JSON frontmatter
 - SQLite indexing with claim extraction and retrieval logging
-- Compartment-aware retrieval with keyword, FTS, and embedding-based scoring
-- Local Codex CLI as the default provider
-- Provider abstraction for OpenAI, Anthropic, Google, local HTTP, and Codex CLI
+- Compartment-aware retrieval with SQL metadata, FTS5/BM25, and embedding-based scoring fused with RRF
+- Local coding agent CLI as the default provider
+- Provider abstraction for OpenAI, Anthropic, Google, local HTTP, and a coding agent CLI
 - Full spec-compliant heuristic gate with vault entity lookup, affect scoring, biographical density, decision/open-loop phrase banks, and durable plan detection
 - Listener -> Writer -> Skeptic -> Interlocutor capture pipeline
 - Memory type routing: Listener classifies input as episode, decision, open_loop, state, knowledge, or entity; Writer selects the correct specialist prompt automatically
@@ -48,7 +48,7 @@ The repo is usable as a local memory vault CLI now. Most remaining work is refin
 The active vault location is resolved like this:
 
 - If `LISAN_VAULT` is set, the app uses that path by default.
-- If `LISAN_VAULT` is unset, the app falls back to the checked-in `lisan-vault/` seed vault inside the repo.
+- If `LISAN_VAULT` is unset, the app creates and uses a local `lisan-vault/` directory inside the repo on first run.
 
 Recommended personal setup:
 
@@ -83,7 +83,7 @@ python3 -m lisan agent advice "What can I make with tuna, pasta, celery, and may
 python3 -m lisan agent elicitor "I am excited to build this"
 ```
 
-## If You Are A Future Codex Session
+## If You Are A Future Coding Agent
 
 Start here instead of the draft spec:
 
@@ -93,7 +93,7 @@ Start here instead of the draft spec:
 4. Inspect `lisan/agents/` for provider-backed and deterministic agent behavior.
 5. Inspect `lisan/providers/` for routing and provider adapters.
 6. Inspect `lisan/schemas/` for output contracts.
-7. Inspect the active vault directory. If `LISAN_VAULT` is set, use that path. Otherwise inspect `lisan-vault/` to understand the current seed vault contents and generated artifact layout.
+7. Inspect the active vault directory. If `LISAN_VAULT` is set, use that path. Otherwise create or inspect the local vault created by `lisan init`.
 
 The architecture is intentionally deterministic-first. If a feature can be done with file parsing, JSON, regex, or SQL, do that before adding any new LLM behavior.
 
@@ -113,7 +113,7 @@ The architecture is intentionally deterministic-first. If a feature can be done 
 
 ### Vault And Generated Artifacts
 
-- `lisan-vault/`: checked-in seed vault content used when `LISAN_VAULT` is unset
+- `lisan-vault/`: local vault directory created on first use when `LISAN_VAULT` is unset
 - `lisan-vault/primer/`: identity, operating style, and current brief
 - `lisan-vault/state/`: per-domain state files
 - `lisan-vault/domains/`: domain definitions and migration notes
@@ -225,7 +225,7 @@ Flow:
 1. Append transcript entry.
 2. Run Listener heuristic scoring.
 3. Route the turn with the heuristic fast path first.
-4. Use the Codex router only when the turn is ambiguous.
+4. Use the coding agent router only when the turn is ambiguous.
 5. Assess a conversation policy for route, tone, and turn kind.
 6. If skipped, stop.
 7. If mode is `elicitor`, run the stateful Elicitor path.
@@ -392,7 +392,7 @@ Default routing:
 
 Supported providers:
 
-- `codex`
+- `coding agent`
 - `openai`
 - `anthropic`
 - `google`
@@ -400,7 +400,7 @@ Supported providers:
 
 Environment variables:
 
-- `CODEX_BIN`
+- `CODEX_BIN` for the coding agent binary
 - `LISAN_VAULT`
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
@@ -489,7 +489,7 @@ Typical implementation pattern:
 
 ## Seed Vault Notes
 
-The checked-in vault content is intentionally small and acts as a seed vault. When `LISAN_VAULT` is set, your personal vault stays outside the repo. Generated artifacts may appear under:
+The repository does not ship personal vault content. When `LISAN_VAULT` is set, your personal vault stays outside the repo. Generated artifacts may appear under:
 
 - `lisan-vault/drafts/`
 - `lisan-vault/reports/`
