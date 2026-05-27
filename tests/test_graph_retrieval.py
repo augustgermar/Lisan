@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
+from unittest.mock import patch
 
 from lisan.frontmatter import load_markdown, write_markdown
+from lisan.config import load_config
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.record_factory import new_claim, new_evidence, new_pattern
 from lisan.tools.retrieval import assemble_context, retrieve_context
@@ -29,6 +33,20 @@ class GraphRetrievalTests(unittest.TestCase):
         report = validate_vault(self.vault)
         self.assertTrue(report.ok, report.summary())
         rebuild_index(vault=self.vault, db_path=self.db_path, embeddings_file=self.embeddings_path)
+
+    def _fusion_config(self, *, enabled: bool = True) -> dict:
+        config = deepcopy(load_config())
+        config.setdefault("retrieval", {}).setdefault("fusion", {})
+        config["retrieval"]["fusion"].update(
+            {
+                "enabled": enabled,
+                "method": "rrf",
+                "rrf_k": 60,
+                "per_layer_limit": 30,
+                "fused_limit": 20,
+            }
+        )
+        return config
 
     def _record_id(self, record_type: str, text: str) -> str:
         if record_type == "evidence":
@@ -263,6 +281,173 @@ class GraphRetrievalTests(unittest.TestCase):
 
         context = assemble_context("revisit the coordinator note", domain="work", vault=self.vault, db_path=self.db_path)
         self.assertIn("## Rejected By Compartment", context)
+
+    def test_vector_only_record_can_enter_fused_results(self) -> None:
+        vector_record = new_evidence(
+            vault=self.vault,
+            title="Vector only record",
+            source_type="journal",
+            arena="work",
+            summary="A note about a completely ordinary day.",
+            observed_facts=["A note about a completely ordinary day."],
+            reliability="medium",
+            linked_claims=[],
+            linked_episodes=[],
+        )
+        self._rebuild()
+        vector_id = self._record_id("evidence", "Vector only record")
+        config = self._fusion_config()
+
+        with (
+            patch("lisan.tools.retrieval.load_config", return_value=config),
+            patch("lisan.tools.retrieval._sql_ranked_candidates", return_value=[]),
+            patch("lisan.tools.retrieval._fts_ranked_candidates", return_value=([], "bm25")),
+            patch(
+                "lisan.tools.retrieval._vector_ranked_candidates",
+                return_value=[SimpleNamespace(id=vector_id, score=1.0, source="vector")],
+            ),
+        ):
+            result = retrieve_context("unrelated query", domain="work", vault=self.vault, db_path=self.db_path)
+
+        self.assertTrue(any(item.id == vector_id for item in result.direct_loaded))
+
+    def test_keyword_only_record_can_enter_fused_results(self) -> None:
+        keyword_record = new_evidence(
+            vault=self.vault,
+            title="Keyword only record",
+            source_type="journal",
+            arena="work",
+            summary="The deck dispute was written down in a note.",
+            observed_facts=["The deck dispute was written down in a note."],
+            reliability="medium",
+            linked_claims=[],
+            linked_episodes=[],
+        )
+        self._rebuild()
+        keyword_id = self._record_id("evidence", "Keyword only record")
+        config = self._fusion_config()
+
+        with (
+            patch("lisan.tools.retrieval.load_config", return_value=config),
+            patch("lisan.tools.retrieval._sql_ranked_candidates", return_value=[]),
+            patch(
+                "lisan.tools.retrieval._fts_ranked_candidates",
+                return_value=([SimpleNamespace(id=keyword_id, score=1.0, source="fts_bm25")], "bm25"),
+            ),
+            patch("lisan.tools.retrieval._vector_ranked_candidates", return_value=[]),
+        ):
+            result = retrieve_context("deck dispute", domain="work", vault=self.vault, db_path=self.db_path)
+
+        self.assertTrue(any(item.id == keyword_id for item in result.direct_loaded))
+
+    def test_multi_layer_record_outranks_single_layer_record(self) -> None:
+        multi_record = new_evidence(
+            vault=self.vault,
+            title="Multi layer record",
+            source_type="journal",
+            arena="work",
+            summary="A note with multiple retrieval signals.",
+            observed_facts=["A note with multiple retrieval signals."],
+            reliability="medium",
+            linked_claims=[],
+            linked_episodes=[],
+        )
+        single_record = new_evidence(
+            vault=self.vault,
+            title="Single layer record",
+            source_type="journal",
+            arena="work",
+            summary="A note that only one retrieval layer finds.",
+            observed_facts=["A note that only one retrieval layer finds."],
+            reliability="medium",
+            linked_claims=[],
+            linked_episodes=[],
+        )
+        self._rebuild()
+        multi_id = self._record_id("evidence", "Multi layer record")
+        single_id = self._record_id("evidence", "Single layer record")
+        config = self._fusion_config()
+
+        with (
+            patch("lisan.tools.retrieval.load_config", return_value=config),
+            patch(
+                "lisan.tools.retrieval._sql_ranked_candidates",
+                return_value=[
+                    SimpleNamespace(id=multi_id, score=10.0, source="sql"),
+                    SimpleNamespace(id=single_id, score=9.0, source="sql"),
+                ],
+            ),
+            patch(
+                "lisan.tools.retrieval._fts_ranked_candidates",
+                return_value=([SimpleNamespace(id=multi_id, score=1.0, source="fts_bm25")], "bm25"),
+            ),
+            patch(
+                "lisan.tools.retrieval._vector_ranked_candidates",
+                return_value=[SimpleNamespace(id=multi_id, score=0.5, source="vector")],
+            ),
+        ):
+            result = retrieve_context("multi layer fusion", domain="work", vault=self.vault, db_path=self.db_path)
+
+        self.assertGreater(len(result.direct_loaded), 0)
+        self.assertEqual(result.direct_loaded[0].id, multi_id)
+        self.assertTrue(any(item.id == single_id for item in result.direct_loaded))
+
+    def test_fusion_respects_compartment_blocking_even_when_layer_matches(self) -> None:
+        blocked_record = new_evidence(
+            vault=self.vault,
+            title="Blocked legal record",
+            source_type="document",
+            arena="work",
+            compartments=["legal"],
+            summary="A legal memo about a contract clause.",
+            observed_facts=["A legal memo about a contract clause."],
+            reliability="high",
+            linked_claims=[],
+            linked_episodes=[],
+        )
+        self._rebuild()
+        blocked_id = self._record_id("evidence", "Blocked legal record")
+        config = self._fusion_config()
+
+        with (
+            patch("lisan.tools.retrieval.load_config", return_value=config),
+            patch("lisan.tools.retrieval._sql_ranked_candidates", return_value=[]),
+            patch(
+                "lisan.tools.retrieval._fts_ranked_candidates",
+                return_value=([SimpleNamespace(id=blocked_id, score=1.0, source="fts_bm25")], "bm25"),
+            ),
+            patch("lisan.tools.retrieval._vector_ranked_candidates", return_value=[]),
+        ):
+            result = retrieve_context("ordinary search", domain="work", vault=self.vault, db_path=self.db_path)
+
+        self.assertFalse(any(item.id == blocked_id for item in result.loaded))
+        self.assertTrue(any(item.id == blocked_id for item in result.rejected))
+
+    def test_disabled_fusion_falls_back_to_legacy_retrieval(self) -> None:
+        legacy_record = new_evidence(
+            vault=self.vault,
+            title="Legacy fallback record",
+            source_type="journal",
+            arena="work",
+            summary="The deck dispute was recorded in a journal entry.",
+            observed_facts=["The deck dispute was recorded in a journal entry."],
+            reliability="medium",
+            linked_claims=[],
+            linked_episodes=[],
+        )
+        self._rebuild()
+        legacy_id = self._record_id("evidence", "Legacy fallback record")
+        config = self._fusion_config(enabled=False)
+
+        with (
+            patch("lisan.tools.retrieval.load_config", return_value=config),
+            patch("lisan.tools.retrieval._sql_ranked_candidates", side_effect=AssertionError("fusion path should be disabled")),
+            patch("lisan.tools.retrieval._fts_ranked_candidates", side_effect=AssertionError("fusion path should be disabled")),
+            patch("lisan.tools.retrieval._vector_ranked_candidates", side_effect=AssertionError("fusion path should be disabled")),
+        ):
+            result = retrieve_context("deck dispute", domain="work", vault=self.vault, db_path=self.db_path)
+
+        self.assertTrue(any(item.id == legacy_id for item in result.direct_loaded))
 
     def test_cross_domain_expansion_is_blocked_without_justification(self) -> None:
         evidence_title = "Rollout request"

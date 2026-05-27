@@ -71,6 +71,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "identity_env": "LISAN_BACKUP_IDENTITY",
         "age_binary_env": "AGE_BIN",
     },
+    "retrieval": {
+        "fusion": {
+            "enabled": True,
+            "method": "rrf",
+            "rrf_k": 60,
+            "per_layer_limit": 30,
+            "fused_limit": 20,
+        },
+    },
 }
 
 

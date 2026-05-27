@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.10
+
+- Added hybrid retrieval: SQL, FTS, and vector layers each return their own ranked candidate sets, which are then combined with Reciprocal Rank Fusion (RRF) instead of summed into a single additive score. Layer signals stay separable, so a vector hit and a domain hit no longer cancel out as interchangeable numbers in the same bucket.
+- New `retrieval.fusion` config block (`enabled`, `method`, `rrf_k`, `per_layer_limit`, `fused_limit`) in both `config.yaml` and the default config.
+- Extended the `retrieval_log` SQLite table with per-layer telemetry: `retrieval_mode`, `fusion_enabled`, `sql_candidate_count`, `fts_candidate_count`, `vector_candidate_count`, `fused_candidate_count`, `overlap_count`, `rrf_k`, `per_layer_limit`, `fused_limit`, `fts_mode`.
+- Added regression tests covering the new fusion behaviour.
+
 ## 0.1.9
 
 - Split the writer's episode pass into two sequential calls: `writer_episode_core_v1` produces the body, summary, frontmatter, and `claims_to_create`; `writer_episode_artifacts_v1` produces the derived `entities_to_create`, `open_loops_to_create`, `decisions_to_create`, `state_updates`, and `evidence_to_create`. The Skeptic and Interlocutor only see the core; the artifact call only runs when Skeptic approves the core, so a rejected draft never spends a second writer call.
