@@ -237,7 +237,7 @@ def run_memory_pipeline(
     # Entity stubs, decisions, and open loops are exempt from the skeptic gate
     # — they don't carry the same inference risk as state updates, evidence,
     # and claims (which encode the writer's interpretation as durable truth).
-    _create_entity_stubs(vault, writer, draft_rel)
+    _create_entity_stubs(vault, writer, draft_rel, text)
     _create_open_loops(vault, writer, draft_rel)
     _create_decisions(vault, writer, draft_rel)
     if skeptic_approved:
@@ -702,7 +702,7 @@ def _apply_state_updates(vault: Path, writer: dict[str, Any], draft_rel: str) ->
 
 # ── Fanout: entities ──────────────────────────────────────────────────────────
 
-def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel: str) -> None:
+def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel: str, source_text: str) -> None:
     """Materialize entity stubs proposed by the writer.
 
     Finding 1 (v0.1.7): dedupe across short/full name variants.
@@ -725,7 +725,6 @@ def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel: str) ->
         if not isinstance(entry, dict):
             continue
         name = str(entry.get("name") or "").strip()
-        subtype = str(entry.get("subtype") or "person").strip()
         summary = str(entry.get("summary") or "").strip()
         if not name:
             continue
@@ -733,6 +732,16 @@ def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel: str) ->
         if normalized in seen_in_pass:
             continue
         seen_in_pass.add(normalized)
+
+        subtype = _normalize_entity_subtype(
+            name=name,
+            subtype=str(entry.get("subtype") or "person").strip(),
+            summary=summary,
+            source_text=source_text,
+            primer_cast=primer_cast,
+        )
+        if not subtype:
+            continue
 
         # Finding #4: validate before any creation or merge.
         if not _looks_like_entity(name, subtype, primer_cast):
@@ -771,6 +780,70 @@ def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel: str) ->
                 index[tkey] = {"path": created.path, "kind": "token", "canonical": name}
             elif existing_entry.get("path") != created.path and existing_entry.get("kind") == "token":
                 existing_entry["kind"] = "ambiguous"
+
+
+def _normalize_entity_subtype(
+    *,
+    name: str,
+    subtype: str,
+    summary: str,
+    source_text: str,
+    primer_cast: frozenset[str],
+) -> str | None:
+    """Coerce writer-emitted subtype labels into one of the supported buckets."""
+    allowed = frozenset({"person", "place", "thing", "project", "organization"})
+    subtype = (subtype or "person").strip().lower()
+    if subtype in allowed:
+        if subtype == "person" and _looks_like_organization(name, summary, source_text, primer_cast):
+            return "organization"
+        return subtype
+    if _looks_like_organization(name, summary, source_text, primer_cast):
+        return "organization"
+    return "person"
+
+
+def _looks_like_organization(
+    name: str,
+    summary: str,
+    source_text: str,
+    primer_cast: frozenset[str],
+) -> bool:
+    """Heuristic for company / org-like entities that should not be typed as people."""
+    combined = " ".join(part for part in (name, summary, source_text) if part).lower()
+    org_markers = (
+        "company",
+        "employer",
+        "organization",
+        "organisation",
+        "corporation",
+        "corporate",
+        "startup",
+        "firm",
+        "business",
+        "vendor",
+        "contractor",
+        "department",
+        "division",
+        "group",
+        "team",
+        "studio",
+        "labs",
+        "systems",
+        "solutions",
+        "holdings",
+        "ventures",
+        "partners",
+        "works at",
+        "work for",
+        "employed at",
+    )
+    if any(marker in combined for marker in org_markers):
+        if len(name.split()) >= 2:
+            return True
+    lower_name = name.lower()
+    if any(lower_name.endswith(suffix) for suffix in (" inc", " llc", " ltd", " corp", " company", " group", " labs", " systems", " studio", " ventures", " holdings", " partners")):
+        return True
+    return False
 
 
 def _looks_like_entity(name: str, subtype: str, primer_cast: frozenset[str]) -> bool:
