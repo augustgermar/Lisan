@@ -435,6 +435,10 @@ python3 -m lisan health
 python3 -m lisan sync
 ```
 
+## Versioning
+
+Lisan uses date-based build versions going forward. The version number should track the current date in `YY.M.D` form for daily builds, such as `26.5.27`.
+
 Capture and conversation:
 
 ```bash
