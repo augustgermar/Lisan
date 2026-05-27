@@ -8,6 +8,11 @@ from typing import Any
 from .paths import config_path
 
 
+_OMNIUS_ROOT = Path("/Users/august/code/omnius")
+_OMNIUS_LOCAL_BASE_URL = "http://127.0.0.1:8080/v1/chat/completions"
+_OMNIUS_LOCAL_MODEL = str(_OMNIUS_ROOT / "models/Jiunsong/supergemma4-26b-uncensored-mlx-4bit-v2")
+
+
 DEFAULT_CONFIG: dict[str, Any] = {
     "providers": {
         "codex": {
@@ -30,8 +35,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "local": {
             "enabled": True,
             "api_key_env": None,
-            "base_url": "http://localhost:11434/v1/chat/completions",
-            "default_model": "llama3.1",
+            "base_url": _OMNIUS_LOCAL_BASE_URL,
+            "default_model": _OMNIUS_LOCAL_MODEL,
         },
     },
     "routing": {
@@ -93,6 +98,7 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
     data = json.loads(raw)
     merged = deepcopy(DEFAULT_CONFIG)
     _deep_merge(merged, data)
+    _normalize_local_provider_defaults(merged)
     return merged
 
 
@@ -109,3 +115,12 @@ def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> None:
             _deep_merge(base[key], value)
         else:
             base[key] = value
+
+
+def _normalize_local_provider_defaults(config: dict[str, Any]) -> None:
+    providers = config.setdefault("providers", {})
+    local = providers.setdefault("local", {})
+    if local.get("base_url") in {None, "", "http://localhost:11434/v1/chat/completions"}:
+        local["base_url"] = _OMNIUS_LOCAL_BASE_URL
+    if local.get("default_model") in {None, "", "llama3.1"}:
+        local["default_model"] = _OMNIUS_LOCAL_MODEL
