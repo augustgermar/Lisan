@@ -162,7 +162,18 @@ CREATE TABLE IF NOT EXISTS retrieval_log (
     token_count INTEGER,
     privacy_level TEXT,
     cross_compartment BOOLEAN,
-    model_used TEXT
+    model_used TEXT,
+    retrieval_mode TEXT,
+    fusion_enabled BOOLEAN,
+    sql_candidate_count INTEGER,
+    fts_candidate_count INTEGER,
+    vector_candidate_count INTEGER,
+    fused_candidate_count INTEGER,
+    overlap_count INTEGER,
+    rrf_k INTEGER,
+    per_layer_limit INTEGER,
+    fused_limit INTEGER,
+    fts_mode TEXT
 );
 
 CREATE TABLE IF NOT EXISTS llm_call_log (

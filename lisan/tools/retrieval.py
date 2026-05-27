@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..config import load_config
 from ..frontmatter import load_markdown
 from ..paths import embeddings_path, sqlite_path, vault_root
 from ..tools.common import iter_markdown_files
@@ -65,6 +66,13 @@ class RetrievalResult:
     @property
     def arena(self) -> str:
         return self.domain
+
+
+@dataclass(slots=True)
+class _LayerCandidate:
+    id: str
+    score: float
+    source: str
 
 
 def assemble_context(
@@ -187,16 +195,135 @@ def retrieve_context(
 ) -> RetrievalResult:
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
+    config = load_config()
+    retrieval_settings = _retrieval_fusion_settings(config)
     inferred_domain, confidence = _infer_domain(query, domain or arena)
     active_contexts = _active_contexts(inferred_domain, query)
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        fts_ids = _fts_candidate_ids(conn, query)
         file_rows = conn.execute("SELECT * FROM files").fetchall()
         link_rows = conn.execute("SELECT source_id, target_id, relationship_type FROM links").fetchall()
         quarantined_artifact_ids, quarantined_batch_ids = _quarantine_sets(conn)
+        rows_by_id = {str(row["id"]): row for row in file_rows}
+        rejected = _collect_rejected_items(
+            file_rows,
+            active_contexts=active_contexts,
+            quarantined_artifact_ids=quarantined_artifact_ids,
+            quarantined_batch_ids=quarantined_batch_ids,
+            include_quarantined=include_quarantined,
+        )
+
+        if retrieval_settings["enabled"] and retrieval_settings["method"] == "rrf":
+            sql_candidates = _sql_ranked_candidates(
+                file_rows,
+                inferred_domain,
+                query=query,
+                active_contexts=active_contexts,
+                quarantined_artifact_ids=quarantined_artifact_ids,
+                quarantined_batch_ids=quarantined_batch_ids,
+                include_quarantined=include_quarantined,
+                limit=retrieval_settings["per_layer_limit"],
+            )
+            fts_candidates, fts_mode = _fts_ranked_candidates(
+                conn,
+                file_rows=file_rows,
+                query=query,
+                active_contexts=active_contexts,
+                quarantined_artifact_ids=quarantined_artifact_ids,
+                quarantined_batch_ids=quarantined_batch_ids,
+                include_quarantined=include_quarantined,
+                limit=retrieval_settings["per_layer_limit"],
+            )
+            vector_candidates = _vector_ranked_candidates(
+                file_rows,
+                vault=vault,
+                active_contexts=active_contexts,
+                quarantined_artifact_ids=quarantined_artifact_ids,
+                quarantined_batch_ids=quarantined_batch_ids,
+                include_quarantined=include_quarantined,
+                limit=retrieval_settings["per_layer_limit"],
+                query=query,
+            )
+            direct_loaded, fusion_stats = _fuse_ranked_candidates(
+                rows_by_id=rows_by_id,
+                sql_candidates=sql_candidates,
+                fts_candidates=fts_candidates,
+                vector_candidates=vector_candidates,
+                rrf_k=retrieval_settings["rrf_k"],
+                fused_limit=retrieval_settings["fused_limit"],
+            )
+            direct_loaded = _demote_graph_neighbors(
+                direct_loaded,
+                rows_by_id=rows_by_id,
+                link_rows=link_rows,
+                source_order=fusion_stats["source_order"],
+            )
+            direct_loaded = [
+                item
+                for item in direct_loaded
+                if _visibility_block_reason(
+                    rows_by_id[item.id],
+                    active_contexts,
+                    quarantined_artifact_ids=quarantined_artifact_ids,
+                    quarantined_batch_ids=quarantined_batch_ids,
+                    include_quarantined=include_quarantined,
+                ) is None
+            ]
+            fusion_stats["fused_candidate_count"] = len(direct_loaded)
+            graph_loaded, graph_blocked = _expand_graph(
+                direct_loaded,
+                rows_by_id=rows_by_id,
+                link_rows=link_rows,
+                query=query,
+                inferred_domain=inferred_domain,
+                vault=vault,
+                active_contexts=active_contexts,
+                quarantined_artifact_ids=quarantined_artifact_ids,
+                quarantined_batch_ids=quarantined_batch_ids,
+                include_quarantined=include_quarantined,
+                max_hops=2,
+                max_expanded_records=5,
+                max_cross_domain_records=2,
+            )
+            combined_loaded = direct_loaded + graph_loaded
+            record_retrieval_result(len(direct_loaded), len(graph_loaded))
+            _log_retrieval(
+                conn,
+                conversation_id=conversation_id,
+                query=query,
+                arena=inferred_domain,
+                confidence=confidence,
+                loaded=combined_loaded,
+                direct_loaded=direct_loaded,
+                graph_loaded=graph_loaded,
+                rejected=rejected,
+                graph_blocked=graph_blocked,
+                retrieval_mode="rrf",
+                fusion_enabled=True,
+                sql_candidate_count=fusion_stats["sql_candidate_count"],
+                fts_candidate_count=fusion_stats["fts_candidate_count"],
+                vector_candidate_count=fusion_stats["vector_candidate_count"],
+                fused_candidate_count=fusion_stats["fused_candidate_count"],
+                overlap_count=fusion_stats["overlap_count"],
+                rrf_k=retrieval_settings["rrf_k"],
+                per_layer_limit=retrieval_settings["per_layer_limit"],
+                fused_limit=retrieval_settings["fused_limit"],
+                fts_mode=fts_mode,
+            )
+            return RetrievalResult(
+                domain=inferred_domain,
+                confidence=confidence,
+                loaded=combined_loaded,
+                direct_loaded=direct_loaded,
+                expanded_loaded=graph_loaded,
+                rejected=rejected,
+                graph_blocked=graph_blocked,
+                prompt=query,
+            )
+
+        fts_ids = _fts_candidate_ids(conn, query)
         all_items = [
             _score_row(
                 row,
@@ -214,9 +341,6 @@ def retrieve_context(
         visible_items = [item for item in all_items if item is not None and not _is_blocked_visibility_reason(item.reason)]
         visible_items.sort(key=lambda item: (_type_boost(item.type), item.score, item.summary), reverse=True)
         direct_loaded = visible_items[:15]
-        direct_loaded_ids = {item.id for item in direct_loaded}
-        rejected = [item for item in all_items if item is not None and _is_blocked_visibility_reason(item.reason)]
-        rows_by_id = {str(row["id"]): row for row in file_rows}
         graph_loaded, graph_blocked = _expand_graph(
             direct_loaded,
             rows_by_id=rows_by_id,
@@ -245,6 +369,17 @@ def retrieve_context(
             graph_loaded=graph_loaded,
             rejected=rejected,
             graph_blocked=graph_blocked,
+            retrieval_mode="legacy",
+            fusion_enabled=False,
+            sql_candidate_count=0,
+            fts_candidate_count=0,
+            vector_candidate_count=0,
+            fused_candidate_count=len(direct_loaded),
+            overlap_count=0,
+            rrf_k=None,
+            per_layer_limit=None,
+            fused_limit=None,
+            fts_mode="match_fallback",
         )
         return RetrievalResult(
             domain=inferred_domain,
@@ -258,6 +393,348 @@ def retrieve_context(
         )
     finally:
         conn.close()
+
+
+def _retrieval_fusion_settings(config: dict[str, Any]) -> dict[str, Any]:
+    retrieval_cfg = dict(config.get("retrieval", {}) or {})
+    fusion_cfg = dict(retrieval_cfg.get("fusion", {}) or {})
+    return {
+        "enabled": bool(fusion_cfg.get("enabled", True)),
+        "method": str(fusion_cfg.get("method", "rrf") or "rrf"),
+        "rrf_k": int(fusion_cfg.get("rrf_k", 60) or 60),
+        "per_layer_limit": int(fusion_cfg.get("per_layer_limit", 30) or 30),
+        "fused_limit": int(fusion_cfg.get("fused_limit", 20) or 20),
+    }
+
+
+def _collect_rejected_items(
+    file_rows: list[sqlite3.Row],
+    *,
+    active_contexts: set[str],
+    quarantined_artifact_ids: set[str],
+    quarantined_batch_ids: set[str],
+    include_quarantined: bool,
+) -> list[RetrievalItem]:
+    rejected: list[RetrievalItem] = []
+    for row in file_rows:
+        blocked_reason = _visibility_block_reason(
+            row,
+            active_contexts,
+            quarantined_artifact_ids=quarantined_artifact_ids,
+            quarantined_batch_ids=quarantined_batch_ids,
+            include_quarantined=include_quarantined,
+        )
+        if blocked_reason is None:
+            continue
+        rejected.append(
+            RetrievalItem(
+                id=str(row["id"]),
+                type=str(row["type"]),
+                path=str(row["path"]),
+                summary=str(row["summary"]),
+                score=0.0,
+                reason=blocked_reason,
+            )
+        )
+    return rejected
+
+
+def _sql_ranked_candidates(
+    file_rows: list[sqlite3.Row],
+    arena: str,
+    *,
+    query: str,
+    active_contexts: set[str],
+    quarantined_artifact_ids: set[str],
+    quarantined_batch_ids: set[str],
+    include_quarantined: bool,
+    limit: int,
+) -> list[_LayerCandidate]:
+    candidates: list[_LayerCandidate] = []
+    for row in file_rows:
+        if _visibility_block_reason(
+            row,
+            active_contexts,
+            quarantined_artifact_ids=quarantined_artifact_ids,
+            quarantined_batch_ids=quarantined_batch_ids,
+            include_quarantined=include_quarantined,
+        ) is not None:
+            continue
+        score = _sql_metadata_score(row, arena, query)
+        candidates.append(_LayerCandidate(id=str(row["id"]), score=score, source="sql"))
+    return _truncate_layer_candidates(candidates, limit)
+
+
+def _fts_ranked_candidates(
+    conn: sqlite3.Connection,
+    *,
+    file_rows: list[sqlite3.Row],
+    query: str,
+    active_contexts: set[str],
+    quarantined_artifact_ids: set[str],
+    quarantined_batch_ids: set[str],
+    include_quarantined: bool,
+    limit: int,
+) -> tuple[list[_LayerCandidate], str]:
+    query_terms = [term for term in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]+", query.lower()) if len(term) > 2]
+    if not query_terms:
+        return [], "bm25"
+
+    fts_query = " OR ".join(f'"{_fts_escape(term)}"' for term in query_terms)
+    try:
+        rows = conn.execute(
+            "SELECT id, bm25(files_fts) AS rank FROM files_fts WHERE files_fts MATCH ? ORDER BY rank ASC LIMIT ?",
+            (fts_query, limit),
+        ).fetchall()
+        if rows:
+            candidates: list[_LayerCandidate] = []
+            for row in rows:
+                candidate_id = str(row["id"] or "")
+                file_row = _row_by_id(file_rows, candidate_id)
+                if file_row is None:
+                    continue
+                if _visibility_block_reason(
+                    file_row,
+                    active_contexts,
+                    quarantined_artifact_ids=quarantined_artifact_ids,
+                    quarantined_batch_ids=quarantined_batch_ids,
+                    include_quarantined=include_quarantined,
+                ) is not None:
+                    continue
+                rank_value = row["rank"]
+                try:
+                    score = -float(rank_value)
+                except Exception:
+                    score = 0.0
+                candidates.append(_LayerCandidate(id=candidate_id, score=score, source="fts_bm25"))
+            return _truncate_layer_candidates(candidates, limit), "bm25"
+    except sqlite3.Error:
+        pass
+
+    match_rows: list[sqlite3.Row] = []
+    try:
+        match_rows = conn.execute(
+            "SELECT id, summary, content FROM files_fts WHERE files_fts MATCH ?",
+            (fts_query,),
+        ).fetchall()
+    except sqlite3.Error:
+        match_rows = []
+
+    if match_rows:
+        candidates = []
+        for row in match_rows:
+            candidate_id = str(row["id"] or "")
+            file_row = _row_by_id(file_rows, candidate_id)
+            if file_row is None:
+                continue
+            if _visibility_block_reason(
+                file_row,
+                active_contexts,
+                quarantined_artifact_ids=quarantined_artifact_ids,
+                quarantined_batch_ids=quarantined_batch_ids,
+                include_quarantined=include_quarantined,
+            ) is not None:
+                continue
+            text = f"{row['summary'] or ''}\n{row['content'] or ''}"
+            score = _term_count_score(text, query_terms)
+            candidates.append(_LayerCandidate(id=candidate_id, score=score, source="fts_match_fallback"))
+        return _truncate_layer_candidates(candidates, limit), "match_fallback"
+
+    candidates = []
+    for row in file_rows:
+        if _visibility_block_reason(
+            row,
+            active_contexts,
+            quarantined_artifact_ids=quarantined_artifact_ids,
+            quarantined_batch_ids=quarantined_batch_ids,
+            include_quarantined=include_quarantined,
+        ) is not None:
+            continue
+        score = _term_count_score(_metadata_haystack(row), query_terms)
+        if score <= 0:
+            continue
+        candidates.append(_LayerCandidate(id=str(row["id"]), score=score, source="fts_match_fallback"))
+    return _truncate_layer_candidates(candidates, limit), "match_fallback"
+
+
+def _vector_ranked_candidates(
+    file_rows: list[sqlite3.Row],
+    *,
+    vault: Path,
+    active_contexts: set[str],
+    quarantined_artifact_ids: set[str],
+    quarantined_batch_ids: set[str],
+    include_quarantined: bool,
+    limit: int,
+    query: str,
+) -> list[_LayerCandidate]:
+    candidates: list[_LayerCandidate] = []
+    for row in file_rows:
+        if _visibility_block_reason(
+            row,
+            active_contexts,
+            quarantined_artifact_ids=quarantined_artifact_ids,
+            quarantined_batch_ids=quarantined_batch_ids,
+            include_quarantined=include_quarantined,
+        ) is not None:
+            continue
+        score = _vector_score(query, str(row["id"]), vault)
+        candidates.append(_LayerCandidate(id=str(row["id"]), score=score, source="vector"))
+    return _truncate_layer_candidates(candidates, limit)
+
+
+def _fuse_ranked_candidates(
+    *,
+    rows_by_id: dict[str, sqlite3.Row],
+    sql_candidates: list[_LayerCandidate],
+    fts_candidates: list[_LayerCandidate],
+    vector_candidates: list[_LayerCandidate],
+    rrf_k: int,
+    fused_limit: int,
+) -> tuple[list[RetrievalItem], dict[str, Any]]:
+    candidate_lists = [sql_candidates, fts_candidates, vector_candidates]
+    rrf_scores: dict[str, float] = defaultdict(float)
+    source_order: dict[str, list[str]] = defaultdict(list)
+    for candidates in candidate_lists:
+        for rank, candidate in enumerate(candidates, start=1):
+            rrf_scores[candidate.id] += 1.0 / (rrf_k + rank)
+            if candidate.source not in source_order[candidate.id]:
+                source_order[candidate.id].append(candidate.source)
+
+    fused_items: list[RetrievalItem] = []
+    for record_id, score in sorted(
+        rrf_scores.items(),
+        key=lambda item: (
+            item[1],
+            len(source_order.get(item[0], [])),
+            int(any(source.startswith("fts") for source in source_order.get(item[0], []))),
+            _type_boost(str(rows_by_id[item[0]]["type"])) if item[0] in rows_by_id else 0.0,
+            str(rows_by_id[item[0]]["summary"]) if item[0] in rows_by_id else item[0],
+        ),
+        reverse=True,
+    ):
+        row = rows_by_id.get(record_id)
+        if row is None:
+            continue
+        sources = source_order.get(record_id, [])
+        fused_items.append(
+            _item_from_row(
+                row,
+                score=round(score, 6),
+                reason=f"rrf:{'+'.join(sources)}" if sources else "rrf",
+            )
+        )
+        if len(fused_items) >= fused_limit:
+            break
+
+    stats = {
+        "sql_candidate_count": len(sql_candidates),
+        "fts_candidate_count": len(fts_candidates),
+        "vector_candidate_count": len(vector_candidates),
+        "fused_candidate_count": len(fused_items),
+        "overlap_count": sum(1 for sources in source_order.values() if len(set(sources)) > 1),
+        "source_order": source_order,
+    }
+    return fused_items, stats
+
+
+def _demote_graph_neighbors(
+    direct_loaded: list[RetrievalItem],
+    *,
+    rows_by_id: dict[str, sqlite3.Row],
+    link_rows: list[sqlite3.Row],
+    source_order: dict[str, list[str]],
+) -> list[RetrievalItem]:
+    if len(direct_loaded) < 2:
+        return direct_loaded
+    edges_by_source = _build_graph_edges(rows_by_id, link_rows)
+    kept: list[RetrievalItem] = []
+    for item in direct_loaded:
+        source_count = len(set(source_order.get(item.id, [])))
+        if source_count >= 3:
+            kept.append(item)
+            continue
+        linked_from_kept = False
+        for kept_item in kept:
+            for edge in edges_by_source.get(kept_item.id, []):
+                if edge.target_id == item.id:
+                    linked_from_kept = True
+                    break
+            if linked_from_kept:
+                break
+        if linked_from_kept:
+            continue
+        kept.append(item)
+    return kept
+
+
+def _item_from_row(row: sqlite3.Row, *, score: float, reason: str) -> RetrievalItem:
+    return RetrievalItem(
+        id=str(row["id"]),
+        type=str(row["type"]),
+        path=str(row["path"]),
+        summary=str(row["summary"]),
+        score=round(score, 3),
+        reason=reason,
+    )
+
+
+def _truncate_layer_candidates(candidates: list[_LayerCandidate], limit: int) -> list[_LayerCandidate]:
+    candidates.sort(key=lambda candidate: (candidate.score, candidate.id), reverse=True)
+    return candidates[:limit]
+
+
+def _row_by_id(file_rows: list[sqlite3.Row], record_id: str) -> sqlite3.Row | None:
+    for row in file_rows:
+        if str(row["id"]) == record_id:
+            return row
+    return None
+
+
+def _term_count_score(text: str, terms: list[str]) -> int:
+    lowered = text.lower()
+    return sum(1 for term in terms if term in lowered)
+
+
+def _sql_metadata_score(row: sqlite3.Row, arena: str, query: str) -> float:
+    score = 0.0
+    if row["domain_primary"] == arena or row["domain_primary"] == "cross_arena":
+        score += 2.0
+    score += _type_boost(str(row["type"]))
+    lowered = query.lower()
+    query_terms = [term for term in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]+", lowered) if len(term) > 2]
+    haystack = _metadata_haystack(row)
+    if query_terms and any(term in haystack for term in query_terms):
+        score += 1.2
+    if row["type"] == "evidence":
+        actors = {item.lower() for item in _json_list(row["actors"])}
+        if any(term in actors for term in query_terms):
+            score += 1.0
+        if any(term == str(row["source_type"]).lower() for term in query_terms):
+            score += 0.7
+    elif row["type"] == "claim":
+        if any(term == str(row["claim_class"]).lower() for term in query_terms):
+            score += 0.8
+        if any(term == str(row["status"]).lower() for term in query_terms):
+            score += 0.6
+    elif row["type"] == "pattern":
+        if any(term == str(row["pattern_type"]).lower() for term in query_terms):
+            score += 0.8
+    elif row["type"] == "artifact":
+        if any(term == str(row["file_name"] or "").lower() for term in query_terms):
+            score += 0.8
+        if any(term in str(row["source_path"] or "").lower() for term in query_terms):
+            score += 0.8
+    if str(row["status"]) == "active":
+        score += 0.5
+    elif str(row["status"]) in {"confirmed", "disputed"}:
+        score += 0.2
+    if str(row["significance"]) == "high":
+        score += 0.7
+    confidence_score = row["confidence_score"] if "confidence_score" in row.keys() else None
+    if isinstance(confidence_score, (int, float)):
+        score += float(confidence_score) * 0.3
+    return score
 
 
 def _infer_domain(query: str, explicit: str | None) -> tuple[str, float]:
@@ -1067,16 +1544,31 @@ def _log_retrieval(
     graph_loaded: list[RetrievalItem],
     rejected: list[RetrievalItem],
     graph_blocked: list[RetrievalItem],
+    *,
+    retrieval_mode: str = "legacy",
+    fusion_enabled: bool = False,
+    sql_candidate_count: int | None = None,
+    fts_candidate_count: int | None = None,
+    vector_candidate_count: int | None = None,
+    fused_candidate_count: int | None = None,
+    overlap_count: int | None = None,
+    rrf_k: int | None = None,
+    per_layer_limit: int | None = None,
+    fused_limit: int | None = None,
+    fts_mode: str | None = None,
 ) -> None:
     try:
+        _ensure_retrieval_log_columns(conn)
         conn.execute(
             """
             INSERT INTO retrieval_log (
                 conversation_id, user_query, domain_context, classification_confidence,
                 files_loaded, direct_files_loaded, graph_files_loaded, files_rejected, rejection_reasons,
                 graph_blocked_count, graph_blocked_reasons, token_count, privacy_level,
-                cross_compartment, model_used
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                cross_compartment, model_used, retrieval_mode, fusion_enabled,
+                sql_candidate_count, fts_candidate_count, vector_candidate_count, fused_candidate_count,
+                overlap_count, rrf_k, per_layer_limit, fused_limit, fts_mode
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 conversation_id,
@@ -1094,11 +1586,49 @@ def _log_retrieval(
                 "mixed" if any(item.reason == "compartment_blocked" for item in rejected) or graph_blocked else "normal",
                 int(bool(rejected or graph_blocked)),
                 None,
+                retrieval_mode,
+                int(bool(fusion_enabled)),
+                sql_candidate_count,
+                fts_candidate_count,
+                vector_candidate_count,
+                fused_candidate_count,
+                overlap_count,
+                rrf_k,
+                per_layer_limit,
+                fused_limit,
+                fts_mode,
             ),
         )
         conn.commit()
     except sqlite3.Error:
         pass
+
+
+def _ensure_retrieval_log_columns(conn: sqlite3.Connection) -> None:
+    try:
+        existing = {str(row[1]) for row in conn.execute("PRAGMA table_info(retrieval_log)").fetchall()}
+    except sqlite3.Error:
+        return
+    desired = {
+        "retrieval_mode": "TEXT",
+        "fusion_enabled": "BOOLEAN",
+        "sql_candidate_count": "INTEGER",
+        "fts_candidate_count": "INTEGER",
+        "vector_candidate_count": "INTEGER",
+        "fused_candidate_count": "INTEGER",
+        "overlap_count": "INTEGER",
+        "rrf_k": "INTEGER",
+        "per_layer_limit": "INTEGER",
+        "fused_limit": "INTEGER",
+        "fts_mode": "TEXT",
+    }
+    for column, column_type in desired.items():
+        if column in existing:
+            continue
+        try:
+            conn.execute(f"ALTER TABLE retrieval_log ADD COLUMN {column} {column_type}")
+        except sqlite3.Error:
+            pass
 
 
 def _load_relevant_contradictions(vault: Path, query: str) -> list[str]:

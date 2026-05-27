@@ -55,5 +55,14 @@
     "recipient_env": "LISAN_BACKUP_RECIPIENT",
     "identity_env": "LISAN_BACKUP_IDENTITY",
     "age_binary_env": "AGE_BIN"
+  },
+  "retrieval": {
+    "fusion": {
+      "enabled": true,
+      "method": "rrf",
+      "rrf_k": 60,
+      "per_layer_limit": 30,
+      "fused_limit": 20
+    }
   }
 }
