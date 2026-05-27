@@ -8,6 +8,7 @@ from typing import Any
 
 from ..frontmatter import load_markdown
 from ..paths import sqlite_path, vault_root
+from .domain_fields import with_domain_fields
 
 
 def generate_health_report(vault: Path | None = None, db_path: Path | None = None) -> str:
@@ -16,10 +17,35 @@ def generate_health_report(vault: Path | None = None, db_path: Path | None = Non
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
+        report_date = date.today().isoformat()
+        frontmatter = with_domain_fields(
+            {
+                "id": f"report.health.{report_date}",
+                "type": "report",
+                "created": report_date,
+                "updated": report_date,
+                "status": "active",
+                "significance": "low",
+                "domain_primary": "cross_arena",
+                "domain_secondary": [],
+                "privacy": "personal",
+                "compartments": [],
+                "allowed_contexts": ["all"],
+                "blocked_contexts": [],
+                "summary": "Memory health report",
+                "links": [],
+                "confidence": "low",
+                "confidence_basis": "Generated memory health report",
+                "last_confirmed": report_date,
+                "review_after": report_date,
+                "generated": report_date,
+            }
+        )
         lines = ["# Memory Health Report", ""]
         if not db_path.exists():
             lines.append("SQLite index not found.")
-            return "\n".join(lines) + "\n"
+            body = "\n".join(lines).rstrip() + "\n"
+            return _render_report(frontmatter, body)
 
         stale_states = []
         for path in (vault / "state").glob("*.md"):
@@ -174,7 +200,8 @@ def generate_health_report(vault: Path | None = None, db_path: Path | None = Non
         for key, value in counts.items():
             lines.append(f"- {key}: {value}")
 
-        return "\n".join(lines).rstrip() + "\n"
+        body = "\n".join(lines).rstrip() + "\n"
+        return _render_report(frontmatter, body)
     finally:
         conn.close()
 
@@ -185,3 +212,7 @@ def main(argv: list[str] | None = None) -> int:
     out.write_text(report, encoding="utf-8")
     print(str(out))
     return 0
+
+
+def _render_report(frontmatter: dict[str, Any], body: str) -> str:
+    return "---\n" + json.dumps(frontmatter, indent=2, ensure_ascii=True) + "\n---\n\n" + body
