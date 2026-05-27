@@ -80,7 +80,11 @@ class PromptAgent:
                 schema=schema,
             )
             data = self.parse_output(response.text)
-            if schema is not None and not isinstance(data, dict):
+            # Validate: dict is required when a schema is present, AND all
+            # schema-required fields must be present.  A partial dict from a
+            # reasoning-model fallback parser (missing required keys) is treated
+            # the same as a non-dict response and triggers the fallback.
+            if schema is not None and not _schema_satisfied(data, schema):
                 from ..tools.log import log_error
                 log_error(self.vault, f"{self.name}.parse", ValueError(
                     f"non-JSON response from {response.provider}: {response.text[:120]!r}"
@@ -129,3 +133,11 @@ class PromptAgent:
 
     def fallback_output(self, user_input: str, significance: str = "medium", **kwargs: Any) -> str:
         return user_input
+
+
+def _schema_satisfied(data: Any, schema: dict) -> bool:
+    """Return True iff *data* is a dict and contains all schema-required keys."""
+    if not isinstance(data, dict):
+        return False
+    required = schema.get("required", [])
+    return all(k in data for k in required)

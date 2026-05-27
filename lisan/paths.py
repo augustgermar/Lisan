@@ -39,7 +39,38 @@ def schemas_dir(base: Path | None = None) -> Path:
 
 _IDENTITY_TEMPLATE = "# Identity\n"
 
-_OPERATING_STYLE_TEMPLATE = "# Operating Style\n"
+_OPERATING_STYLE_TEMPLATE = """\
+---
+{
+  "emotion-naming": null,
+  "directness": null,
+  "opener-style": null,
+  "summary-length": null
+}
+---
+
+# Operating Style
+
+> Structured preferences live in the frontmatter above. Set values to control
+> fallback-path behavior:
+>
+> - `emotion-naming`: `false` to forbid Lisan from naming emotions
+>   prematurely in fallback responses. `null` = no opinion (default).
+> - `directness`: `true` if you prefer terse, direct phrasing.
+> - `opener-style`: `"minimal"` to skip preamble and small talk.
+> - `summary-length`: `"short"` for terse summaries.
+>
+> Free-text notes below are read by the LLM path. The parser also checks the
+> body for common preference phrases as a legacy fallback.
+
+## Communication Style
+
+_Not yet filled in._
+
+## Working Style
+
+_Not yet filled in._
+"""
 
 _DOMAINS_TEMPLATE = """\
 # Life Domains Definition

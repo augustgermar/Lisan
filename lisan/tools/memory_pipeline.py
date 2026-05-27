@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -34,6 +35,7 @@ from .record_factory import (
     upsert_state,
 )
 from .transcripts import append_transcript
+from ..agents.writer import _truncate_summary as _truncate_summary_boundary
 
 
 # Domains that may be inferred from a record's content alone.
@@ -157,7 +159,9 @@ def run_memory_pipeline(
         )
 
     record_inline_step("memory_pipeline.assembler")
-    context = AssemblerAgent(vault=vault).run(text).text
+    # Finding #12: pass conversation_id so the cross-conversation preamble
+    # fires on the extraction path as well as the elicitor path.
+    context = AssemblerAgent(vault=vault).run(text, conversation_id=conversation_id).text
     task = _choose_task(text=text, listener=listener)
     significance = "high" if action == "full" else "medium"
     common_kwargs = {
@@ -405,16 +409,22 @@ def _write_draft(
     action: str,
     skeptic_approved: bool,
 ) -> Path:
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    # Finding #6: the previous implementation used a live timestamp, so retries
+    # of the same source text produced sibling draft files. Hashing the source
+    # text makes the filename deterministic per turn; retries overwrite the
+    # earlier draft instead of accumulating. today_iso() prefix preserves
+    # uniqueness across days for the rare case of identical text on two days.
+    content_hash = hashlib.sha1(text.encode("utf-8")).hexdigest()[:10]
     slug = slugify(str(writer.get("summary") or text[:48]))[:80]
-    path = vault / "drafts" / f"{today_iso()}-{timestamp}-{slug}.md"
+    path = vault / "drafts" / f"{today_iso()}-{content_hash}-{slug}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     # Finding 2: rejected drafts are held for Dreamer review with a distinct
     # status so the batch review process can find them.
     draft_status = "pending" if skeptic_approved else "needs_revision"
-    writer_fm = writer.get("frontmatter") or {}
+    writer_fm_raw = writer.get("frontmatter")
+    writer_fm: dict[str, Any] = writer_fm_raw if isinstance(writer_fm_raw, dict) else {}
     frontmatter = {
-        "id": f"draft.memory.{timestamp}.{slug}",
+        "id": f"draft.memory.{content_hash}.{slug}",
         "type": "draft",
         "created": today_iso(),
         "updated": today_iso(),
@@ -426,7 +436,12 @@ def _write_draft(
         "compartments": [],
         "allowed_contexts": ["all"],
         "blocked_contexts": [],
-        "summary": str(writer.get("summary") or text[:120]),
+        # Finding #7: enforce word/sentence-boundary truncation on the
+        # frontmatter summary too. The writer's working summary may be up to
+        # 240 chars; the frontmatter convention is 120.
+        "summary": _truncate_summary_boundary(
+            str(writer.get("summary") or text), 120,
+        ),
         "links": [str(transcript_path.relative_to(vault))],
         "confidence": str(writer_fm.get("confidence", "low")),
         "confidence_basis": str(writer_fm.get("confidence_basis", "Deterministic memory pipeline")),
@@ -608,6 +623,8 @@ def _create_open_loops(vault: Path, writer: dict[str, Any], draft_rel: str) -> N
     loops = writer.get("open_loops_to_create") or []
     entity_names = _entity_canonical_names(writer)
     for loop in loops:
+        if not isinstance(loop, dict):
+            continue
         title = str(loop.get("title") or "").strip()
         next_action = str(loop.get("next_action") or "").strip()
         summary = str(loop.get("summary") or "").strip()
@@ -651,6 +668,8 @@ def _apply_state_updates(vault: Path, writer: dict[str, Any], draft_rel: str) ->
     updates = writer.get("state_updates") or []
     entity_names = _entity_canonical_names(writer)
     for update in updates:
+        if not isinstance(update, dict):
+            continue
         raw_category = update.get("category", update.get("arena"))
         summary = str(update.get("summary") or "").strip()
         confidence = str(update.get("confidence") or "low").strip()
@@ -684,21 +703,27 @@ def _apply_state_updates(vault: Path, writer: dict[str, Any], draft_rel: str) ->
 # ── Fanout: entities ──────────────────────────────────────────────────────────
 
 def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel: str) -> None:
-    """Finding 1 (v0.1.7): dedupe across short/full name variants.
+    """Materialize entity stubs proposed by the writer.
 
-    The writer regularly extracts the same person twice — once by first name
-    and once by full name. We dedupe within the
-    current writer output and against the vault: if the proposed name matches
-    or is a fragment of an existing entity's canonical name / aliases, we add
-    the new variant to that entity's aliases instead of creating a sibling
-    file.
+    Finding 1 (v0.1.7): dedupe across short/full name variants.
+    Finding #4 (v26.5.27): reject nonsense entity proposals (days of the week,
+    adverbs, tool names, single capitalized words that are not in the primer
+    cast).
+    Finding #5 (v26.5.27): refuse to merge two multi-word entities just
+    because they share a surname token — require >= 2 shared tokens, or a
+    full-name match, or a primer-cast tiebreaker.
     """
+    from .primer_index import known_names as _primer_known_names
+
     entities = writer.get("entities_to_create") or []
     if not entities:
         return
     index = _load_entity_index(vault)
+    primer_cast = _primer_known_names(vault)
     seen_in_pass: set[str] = set()
     for entry in entities:
+        if not isinstance(entry, dict):
+            continue
         name = str(entry.get("name") or "").strip()
         subtype = str(entry.get("subtype") or "person").strip()
         summary = str(entry.get("summary") or "").strip()
@@ -709,13 +734,18 @@ def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel: str) ->
             continue
         seen_in_pass.add(normalized)
 
-        existing = _match_existing_entity(name, subtype, index)
+        # Finding #4: validate before any creation or merge.
+        if not _looks_like_entity(name, subtype, primer_cast):
+            continue
+
+        existing = _match_existing_entity(name, subtype, index, primer_cast)
         if existing is not None:
             _append_entity_alias(existing, name)
             # Refresh the in-memory index so the next sibling in the same pass
-            # also resolves to this canonical entity.
-            for alias_form in (name, name.lower()):
-                index.setdefault(alias_form, existing)
+            # also resolves to this canonical entity. Full-name key only —
+            # surname tokens stay subject to the strict-token rule.
+            index.setdefault(name.lower(),
+                             {"path": existing, "kind": "full", "canonical": name})
             continue
         try:
             created = new_entity(
@@ -728,16 +758,90 @@ def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel: str) ->
             )
         except FileExistsError:
             continue
-        # Track the new file so later iterations dedupe against it.
-        index[name.lower()] = created.path
-        canonical = name
-        for token in canonical.split():
-            index.setdefault(token.lower(), created.path)
+        # Finding #5: when seeding the index after a creation, register only
+        # the full canonical name as a "full" hit and each token as "token".
+        # If a second entity later tries to claim the same token, the index
+        # marks it ambiguous and the strict matcher refuses cross-merges.
+        index.setdefault(name.lower(),
+                         {"path": created.path, "kind": "full", "canonical": name})
+        for token in name.split():
+            tkey = token.lower()
+            existing_entry = index.get(tkey)
+            if existing_entry is None:
+                index[tkey] = {"path": created.path, "kind": "token", "canonical": name}
+            elif existing_entry.get("path") != created.path and existing_entry.get("kind") == "token":
+                existing_entry["kind"] = "ambiguous"
 
 
-def _load_entity_index(vault: Path) -> dict[str, Path]:
-    """Map every alias / canonical-name token to its entity file path."""
-    index: dict[str, Path] = {}
+def _looks_like_entity(name: str, subtype: str, primer_cast: frozenset[str]) -> bool:
+    """Finding #4: validate that *name* is plausibly an entity of *subtype*.
+
+    Rules:
+    - Primer-known names are *always* accepted, regardless of subtype-specific
+      shape rules. This is what lets users with month-or-day names ("August",
+      "May", "Friday" as a child) be recognized once they're in identity.md.
+    - For ``subtype == "person"``: require at least two capitalized tokens,
+      *or* exact membership in the primer cast. A bare capitalized word
+      ("Slack", "Strategically", "What") is rejected unless the primer
+      whitelists it.
+    - For other subtypes (place, thing, organization, project): always accept
+      — those are more permissive in shape and rarely produce nonsense.
+    """
+    from .stopwords import SENTENCE_INITIAL_OR_TOOL_STOPWORDS, MONTH_STOPWORDS, DAY_STOPWORDS
+
+    if not name:
+        return False
+
+    # Primer allowlist wins over every blocklist. The user's own name "August"
+    # is in the primer, so even though "August" is in MONTH_STOPWORDS, this
+    # branch returns True before we ever consult the blocklist.
+    if name in primer_cast:
+        return True
+
+    # Names like "Mr X" or full names with proper capitalization are still
+    # checked against shape rules below.
+    tokens = name.split()
+    if not tokens:
+        return False
+
+    if subtype == "person":
+        # Single-word person names need primer support (handled above).
+        if len(tokens) < 2:
+            return False
+        # Reject if any token looks like a stopword (days, tools, adverbs).
+        # Months are intentionally excluded from SENTENCE_INITIAL_OR_TOOL_STOPWORDS;
+        # we check them separately so primer-cast members survive.
+        for tok in tokens:
+            if tok in SENTENCE_INITIAL_OR_TOOL_STOPWORDS:
+                return False
+            if tok in DAY_STOPWORDS:
+                return False
+            # Months only block if they're not in the primer (already short-
+            # circuited above).
+            if tok in MONTH_STOPWORDS and tok not in primer_cast:
+                return False
+        # All tokens must look like proper-noun shape.
+        if not all(t[:1].isupper() and len(t) > 1 for t in tokens):
+            return False
+        return True
+
+    # Non-person subtypes: light-touch validation.
+    if name in SENTENCE_INITIAL_OR_TOOL_STOPWORDS and name not in primer_cast:
+        return False
+    return True
+
+
+def _load_entity_index(vault: Path) -> dict[str, dict[str, Any]]:
+    """Map names and tokens to entity records, keeping them distinguishable.
+
+    Finding #5: a previous version flattened "full canonical name" and
+    "individual token" lookups onto the same path, so a surname-only token hit
+    looked identical to a full-name hit. We now mark each entry as ``"full"``,
+    ``"token"``, or ``"ambiguous"`` (when two entities both claim the same
+    token), and ``_match_existing_entity`` reads those flags to decide whether
+    a merge is safe.
+    """
+    index: dict[str, dict[str, Any]] = {}
     entities_root = vault / "entities"
     if not entities_root.exists():
         return index
@@ -752,29 +856,75 @@ def _load_entity_index(vault: Path) -> dict[str, Path]:
         for name in names:
             if not name:
                 continue
-            index.setdefault(name.lower(), path)
-            # Also index each individual word so a first name matches a full name.
+            key = name.lower()
+            index.setdefault(key, {"path": path, "kind": "full", "canonical": canonical or name})
             for token in name.split():
-                index.setdefault(token.lower(), path)
+                tkey = token.lower()
+                existing = index.get(tkey)
+                if existing is None:
+                    index[tkey] = {"path": path, "kind": "token", "canonical": canonical or name}
+                elif existing.get("path") != path and existing.get("kind") == "token":
+                    # Two distinct entities want the same surname token. Mark
+                    # the entry ambiguous so single-token merges are refused.
+                    existing["kind"] = "ambiguous"
     return index
 
 
-def _match_existing_entity(name: str, subtype: str, index: dict[str, Path]) -> Path | None:
-    """Find an entity that this proposed name should fold into, if any."""
+def _match_existing_entity(
+    name: str,
+    subtype: str,
+    index: dict[str, dict[str, Any]],
+    primer_cast: frozenset[str] | None = None,
+) -> Path | None:
+    """Find an entity that this proposed name should fold into, if any.
+
+    Finding #5 rules:
+    - Full-name match (case-insensitive) → merge if subtype matches.
+    - Single-word proposal → merge only if the token is unambiguous.
+    - Multi-word proposal → require >= 2 shared tokens with the same target,
+      or a single shared token whose entry resolves to the same primer-cast
+      canonical as the proposal.
+    """
+    primer_cast = primer_cast or frozenset()
+
     direct = index.get(name.lower())
-    if direct is not None and _entity_subtype(direct) == subtype:
-        return direct
-    # If the proposed name is multi-word and one of its tokens is in the
-    # index, treat that as the canonical entity. This handles the writer
-    # introducing a full name after a first name already exists.
+    if direct and direct.get("kind") == "full" and _entity_subtype(direct["path"]) == subtype:
+        return direct["path"]
+
     tokens = [t.lower() for t in name.split() if t]
-    for token in tokens:
-        candidate = index.get(token)
-        if candidate is None:
+    if not tokens:
+        return None
+
+    if len(tokens) == 1:
+        # Single-word proposal can absorb into an existing multi-word entity
+        # only when exactly one entity claims that token.
+        entry = index.get(tokens[0])
+        if entry is None:
+            return None
+        if entry.get("kind") in ("token", "full") and _entity_subtype(entry["path"]) == subtype:
+            return entry["path"]
+        return None
+
+    # Multi-word proposal: tally per-target token hits.
+    hits: dict[Path, int] = {}
+    for tok in tokens:
+        entry = index.get(tok)
+        if not entry or entry.get("kind") == "ambiguous":
             continue
-        if _entity_subtype(candidate) != subtype:
+        if _entity_subtype(entry["path"]) != subtype:
             continue
-        return candidate
+        hits[entry["path"]] = hits.get(entry["path"], 0) + 1
+    # Require >= 2 token overlap for a multi-word merge.
+    for path, n in hits.items():
+        if n >= 2:
+            return path
+    # Optional primer-cast tiebreaker: if there's exactly one single-token
+    # hit *and* the proposed name is in the primer cast and the existing
+    # entity's canonical is also in the primer cast under a different name,
+    # refuse the merge (they are distinct primer-cast members).
+    if hits and primer_cast and name in primer_cast:
+        # Two primer-cast members with a shared surname: never merge.
+        return None
     return None
 
 
@@ -823,6 +973,8 @@ def _create_evidence_records(
     entity_names = _entity_canonical_names(writer)
     evidence_id_map: dict[str, str] = {}
     for entry in evidence_items:
+        if not isinstance(entry, dict):
+            continue
         title = str(entry.get("title") or entry.get("summary") or "").strip()
         if not title:
             continue
@@ -880,6 +1032,8 @@ def _create_claim_records(
     claim_id_map: dict[str, str] = {}
     entity_names = _entity_canonical_names(writer)
     for entry in claims:
+        if not isinstance(entry, dict):
+            continue
         claim_text = str(entry.get("claim_text") or entry.get("summary") or "").strip()
         if not claim_text:
             continue
@@ -1030,7 +1184,8 @@ def _create_decisions(vault: Path, writer: dict[str, Any], draft_rel: str | None
     if not decisions and str(writer.get("record_type") or "").strip().lower() == "decision":
         summary = str(writer.get("summary") or "").strip()
         if summary:
-            frontmatter = writer.get("frontmatter") or {}
+            _raw_fm = writer.get("frontmatter")
+            frontmatter: dict[str, Any] = _raw_fm if isinstance(_raw_fm, dict) else {}
             decisions = [{
                 "title": summary,
                 "summary": summary,
@@ -1043,6 +1198,8 @@ def _create_decisions(vault: Path, writer: dict[str, Any], draft_rel: str | None
                 "linked_claims": listify(frontmatter.get("linked_claims")),
             }]
     for entry in decisions:
+        if not isinstance(entry, dict):
+            continue
         title = str(entry.get("title") or "").strip()
         summary = str(entry.get("summary") or "").strip()
         domain = _infer_domain(

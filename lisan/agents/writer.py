@@ -9,6 +9,38 @@ from ..utils import approx_word_count
 from .base import PromptAgent
 
 
+def _truncate_summary(text: str, cap: int) -> str:
+    """Return *text* truncated to at most *cap* chars, respecting word and
+    sentence boundaries when possible (Finding #7).
+
+    Prefers the last sentence boundary inside the window. Falls back to the
+    last word boundary with an ellipsis. Never returns a mid-word slice.
+    """
+    if len(text) <= cap:
+        return text
+    window = text[:cap]
+    # Sentence boundaries — search from the right, take the closest meaningful one.
+    sentence_end = max(
+        window.rfind(". "),
+        window.rfind("? "),
+        window.rfind("! "),
+        window.rfind(".\n"),
+        window.rfind("?\n"),
+        window.rfind("!\n"),
+    )
+    # Only accept a sentence boundary if it leaves a non-trivial summary
+    # behind — at least 40% of the cap (so a tiny first sentence doesn't
+    # short-circuit a long summary, but a meaningful first sentence wins).
+    if sentence_end >= max(12, (cap * 2) // 5):
+        return text[: sentence_end + 1].rstrip()
+    # Word boundary fallback. rsplit guarantees no mid-word break.
+    trimmed = window.rsplit(" ", 1)[0].rstrip(".,;:!?-—")
+    if not trimmed:
+        # Pathological input with no whitespace; hard slice as last resort.
+        return window
+    return trimmed + "…"
+
+
 _TASK_PROMPT_FILES = {
     # v0.1.9: the legacy single-shot episode prompt is kept as a fallback
     # alias for callers that haven't migrated to the split.
@@ -65,12 +97,20 @@ class WriterAgent(PromptAgent):
             return parsed
         return None
 
+    # Finding #7: the working summary returned by the fallback writer is what
+    # the skeptic and the interlocutor see. The draft frontmatter's `summary`
+    # field has its own 120-char convention enforced at write time
+    # (memory_pipeline._write_draft uses str(...)[:120]). Giving the working
+    # summary more room (240 chars) lets a full first sentence survive so
+    # downstream agents have a coherent thought to react to.
+    _WORKING_SUMMARY_CAP = 240
+
     def _summary_from_input(self, text: str) -> str:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         if not lines:
             return "Draft memory"
         first = lines[0]
-        return first[:120]
+        return _truncate_summary(first, self._WORKING_SUMMARY_CAP)
 
     def _sections(self, task: str, text: str) -> dict[str, str]:
         if task == "questions":
@@ -111,24 +151,63 @@ class WriterAgent(PromptAgent):
         return questions[:5]
 
     def _extract_entity_stubs(self, text: str) -> list[dict[str, str]]:
-        """Deterministic fallback: extract capitalized proper nouns as entity stubs."""
-        _SKIP = {
-            "I", "My", "The", "A", "An", "It", "He", "She", "They", "We", "You",
-            "No", "Yes", "Ok", "Okay", "So", "But", "And", "Or", "In", "On", "At",
-        }
+        """Deterministic fallback: extract capitalized proper nouns as entity stubs.
+
+        Finding #4: the previous version emitted any capitalized word as
+        ``subtype: "person"``. The new logic:
+
+        1. Pulls the primer-known cast first — first-name-only mentions of
+           known people produce stubs immediately.
+        2. Skips a much broader stopword list (days, interrogatives, adverbs,
+           tools). Months are *not* in the general stopword set; users can be
+           named after months (e.g. "August"). They are blocked only when
+           absent from the primer cast.
+        3. Requires multi-word capitalization shape for ``subtype: "person"``
+           when the candidate is not in the primer cast.
+        """
+        from ..tools.primer_index import known_names as _primer_known_names
+        from ..tools.stopwords import (
+            SENTENCE_INITIAL_OR_TOOL_STOPWORDS,
+            MONTH_STOPWORDS,
+            DAY_STOPWORDS,
+        )
+
+        primer_cast = _primer_known_names(self.vault)
+
         _PLACE_SUFFIXES = ("ranch", "farm", "park", "lake", "valley", "beach",
                            "street", "avenue", "road", "way", "drive", "blvd",
-                           "mountain", "river", "forest", "ranch")
+                           "mountain", "river", "forest")
         stubs: list[dict[str, str]] = []
         seen: set[str] = set()
         for match in re.finditer(r"\b[A-Z][a-z]+(?: [A-Z][a-z]+)?\b", text):
             name = match.group(0)
-            if name in _SKIP or name in seen:
-                continue
-            # Skip possessives ("Nates" when "Nate" already seen)
-            if name.endswith("s") and name[:-1] in seen:
+            if name in seen:
                 continue
             seen.add(name)
+
+            # Possessives ("Nates" when "Nate" already seen).
+            if name.endswith("s") and name[:-1] in seen:
+                continue
+
+            primer_hit = name in primer_cast
+
+            # Stopword check — primer hits are exempt.
+            if not primer_hit:
+                if name in SENTENCE_INITIAL_OR_TOOL_STOPWORDS:
+                    continue
+                if name in DAY_STOPWORDS:
+                    continue
+                if name in MONTH_STOPWORDS:
+                    # Month-shaped names need primer support to be considered.
+                    continue
+                # Single-word capitalized terms that aren't in the primer cast
+                # are usually adverbs or sentence-starters; skip them. Place
+                # names with a clear suffix get a free pass below.
+                if " " not in name:
+                    lower = name.lower()
+                    if not any(lower.endswith(s) for s in _PLACE_SUFFIXES):
+                        continue
+
             lower = name.lower()
             if any(lower.endswith(s) for s in _PLACE_SUFFIXES) or any(s in lower for s in _PLACE_SUFFIXES):
                 subtype = "place"

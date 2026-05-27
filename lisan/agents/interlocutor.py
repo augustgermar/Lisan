@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from ..tools.operating_style import load_operating_style
 from .base import PromptAgent
 
 
@@ -11,25 +12,90 @@ class InterlocutorAgent(PromptAgent):
     prompt_file = "interlocutor_v1"
     output_schema_name = "interlocutor_output"
 
+    def parse_output(self, text: str) -> Any | None:
+        """Finding #11: reject LLM output that parses but lacks the required
+        ``response`` field. The default ``extract_json`` can return a partial
+        dict (e.g. ``{"text": "..."}``) when the bullet-fallback parser fires;
+        accepting that lets prose narration leak through as the user-facing
+        response. Forcing a None return routes through ``fallback_output``
+        instead, which composes a safe acknowledgement from the writer's
+        structured output.
+        """
+        parsed = super().parse_output(text)
+        if not isinstance(parsed, dict):
+            return None
+        response = parsed.get("response")
+        if not isinstance(response, str) or not response.strip():
+            return None
+        return parsed
+
     def fallback_output(self, user_input: str, significance: str = "medium", **kwargs: Any) -> str:
-        questions = self._questions(user_input)
-        payload = {
-            "response": "I need a little more detail to proceed.",
+        """Finding #10 + #11: build a user-safe acknowledgement from the JSON
+        payload that ``_interlocutor_input`` passes in (writer summary,
+        decisions, entities). Honors persona preferences from
+        ``primer/operating-style.md`` when present.
+        """
+        payload_in = self._safe_parse(user_input)
+        style = load_operating_style(self.vault)
+        response = self._compose_response(payload_in, style)
+        questions = self._questions_from_payload(payload_in, user_input)
+        out = {
+            "response": response,
             "questions": questions,
             "recommended_action": "review_later" if questions else "auto_commit",
             "updated_narrative_state": {
                 "open_questions": questions,
-                "next_step": "Ask the highest-priority clarification question.",
+                "next_step": "Follow the user's lead.",
             },
         }
-        return json.dumps(payload, indent=2, ensure_ascii=True)
+        return json.dumps(out, indent=2, ensure_ascii=True)
 
-    def _questions(self, text: str) -> list[str]:
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _safe_parse(text: str) -> dict[str, Any]:
+        try:
+            data = json.loads(text)
+        except Exception:
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _compose_response(self, payload: dict[str, Any], style: dict[str, Any]) -> str:
+        summary = str(payload.get("writer_summary") or "").strip()
+        decisions = [d for d in (payload.get("decisions") or []) if isinstance(d, str) and d.strip()]
+        emotion_naming = style.get("emotion-naming")
+        directness = style.get("directness") is True
+
+        if decisions:
+            # Decisive turn → decisive acknowledgement.
+            first = decisions[0].strip().rstrip(".")
+            return f"Noted — {first}."
+
+        if summary:
+            # Preserve the summary's original capitalization. Lowercasing the
+            # lead character can mangle proper nouns ("Marcus pulled..." →
+            # "marcus pulled..."); the marginal grammatical awkwardness of
+            # capital-letter-after-em-dash is the lesser evil.
+            if directness:
+                return f"Heard: {summary.rstrip('.')}."
+            if emotion_naming is False:
+                # Avoid affect-laden openers; mirror the factual content.
+                return f"Got it — {summary}"
+            return f"Got it — {summary}"
+
+        # No structured content to mirror. Final-tier acknowledgement that
+        # never claims to need more detail, never invents emotional texture.
+        return "Heard. Say more when you're ready."
+
+    def _questions_from_payload(self, payload: dict[str, Any], raw_input: str) -> list[str]:
+        writer_questions = [q for q in (payload.get("writer_questions") or [])
+                            if isinstance(q, str) and q.strip()]
+        if writer_questions:
+            return writer_questions[:3]
+        # Fall back to the legacy heuristic: pick lines ending with "?".
         questions: list[str] = []
-        for line in text.splitlines():
+        for line in raw_input.splitlines():
             line = line.strip()
             if line.endswith("?"):
                 questions.append(line)
-        if not questions:
-            questions = ["What is the one detail that would change the draft most?"]
         return questions[:3]
