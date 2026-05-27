@@ -323,6 +323,10 @@ def _client_for(provider: str, config: dict[str, Any]) -> "ProviderClient":
         from .local import LocalClient
 
         return LocalClient(config)
+    if provider == "openrouter":
+        from .openrouter import OpenRouterClient
+
+        return OpenRouterClient(config)
     raise ProviderError(f"Unknown provider: {provider}")
 
 

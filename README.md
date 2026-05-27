@@ -437,7 +437,7 @@ python3 -m lisan sync
 
 ## Versioning
 
-Lisan uses date-based build versions going forward. The version number should track the current date in `YY.M.D` form for daily builds, such as `26.5.27`.
+Lisan uses date-based build versions going forward. The version number should track the current date in `YY.M.D.N` form, where `N` is the build counter for that day, such as `26.5.27.1`.
 
 Capture and conversation:
 

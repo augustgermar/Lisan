@@ -60,10 +60,31 @@ def _write_identity(path: Path, name: str, background: str, values: str, relatio
 
 
 def _write_operating_style(path: Path, communication: str, working: str) -> None:
-    lines = ["# Operating Style", ""]
-    lines += ["## Communication Style", "", communication or "_Not yet filled in._", ""]
-    lines += ["## Working Style", "", working or "_Not yet filled in._", ""]
-    path.write_text("\n".join(lines), encoding="utf-8")
+    # Structured preferences sit in JSON frontmatter so the fallback path can
+    # read them deterministically; the free-text body is read by the LLM path.
+    direct_lower = (communication or "").lower()
+    directness = True if any(p in direct_lower for p in ("direct", "brief", "terse", "concise")) else None
+    minimal = True if any(p in direct_lower for p in ("no preamble", "skip small", "minimal")) else False
+    frontmatter = {
+        "emotion-naming": None,
+        "directness": directness,
+        "opener-style": "minimal" if minimal else None,
+        "summary-length": None,
+    }
+    body_lines = [
+        "# Operating Style",
+        "",
+        "## Communication Style",
+        "",
+        communication or "_Not yet filled in._",
+        "",
+        "## Working Style",
+        "",
+        working or "_Not yet filled in._",
+        "",
+    ]
+    from ..frontmatter import dump_markdown
+    path.write_text(dump_markdown(frontmatter, "\n".join(body_lines)), encoding="utf-8")
 
 
 # ── Main flow ─────────────────────────────────────────────────────────────────

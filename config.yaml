@@ -20,34 +20,125 @@
     "local": {
       "enabled": true,
       "api_key_env": null,
-      "base_url": "http://localhost:11434/v1/chat/completions",
-      "default_model": "llama3.1"
+      "base_url": "http://127.0.0.1:8080/v1/chat/completions",
+      "default_model": "/Users/august/code/omnius/models/Jiunsong/supergemma4-26b-uncensored-mlx-4bit-v2"
+    },
+    "openrouter": {
+      "enabled": true,
+      "api_key_env": "OPENROUTER_API_KEY",
+      "base_url": "https://openrouter.ai/api/v1/chat/completions",
+      "default_model": "mistralai/mistral-nemo"
     }
   },
   "routing": {
-    "router":       {"low": "local", "medium": "local", "high": "local"},
-    "listener":     {"low": "local", "medium": "local", "high": "local"},
-    "assembler":    {"low": "local", "medium": "local", "high": "local"},
-    "elicitor":     {"low": "local", "medium": "local", "high": "local"},
-    "writer":       {"low": "local", "medium": "local", "high": "local"},
-    "skeptic":      {"low": "local", "medium": "local", "high": "local"},
-    "interlocutor": {"low": "local", "medium": "local", "high": "local"},
-    "dreamer":      {"low": "local", "medium": "local", "high": "local"}
+    "router": {
+      "low": "openrouter",
+      "medium": "openrouter",
+      "high": "openrouter"
+    },
+    "listener": {
+      "low": "openrouter",
+      "medium": "openrouter",
+      "high": "openrouter"
+    },
+    "assembler": {
+      "low": "openrouter",
+      "medium": "openrouter",
+      "high": "openrouter"
+    },
+    "elicitor": {
+      "low": "openrouter",
+      "medium": "openrouter",
+      "high": "openrouter"
+    },
+    "writer": {
+      "low": "openrouter",
+      "medium": "openrouter",
+      "high": "openrouter"
+    },
+    "skeptic": {
+      "low": "openrouter",
+      "medium": "openrouter",
+      "high": "openrouter"
+    },
+    "interlocutor": {
+      "low": "openrouter",
+      "medium": "openrouter",
+      "high": "openrouter"
+    },
+    "dreamer": {
+      "low": "openrouter",
+      "medium": "openrouter",
+      "high": "openrouter"
+    }
   },
   "heuristic": {
-    "thresholds": {"skip": 3, "lightweight": 6},
+    "thresholds": {
+      "skip": 3,
+      "lightweight": 6
+    },
     "affect_terms": [
-      "angry", "sad", "anxious", "excited", "afraid", "frustrated",
-      "happy", "proud", "surprised", "confused", "hurt", "nervous",
-      "grateful", "relieved", "disappointed", "interesting", "weird",
-      "strange", "awful", "amazing", "terrible", "wonderful",
-      "great", "fantastic", "incredible", "beautiful", "lovely",
-      "loving", "loved", "love", "enjoy", "enjoyed", "enjoying",
-      "hate", "hated", "miss", "missing", "fun", "tired",
-      "nice", "rough", "tough", "hard",
-      "exhausted", "drained", "overwhelmed", "stressed", "annoyed",
-      "bored", "busy", "sick", "lonely", "proud", "cozy", "cold", "warm"
+      "angry",
+      "sad",
+      "anxious",
+      "excited",
+      "afraid",
+      "frustrated",
+      "happy",
+      "proud",
+      "surprised",
+      "confused",
+      "hurt",
+      "nervous",
+      "grateful",
+      "relieved",
+      "disappointed",
+      "interesting",
+      "weird",
+      "strange",
+      "awful",
+      "amazing",
+      "terrible",
+      "wonderful",
+      "great",
+      "fantastic",
+      "incredible",
+      "beautiful",
+      "lovely",
+      "loving",
+      "loved",
+      "love",
+      "enjoy",
+      "enjoyed",
+      "enjoying",
+      "hate",
+      "hated",
+      "miss",
+      "missing",
+      "fun",
+      "tired",
+      "nice",
+      "rough",
+      "tough",
+      "hard",
+      "exhausted",
+      "drained",
+      "overwhelmed",
+      "stressed",
+      "annoyed",
+      "bored",
+      "busy",
+      "sick",
+      "lonely",
+      "cozy",
+      "cold",
+      "warm"
     ]
+  },
+  "ingest": {
+    "max_file_size_bytes": 5242880,
+    "text_preview_chars": 4000,
+    "skip_if_inside_vault": true
   },
   "backup": {
     "destination_dir": "backups",
