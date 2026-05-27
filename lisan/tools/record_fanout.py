@@ -54,7 +54,7 @@ def resolve_claim_links(raw_links: list[Any] | None, reference_map: dict[str, st
 # ── Evidence references (Finding 4) ──────────────────────────────────────────
 #
 # The writer often produces claim/evidence link strings that are natural-language
-# titles ("Transcript note: Devon staffing reflection") rather than resolvable
+# titles ("Transcript note: staffing reflection") rather than resolvable
 # IDs. We mirror the claim-id resolution pattern: build a map from every
 # stringified form of an evidence entry's title to the generated evidence ID,
 # then rewrite incoming link arrays through that map. Unresolvable strings are

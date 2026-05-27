@@ -601,8 +601,9 @@ def _create_open_loops(vault: Path, writer: dict[str, Any], draft_rel: str) -> N
 
     Finding 3 (v0.1.7): skip any loop whose `owner` is not the user. The
     writer prompt now asks for explicit ownership, and we filter as a backstop
-    so other people's pending questions (Elena wondering whether to tell her
-    sister; Mom's medication concern) never become user-owned todos.
+    so other people's pending questions (for example, a family member
+    wondering whether to share an update; a parent's medication concern)
+    never become user-owned todos.
     """
     loops = writer.get("open_loops_to_create") or []
     entity_names = _entity_canonical_names(writer)
@@ -686,7 +687,7 @@ def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel: str) ->
     """Finding 1 (v0.1.7): dedupe across short/full name variants.
 
     The writer regularly extracts the same person twice — once by first name
-    ("Devon") and once by full name ("Devon Park"). We dedupe within the
+    and once by full name. We dedupe within the
     current writer output and against the vault: if the proposed name matches
     or is a fragment of an existing entity's canonical name / aliases, we add
     the new variant to that entity's aliases instead of creating a sibling
@@ -752,7 +753,7 @@ def _load_entity_index(vault: Path) -> dict[str, Path]:
             if not name:
                 continue
             index.setdefault(name.lower(), path)
-            # Also index each individual word so "Devon" matches "Devon Park".
+            # Also index each individual word so a first name matches a full name.
             for token in name.split():
                 index.setdefault(token.lower(), path)
     return index
@@ -765,7 +766,7 @@ def _match_existing_entity(name: str, subtype: str, index: dict[str, Path]) -> P
         return direct
     # If the proposed name is multi-word and one of its tokens is in the
     # index, treat that as the canonical entity. This handles the writer
-    # introducing "Devon Park" after "Devon" already exists.
+    # introducing a full name after a first name already exists.
     tokens = [t.lower() for t in name.split() if t]
     for token in tokens:
         candidate = index.get(token)

@@ -17,8 +17,8 @@ Requirements:
   in `evidence_to_create` so the fanout layer can resolve the link.
 - Extract every named person, place, project, or organization mentioned in
   the transcript or in the core's claims. Use the most complete name form
-  available so the entity layer can dedupe (`Devon Park`, not `Devon`, when
-  both forms appear).
+  available so the entity layer can dedupe (`Full Name`, not `First Name`,
+  when both forms appear).
 - Only create open loops the **user** must take action on. Other people's
   pending questions belong in claims and in the episode body, not in the
   user's loop list.
