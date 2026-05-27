@@ -159,21 +159,33 @@ def run_memory_pipeline(
     record_inline_step("memory_pipeline.assembler")
     context = AssemblerAgent(vault=vault).run(text).text
     task = _choose_task(text=text, listener=listener)
+    significance = "high" if action == "full" else "medium"
+    common_kwargs = {
+        "significance": significance,
+        "provider": provider,
+        "model": model,
+        "provider_error_mode": "raise",
+        "context": context,
+        "transcript": str(transcript_path.relative_to(vault)),
+        "conversation_policy": json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
+    }
     record_inline_step("memory_pipeline.writer")
-    writer = WriterAgent(vault=vault).run_json(
-        text,
-        significance="high" if action == "full" else "medium",
-        provider=provider,
-        model=model,
-        provider_error_mode="raise",
-        task=task,
-        context=context,
-        transcript=str(transcript_path.relative_to(vault)),
-        conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
-    )
+    # v0.1.9: the episode path is split. The core call returns body + claims;
+    # the artifact call returns entities / decisions / open loops / state /
+    # evidence. Non-episode tasks stay single-shot — they're already small.
+    if task == "episode":
+        writer_core = WriterAgent(vault=vault).run_json(
+            text, task="episode_core", **common_kwargs,
+        )
+        writer = dict(writer_core)
+    else:
+        writer = WriterAgent(vault=vault).run_json(
+            text, task=task, **common_kwargs,
+        )
+        writer_core = writer
     record_inline_step("memory_pipeline.skeptic")
     skeptic = SkepticAgent(vault=vault).run_json(
-        json.dumps(writer, indent=2, ensure_ascii=True),
+        json.dumps(writer_core, indent=2, ensure_ascii=True),
         significance="medium",
         provider=provider,
         model=model,
@@ -188,7 +200,7 @@ def run_memory_pipeline(
     # interlocutor speaks to the user; it should not see internal review notes.
     interlocutor = InterlocutorAgent(vault=vault).run_json(
         json.dumps(
-            _interlocutor_input(writer=writer, listener=listener, prior_state=prior_state),
+            _interlocutor_input(writer=writer_core, listener=listener, prior_state=prior_state),
             indent=2,
             ensure_ascii=True,
         ),
@@ -198,6 +210,20 @@ def run_memory_pipeline(
         provider_error_mode="raise",
         conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     )
+    # v0.1.9: only run the artifact pass when the skeptic approved the core.
+    # If the core is rejected, we hold the draft as needs_revision and never
+    # spend a second writer call on derived artifacts that would be skipped
+    # in fanout anyway.
+    writer_artifacts: dict[str, Any] = {}
+    if task == "episode" and skeptic_approved:
+        record_inline_step("memory_pipeline.writer.artifacts")
+        writer_artifacts = WriterAgent(vault=vault).run_json(
+            text,
+            task="episode_artifacts",
+            prior_writer_core=json.dumps(writer_core, indent=2, ensure_ascii=True),
+            **common_kwargs,
+        )
+        writer = _merge_writer_outputs(writer_core, writer_artifacts)
     draft_path = _write_draft(
         vault, text, transcript_path, listener, writer, skeptic, interlocutor,
         task, mode, action, skeptic_approved,
@@ -237,6 +263,31 @@ def run_memory_pipeline(
         mode=mode,
         skeptic_approved=skeptic_approved,
     )
+
+
+def _merge_writer_outputs(core: dict[str, Any], artifacts: dict[str, Any]) -> dict[str, Any]:
+    """Combine the episode_core and episode_artifacts JSON payloads (v0.1.9).
+
+    The core call owns `summary`, `frontmatter`, `sections`, `claims_to_create`,
+    etc.; the artifact call owns `entities_to_create`, `open_loops_to_create`,
+    `decisions_to_create`, `state_updates`, `evidence_to_create`. We start
+    from the core and overlay only the artifact arrays so the downstream
+    fanout sees a single dict that looks identical to the legacy single-shot
+    writer output.
+    """
+    merged = dict(core)
+    artifact_keys = (
+        "entities_to_create",
+        "open_loops_to_create",
+        "decisions_to_create",
+        "state_updates",
+        "evidence_to_create",
+    )
+    for key in artifact_keys:
+        value = artifacts.get(key)
+        if isinstance(value, list):
+            merged[key] = value
+    return merged
 
 
 def _choose_task(text: str, listener: dict[str, Any]) -> str:
