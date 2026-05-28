@@ -200,6 +200,19 @@ def generate_health_report(vault: Path | None = None, db_path: Path | None = Non
         for key, value in counts.items():
             lines.append(f"- {key}: {value}")
 
+        drafts_dir = vault / "drafts"
+        if drafts_dir.exists():
+            all_drafts = list(drafts_dir.glob("*.md"))
+            skeptic_blocked = [p for p in all_drafts if "skeptic_blocked" in p.name or "needs_revision" in p.name]
+            lines.append("")
+            lines.append("## Draft Backlog")
+            lines.append(f"- total drafts on disk: {len(all_drafts)}")
+            if skeptic_blocked:
+                lines.append(f"- skeptic-blocked (not indexed): {len(skeptic_blocked)}")
+                lines.append("  These turns were captured but not promoted to durable records.")
+            else:
+                lines.append("- skeptic-blocked: 0")
+
         body = "\n".join(lines).rstrip() + "\n"
         return _render_report(frontmatter, body)
     finally:

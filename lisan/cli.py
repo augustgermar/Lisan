@@ -890,6 +890,10 @@ def main(argv: list[str] | None = None) -> int:
         write_batch_review(args.vault)
         report = validate_vault(args.vault)
         counts = rebuild_index(args.vault)
+        health = generate_health_report(args.vault)
+        health_out = args.vault / "reports" / "health-latest.md"
+        health_out.parent.mkdir(parents=True, exist_ok=True)
+        health_out.write_text(health, encoding="utf-8")
         print(format_report(report))
         print(json.dumps(counts, indent=2))
         return 0 if report.ok else 1

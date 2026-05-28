@@ -751,6 +751,7 @@ def new_claim(
     claim_class = normalize_claim_class(claim_class)
     owner = normalize_claim_owner(owner)
     status = normalize_claim_status(status)
+    privacy = normalize_claim_privacy(privacy)
     frontmatter = {
         "id": f"claim.{safe_slug}",
         "type": "claim",
@@ -842,6 +843,26 @@ def normalize_claim_status(value: Any) -> str:
     if key in allowed:
         return key
     return _CLAIM_STATUS_ALIASES.get(key, "active")
+
+
+_VALID_CLAIM_PRIVACY = {
+    "personal", "personal_sensitive", "family", "legal",
+    "work", "financial", "health", "children", "business", "sealed",
+}
+_CLAIM_PRIVACY_ALIASES: dict[str, str] = {
+    "public": "personal",
+    "private": "personal",
+    "sensitive": "personal_sensitive",
+    "restricted": "personal_sensitive",
+    "confidential": "personal_sensitive",
+}
+
+
+def normalize_claim_privacy(value: Any) -> str:
+    key = _normalized_key(value)
+    if key in _VALID_CLAIM_PRIVACY:
+        return key
+    return _CLAIM_PRIVACY_ALIASES.get(key, "personal")
 
 
 def normalize_evidence_source_type(value: Any) -> str:
@@ -1181,6 +1202,33 @@ def new_evidence_correction(
     body = f"# Evidence Correction\n\nCorrection for `{evidence_record_path.stem}`.\n"
     write_markdown(path, with_domain_fields(frontmatter), body)
     return CreatedRecord(path=path, created=True)
+
+
+def supersede_record(vault: Path, record_id: str, db_path: Path | None = None) -> bool:
+    """Mark an existing record as superseded in-place. Returns True if updated."""
+    import sqlite3 as _sqlite3
+    from ..paths import sqlite_path
+    _db = db_path or sqlite_path()
+    if not _db.exists():
+        return False
+    conn = _sqlite3.connect(_db)
+    try:
+        row = conn.execute("SELECT path FROM files WHERE id = ?", (record_id,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return False
+    record_path = vault / row[0]
+    if not record_path.exists():
+        return False
+    doc = load_markdown(record_path)
+    fm = dict(doc.frontmatter)
+    if str(fm.get("status", "")) == "superseded":
+        return False
+    fm["status"] = "superseded"
+    fm["updated"] = today_iso()
+    write_markdown(record_path, with_domain_fields(fm), doc.body)
+    return True
 
 
 def _episode_body(title: str, claims_required: bool) -> str:
