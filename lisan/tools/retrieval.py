@@ -18,16 +18,42 @@ from ..utils import approx_word_count, hash_embedding, today_iso
 
 
 DOMAIN_KEYWORDS: dict[str, set[str]] = {
-    "physical": {"body", "sleep", "health", "fitness", "exercise", "pain", "energy"},
-    "environmental": {"home", "room", "space", "environment", "apartment", "house"},
-    "financial": {"money", "budget", "cash", "expense", "income", "tax", "finance"},
-    "relational": {"friend", "partner", "family", "relationship", "dating", "marriage"},
-    "work": {"work", "job", "project", "team", "meeting", "deadline", "client"},
-    "status": {"status", "reputation", "credibility", "resume"},
-    "appearance": {"appearance", "look", "style", "dress", "presentation"},
-    "competence": {"competence", "skill", "capable", "ability", "performance"},
-    "social_presence": {"social", "presence", "network", "community", "visibility"},
-    "desirability": {"desirable", "attractive", "desired", "romantic"},
+    "physical": {
+        "body", "sleep", "health", "fitness", "exercise", "pain", "energy",
+        "doctor", "appointment", "medication", "therapy", "diagnosis", "symptom",
+        "clinic", "hospital", "physical", "weight", "diet", "eating", "tired",
+        "sick", "injury", "recovery", "surgery", "prescription", "checkup",
+        "dr.", "dr ", "physician", "therapist",
+    },
+    "environmental": {
+        "home", "room", "space", "environment", "apartment", "house",
+        "rent", "lease", "move", "moving", "neighborhood", "city", "place",
+        "office", "commute", "landlord", "furniture", "clean", "declutter",
+    },
+    "financial": {
+        "money", "budget", "cash", "expense", "income", "tax", "finance",
+        "salary", "savings", "spending", "pay", "bill", "debt", "loan",
+        "invest", "investment", "afford", "cost", "price", "payment", "raise",
+        "bonus", "account", "bank", "mortgage", "insurance",
+    },
+    "relational": {
+        "friend", "partner", "family", "relationship", "dating", "marriage",
+        "son", "daughter", "brother", "sister", "mom", "dad", "mother", "father",
+        "wife", "husband", "boyfriend", "girlfriend", "fiance", "colleague",
+        "coworker", "neighbor", "cousin", "uncle", "aunt", "grandma", "grandpa",
+        "breakup", "divorce", "engaged", "wedding", "baby", "pregnant",
+    },
+    "work": {
+        "work", "job", "project", "team", "meeting", "deadline", "client",
+        "boss", "manager", "promotion", "fired", "hired", "resign", "quit",
+        "interview", "offer", "onboard", "sprint", "launch", "product",
+        "colleague", "performance", "review", "feedback", "career",
+    },
+    "status": {"status", "reputation", "credibility", "resume", "linkedin", "profile"},
+    "appearance": {"appearance", "look", "style", "dress", "hair", "clothes", "outfit", "presentation"},
+    "competence": {"competence", "skill", "capable", "ability", "performance", "learn", "practice", "improve"},
+    "social_presence": {"social", "presence", "network", "community", "visibility", "post", "audience", "followers"},
+    "desirability": {"desirable", "attractive", "desired", "romantic", "dating", "attractive"},
 }
 
 SENSITIVE_COMPARTMENTS = {
@@ -101,6 +127,19 @@ def assemble_context(
     sections.append("")
     sections.append(f"query: {query}")
     sections.append("")
+
+    # Inject the last few turns of the current conversation so the writer is
+    # anchored to the active thread. Without this, short or dense turns drift
+    # toward unrelated earlier context because their query signal is too weak.
+    if conversation_id:
+        recent = _recent_conversation_turns(vault, conversation_id, limit=4)
+        if recent:
+            sections.append("## Current Conversation Thread")
+            sections.append("Most recent turns (oldest first). Weight these heavily — they define the active topic.")
+            sections.append("")
+            for turn in recent:
+                sections.append(f"{turn['speaker']}: {turn['text']}")
+            sections.append("")
 
     for rel in ["primer/identity.md", "primer/operating-style.md", "primer/current-brief.md"]:
         path = vault / rel
@@ -197,8 +236,27 @@ def retrieve_context(
     db_path = db_path or sqlite_path()
     config = load_config()
     retrieval_settings = _retrieval_fusion_settings(config)
-    inferred_domain, confidence = _infer_domain(query, domain or arena)
-    active_contexts = _active_contexts(inferred_domain, query)
+    # Build two query variants:
+    # - domain_query: always blends recent turns so domain inference stays
+    #   anchored to the active thread even on short or acknowledgment turns.
+    # - effective_query: blends recent turns for FTS/SQL/vector only when the
+    #   current turn is short (< 5 words); longer turns have enough signal of
+    #   their own and blending adds noise.
+    query_word_count = len(query.split())
+    if conversation_id:
+        recent = _recent_conversation_turns(vault, conversation_id, limit=3)
+        if recent:
+            recent_text = " ".join(t["text"] for t in recent)
+            domain_query = f"{query} {recent_text}"
+            effective_query = domain_query if query_word_count < 5 else query
+        else:
+            domain_query = query
+            effective_query = query
+    else:
+        domain_query = query
+        effective_query = query
+    inferred_domain, confidence = _infer_domain(domain_query, domain or arena)
+    active_contexts = _active_contexts(inferred_domain, domain_query)
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -219,7 +277,7 @@ def retrieve_context(
             sql_candidates = _sql_ranked_candidates(
                 file_rows,
                 inferred_domain,
-                query=query,
+                query=effective_query,
                 active_contexts=active_contexts,
                 quarantined_artifact_ids=quarantined_artifact_ids,
                 quarantined_batch_ids=quarantined_batch_ids,
@@ -229,7 +287,7 @@ def retrieve_context(
             fts_candidates, fts_mode = _fts_ranked_candidates(
                 conn,
                 file_rows=file_rows,
-                query=query,
+                query=effective_query,
                 active_contexts=active_contexts,
                 quarantined_artifact_ids=quarantined_artifact_ids,
                 quarantined_batch_ids=quarantined_batch_ids,
@@ -244,7 +302,7 @@ def retrieve_context(
                 quarantined_batch_ids=quarantined_batch_ids,
                 include_quarantined=include_quarantined,
                 limit=retrieval_settings["per_layer_limit"],
-                query=query,
+                query=effective_query,
             )
             direct_loaded, fusion_stats = _fuse_ranked_candidates(
                 rows_by_id=rows_by_id,
@@ -276,7 +334,7 @@ def retrieve_context(
                 direct_loaded,
                 rows_by_id=rows_by_id,
                 link_rows=link_rows,
-                query=query,
+                query=effective_query,
                 inferred_domain=inferred_domain,
                 vault=vault,
                 active_contexts=active_contexts,
@@ -323,11 +381,11 @@ def retrieve_context(
                 prompt=query,
             )
 
-        fts_ids = _fts_candidate_ids(conn, query)
+        fts_ids = _fts_candidate_ids(conn, effective_query)
         all_items = [
             _score_row(
                 row,
-                query,
+                effective_query,
                 inferred_domain,
                 vault,
                 active_contexts,
@@ -1662,6 +1720,32 @@ def _load_relevant_contradictions(vault: Path, query: str) -> list[str]:
 
 
 # ── Cross-conversation preamble (v0.1.7) ─────────────────────────────────────
+
+
+def _recent_conversation_turns(vault: Path, conversation_id: str, limit: int = 4) -> list[dict[str, str]]:
+    """Return the last *limit* turns for *conversation_id* from today's transcript."""
+    today_transcript = vault / "transcripts" / f"{today_iso()}.md"
+    if not today_transcript.exists():
+        return []
+    try:
+        text = today_transcript.read_text(encoding="utf-8")
+    except Exception:
+        return []
+    turns: list[dict[str, str]] = []
+    target_header = f"[{conversation_id}]"
+    in_block = False
+    for line in text.splitlines():
+        if line.startswith("## Conversation — "):
+            in_block = target_header in line
+            continue
+        if not in_block:
+            continue
+        stripped = line.strip()
+        if stripped.startswith("USER:") or stripped.startswith("LISAN:"):
+            speaker, _, utterance = stripped.partition(": ")
+            if utterance.strip():
+                turns.append({"speaker": speaker, "text": utterance.strip()})
+    return turns[-limit:]
 
 
 def _is_fresh_conversation(vault: Path, conversation_id: str) -> bool:

@@ -118,13 +118,17 @@ class SkepticAgent(PromptAgent):
             issues.append({"type": "high_risk", "message": "High-risk material needs careful verification and privacy review."})
         for code in review["reasoning_errors"]:
             issues.append({"type": code, "message": f"Potential reasoning error: {code}."})
+        # Missing external evidence is expected for personal conversation — the
+        # user is the primary source. Downgrade confidence rather than blocking.
         if not evidence_items:
-            issues.append({"type": "missing_evidence", "message": "No external evidence was supplied, so the claim should remain tentative."})
+            issues.append({"type": "low_evidence", "message": "Self-reported; no external artifact. Confidence capped at medium."})
 
         confidence = float(review["confidence"])
         if significance == "high":
             confidence = min(confidence, 0.75)
-        approved = review["recommended_action"] == "approve" and not any(issue["type"] in {"high_risk", "missing_evidence"} for issue in issues)
+        if not evidence_items:
+            confidence = min(confidence, 0.6)
+        approved = review["recommended_action"] == "approve" and not any(issue["type"] == "high_risk" for issue in issues)
         confidence_adjustments = []
         for cid in review["supporting_evidence"]:
             confidence_adjustments.append({"target": cid, "delta": 0.1, "reason": "supporting evidence"})

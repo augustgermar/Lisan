@@ -34,6 +34,7 @@ Classify the primary memory type when action is not "skip":
 **state** — Current facts about the user's life: health, relationships, environment, finances, work status.
 **knowledge** — Reference information: frameworks, procedures, plans, structured facts.
 **entity** — Introducing a person, place, thing, project, or organization by name.
+**correction** — The user is explicitly correcting a previously stated fact. Examples: "actually Theo is 30 not 28", "I said Tuesday but I meant Wednesday", "that's wrong — her name is Linda not Lisa", "to correct what I said earlier, it's X".
 **skip** — When action is skip.
 
 ## Decision guidelines

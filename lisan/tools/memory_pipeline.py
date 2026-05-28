@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ..agents import AssemblerAgent, InterlocutorAgent, ListenerAgent, SkepticAgent, WriterAgent
+from ..tools.heuristic_gate import is_correction_turn
 from ..frontmatter import load_markdown, write_markdown
 from ..utils import slugify, today_iso
 from .elicitor_session import run_elicitor_session
@@ -32,6 +33,7 @@ from .record_factory import (
     new_entity,
     new_open_loop,
     normalize_state_category,
+    supersede_record,
     upsert_state,
 )
 from .transcripts import append_transcript
@@ -86,6 +88,17 @@ def run_memory_pipeline(
     prior_state = load_narrative_state(vault=vault, conversation_id=conversation_id)
     record_inline_step("memory_pipeline.listener")
     listener = ListenerAgent(vault=vault).run_json(text, provider=provider, model=model, provider_error_mode="raise")
+    # Deterministic override: if the text contains an unambiguous correction
+    # phrase and the LLM didn't already classify it as correction, force it.
+    # This catches cases where the LLM sees a factual update and returns
+    # memory_type=state/episode, missing the supersede intent.
+    if (
+        str(listener.get("memory_type") or "").lower() not in ("correction", "skip")
+        and is_correction_turn(text)
+    ):
+        listener = dict(listener)
+        listener["memory_type"] = "correction"
+        listener["reason"] = list(listener.get("reason") or []) + ["correction phrase detected"]
     action = str(listener.get("action", "skip"))
     mode = str(listener.get("mode", "skip"))
 
@@ -119,6 +132,21 @@ def run_memory_pipeline(
         and _has_distress_signal(listener, text)
     ):
         mode = "elicitor"
+
+    # Override elicitor → extraction for narratively complete statements.
+    # A high narrative_score means the user already delivered a complete update
+    # ("I think Theo is going to be okay", "Marcus got the promotion") — these
+    # are resolution moments that deserve durable artifacts and an acknowledging
+    # response, not a follow-up question. The elicitor is for seeds; extraction
+    # is for complete statements. narrative_score >= 6 is the threshold so true
+    # seeds ("had a rough day", "feeling off") stay in the elicitor.
+    narrative_score = int(listener.get("narrative_score", 0))
+    if (
+        action != "skip"
+        and mode == "elicitor"
+        and narrative_score >= 6
+    ):
+        mode = "extraction"
 
     if action == "skip":
         return MemoryPipelineResult(
@@ -163,6 +191,10 @@ def run_memory_pipeline(
     # fires on the extraction path as well as the elicitor path.
     context = AssemblerAgent(vault=vault).run(text, conversation_id=conversation_id).text
     task = _choose_task(text=text, listener=listener)
+    if str(listener.get("memory_type") or "").lower() == "correction":
+        correction_ctx = _build_correction_context(text, db_path=db_path)
+        if correction_ctx:
+            context = context + "\n\n" + correction_ctx
     significance = "high" if action == "full" else "medium"
     common_kwargs = {
         "significance": significance,
@@ -204,7 +236,7 @@ def run_memory_pipeline(
     # interlocutor speaks to the user; it should not see internal review notes.
     interlocutor = InterlocutorAgent(vault=vault).run_json(
         json.dumps(
-            _interlocutor_input(writer=writer_core, listener=listener, prior_state=prior_state),
+            _interlocutor_input(writer=writer_core, listener=listener, prior_state=prior_state, user_text=text),
             indent=2,
             ensure_ascii=True,
         ),
@@ -237,7 +269,9 @@ def run_memory_pipeline(
     # Entity stubs, decisions, and open loops are exempt from the skeptic gate
     # — they don't carry the same inference risk as state updates, evidence,
     # and claims (which encode the writer's interpretation as durable truth).
-    _create_entity_stubs(vault, writer, draft_rel, text)
+    frequent_names = _compute_frequent_names(vault, conversation_id)
+    _create_entity_stubs(vault, writer, draft_rel, text, frequent_names=frequent_names)
+    _create_relationship_edges(vault, writer, db_path=db_path)
     _create_open_loops(vault, writer, draft_rel)
     _create_decisions(vault, writer, draft_rel)
     if skeptic_approved:
@@ -254,6 +288,7 @@ def run_memory_pipeline(
             evidence_id_map=evidence_id_map,
         )
         _apply_state_updates(vault, writer, draft_rel)
+        _supersede_corrected_records(vault, writer, db_path=db_path)
     else:
         record_inline_step("memory_pipeline.fanout.skeptic_blocked")
     return MemoryPipelineResult(
@@ -295,22 +330,30 @@ def _merge_writer_outputs(core: dict[str, Any], artifacts: dict[str, Any]) -> di
 
 
 def _choose_task(text: str, listener: dict[str, Any]) -> str:
-    # Primary: use the LLM's explicit memory type classification
     memory_type = str(listener.get("memory_type") or "").lower()
     if memory_type in ("decision", "open_loop", "state", "knowledge", "entity"):
         return memory_type
+    if memory_type == "correction":
+        return "state"
     return "episode"
 
 
 def _skeptic_approves(skeptic: dict[str, Any] | None) -> bool:
-    """Finding 2: gate state/evidence/claim fanout on skeptic approval."""
+    """Gate state/evidence/claim fanout on skeptic approval.
+
+    Block only when the skeptic explicitly holds a record — meaning it should
+    not be stored yet. "revise" means "store with caveats", which we honour by
+    proceeding; the issues list is preserved in the draft for human review.
+    """
     if not isinstance(skeptic, dict):
         return True
-    approved = skeptic.get("approved")
-    if approved is False:
-        return False
     action = str(skeptic.get("recommended_action") or "").lower()
-    if action in {"revise", "hold", "needs_revision"}:
+    if action in {"hold", "needs_revision"}:
+        return False
+    approved = skeptic.get("approved")
+    # approved=False with no explicit hold action is treated as revise — proceed.
+    # approved=False AND hold is already caught above.
+    if approved is False and action not in {"approve", "revise", ""}:
         return False
     return True
 
@@ -319,24 +362,36 @@ def _interlocutor_input(
     writer: dict[str, Any],
     listener: dict[str, Any],
     prior_state: Any,
+    user_text: str = "",
 ) -> dict[str, Any]:
     """Build a clean conversational payload — no skeptic notes, no internal flags."""
-    return {
+    memory_type = str(listener.get("memory_type") or "")
+    is_correction = memory_type == "correction"
+    payload: dict[str, Any] = {
         "writer_summary": writer.get("summary") or "",
         "writer_questions": writer.get("questions") or [],
-        "memory_type": listener.get("memory_type") or "",
+        "memory_type": memory_type,
         "significance": writer.get("significance") or "medium",
         "entities": [e.get("name") for e in (writer.get("entities_to_create") or []) if isinstance(e, dict) and e.get("name")],
         "decisions": [d.get("title") for d in (writer.get("decisions_to_create") or []) if isinstance(d, dict) and d.get("title")],
         "open_loops": [o.get("title") for o in (writer.get("open_loops_to_create") or []) if isinstance(o, dict) and o.get("title")],
-        "narrative_state": {
+    }
+    if is_correction:
+        # On correction turns the prior narrative state predates the correction
+        # and may actively contradict it — omit it to prevent the interlocutor
+        # from echoing stale facts. Pass the raw user text instead so the
+        # response can mirror the correction directly.
+        payload["user_correction"] = user_text
+        payload["narrative_state"] = {}
+    else:
+        payload["narrative_state"] = {
             "story_thread": getattr(prior_state, "story_thread", "") or "",
             "established": list(getattr(prior_state, "established", []) or []),
             "open_threads": list(getattr(prior_state, "open_threads", []) or []),
             "emotional_texture": getattr(prior_state, "emotional_texture", "") or "",
             "turn_count": getattr(prior_state, "turn_count", 0),
-        },
-    }
+        }
+    return payload
 
 
 def _has_distress_signal(listener: dict[str, Any], text: str) -> bool:
@@ -364,6 +419,107 @@ def _has_distress_signal(listener: dict[str, Any], text: str) -> bool:
     if any(token in lowered.split() for token in distress_tokens):
         return True
     return False
+
+
+def _compute_frequent_names(vault: Path, conversation_id: str | None, threshold: int = 12) -> frozenset[str]:
+    """Return capitalized first-name-shaped tokens that appear >= threshold times
+    in today's transcript for conversation_id.
+
+    Used as a fallback allowlist so first-name-only people who are mentioned
+    repeatedly (e.g., Marcus across 30 turns) get entity files even when no
+    explicit role label appears in the current turn.
+    """
+    if not conversation_id:
+        return frozenset()
+    from ..utils import today_iso as _today_iso
+    today_transcript = vault / "transcripts" / f"{_today_iso()}.md"
+    if not today_transcript.exists():
+        return frozenset()
+    try:
+        full_text = today_transcript.read_text(encoding="utf-8")
+    except Exception:
+        return frozenset()
+    # Extract only lines from this conversation's block.
+    target_header = f"[{conversation_id}]"
+    conv_lines: list[str] = []
+    in_block = False
+    for line in full_text.splitlines():
+        if line.startswith("## Conversation — "):
+            in_block = target_header in line
+            continue
+        if in_block:
+            conv_lines.append(line)
+    if not conv_lines:
+        return frozenset()
+    conv_text = " ".join(conv_lines)
+    from collections import Counter
+    from .stopwords import SENTENCE_INITIAL_OR_TOOL_STOPWORDS, DAY_STOPWORDS, MONTH_STOPWORDS
+    words = re.findall(r"\b[A-Z][a-z]{2,}\b", conv_text)
+    counts = Counter(words)
+    return frozenset(
+        word for word, count in counts.items()
+        if count >= threshold
+        and word not in SENTENCE_INITIAL_OR_TOOL_STOPWORDS
+        and word not in DAY_STOPWORDS
+        and word not in MONTH_STOPWORDS
+    )
+
+
+def _build_correction_context(text: str, db_path: Path | None = None) -> str:
+    """FTS search for active claims/state records that may be superseded by this correction."""
+    import sqlite3 as _sqlite3
+    from ..paths import sqlite_path
+    _db = db_path or sqlite_path()
+    if not _db.exists():
+        return ""
+    tokens = [w for w in re.findall(r"\b[A-Za-z]{3,}\b", text) if w[0].isupper() and w not in {
+        "I", "My", "The", "A", "An", "It", "He", "She", "They", "We", "You",
+        "Actually", "Wait", "No", "Yes", "Not", "But", "And", "Or",
+    }]
+    if not tokens:
+        return ""
+    conn = _sqlite3.connect(_db)
+    try:
+        seen: set[str] = set()
+        rows: list[dict[str, Any]] = []
+        for token in tokens[:3]:
+            try:
+                results = conn.execute(
+                    "SELECT f.id, f.type, f.summary, f.status FROM files f "
+                    "JOIN files_fts fts ON f.id = fts.id "
+                    "WHERE files_fts MATCH ? AND f.status = 'active' "
+                    "AND f.type IN ('claim', 'state', 'episode') "
+                    "ORDER BY bm25(files_fts) LIMIT 4",
+                    (f'"{token}"',),
+                ).fetchall()
+            except _sqlite3.Error:
+                continue
+            for r in results:
+                rid = r[0]
+                if rid not in seen:
+                    seen.add(rid)
+                    rows.append({"id": rid, "type": r[1], "summary": r[2]})
+        if not rows:
+            return ""
+        lines = ["## Possibly superseded records (correction context)"]
+        lines.append("If the user is correcting one of these, include its ID in `corrects_ids`.")
+        for r in rows[:5]:
+            lines.append(f"- [{r['type']}] {r['id']}: {r['summary']}")
+        return "\n".join(lines)
+    finally:
+        conn.close()
+
+
+def _supersede_corrected_records(vault: Path, writer: dict[str, Any], db_path: Path | None = None) -> None:
+    """Mark records listed in writer corrects_ids as superseded on disk."""
+    corrects_ids = listify(writer.get("corrects_ids"))
+    for record_id in corrects_ids:
+        rid = str(record_id).strip()
+        if rid:
+            try:
+                supersede_record(vault, rid, db_path=db_path)
+            except Exception:
+                pass
 
 
 def _conversation_turn_count(vault: Path, conversation_id: str | None) -> int:
@@ -702,17 +858,14 @@ def _apply_state_updates(vault: Path, writer: dict[str, Any], draft_rel: str) ->
 
 # ── Fanout: entities ──────────────────────────────────────────────────────────
 
-def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel: str, source_text: str) -> None:
-    """Materialize entity stubs proposed by the writer.
-
-    Finding 1 (v0.1.7): dedupe across short/full name variants.
-    Finding #4 (v26.5.27): reject nonsense entity proposals (days of the week,
-    adverbs, tool names, single capitalized words that are not in the primer
-    cast).
-    Finding #5 (v26.5.27): refuse to merge two multi-word entities just
-    because they share a surname token — require >= 2 shared tokens, or a
-    full-name match, or a primer-cast tiebreaker.
-    """
+def _create_entity_stubs(
+    vault: Path,
+    writer: dict[str, Any],
+    draft_rel: str,
+    source_text: str,
+    frequent_names: frozenset[str] | None = None,
+) -> None:
+    """Materialize entity stubs proposed by the writer."""
     from .primer_index import known_names as _primer_known_names
 
     entities = writer.get("entities_to_create") or []
@@ -720,6 +873,8 @@ def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel: str, so
         return
     index = _load_entity_index(vault)
     primer_cast = _primer_known_names(vault)
+    # Combine primer cast with frequently-mentioned names as the acceptance allowlist.
+    allowlist = primer_cast | (frequent_names or frozenset())
     seen_in_pass: set[str] = set()
     for entry in entities:
         if not isinstance(entry, dict):
@@ -738,16 +893,15 @@ def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel: str, so
             subtype=str(entry.get("subtype") or "person").strip(),
             summary=summary,
             source_text=source_text,
-            primer_cast=primer_cast,
+            primer_cast=allowlist,
         )
         if not subtype:
             continue
 
-        # Finding #4: validate before any creation or merge.
-        if not _looks_like_entity(name, subtype, primer_cast):
+        if not _looks_like_entity(name, subtype, allowlist, source_text):
             continue
 
-        existing = _match_existing_entity(name, subtype, index, primer_cast)
+        existing = _match_existing_entity(name, subtype, index, allowlist)
         if existing is not None:
             _append_entity_alias(existing, name)
             # Refresh the in-memory index so the next sibling in the same pass
@@ -780,6 +934,54 @@ def _create_entity_stubs(vault: Path, writer: dict[str, Any], draft_rel: str, so
                 index[tkey] = {"path": created.path, "kind": "token", "canonical": name}
             elif existing_entry.get("path") != created.path and existing_entry.get("kind") == "token":
                 existing_entry["kind"] = "ambiguous"
+
+
+def _create_relationship_edges(vault: Path, writer: dict[str, Any], db_path: Path | None = None) -> None:
+    """Write entity-to-entity relationship edges from writer relationships_to_create."""
+    import sqlite3 as _sqlite3
+    from ..paths import sqlite_path
+    relationships = list(writer.get("relationships_to_create") or [])
+    if not relationships:
+        return
+    _db = db_path or sqlite_path()
+    if not _db.exists():
+        return
+    conn = _sqlite3.connect(_db)
+    try:
+        for rel in relationships:
+            if not isinstance(rel, dict):
+                continue
+            entity_a = str(rel.get("entity_a") or "").strip()
+            entity_b = str(rel.get("entity_b") or "").strip()
+            rel_type = str(rel.get("relationship_type") or "related_to").strip()
+            if not entity_a or not entity_b:
+                continue
+            # Resolve names to entity IDs via the alias table.
+            row_a = conn.execute(
+                "SELECT entity_id FROM entity_aliases WHERE alias = ? LIMIT 1",
+                (entity_a,),
+            ).fetchone()
+            row_b = conn.execute(
+                "SELECT entity_id FROM entity_aliases WHERE alias = ? LIMIT 1",
+                (entity_b,),
+            ).fetchone()
+            if not row_a or not row_b:
+                continue
+            id_a, id_b = row_a[0], row_b[0]
+            existing = conn.execute(
+                "SELECT 1 FROM links WHERE source_id=? AND target_id=? AND relationship_type=?",
+                (id_a, id_b, rel_type),
+            ).fetchone()
+            if not existing:
+                conn.execute(
+                    "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
+                    (id_a, id_b, rel_type),
+                )
+        conn.commit()
+    except _sqlite3.Error:
+        pass
+    finally:
+        conn.close()
 
 
 def _normalize_entity_subtype(
@@ -846,54 +1048,88 @@ def _looks_like_organization(
     return False
 
 
-def _looks_like_entity(name: str, subtype: str, primer_cast: frozenset[str]) -> bool:
-    """Finding #4: validate that *name* is plausibly an entity of *subtype*.
+# Professional titles that unambiguously prefix a person's name.
+_PERSON_TITLES: frozenset[str] = frozenset({
+    "dr", "mr", "mrs", "ms", "miss", "prof", "rev",
+    "sgt", "cpl", "cpt", "capt", "lt", "col", "gen", "adm",
+})
 
-    Rules:
-    - Primer-known names are *always* accepted, regardless of subtype-specific
-      shape rules. This is what lets users with month-or-day names ("August",
-      "May", "Friday" as a child) be recognized once they're in identity.md.
-    - For ``subtype == "person"``: require at least two capitalized tokens,
-      *or* exact membership in the primer cast. A bare capitalized word
-      ("Slack", "Strategically", "What") is rejected unless the primer
-      whitelists it.
-    - For other subtypes (place, thing, organization, project): always accept
-      — those are more permissive in shape and rarely produce nonsense.
+# Relationship/role words that, when found near a first name, confirm the
+# name refers to a real person even though it is a single token.
+_RELATIONSHIP_WORDS: frozenset[str] = frozenset({
+    # Family
+    "son", "daughter", "dad", "mom", "mother", "father", "brother", "sister",
+    "husband", "wife", "partner", "uncle", "aunt", "grandpa", "grandma",
+    "grandfather", "grandmother", "grandson", "granddaughter", "nephew",
+    "niece", "cousin", "stepmom", "stepdad", "stepson", "stepdaughter",
+    "fiance", "fiancee", "ex",
+    # Professional / social
+    "colleague", "coworker", "boss", "manager", "supervisor", "therapist",
+    "lawyer", "attorney", "accountant", "mentor", "coach", "advisor",
+    "friend", "neighbor", "roommate", "classmate", "teammate",
+    "boyfriend", "girlfriend", "doctor",
+})
+
+
+def _has_person_role_context(name: str, source_text: str) -> bool:
+    """Return True when the source text places *name* in a clear person-role context.
+
+    Detects two patterns:
+      - possessive-role-name: "my/his/her/their [role] [Name]" within a 4-word window
+      - name-role appositive:  "[Name], my/his/her [role]" or "[Name] is my [role]"
+    """
+    if not source_text:
+        return False
+    lowered = source_text.lower()
+    name_lower = name.lower()
+    role_group = "(?:" + "|".join(re.escape(w) for w in _RELATIONSHIP_WORDS) + ")"
+    possessive = r"(?:my|his|her|their|our)\s+(?:\w+\s+)?" + role_group + r"\s+" + re.escape(name_lower)
+    appositive = re.escape(name_lower) + r"(?:,?\s+(?:my|his|her|their)\s+" + role_group + r"|\s+is\s+(?:my|his|her|their)\s+" + role_group + r")"
+    return bool(re.search(possessive, lowered) or re.search(appositive, lowered))
+
+
+def _looks_like_entity(name: str, subtype: str, primer_cast: frozenset[str], source_text: str = "") -> bool:
+    """Validate that *name* is plausibly an entity of *subtype*.
+
+    Rules (in priority order):
+    - Primer-known names always accepted.
+    - Title-prefixed names ("Dr. Kwan", "Ms. Reyes") always accepted as persons.
+    - Single-token person names accepted when source text has role/relationship context.
+    - Multi-token person names accepted when all tokens are proper-noun shaped
+      and none are stopwords.
+    - Non-person subtypes: light-touch validation only.
     """
     from .stopwords import SENTENCE_INITIAL_OR_TOOL_STOPWORDS, MONTH_STOPWORDS, DAY_STOPWORDS
 
     if not name:
         return False
 
-    # Primer allowlist wins over every blocklist. The user's own name "August"
-    # is in the primer, so even though "August" is in MONTH_STOPWORDS, this
-    # branch returns True before we ever consult the blocklist.
     if name in primer_cast:
         return True
 
-    # Names like "Mr X" or full names with proper capitalization are still
-    # checked against shape rules below.
     tokens = name.split()
     if not tokens:
         return False
 
     if subtype == "person":
-        # Single-word person names need primer support (handled above).
+        # Title-prefixed names ("Dr. Kwan", "Ms. Reyes") are always persons.
+        first_token_bare = tokens[0].rstrip(".").lower()
+        if first_token_bare in _PERSON_TITLES and len(tokens) >= 2:
+            return True
+
         if len(tokens) < 2:
-            return False
-        # Reject if any token looks like a stopword (days, tools, adverbs).
-        # Months are intentionally excluded from SENTENCE_INITIAL_OR_TOOL_STOPWORDS;
-        # we check them separately so primer-cast members survive.
+            # Single first-name: accept only when role context is present in the
+            # source text ("my son Theo", "my colleague Marcus").
+            return _has_person_role_context(name, source_text)
+
+        # Multi-token names: reject stopwords, require proper-noun shape.
         for tok in tokens:
             if tok in SENTENCE_INITIAL_OR_TOOL_STOPWORDS:
                 return False
             if tok in DAY_STOPWORDS:
                 return False
-            # Months only block if they're not in the primer (already short-
-            # circuited above).
             if tok in MONTH_STOPWORDS and tok not in primer_cast:
                 return False
-        # All tokens must look like proper-noun shape.
         if not all(t[:1].isupper() and len(t) > 1 for t in tokens):
             return False
         return True
@@ -1275,6 +1511,8 @@ def _create_decisions(vault: Path, writer: dict[str, Any], draft_rel: str | None
             continue
         title = str(entry.get("title") or "").strip()
         summary = str(entry.get("summary") or "").strip()
+        if _is_negated_decision(title, summary):
+            continue
         domain = _infer_domain(
             str(entry.get("domain", entry.get("arena")) or ""),
             fallback="cross_arena",
@@ -1309,3 +1547,20 @@ def _create_decisions(vault: Path, writer: dict[str, Any], draft_rel: str | None
             pass
         except Exception as exc:
             log_error(vault, "memory_pipeline.decision", exc)
+
+
+_NEGATION_PREFIXES = (
+    "i have not", "i haven't", "i hadn't", "i did not", "i didn't",
+    "i am not", "i'm not", "i was not", "i wasn't",
+    "not sure", "not decided", "haven't decided", "haven't done",
+    "did not", "didn't", "has not", "hasn't",
+    "no decision", "not yet", "i've not",
+    # Pronoun-stripped forms (writer often drops "I" from decision titles)
+    "have not", "had not", "not done", "not completed",
+)
+
+
+def _is_negated_decision(title: str, summary: str) -> bool:
+    """Return True when the decision title or summary is framed as a non-action."""
+    combined = f"{title} {summary}".lower()
+    return any(phrase in combined for phrase in _NEGATION_PREFIXES)

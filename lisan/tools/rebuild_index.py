@@ -255,12 +255,7 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
     embeddings_file = embeddings_file or embeddings_path()
-    jobs_backup = _backup_jobs(db_path) if db_path.exists() else []
-    manifest_backup = _backup_ingestion_manifest(db_path) if db_path.exists() else []
-    batch_backup = _backup_ingestion_batches(db_path) if db_path.exists() else []
 
-    if db_path.exists():
-        db_path.unlink()
     if embeddings_file.exists():
         embeddings_file.unlink()
 
@@ -271,16 +266,24 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
         ensure_jobs_table(conn)
         ensure_ingestion_manifest_table(conn)
         ensure_ingestion_batches_table(conn)
-        _restore_jobs(conn, jobs_backup)
-        _restore_ingestion_manifest(conn, manifest_backup)
-        _restore_ingestion_batches(conn, batch_backup)
         _maybe_create_fts(conn)
+        for table in ("files", "links", "claims", "entity_aliases", "entity_epochs"):
+            conn.execute(f"DELETE FROM {table}")
+        try:
+            conn.execute("DELETE FROM files_fts")
+        except sqlite3.Error:
+            pass
+        conn.commit()
         counts = {"files": 0, "links": 0, "claims": 0, "aliases": 0, "epochs": 0}
         embeddings_lines: list[str] = []
         file_rows: dict[str, dict[str, Any]] = {}
 
         for path in iter_markdown_files(vault):
-            if path.parts[-2] in {"manifests", "transcripts", "drafts"}:
+            if path.parts[-2] in {"manifests", "transcripts"}:
+                continue
+            # Skip drafts unless they are skeptic-blocked (needs_revision) —
+            # those should be queryable so users can find input that wasn't promoted.
+            if path.parts[-2] == "drafts" and "needs_revision" not in path.name:
                 continue
             try:
                 doc = load_markdown(path)
@@ -595,128 +598,6 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
     finally:
         conn.close()
 
-
-def _backup_jobs(db_path: Path) -> list[dict[str, Any]]:
-    if not db_path.exists():
-        return []
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        try:
-            rows = conn.execute("SELECT * FROM jobs").fetchall()
-        except sqlite3.Error:
-            return []
-        return [dict(row) for row in rows]
-    finally:
-        conn.close()
-
-
-def _backup_ingestion_manifest(db_path: Path) -> list[dict[str, Any]]:
-    if not db_path.exists():
-        return []
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        try:
-            rows = conn.execute("SELECT * FROM ingestion_manifest").fetchall()
-        except sqlite3.Error:
-            return []
-        return [dict(row) for row in rows]
-    finally:
-        conn.close()
-
-
-def _backup_ingestion_batches(db_path: Path) -> list[dict[str, Any]]:
-    if not db_path.exists():
-        return []
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        try:
-            rows = conn.execute("SELECT * FROM ingestion_batches").fetchall()
-        except sqlite3.Error:
-            return []
-        return [dict(row) for row in rows]
-    finally:
-        conn.close()
-
-
-def _restore_jobs(conn: sqlite3.Connection, jobs_backup: list[dict[str, Any]]) -> None:
-    if not jobs_backup:
-        return
-    for job in jobs_backup:
-        row = {
-            "id": job.get("id"),
-            "job_type": job.get("job_type"),
-            "status": job.get("status"),
-            "priority": job.get("priority", 100),
-            "batch_id": job.get("batch_id"),
-            "coalesce_key": job.get("coalesce_key"),
-            "unique_group": job.get("unique_group"),
-            "replaces_job_id": job.get("replaces_job_id"),
-            "coalesced_count": job.get("coalesced_count", 0),
-            "payload_json": job.get("payload_json") or "{}",
-            "result_json": job.get("result_json"),
-            "result_ref": job.get("result_ref"),
-            "attempts": job.get("attempts", 0),
-            "max_attempts": job.get("max_attempts", 3),
-            "created_at": job.get("created_at"),
-            "scheduled_for": job.get("scheduled_for"),
-            "started_at": job.get("started_at"),
-            "finished_at": job.get("finished_at"),
-            "error": job.get("error"),
-            "worker_id": job.get("worker_id"),
-        }
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO jobs (
-                id, job_type, status, priority, batch_id, coalesce_key, unique_group, replaces_job_id,
-                coalesced_count, payload_json, result_json, result_ref, attempts, max_attempts,
-                created_at, scheduled_for, started_at, finished_at, error, worker_id
-            ) VALUES (
-                :id, :job_type, :status, :priority, :batch_id, :coalesce_key, :unique_group, :replaces_job_id,
-                :coalesced_count, :payload_json, :result_json, :result_ref, :attempts, :max_attempts,
-                :created_at, :scheduled_for, :started_at, :finished_at, :error, :worker_id
-            )
-            """,
-            row,
-        )
-
-
-def _restore_ingestion_manifest(conn: sqlite3.Connection, manifest_backup: list[dict[str, Any]]) -> None:
-    if not manifest_backup:
-        return
-    for row in manifest_backup:
-        normalized = dict(row)
-        normalized.setdefault("batch_id", None)
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO ingestion_manifest (
-                source_path, artifact_hash, last_seen, last_ingested, status, artifact_id, batch_id, error
-            ) VALUES (
-                :source_path, :artifact_hash, :last_seen, :last_ingested, :status, :artifact_id, :batch_id, :error
-            )
-            """,
-            normalized,
-        )
-
-
-def _restore_ingestion_batches(conn: sqlite3.Connection, batch_backup: list[dict[str, Any]]) -> None:
-    if not batch_backup:
-        return
-    for row in batch_backup:
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO ingestion_batches (
-                id, source_root, mode, status, created_at, started_at, finished_at, requested_by,
-                options_json, summary_json, error, notes
-            ) VALUES (
-                :id, :source_root, :mode, :status, :created_at, :started_at, :finished_at, :requested_by,
-                :options_json, :summary_json, :error, :notes
-            )
-            """,
-            row,
-        )
 
 
 def _extract_claims_from_episode(body: str, episode_id: str) -> list[tuple[Any, ...]]:

@@ -17,13 +17,24 @@ For every draft, ask:
 - What confidence level is justified?
 - Is the claim vulnerable to reasoning errors?
 
+## Primary source rule
+
+The user's own account of their life is valid primary source evidence. Personal conversation does not require external artifacts to be stored. Self-reported facts ("my son is 30", "I decided to quit"), experiences, and observations should be approved at appropriate confidence — they are not inferior to external evidence, they ARE the evidence for a personal memory system.
+
+Reserve `approved: false` and `recommended_action: hold` for records that should not be stored yet:
+- Formal diagnostic or pathologizing claims without a professional source
+- High-risk assertions (legal liability, medical advice, financial fraud) without corroboration
+- Records that directly contradict strong existing evidence without acknowledgment
+- Placeholder text or clearly hallucinated content
+
+Use `recommended_action: revise` (which still approves the record) when the draft has issues worth noting but the substance is sound. Lower confidence instead of blocking whenever the underlying fact is plausible.
+
 ## Hard rules
 
 - Never promote motive claims to fact without explicit supporting evidence.
 - Never promote psychological claims to fact without strong evidence.
 - Prefer evidence records over interpretive language when an external artifact exists.
-- Treat user framing as a hypothesis unless the artifact itself directly supports it.
-- Preserve uncertainty. If the evidence is partial, say so.
+- Preserve uncertainty. If the evidence is partial, lower confidence — do not hold.
 - If the draft overreaches, lower confidence instead of inventing certainty.
 - For patterns, separate whether the hypothesis is acceptable from whether it is ready for Dreamer integration.
 - Require an explicit counterexample search result before approving a pattern for Dreamer.

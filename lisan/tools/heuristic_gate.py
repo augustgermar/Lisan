@@ -64,6 +64,30 @@ _CLOSURE_PHRASES = (
     "that's the story", "end of story",
 )
 
+_CORRECTION_PHRASES = (
+    # Explicit admissions — essentially zero false positive rate
+    "correction:",
+    "i misspoke",
+    "i was wrong",
+    "i got that wrong",
+    "to correct myself",
+    "i need to correct",
+    # Compound forms — specific enough when the corrective word leads the clause
+    "that's wrong,",
+    "to correct that,",
+    "i meant ",          # "I meant Tuesday" — trailing space avoids "I mentioned"
+    "no, it's ",         # "no, it's 30, not 28"
+    "no, he's ",
+    "no, she's ",
+    "no, they're ",
+    "it's actually ",    # "It's actually 30"
+    "it is actually ",
+    "actually, it's ",   # "Actually, it's 30 not 28"
+    "actually, he's ",
+    "actually, she's ",
+    "actually, they're ",
+)
+
 _PROPER_NOUN_RE = re.compile(r"\b[A-Z][a-z]{1,}\b")
 
 _SKIP_WORDS = frozenset({
@@ -128,6 +152,11 @@ def score_text(
     if any(phrase in lowered for phrase in _OPEN_LOOP_PHRASES):
         score += 3
         reasons.append("open-loop phrase")
+
+    # Correction phrase (+4, forces full extraction so the supersede path fires)
+    if is_correction_turn(stripped):
+        score += 4
+        reasons.append("correction phrase")
 
     # High-risk keyword (+4)
     if any(kw in lowered for kw in _HIGH_RISK_KEYWORDS):
@@ -199,6 +228,12 @@ def score_text(
         mode=mode,
         reasons=reasons,
     )
+
+
+def is_correction_turn(text: str) -> bool:
+    """Return True when the text contains an unambiguous self-correction signal."""
+    lowered = text.strip().lower()
+    return any(phrase in lowered for phrase in _CORRECTION_PHRASES)
 
 
 # ── Mode classification ───────────────────────────────────────────────────────

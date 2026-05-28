@@ -94,6 +94,15 @@ def run_elicitor_session(
     )
 
 
+_TOPIC_SHIFT_PHRASES = (
+    "oh, also", "oh also", "by the way", "on a different note",
+    "speaking of which", "before i forget", "one more thing",
+    "can i ask you something", "can i ask about",
+    "oh, i also", "oh and also", "anyway,", "so anyway",
+    "switching topics", "different subject", "new topic",
+)
+
+
 def _topic_closed(text: str, elicitor: dict[str, Any], state: dict[str, Any]) -> bool:
     # Primary: trust the LLM's own mode assessment
     if str(state.get("mode_status", "")).lower() == "closed":
@@ -108,11 +117,17 @@ def _topic_closed(text: str, elicitor: dict[str, Any], state: dict[str, Any]) ->
     next_step = str(elicitor_state.get("next_step", "")).lower()
     if "handoff to writer" in next_step or "topic closed" in next_step:
         return True
-    # Hard cap: after _MAX_ELICITOR_TURNS with enough established facts, hand off.
-    # Avoids runaway sessions that never produce a draft.
+    # Topic shift: user introduces a new subject mid-session. Only close if
+    # the session already has established content worth preserving (turn_count
+    # >= 2 with at least 1 established fact) — prevents premature closure on
+    # the very first acknowledgment turn.
     turn_count = int(state.get("turn_count", 0))
+    established = state.get("established") or []
+    if turn_count >= 2 and len(established) >= 1:
+        if any(p in lowered for p in _TOPIC_SHIFT_PHRASES):
+            return True
+    # Hard cap: after _MAX_ELICITOR_TURNS with enough established facts, hand off.
     if turn_count >= _MAX_ELICITOR_TURNS:
-        established = state.get("established") or []
         if len(established) >= 3:
             return True
     return False
