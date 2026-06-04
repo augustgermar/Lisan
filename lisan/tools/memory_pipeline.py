@@ -19,39 +19,21 @@ from .log import log_error
 from .epistemic import listify
 from .narrative_state import load_narrative_state
 from .record_fanout import (
-    register_claim_reference,
-    register_evidence_reference,
-    resolve_claim_links,
-    resolve_evidence_links,
+    basis_or_default,
+    fanout_claims,
+    fanout_decisions,
+    fanout_evidence,
+    fanout_open_loops,
+    fanout_state_updates,
 )
 from .tracing import record_inline_step
 from .record_factory import (
-    STATE_TTLS,
-    new_claim,
-    new_decision,
-    new_evidence,
     new_entity,
-    new_open_loop,
-    normalize_state_category,
     supersede_record,
-    upsert_state,
 )
 from .transcripts import append_transcript
 from ..agents.writer import _truncate_summary as _truncate_summary_boundary
 
-
-# Domains that may be inferred from a record's content alone.
-_RELATIONAL_TERMS = (
-    "mom", "dad", "mother", "father", "wife", "husband", "spouse",
-    "partner", "sister", "brother", "daughter", "son", "kid", "kids",
-    "child", "children", "family", "parent", "co-parent", "ex",
-)
-_WORK_TERMS = (
-    "manager", "boss", "team", "co-worker", "coworker", "colleague",
-    "engineering", "sprint", "standup", "review", "project", "meeting",
-    "ticket", "deploy", "release",
-)
-_PRONOUN_RE = re.compile(r"\b(she|he|they|her|him|them)\b", re.IGNORECASE)
 
 
 @dataclass(slots=True)
@@ -68,6 +50,23 @@ class MemoryPipelineResult:
     narrative_state_path: Path | None = None
     narrative_state: dict[str, Any] | None = None
     skeptic_approved: bool = True
+
+
+@dataclass(slots=True)
+class RoutingContext:
+    text: str
+    listener: dict[str, Any]
+    prior_state: Any
+    conversation_id: str | None
+    vault: Path
+
+
+@dataclass(slots=True)
+class RoutingDecision:
+    listener: dict[str, Any]
+    action: str
+    mode: str
+    applied_overrides: tuple[str, ...] = ()
 
 
 def run_memory_pipeline(
@@ -88,65 +87,18 @@ def run_memory_pipeline(
     prior_state = load_narrative_state(vault=vault, conversation_id=conversation_id)
     record_inline_step("memory_pipeline.listener")
     listener = ListenerAgent(vault=vault).run_json(text, provider=provider, model=model, provider_error_mode="raise")
-    # Deterministic override: if the text contains an unambiguous correction
-    # phrase and the LLM didn't already classify it as correction, force it.
-    # This catches cases where the LLM sees a factual update and returns
-    # memory_type=state/episode, missing the supersede intent.
-    if (
-        str(listener.get("memory_type") or "").lower() not in ("correction", "skip")
-        and is_correction_turn(text)
-    ):
-        listener = dict(listener)
-        listener["memory_type"] = "correction"
-        listener["reason"] = list(listener.get("reason") or []) + ["correction phrase detected"]
-    action = str(listener.get("action", "skip"))
-    mode = str(listener.get("mode", "skip"))
-
-    # Never fully skip a conversational turn — the heuristic governs capture, not response.
-    # Upgrade to lightweight elicitor when:
-    #   - mid-conversation (turn_count > 0), OR
-    #   - message has seed potential (seed_score > 0, e.g. "oh man what a day!")
-    # Exception: topic explicitly closed.
-    seed_score = int(listener.get("seed_score", 0))
-    if (
-        action == "skip"
-        and prior_state.mode_status not in ("closed",)
-        and (prior_state.turn_count > 0 or seed_score > 0)
-    ):
-        action = "lightweight"
-        mode = "elicitor"
-
-    # Finding 9: Turn-1 elicitor preference.
-    # An opening emotional turn deserves to be heard before it is processed.
-    # We compute turn position from the transcript (v0.1.7) — narrative state
-    # only ticks on the elicitor path, so extraction-only conversations would
-    # otherwise stay at turn_count=0 forever and the preference would mis-fire
-    # on later turns. The transcript already includes this turn's appended
-    # line, so the very first turn comes back as 1 and the preference is
-    # gated to "first turn only".
-    transcript_turn_index = _conversation_turn_count(vault, conversation_id)
-    if (
-        action != "skip"
-        and mode == "extraction"
-        and transcript_turn_index <= 1
-        and _has_distress_signal(listener, text)
-    ):
-        mode = "elicitor"
-
-    # Override elicitor → extraction for narratively complete statements.
-    # A high narrative_score means the user already delivered a complete update
-    # ("I think Theo is going to be okay", "Marcus got the promotion") — these
-    # are resolution moments that deserve durable artifacts and an acknowledging
-    # response, not a follow-up question. The elicitor is for seeds; extraction
-    # is for complete statements. narrative_score >= 6 is the threshold so true
-    # seeds ("had a rough day", "feeling off") stay in the elicitor.
-    narrative_score = int(listener.get("narrative_score", 0))
-    if (
-        action != "skip"
-        and mode == "elicitor"
-        and narrative_score >= 6
-    ):
-        mode = "extraction"
+    routing = route_turn(
+        RoutingContext(
+            text=text,
+            listener=listener,
+            prior_state=prior_state,
+            conversation_id=conversation_id,
+            vault=vault,
+        )
+    )
+    listener = routing.listener
+    action = routing.action
+    mode = routing.mode
 
     if action == "skip":
         return MemoryPipelineResult(
@@ -272,22 +224,16 @@ def run_memory_pipeline(
     frequent_names = _compute_frequent_names(vault, conversation_id)
     _create_entity_stubs(vault, writer, draft_rel, text, frequent_names=frequent_names)
     _create_relationship_edges(vault, writer, db_path=db_path)
-    _create_open_loops(vault, writer, draft_rel)
-    _create_decisions(vault, writer, draft_rel)
+    fanout_open_loops(vault, writer, draft_rel)
+    fanout_decisions(vault, writer, draft_rel)
     if skeptic_approved:
         # Evidence runs before claims so claim.supporting_evidence can be
         # resolved through evidence_id_map (Finding 4). Claims run before the
         # state update so the state can reference resolved claim IDs in future
         # passes.
-        evidence_id_map = _create_evidence_records(
-            vault, writer, transcript_path, draft_rel,
-        )
-        claim_id_map = _create_claim_records(
-            vault, writer, draft_rel,
-            db_path=db_path,
-            evidence_id_map=evidence_id_map,
-        )
-        _apply_state_updates(vault, writer, draft_rel)
+        evidence_id_map = fanout_evidence(vault, writer, transcript_path, draft_rel)
+        fanout_claims(vault, writer, draft_rel, db_path=db_path, evidence_id_map=evidence_id_map)
+        fanout_state_updates(vault, writer, draft_rel)
         _supersede_corrected_records(vault, writer, db_path=db_path)
     else:
         record_inline_step("memory_pipeline.fanout.skeptic_blocked")
@@ -327,6 +273,54 @@ def _merge_writer_outputs(core: dict[str, Any], artifacts: dict[str, Any]) -> di
         if isinstance(value, list):
             merged[key] = value
     return merged
+
+
+def route_turn(ctx: RoutingContext) -> RoutingDecision:
+    """Apply the fixed routing cascade in order and preserve each mutation."""
+    listener = dict(ctx.listener)
+    action = str(listener.get("action", "skip"))
+    mode = str(listener.get("mode", "skip"))
+    applied_overrides: list[str] = []
+
+    if (
+        str(listener.get("memory_type") or "").lower() not in ("correction", "skip")
+        and is_correction_turn(ctx.text)
+    ):
+        listener["memory_type"] = "correction"
+        listener["reason"] = list(listener.get("reason") or []) + ["correction phrase detected"]
+        applied_overrides.append("correction_override")
+
+    seed_score = int(listener.get("seed_score", 0))
+    if (
+        action == "skip"
+        and ctx.prior_state.mode_status not in ("closed",)
+        and (ctx.prior_state.turn_count > 0 or seed_score > 0)
+    ):
+        action = "lightweight"
+        mode = "elicitor"
+        applied_overrides.append("never_skip_mid_conversation")
+
+    transcript_turn_index = _conversation_turn_count(ctx.vault, ctx.conversation_id)
+    if (
+        action != "skip"
+        and mode == "extraction"
+        and transcript_turn_index <= 1
+        and _has_distress_signal(listener, ctx.text)
+    ):
+        mode = "elicitor"
+        applied_overrides.append("turn1_elicitor_preference")
+
+    narrative_score = int(listener.get("narrative_score", 0))
+    if action != "skip" and mode == "elicitor" and narrative_score >= 6:
+        mode = "extraction"
+        applied_overrides.append("narratively_complete_extraction")
+
+    return RoutingDecision(
+        listener=listener,
+        action=action,
+        mode=mode,
+        applied_overrides=tuple(applied_overrides),
+    )
 
 
 def _choose_task(text: str, listener: dict[str, Any]) -> str:
@@ -666,197 +660,7 @@ def _render_draft_body(
 """
 
 
-# ── Helpers shared by all fanout functions ────────────────────────────────────
-
-def _entity_canonical_names(writer: dict[str, Any]) -> list[str]:
-    """Pull canonical entity names from the writer's entities_to_create."""
-    names: list[str] = []
-    for entry in writer.get("entities_to_create") or []:
-        if isinstance(entry, dict):
-            name = str(entry.get("name") or "").strip()
-            if name:
-                names.append(name)
-    return names
-
-
-def _resolve_pronouns(summary: str, entity_names: list[str]) -> str:
-    """Finding 8: resolve a leading pronoun against the writer's entity list.
-
-    When a summary starts with "She/He/They …" and exactly one entity is on
-    record, substitute the canonical name. We don't try to resolve mid-sentence
-    pronouns — the heuristic stays conservative on purpose; ambiguous cases stay
-    untouched so they surface in skeptic review instead of getting silently
-    rewritten.
-    """
-    if not summary or not entity_names:
-        return summary
-    # Pick a candidate: exactly one named person makes substitution safe.
-    if len(entity_names) != 1:
-        return summary
-    name = entity_names[0]
-
-    def repl(match: re.Match[str]) -> str:
-        pronoun = match.group(0)
-        # Only rewrite subject/object pronouns at sentence-leading positions;
-        # other positions keep the pronoun (it's the right call grammatically).
-        start = match.start()
-        prefix = summary[:start].rstrip()
-        if prefix and not prefix.endswith((".", "!", "?")):
-            return pronoun
-        # Preserve case of the pronoun's first letter.
-        return name if pronoun[0].isupper() else name.lower()
-
-    return _PRONOUN_RE.sub(repl, summary)
-
-
-def _infer_domain(
-    explicit: str | None,
-    fallback: str,
-    *,
-    text: str | None = None,
-    entity_names: list[str] | None = None,
-) -> str:
-    """Finding 7: tighten domain assignment.
-
-    Order of preference:
-      1. Explicit, valid value from the writer.
-      2. Hint from the entity list and summary text (named relatives / work terms).
-      3. The caller's fallback.
-    """
-    valid = set(STATE_TTLS.keys()) | {"cross_arena"}
-    explicit_clean = (explicit or "").strip().lower()
-    if explicit_clean in valid and explicit_clean != "cross_arena":
-        return explicit_clean
-    haystack_parts: list[str] = []
-    if text:
-        haystack_parts.append(text)
-    if entity_names:
-        haystack_parts.append(" ".join(entity_names))
-    haystack = " ".join(haystack_parts).lower()
-    if haystack:
-        if any(term in haystack for term in _RELATIONAL_TERMS):
-            return "relational"
-        if any(term in haystack for term in _WORK_TERMS):
-            return "work"
-    if explicit_clean in valid:
-        return explicit_clean
-    return fallback
-
-
-def _merge_links(*sources: Any) -> list[str]:
-    """Flatten / dedupe link sources for a record's `links` frontmatter field."""
-    out: list[str] = []
-    seen: set[str] = set()
-    for src in sources:
-        for item in listify(src):
-            value = str(item).strip()
-            if value and value not in seen:
-                seen.add(value)
-                out.append(value)
-    return out
-
-
-def _basis_or_default(entry: Any, default: str) -> str:
-    """Finding 6: pull per-record confidence_basis from the writer; fall back only when missing."""
-    if isinstance(entry, dict):
-        explicit = str(entry.get("confidence_basis") or "").strip()
-        if explicit:
-            return explicit
-    return default
-
-
-# ── Fanout: open loops ────────────────────────────────────────────────────────
-
-def _create_open_loops(vault: Path, writer: dict[str, Any], draft_rel: str) -> None:
-    """Materialize open loops immediately — open loops are always capture_now per spec.
-
-    Finding 3 (v0.1.7): skip any loop whose `owner` is not the user. The
-    writer prompt now asks for explicit ownership, and we filter as a backstop
-    so other people's pending questions (for example, a family member
-    wondering whether to share an update; a parent's medication concern)
-    never become user-owned todos.
-    """
-    loops = writer.get("open_loops_to_create") or []
-    entity_names = _entity_canonical_names(writer)
-    for loop in loops:
-        if not isinstance(loop, dict):
-            continue
-        title = str(loop.get("title") or "").strip()
-        next_action = str(loop.get("next_action") or "").strip()
-        summary = str(loop.get("summary") or "").strip()
-        priority = str(loop.get("priority") or "medium").strip()
-        owner = str(loop.get("owner") or "user").strip().lower()
-        explicit_domain = str(loop.get("domain", loop.get("arena")) or "").strip()
-        domain = _infer_domain(
-            explicit_domain,
-            fallback="cross_arena",
-            text=f"{title} {summary} {next_action}",
-            entity_names=entity_names,
-        )
-        if not title or not next_action:
-            continue
-        if owner not in {"user", "self", "me", ""}:
-            # Other people's pending actions aren't user loops.
-            continue
-        if priority not in ("low", "medium", "high"):
-            priority = "medium"
-        try:
-            new_open_loop(
-                vault=vault,
-                title=title,
-                domain_primary=domain,
-                summary=summary or title,
-                next_action=next_action,
-                priority=priority,
-                confidence="low",
-                confidence_basis=_basis_or_default(loop, "Auto-extracted from conversation"),
-                links=_merge_links(loop.get("linked_claims"), loop.get("linked_episodes"), [draft_rel]),
-            )
-        except FileExistsError:
-            pass
-        except Exception as exc:
-            log_error(vault, "memory_pipeline.open_loop", exc)
-
-
-# ── Fanout: state ─────────────────────────────────────────────────────────────
-
-def _apply_state_updates(vault: Path, writer: dict[str, Any], draft_rel: str) -> None:
-    updates = writer.get("state_updates") or []
-    entity_names = _entity_canonical_names(writer)
-    for update in updates:
-        if not isinstance(update, dict):
-            continue
-        raw_category = update.get("category", update.get("arena"))
-        summary = str(update.get("summary") or "").strip()
-        confidence = str(update.get("confidence") or "low").strip()
-        # Finding 7: prefer relational when a named primer entity is referenced.
-        inferred = _infer_domain(
-            str(raw_category or ""),
-            fallback="",
-            text=summary,
-            entity_names=entity_names,
-        )
-        state_category = normalize_state_category(inferred or raw_category, summary=summary)
-        if not state_category or not summary or state_category not in STATE_TTLS:
-            continue
-        if confidence not in ("low", "medium", "high"):
-            confidence = "low"
-        # Finding 8: never write a pronoun-led state summary to a persistent file.
-        summary = _resolve_pronouns(summary, entity_names)
-        try:
-            upsert_state(
-                vault=vault,
-                state_category=state_category,
-                summary=summary,
-                confidence=confidence,
-                confidence_basis=_basis_or_default(update, "Auto-extracted from conversation"),
-                sources=_merge_links(update.get("sources"), [draft_rel]),
-            )
-        except Exception as exc:
-            log_error(vault, "memory_pipeline.state_update", exc)
-
-
-# ── Fanout: entities ──────────────────────────────────────────────────────────
+# ── Fanout: entities (extraction-only) ───────────────────────────────────────
 
 def _create_entity_stubs(
     vault: Path,
@@ -917,7 +721,7 @@ def _create_entity_stubs(
                 subtype=subtype,
                 summary=summary or f"{name} mentioned in conversation.",
                 confidence="low",
-                confidence_basis=_basis_or_default(entry, "Auto-extracted from conversation"),
+                confidence_basis=basis_or_default(entry, "Auto-extracted from conversation"),
             )
         except FileExistsError:
             continue
@@ -1261,306 +1065,3 @@ def _append_entity_alias(path: Path, alias: str) -> None:
     fm["aliases"] = aliases
     fm["updated"] = today_iso()
     write_markdown(path, fm, doc.body)
-
-
-# ── Fanout: evidence ──────────────────────────────────────────────────────────
-
-def _create_evidence_records(
-    vault: Path,
-    writer: dict[str, Any],
-    transcript_path: Path,
-    draft_rel: str,
-) -> dict[str, str]:
-    """Create evidence records and return a title→evidence_id map.
-
-    Evidence is materialized BEFORE claims in the v0.1.7 fanout order so the
-    claim-creation step can resolve `supporting_evidence` strings that the
-    writer expressed as evidence titles (Finding 4).
-    """
-    evidence_items = writer.get("evidence_to_create") or []
-    transcript_rel = str(transcript_path.relative_to(vault))
-    entity_names = _entity_canonical_names(writer)
-    evidence_id_map: dict[str, str] = {}
-    for entry in evidence_items:
-        if not isinstance(entry, dict):
-            continue
-        title = str(entry.get("title") or entry.get("summary") or "").strip()
-        if not title:
-            continue
-        arena = _infer_domain(
-            str(entry.get("arena") or ""),
-            fallback="cross_arena",
-            text=f"{title} {entry.get('summary') or ''}",
-            entity_names=entity_names,
-        )
-        try:
-            created = new_evidence(
-                vault=vault,
-                title=title,
-                source_type=str(entry.get("source_type") or "manual_note").strip(),
-                source_uri=str(entry.get("source_uri") or transcript_rel),
-                artifact_ref=str(entry.get("artifact_ref") or transcript_rel),
-                artifact_hash=str(entry.get("artifact_hash") or "").strip() or None,
-                timestamp_of_artifact=str(entry.get("timestamp_of_artifact") or "").strip() or None,
-                actors=listify(entry.get("actors")),
-                arena=arena,
-                compartments=listify(entry.get("compartments")),
-                sensitivity=str(entry.get("sensitivity") or "low").strip(),
-                reliability=str(entry.get("reliability") or "medium").strip(),
-                summary=str(entry.get("summary") or title),
-                observed_facts=listify(entry.get("observed_facts")),
-                verbatim_excerpt=str(entry.get("verbatim_excerpt") or "").strip() or None,
-                # Claims haven't been created yet at this point; we record the
-                # raw writer-supplied link strings and let the rebuild-index
-                # pass resolve them later. Episodes always include the draft.
-                linked_claims=listify(entry.get("linked_claims")),
-                linked_episodes=_merge_links(entry.get("linked_episodes"), [draft_rel]),
-                confidence_basis=_basis_or_default(entry, "Auto-extracted from conversation"),
-            )
-            evidence_doc = load_markdown(created.path)
-            evidence_id = str(evidence_doc.frontmatter.get("id") or "")
-            if evidence_id:
-                register_evidence_reference(evidence_id_map, entry, evidence_id)
-        except FileExistsError:
-            pass
-        except Exception as exc:
-            log_error(vault, "memory_pipeline.evidence", exc)
-    return evidence_id_map
-
-
-# ── Fanout: claims ────────────────────────────────────────────────────────────
-
-def _create_claim_records(
-    vault: Path,
-    writer: dict[str, Any],
-    draft_rel: str,
-    db_path: Path | None = None,
-    evidence_id_map: dict[str, str] | None = None,
-) -> dict[str, str]:
-    claims = writer.get("claims_to_create") or []
-    claim_id_map: dict[str, str] = {}
-    entity_names = _entity_canonical_names(writer)
-    for entry in claims:
-        if not isinstance(entry, dict):
-            continue
-        claim_text = str(entry.get("claim_text") or entry.get("summary") or "").strip()
-        if not claim_text:
-            continue
-        claim_confidence = entry.get("confidence", 0.5)
-        try:
-            confidence = float(claim_confidence)
-        except (TypeError, ValueError):
-            confidence = 0.5
-        arena = _infer_domain(
-            str(entry.get("arena") or ""),
-            fallback="cross_arena",
-            text=claim_text,
-            entity_names=entity_names,
-        )
-        # Finding 4: rewrite writer-supplied evidence titles into evidence IDs
-        # so the claim links resolve under validation.
-        supporting = resolve_evidence_links(
-            listify(entry.get("supporting_evidence")), evidence_id_map or {},
-        ) or listify(entry.get("supporting_evidence"))
-        contradicting = resolve_evidence_links(
-            listify(entry.get("contradicting_evidence")), evidence_id_map or {},
-        ) or listify(entry.get("contradicting_evidence"))
-        try:
-            created = new_claim(
-                vault=vault,
-                claim_text=claim_text,
-                claim_class=str(entry.get("claim_class") or "interpretation").strip(),
-                owner=str(entry.get("owner") or "user").strip(),
-                status=str(entry.get("status") or "active").strip(),
-                confidence=confidence,
-                supporting_evidence=supporting,
-                contradicting_evidence=contradicting,
-                linked_patterns=listify(entry.get("linked_patterns")),
-                first_seen=str(entry.get("first_seen") or "").strip() or None,
-                last_reviewed=str(entry.get("last_reviewed") or "").strip() or None,
-                review_notes=str(entry.get("review_notes") or "").strip(),
-                arena=arena,
-                compartments=list(entry.get("compartments") or []),
-                privacy=str(entry.get("privacy") or "personal").strip(),
-                significance=str(entry.get("significance") or "low").strip(),
-                summary=str(entry.get("summary") or claim_text[:120]),
-                confidence_basis=_basis_or_default(
-                    entry, "Claim confidence assessed from supporting and contradicting evidence",
-                ),
-            )
-            claim_doc = load_markdown(created.path)
-            claim_id = str(claim_doc.frontmatter.get("id") or "")
-            if claim_id:
-                register_claim_reference(claim_id_map, entry, claim_id)
-                # Finding 3: persist the claim into the SQLite claims table so
-                # retrieval, contradiction detection, and Dreamer can actually
-                # see it. The markdown file is the source of truth; the SQLite
-                # row is the queryable projection.
-                _index_claim_row(
-                    vault=vault,
-                    claim_id=claim_id,
-                    draft_rel=draft_rel,
-                    entry=entry,
-                    confidence=confidence,
-                    claim_text=claim_text,
-                    db_path=db_path,
-                )
-                _link_claim_to_draft(vault=vault, claim_id=claim_id, draft_rel=draft_rel)
-        except FileExistsError:
-            pass
-        except Exception as exc:
-            log_error(vault, "memory_pipeline.claim", exc)
-    return claim_id_map
-
-
-def _index_claim_row(
-    *,
-    vault: Path,
-    claim_id: str,
-    draft_rel: str,
-    entry: dict[str, Any],
-    confidence: float,
-    claim_text: str,
-    db_path: Path | None = None,
-) -> None:
-    """Write the new claim into the SQLite claims table (Finding 3)."""
-    try:
-        import sqlite3
-
-        from ..paths import sqlite_path
-
-        db_path = db_path or sqlite_path()
-        if not db_path.exists():
-            return
-        conn = sqlite3.connect(db_path)
-        try:
-            today = today_iso()
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO claims (
-                    id, episode_id, claim_text, claim_type, confidence, sensitivity,
-                    source_basis, evidence_id, status, created, last_reviewed, review_after
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    claim_id,
-                    draft_rel,
-                    claim_text,
-                    str(entry.get("claim_class") or "interpretation"),
-                    f"{confidence:.3f}",
-                    str(entry.get("sensitivity") or "low"),
-                    str(entry.get("review_notes") or "Auto-extracted from conversation"),
-                    ", ".join(listify(entry.get("supporting_evidence"))),
-                    str(entry.get("status") or "active"),
-                    today,
-                    today,
-                    today,
-                ),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-    except Exception as exc:
-        log_error(vault, "memory_pipeline.claim.index", exc)
-
-
-def _link_claim_to_draft(*, vault: Path, claim_id: str, draft_rel: str) -> None:
-    """Finding 5: ensure the claim's `links` frontmatter records the draft origin."""
-    if not draft_rel:
-        return
-    try:
-        # Locate the claim file by id.
-        for path in (vault / "claims").glob("*.md"):
-            try:
-                doc = load_markdown(path)
-            except Exception:
-                continue
-            if str(doc.frontmatter.get("id") or "") != claim_id:
-                continue
-            fm = dict(doc.frontmatter)
-            fm["links"] = _merge_links(fm.get("links"), [draft_rel])
-            write_markdown(path, fm, doc.body)
-            return
-    except Exception as exc:
-        log_error(vault, "memory_pipeline.claim.link", exc)
-
-
-# ── Fanout: decisions ─────────────────────────────────────────────────────────
-
-def _create_decisions(vault: Path, writer: dict[str, Any], draft_rel: str | None = None) -> None:
-    decisions = list(writer.get("decisions_to_create") or [])
-    entity_names = _entity_canonical_names(writer)
-    if not decisions and str(writer.get("record_type") or "").strip().lower() == "decision":
-        summary = str(writer.get("summary") or "").strip()
-        if summary:
-            _raw_fm = writer.get("frontmatter")
-            frontmatter: dict[str, Any] = _raw_fm if isinstance(_raw_fm, dict) else {}
-            decisions = [{
-                "title": summary,
-                "summary": summary,
-                "domain": frontmatter.get("domain_primary") or frontmatter.get("domain") or "cross_arena",
-                "significance": writer.get("significance") or "medium",
-                "alternatives_considered": listify(frontmatter.get("alternatives_considered")),
-                "revisit_conditions": listify(frontmatter.get("revisit_conditions")),
-                "confidence_basis": frontmatter.get("confidence_basis"),
-                "linked_episodes": listify(frontmatter.get("linked_episodes")),
-                "linked_claims": listify(frontmatter.get("linked_claims")),
-            }]
-    for entry in decisions:
-        if not isinstance(entry, dict):
-            continue
-        title = str(entry.get("title") or "").strip()
-        summary = str(entry.get("summary") or "").strip()
-        if _is_negated_decision(title, summary):
-            continue
-        domain = _infer_domain(
-            str(entry.get("domain", entry.get("arena")) or ""),
-            fallback="cross_arena",
-            text=f"{title} {summary}",
-            entity_names=entity_names,
-        )
-        significance = str(entry.get("significance") or "low").strip()
-        alternatives = listify(entry.get("alternatives_considered"))
-        revisit = listify(entry.get("revisit_conditions"))
-        if not title or not summary:
-            continue
-        if significance not in ("low", "medium", "high"):
-            significance = "low"
-        try:
-            new_decision(
-                vault=vault,
-                title=title,
-                domain_primary=domain,
-                summary=summary,
-                significance=significance,
-                confidence="low",
-                confidence_basis=_basis_or_default(entry, "Auto-extracted from conversation"),
-                alternatives_considered=alternatives,
-                revisit_conditions=revisit,
-                links=_merge_links(
-                    entry.get("linked_claims"),
-                    entry.get("linked_episodes"),
-                    [draft_rel] if draft_rel else [],
-                ),
-            )
-        except FileExistsError:
-            pass
-        except Exception as exc:
-            log_error(vault, "memory_pipeline.decision", exc)
-
-
-_NEGATION_PREFIXES = (
-    "i have not", "i haven't", "i hadn't", "i did not", "i didn't",
-    "i am not", "i'm not", "i was not", "i wasn't",
-    "not sure", "not decided", "haven't decided", "haven't done",
-    "did not", "didn't", "has not", "hasn't",
-    "no decision", "not yet", "i've not",
-    # Pronoun-stripped forms (writer often drops "I" from decision titles)
-    "have not", "had not", "not done", "not completed",
-)
-
-
-def _is_negated_decision(title: str, summary: str) -> bool:
-    """Return True when the decision title or summary is framed as a non-action."""
-    combined = f"{title} {summary}".lower()
-    return any(phrase in combined for phrase in _NEGATION_PREFIXES)

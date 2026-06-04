@@ -15,7 +15,7 @@ from lisan.config import load_config
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.capture import capture_text
 from lisan.tools.chat import _process_chat_turn, run_chat, startup_check
-from lisan.tools.memory_pipeline import _create_decisions
+from lisan.tools.record_fanout import fanout_decisions as _create_decisions
 from lisan.tools.transcripts import append_transcript
 from lisan.tools.tracing import list_recent_turn_traces, load_turn_trace
 from lisan.providers.base import LLMResponse, ProviderError
