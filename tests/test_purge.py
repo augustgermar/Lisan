@@ -69,7 +69,7 @@ class PurgeTests(unittest.TestCase):
 
         config = load_config(self.root / "config.yaml")
         self.assertEqual(config["providers"]["local"]["base_url"], "http://127.0.0.1:8080/v1/chat/completions")
-        self.assertEqual(config["providers"]["local"]["default_model"], "/Users/august/code/omnius/models/Jiunsong/supergemma4-26b-uncensored-mlx-4bit-v2")
+        self.assertIsNone(config["providers"]["local"]["default_model"])
         self.assertTrue(result.config_reset)
         self.assertTrue(result.seeded_files)
 

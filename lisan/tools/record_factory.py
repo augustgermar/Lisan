@@ -60,7 +60,6 @@ _CLAIM_CLASS_ALIASES = {
 
 _CLAIM_OWNER_ALIASES = {
     "user": "user",
-    "august": "user",
     "me": "user",
     "myself": "user",
     "i": "user",
@@ -832,8 +831,21 @@ def normalize_claim_class(value: Any) -> str:
     return _CLAIM_CLASS_ALIASES.get(key, key if key in allowed else "interpretation")
 
 
+_user_name_set: frozenset[str] | None = None
+
+
 def normalize_claim_owner(value: Any) -> str:
+    global _user_name_set
+    if _user_name_set is None:
+        try:
+            from ..config import load_config
+            names = load_config().get("identity", {}).get("user_names", [])
+            _user_name_set = frozenset(str(n).lower() for n in names if n)
+        except Exception:
+            _user_name_set = frozenset()
     key = _normalized_key(value)
+    if key in _user_name_set:
+        return "user"
     return _CLAIM_OWNER_ALIASES.get(key, "external_actor")
 
 

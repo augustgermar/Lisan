@@ -21,7 +21,7 @@
       "enabled": true,
       "api_key_env": null,
       "base_url": "http://127.0.0.1:8080/v1/chat/completions",
-      "default_model": "/Users/august/code/omnius/models/Jiunsong/supergemma4-26b-uncensored-mlx-4bit-v2"
+      "default_model": null
     },
     "openrouter": {
       "enabled": true,
@@ -155,5 +155,8 @@
       "per_layer_limit": 30,
       "fused_limit": 20
     }
+  },
+  "identity": {
+    "user_names": ["August"]
   }
 }
