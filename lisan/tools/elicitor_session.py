@@ -11,8 +11,6 @@ from ..frontmatter import write_markdown
 from ..utils import slugify, today_iso
 from .assembler import assemble_context
 from .domain_fields import with_domain_fields
-from .epistemic import listify
-from .log import log_error
 from .narrative_state import (
     conversation_history,
     format_history,
@@ -20,14 +18,19 @@ from .narrative_state import (
     save_narrative_state,
     update_narrative_state,
 )
-from .record_fanout import register_claim_reference, resolve_claim_links
-from .record_factory import STATE_TTLS, new_claim, new_decision, new_evidence, normalize_state_category
+from .record_fanout import (
+    fanout_claims,
+    fanout_decisions,
+    fanout_evidence,
+    fanout_open_loops,
+    fanout_state_updates,
+)
 from .transcripts import append_transcript
-from ..frontmatter import load_markdown
 
 # Force Writer handoff after this many turns when enough has been established.
 # Prevents elicitor conversations from running forever without producing a draft.
 _MAX_ELICITOR_TURNS = 12
+
 
 
 @dataclass(slots=True)
@@ -242,170 +245,14 @@ Elicitor mode closure was detected.
 {text.strip()}
 """
     write_markdown(path, with_domain_fields(frontmatter), body)
-    claim_id_map = _create_elicitor_claim_records(vault, writer, str(path.relative_to(vault)))
-    _create_elicitor_evidence_records(vault, writer, transcript_path, str(path.relative_to(vault)), claim_id_map)
-    _apply_elicitor_state_updates(vault, writer)
-    _create_elicitor_open_loops(vault, writer)
-    _create_elicitor_decisions(vault, writer)
+    draft_rel = str(path.relative_to(vault))
+    # Evidence runs before claims so claim.supporting_evidence can be resolved
+    # through evidence_id_map — mirrors the extraction path fanout order.
+    evidence_id_map = fanout_evidence(vault, writer, transcript_path, draft_rel)
+    fanout_claims(vault, writer, draft_rel, evidence_id_map=evidence_id_map)
+    fanout_state_updates(vault, writer, draft_rel)
+    fanout_open_loops(vault, writer, draft_rel)
+    fanout_decisions(vault, writer, draft_rel)
     return path
 
 
-def _create_elicitor_open_loops(vault: Path, writer: dict[str, Any]) -> None:
-    from .record_factory import new_open_loop
-    loops = writer.get("open_loops_to_create") or []
-    for loop in loops:
-        title = str(loop.get("title") or "").strip()
-        next_action = str(loop.get("next_action") or "").strip()
-        summary = str(loop.get("summary") or "").strip()
-        priority = str(loop.get("priority") or "medium").strip()
-        arena = str(loop.get("domain", loop.get("arena")) or "cross_arena").strip()
-        if not title or not next_action:
-            continue
-        if priority not in ("low", "medium", "high"):
-            priority = "medium"
-        try:
-            new_open_loop(
-                vault=vault,
-                title=title,
-                domain_primary=arena if arena in STATE_TTLS else "cross_arena",
-                summary=summary or title,
-                next_action=next_action,
-                priority=priority,
-                confidence="low",
-                confidence_basis="Auto-extracted from elicitor conversation",
-            )
-        except FileExistsError:
-            pass
-        except Exception as exc:
-            log_error(vault, "elicitor_session.open_loop", exc)
-
-
-def _create_elicitor_evidence_records(vault: Path, writer: dict[str, Any], transcript_path: Path, draft_rel_path: str, claim_id_map: dict[str, str] | None = None) -> None:
-    evidence_items = writer.get("evidence_to_create") or []
-    transcript_rel = str(transcript_path.relative_to(vault))
-    for entry in evidence_items:
-        title = str(entry.get("title") or entry.get("summary") or "").strip()
-        if not title:
-            continue
-        resolved_claims = resolve_claim_links(listify(entry.get("linked_claims")), claim_id_map or {})
-        try:
-            new_evidence(
-                vault=vault,
-                title=title,
-                source_type=str(entry.get("source_type") or "manual_note").strip(),
-                source_uri=str(entry.get("source_uri") or transcript_rel),
-                artifact_ref=str(entry.get("artifact_ref") or transcript_rel),
-                artifact_hash=str(entry.get("artifact_hash") or "").strip() or None,
-                timestamp_of_artifact=str(entry.get("timestamp_of_artifact") or "").strip() or None,
-                actors=listify(entry.get("actors")),
-                arena=str(entry.get("arena") or "cross_arena").strip(),
-                compartments=listify(entry.get("compartments")),
-                sensitivity=str(entry.get("sensitivity") or "low").strip(),
-                reliability=str(entry.get("reliability") or "medium").strip(),
-                summary=str(entry.get("summary") or title),
-                observed_facts=listify(entry.get("observed_facts")),
-                verbatim_excerpt=str(entry.get("verbatim_excerpt") or "").strip() or None,
-                linked_claims=resolved_claims,
-                linked_episodes=listify(entry.get("linked_episodes")) or [draft_rel_path],
-                confidence_basis="Auto-extracted from elicitor conversation",
-            )
-        except FileExistsError:
-            pass
-        except Exception as exc:
-            log_error(vault, "elicitor_session.evidence", exc)
-
-
-def _create_elicitor_claim_records(vault: Path, writer: dict[str, Any], draft_rel_path: str) -> dict[str, str]:
-    claims = writer.get("claims_to_create") or []
-    claim_id_map: dict[str, str] = {}
-    for entry in claims:
-        claim_text = str(entry.get("claim_text") or entry.get("summary") or "").strip()
-        if not claim_text:
-            continue
-        try:
-            confidence = float(entry.get("confidence", 0.5))
-        except (TypeError, ValueError):
-            confidence = 0.5
-        try:
-            created = new_claim(
-                vault=vault,
-                claim_text=claim_text,
-                claim_class=str(entry.get("claim_class") or "interpretation").strip(),
-                owner=str(entry.get("owner") or "user").strip(),
-                status=str(entry.get("status") or "active").strip(),
-                confidence=confidence,
-                supporting_evidence=listify(entry.get("supporting_evidence")),
-                contradicting_evidence=listify(entry.get("contradicting_evidence")),
-                linked_patterns=listify(entry.get("linked_patterns")),
-                first_seen=str(entry.get("first_seen") or "").strip() or None,
-                last_reviewed=str(entry.get("last_reviewed") or "").strip() or None,
-                review_notes=str(entry.get("review_notes") or "").strip(),
-                arena=str(entry.get("arena") or "cross_arena").strip(),
-                compartments=listify(entry.get("compartments")),
-                privacy=str(entry.get("privacy") or "personal").strip(),
-                significance=str(entry.get("significance") or "low").strip(),
-                summary=str(entry.get("summary") or claim_text[:120]),
-            )
-            claim_doc = load_markdown(created.path)
-            claim_id = str(claim_doc.frontmatter.get("id") or "")
-            if claim_id:
-                register_claim_reference(claim_id_map, entry, claim_id)
-        except FileExistsError:
-            pass
-        except Exception as exc:
-            log_error(vault, "elicitor_session.claim", exc)
-    return claim_id_map
-
-
-def _apply_elicitor_state_updates(vault: Path, writer: dict[str, Any]) -> None:
-    from .record_factory import upsert_state
-    updates = writer.get("state_updates") or []
-    for update in updates:
-        state_category = normalize_state_category(update.get("category", update.get("arena")), summary=str(update.get("summary") or ""))
-        summary = str(update.get("summary") or "").strip()
-        confidence = str(update.get("confidence") or "low").strip()
-        if not state_category or not summary or state_category not in STATE_TTLS:
-            continue
-        if confidence not in ("low", "medium", "high"):
-            confidence = "low"
-        try:
-            upsert_state(
-                vault=vault,
-                state_category=state_category,
-                summary=summary,
-                confidence=confidence,
-                confidence_basis="Auto-extracted from elicitor conversation",
-            )
-        except Exception as exc:
-            log_error(vault, "elicitor_session.state_update", exc)
-
-
-def _create_elicitor_decisions(vault: Path, writer: dict[str, Any]) -> None:
-    decisions = writer.get("decisions_to_create") or []
-    for entry in decisions:
-        title = str(entry.get("title") or "").strip()
-        summary = str(entry.get("summary") or "").strip()
-        arena = str(entry.get("domain", entry.get("arena")) or "cross_arena").strip()
-        significance = str(entry.get("significance") or "low").strip()
-        alternatives = listify(entry.get("alternatives_considered"))
-        revisit = listify(entry.get("revisit_conditions"))
-        if not title or not summary:
-            continue
-        if significance not in ("low", "medium", "high"):
-            significance = "low"
-        try:
-            new_decision(
-                vault=vault,
-                title=title,
-                domain_primary=arena if arena in STATE_TTLS else "cross_arena",
-                summary=summary,
-                significance=significance,
-                confidence="low",
-                confidence_basis="Auto-extracted from elicitor conversation",
-                alternatives_considered=alternatives,
-                revisit_conditions=revisit,
-            )
-        except FileExistsError:
-            pass
-        except Exception as exc:
-            log_error(vault, "elicitor_session.decision", exc)

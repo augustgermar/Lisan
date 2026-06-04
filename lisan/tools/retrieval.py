@@ -6,6 +6,7 @@ import re
 import sqlite3
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -283,6 +284,7 @@ def retrieve_context(
                 quarantined_batch_ids=quarantined_batch_ids,
                 include_quarantined=include_quarantined,
                 limit=retrieval_settings["per_layer_limit"],
+                recency_decay_days=retrieval_settings["recency_decay_days"],
             )
             fts_candidates, fts_mode = _fts_ranked_candidates(
                 conn,
@@ -462,6 +464,7 @@ def _retrieval_fusion_settings(config: dict[str, Any]) -> dict[str, Any]:
         "rrf_k": int(fusion_cfg.get("rrf_k", 60) or 60),
         "per_layer_limit": int(fusion_cfg.get("per_layer_limit", 30) or 30),
         "fused_limit": int(fusion_cfg.get("fused_limit", 20) or 20),
+        "recency_decay_days": int(retrieval_cfg.get("recency_decay_days", 365) or 365),
     }
 
 
@@ -507,8 +510,10 @@ def _sql_ranked_candidates(
     quarantined_batch_ids: set[str],
     include_quarantined: bool,
     limit: int,
+    recency_decay_days: int = 365,
 ) -> list[_LayerCandidate]:
     candidates: list[_LayerCandidate] = []
+    today = date.today()
     for row in file_rows:
         if _visibility_block_reason(
             row,
@@ -518,7 +523,7 @@ def _sql_ranked_candidates(
             include_quarantined=include_quarantined,
         ) is not None:
             continue
-        score = _sql_metadata_score(row, arena, query)
+        score = _sql_metadata_score(row, arena, query, today=today, recency_decay_days=recency_decay_days)
         candidates.append(_LayerCandidate(id=str(row["id"]), score=score, source="sql"))
     return _truncate_layer_candidates(candidates, limit)
 
@@ -754,11 +759,25 @@ def _term_count_score(text: str, terms: list[str]) -> int:
     return sum(1 for term in terms if term in lowered)
 
 
-def _sql_metadata_score(row: sqlite3.Row, arena: str, query: str) -> float:
+def _sql_metadata_score(
+    row: sqlite3.Row,
+    arena: str,
+    query: str,
+    today: date | None = None,
+    recency_decay_days: int = 365,
+) -> float:
     score = 0.0
     if row["domain_primary"] == arena or row["domain_primary"] == "cross_arena":
         score += 2.0
     score += _type_boost(str(row["type"]))
+    try:
+        updated_str = str(row["updated"] or "").strip()
+        if updated_str and today is not None:
+            days_old = (today - date.fromisoformat(updated_str)).days
+            if days_old >= 0:
+                score += max(0.0, 1.0 - (days_old / recency_decay_days))
+    except (ValueError, TypeError):
+        pass
     lowered = query.lower()
     query_terms = [term for term in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]+", lowered) if len(term) > 2]
     haystack = _metadata_haystack(row)
