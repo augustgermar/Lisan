@@ -90,9 +90,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "fused_limit": 20,
         },
     },
-    "identity": {
-        "user_names": [],
-    },
 }
 
 

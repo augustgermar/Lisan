@@ -831,20 +831,11 @@ def normalize_claim_class(value: Any) -> str:
     return _CLAIM_CLASS_ALIASES.get(key, key if key in allowed else "interpretation")
 
 
-_user_name_set: frozenset[str] | None = None
-
-
 def normalize_claim_owner(value: Any) -> str:
-    global _user_name_set
-    if _user_name_set is None:
-        try:
-            from ..config import load_config
-            names = load_config().get("identity", {}).get("user_names", [])
-            _user_name_set = frozenset(str(n).lower() for n in names if n)
-        except Exception:
-            _user_name_set = frozenset()
+    from ..paths import vault_root
+    from .primer_index import known_names
     key = _normalized_key(value)
-    if key in _user_name_set:
+    if key in {n.lower() for n in known_names(vault_root())}:
         return "user"
     return _CLAIM_OWNER_ALIASES.get(key, "external_actor")
 
