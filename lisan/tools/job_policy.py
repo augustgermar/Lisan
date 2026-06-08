@@ -17,6 +17,7 @@ DEFAULT_JOB_PRIORITIES = {
     "skeptic.review_pattern": 30,
     "index.rebuild_record": 40,
     "index.rebuild_all": 40,
+    "index.embed_pending": 45,
     "ingest.artifact.extract": 50,
     "pattern.audit": 60,
     "manifest.regenerate": 90,

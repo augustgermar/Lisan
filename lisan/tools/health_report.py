@@ -200,6 +200,10 @@ def generate_health_report(vault: Path | None = None, db_path: Path | None = Non
         for key, value in counts.items():
             lines.append(f"- {key}: {value}")
 
+        lines.append("")
+        lines.append("## Embeddings")
+        lines.extend(_embeddings_health_lines(vault, db_path, conn))
+
         drafts_dir = vault / "drafts"
         if drafts_dir.exists():
             all_drafts = list(drafts_dir.glob("*.md"))
@@ -217,6 +221,47 @@ def generate_health_report(vault: Path | None = None, db_path: Path | None = Non
         return _render_report(frontmatter, body)
     finally:
         conn.close()
+
+
+def _embeddings_health_lines(vault: Path, db_path: Path, conn: sqlite3.Connection) -> list[str]:
+    """Surface embedding state: active mode, embedder reachability, the index's
+    stored model + dimension, and how many records are still pending."""
+    from ..config import embedding_settings, load_config
+    from ..providers.embeddings import EmbeddingProvider
+    from .vector_store import load_index
+
+    lines: list[str] = []
+    config = load_config()
+    settings = embedding_settings(config)
+    lines.append(f"- active mode: {settings.get('mode')} (provider={settings.get('provider')})")
+    lines.append(f"- unreachable_policy: {settings.get('unreachable_policy')}")
+
+    # The embed attempt is the reachability probe — no separate ping.
+    reachable = "n/a (mode=hash)"
+    if settings.get("mode") != "hash":
+        probe = EmbeddingProvider(config).embed_query("healthcheck")
+        reachable = "yes" if probe.reachable else "no"
+    lines.append(f"- embedder reachable: {reachable}")
+
+    index = load_index(db_path.parent / "embeddings.bin")
+    if index.vectors:
+        lines.append(f"- index model: {index.model} | dimension: {index.dimension} | vectors: {len(index.vectors)}")
+    else:
+        lines.append("- index: no vectors written (run `lisan rebuild-index`)")
+
+    try:
+        pending = conn.execute(
+            "SELECT COUNT(*) FROM files WHERE COALESCE(embedding_status, 'pending') = 'pending'"
+        ).fetchone()[0]
+        embedded = conn.execute(
+            "SELECT COUNT(*) FROM files WHERE embedding_status IN ('embedded', 'hash')"
+        ).fetchone()[0]
+        lines.append(f"- records embedded: {embedded} | pending: {pending}")
+        if pending:
+            lines.append("  Run `lisan sync` or the `index.embed_pending` job to drain pending records.")
+    except sqlite3.Error:
+        lines.append("- embedding_status column not available (rebuild index)")
+    return lines
 
 
 def main(argv: list[str] | None = None) -> int:

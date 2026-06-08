@@ -64,7 +64,14 @@ def path_rel(base: Path, target: Path) -> str:
 
 
 def hash_embedding(text: str, dimensions: int = 32) -> list[float]:
-    """Deterministic hash-based embedding placeholder. Not semantic — replace with a real model for meaningful vector search."""
+    """Deterministic, non-semantic hash embedding used as an explicit fallback.
+
+    This is NOT a semantic embedding. Real semantic vectors come from
+    ``lisan.providers.embeddings.EmbeddingProvider``; this fallback is used only
+    when the embedding mode is ``hash`` or the embedder is unreachable and
+    ``unreachable_policy`` is ``hash`` (mirroring the deterministic agent
+    fallbacks in ``lisan/agents/base.py`` so the system still runs offline / in
+    CI with no model server). Do not delete it."""
     import math
     digest = hashlib.sha256(text.encode("utf-8")).digest()
     vector = [0.0] * dimensions

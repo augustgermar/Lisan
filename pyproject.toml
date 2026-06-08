@@ -4,11 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lisan"
-version = "26.6.4.1"
+version = "26.6.7.3"
 description = "Lisan local-first memory vault CLI"
 requires-python = ">=3.11"
 readme = "README.md"
 authors = [{name = "Lisan Contributors"}]
+
+[project.optional-dependencies]
+# In-process semantic embeddings (Qdrant FastEmbed, ONNX, CPU-only, no torch).
+# Installing this extra activates semantic retrieval with no config change.
+embeddings = ["fastembed>=0.3.0"]
 
 [project.scripts]
 lisan = "lisan.cli:main"

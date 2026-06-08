@@ -130,7 +130,7 @@ The architecture is intentionally deterministic-first. If a feature can be done 
 - `lisan-vault/manifests/`: derived markdown manifests
 - `lisan-vault/backup.md`: backup policy plus backup run log
 - `lisan.sqlite`: SQLite index
-- `embeddings.bin`: deterministic embedding store used by retrieval
+- `embeddings.bin`: semantic embedding store used by retrieval (with a model+dimension header; falls back to deterministic hash vectors when configured or when the embedder is unreachable)
 
 ## Record Model
 
@@ -184,7 +184,7 @@ The validator enforces field presence, enum values, frontmatter/body consistency
 - `entity_epochs` table: entity history and archive snapshots
 - `retrieval_log` table: every retrieval call is logged
 - `llm_call_log` table: provider call audit trail
-- `embeddings.bin`: deterministic text embeddings for each record
+- `embeddings.bin`: semantic text embeddings for each record, with a model+dimension header
 - `files_fts`: FTS index used for keyword retrieval
 
 ### Retrieval Path
@@ -206,6 +206,47 @@ It does all of the following:
 - Logs loaded and rejected records into SQLite
 
 `lisan/tools/assembler.py` is just a thin wrapper around that retrieval path now.
+
+### Embeddings
+
+The vector leg of retrieval uses real semantic embeddings, configured under `retrieval.embeddings` in `config.yaml`. There are three tiers:
+
+1. **Hash floor (no dependencies).** A deterministic, non-semantic `hash_embedding` baseline that never touches the network. This is the reproducible-CI / byte-stable fallback and the A/B control. Force it with `mode: "hash"`.
+2. **FastEmbed in-process (recommended).** Qdrant's [FastEmbed](https://github.com/qdrant/fastembed) — a lightweight ONNX embedder, CPU-only, no PyTorch. It runs *inside* the Lisan process (no server to manage). This is the default `provider`.
+3. **External HTTP endpoint.** Any OpenAI-compatible `POST {base_url}/v1/embeddings` server (llama.cpp / LM Studio / Ollama-compatible, or a hosted API). Select with `provider: "local"`. A secondary `sentence-transformers` in-process backend also exists behind `provider: "sentence-transformers"` and a lazy import (torch is *not* in the optional extra).
+
+#### Turning on semantic retrieval
+
+Semantic retrieval with FastEmbed is an optional extra:
+
+```bash
+pip install "lisan[embeddings]"
+```
+
+**Installing the extra is the activation** — there is no separate enable flag. With the shipped defaults (`provider: "fastembed"`, `mode: "auto"`), semantic retrieval turns on the moment the `fastembed` package is importable. A **base `pip install lisan`** (no extra) runs clean keyword-only retrieval: FastEmbed is treated as unreachable, you get one informational warning, and the `skip` policy drops the vector leg so SQL + FTS carry retrieval. Nothing crashes or hangs.
+
+The default model is `BAAI/bge-small-en-v1.5` (**384-dim**). FastEmbed downloads the model weights (~90MB for the default) **once** on first use into the cache directory, then reuses them.
+
+#### Config keys
+
+- `mode`: `auto` (default), `semantic`, or `hash`.
+  - `auto` attempts the configured embedder and uses it whenever it answers; if it is unreachable (server down, or the FastEmbed extra not installed) it applies `unreachable_policy`. The embed attempt itself is the reachability probe — no separate ping — and it fast-fails (a refused connection or a missing package does not wait out `timeout_seconds`), so a fresh clone or offline CI run never hangs.
+  - `semantic` behaves like `auto` but logs a loud warning when the embedder is unreachable.
+  - `hash` uses the deterministic `hash_embedding` fallback only and never touches the network.
+- `provider`: `fastembed` (default) | `local` (HTTP endpoint) | `sentence-transformers`.
+- `model`: the embedding model. Default `BAAI/bge-small-en-v1.5` for FastEmbed; set this to your server's model when `provider: "local"`.
+- `cache_dir`: where FastEmbed stores model weights. `null` (default) resolves to `$FASTEMBED_CACHE_PATH` if set, otherwise `~/.cache/lisan/fastembed` (never the system temp dir).
+- `query_prefix` / `passage_prefix`: the query-vs-passage convention. BGE-style models are trained to embed a *query* and a *passage* differently, but FastEmbed's native methods apply no distinction for the default model — so Lisan applies the documented convention explicitly. The defaults prefix queries with `Represent this sentence for searching relevant passages: ` and leave passages unprefixed. Set both to `null` to defer to FastEmbed's native `query_embed`/`passage_embed` methods, or set custom strings for a model with a different convention. Records are embedded with the passage form; queries with the query form.
+- `unreachable_policy`: `skip` (default) drops the vector leg and marks affected records `embedding_status='pending'` so they are re-embedded later — it never writes hash vectors into a semantic index. `hash` substitutes deterministic hash vectors instead.
+- `dimensions`: a **hint only**. The authoritative dimension is whatever the model actually returns, and that is what is written into the `embeddings.bin` header.
+- `base_url` / `api_key_env` / `timeout_seconds`: used by the `local` HTTP endpoint.
+- `batch_size`: batch size for indexing passes (also passed to FastEmbed's native batching).
+
+#### Behavior and invariants
+
+Indexing embeds record contents in batched passes. At query time the query is embedded exactly once and `embeddings.bin` is loaded once into an in-memory map. If the live query model's dimension differs from the dimension stored in the index header, the vector leg is skipped (never truncated) and a warning instructs you to rebuild.
+
+**Changing the embedding model, or the `passage_prefix`, requires a full `python3 -m lisan rebuild-index`** — the model changes the dimension and vector space, and the passage prefix changes every stored passage vector. **Changing `query_prefix` does not require a rebuild:** query vectors are computed fresh at query time and compared against the existing (bare) passage vectors, the stored index and its dimension stay valid, and the new query instruction takes effect on the next query. Records captured while the embedder was unavailable stay `pending`; they are re-embedded on the next full rebuild, or incrementally via the `index.embed_pending` job. To restore the exact pre-semantic behavior for A/B comparison, set `mode` to `hash`; to go fully keyword-only, uninstall the extra or leave it uninstalled.
 
 ### Compartment Rules
 

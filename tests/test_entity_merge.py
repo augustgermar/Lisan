@@ -153,7 +153,7 @@ class CreateEntityStubsTests(unittest.TestCase):
                     {"name": "What", "subtype": "person"},
                 ],
             }
-            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md")
+            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text="")
             people_dir = vault / "entities" / "people"
             created = list(people_dir.glob("*.md")) if people_dir.exists() else []
             self.assertEqual(created, [], "Junk entities should not be created")
@@ -167,7 +167,7 @@ class CreateEntityStubsTests(unittest.TestCase):
                     {"name": "August", "subtype": "person"},
                 ],
             }
-            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md")
+            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text="")
             files = list((vault / "entities" / "people").glob("*.md"))
             self.assertEqual(len(files), 1)
 
@@ -182,7 +182,7 @@ class CreateEntityStubsTests(unittest.TestCase):
                     {"name": "Amara Okonkwo", "subtype": "person"},
                 ],
             }
-            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md")
+            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text="")
             files = sorted(p.name for p in (vault / "entities" / "people").glob("*.md"))
             self.assertEqual(len(files), 2, f"Expected 2 distinct files, got {files}")
 
