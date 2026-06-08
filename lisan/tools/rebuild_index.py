@@ -8,8 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..config import load_config
 from ..frontmatter import FrontmatterError, load_markdown
 from ..paths import embeddings_path, repo_root, sqlite_path, vault_root
+from ..providers.embeddings import EmbeddingProvider
 from .domain_fields import normalize_domain_fields
 from .epistemic import (
     normalize_claim_frontmatter,
@@ -21,7 +23,7 @@ from .ingest import ensure_ingestion_manifest_table
 from .ingest_batches import ensure_ingestion_batches_table
 from .jobs import ensure_jobs_table
 from ..tools.common import iter_markdown_files, parse_date
-from ..utils import hash_embedding
+from .vector_store import clear_index_cache, load_index, write_embeddings
 
 
 SCHEMA_SQL = """
@@ -105,7 +107,8 @@ CREATE TABLE IF NOT EXISTS files (
     approved_by TEXT,
     content_hash TEXT,
     word_count INTEGER,
-    token_count_approx INTEGER
+    token_count_approx INTEGER,
+    embedding_status TEXT
 );
 
 CREATE TABLE IF NOT EXISTS links (
@@ -173,7 +176,8 @@ CREATE TABLE IF NOT EXISTS retrieval_log (
     rrf_k INTEGER,
     per_layer_limit INTEGER,
     fused_limit INTEGER,
-    fts_mode TEXT
+    fts_mode TEXT,
+    embedding_mode TEXT
 );
 
 CREATE TABLE IF NOT EXISTS llm_call_log (
@@ -263,6 +267,7 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
     conn.row_factory = sqlite3.Row
     try:
         conn.executescript(SCHEMA_SQL)
+        _ensure_files_columns(conn)
         ensure_jobs_table(conn)
         ensure_ingestion_manifest_table(conn)
         ensure_ingestion_batches_table(conn)
@@ -275,7 +280,10 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
             pass
         conn.commit()
         counts = {"files": 0, "links": 0, "claims": 0, "aliases": 0, "epochs": 0}
-        embeddings_lines: list[str] = []
+        # (file_id, content) pairs embedded in a single batched pass after the
+        # row loop, so the embedder is hit with the endpoint's native array
+        # batching instead of once per record.
+        embed_targets: list[tuple[str, str]] = []
         file_rows: dict[str, dict[str, Any]] = {}
 
         for path in iter_markdown_files(vault):
@@ -396,6 +404,9 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
                 "content_hash": content_hash,
                 "word_count": word_count,
                 "token_count_approx": token_count,
+                # Filled in by the batched embedding pass below; "pending" until
+                # a vector is written for this record.
+                "embedding_status": "pending",
             }
             file_rows[file_id] = row
             conn.execute(
@@ -414,7 +425,7 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
                     reviewed_record_type, approved, risk, recommended_action, issues, priority_questions,
                     alternative_hypotheses, claim_updates, confidence_adjustments,
                     reasoning_errors, corrects, field_corrected, original_value, corrected_value, basis,
-                    approved_by, content_hash, word_count, token_count_approx
+                    approved_by, content_hash, word_count, token_count_approx, embedding_status
                 ) VALUES (
                     :id, :type, :path, :created, :created_at, :updated, :status, :significance, :domain_primary,
                     :domain_secondary, :arena, :privacy, :compartments, :allowed_contexts, :blocked_contexts,
@@ -429,13 +440,13 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
                     :reviewed_record_type, :approved, :risk, :recommended_action, :issues, :priority_questions,
                     :alternative_hypotheses, :claim_updates, :confidence_adjustments,
                     :reasoning_errors, :corrects, :field_corrected, :original_value, :corrected_value, :basis,
-                    :approved_by, :content_hash, :word_count, :token_count_approx
+                    :approved_by, :content_hash, :word_count, :token_count_approx, :embedding_status
                 )
                 """,
                 row,
             )
             counts["files"] += 1
-            embeddings_lines.append(json.dumps({"id": file_id, "embedding": hash_embedding(content)}))
+            embed_targets.append((file_id, content))
             try:
                 conn.execute(
                     "INSERT INTO files_fts (id, summary, content) VALUES (?, ?, ?)",
@@ -544,7 +555,7 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
                     if isinstance(link, str):
                         conn.execute(
                             "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
-                            (file_id, link, None),
+                            (file_id, link, "related"),
                         )
                         counts["links"] += 1
             if file_type == "artifact":
@@ -593,8 +604,154 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
                     counts["links"] += 1
 
         conn.commit()
-        embeddings_file.write_text("\n".join(embeddings_lines) + ("\n" if embeddings_lines else ""), encoding="utf-8")
+        _embed_and_write(conn, embed_targets, embeddings_file)
+        conn.commit()
+        clear_index_cache()
         return counts
+    finally:
+        conn.close()
+
+
+def _ensure_files_columns(conn: sqlite3.Connection) -> None:
+    """Backfill columns added after a database was first created."""
+    try:
+        existing = {str(row[1]) for row in conn.execute("PRAGMA table_info(files)").fetchall()}
+    except sqlite3.Error:
+        return
+    if "embedding_status" not in existing:
+        try:
+            conn.execute("ALTER TABLE files ADD COLUMN embedding_status TEXT")
+        except sqlite3.Error:
+            pass
+
+
+def _embed_and_write(
+    conn: sqlite3.Connection,
+    embed_targets: list[tuple[str, str]],
+    embeddings_file: Path,
+) -> None:
+    """Embed all record contents in batched passes and write embeddings.bin with
+    a model+dimension header. Records whose vector could not be produced (the
+    embedder was unreachable under unreachable_policy:skip) are written with no
+    vector and left as embedding_status='pending' for a later sweep."""
+    provider = EmbeddingProvider(load_config())
+    batch_size = max(1, int(provider.settings.get("batch_size", 64) or 64))
+
+    records: list[tuple[str, list[float] | None]] = []
+    index_model = "none"
+    index_dimension = 0
+    saw_semantic = False
+
+    for start in range(0, len(embed_targets), batch_size):
+        chunk = embed_targets[start : start + batch_size]
+        outcome = provider.embed_records([content for _, content in chunk])
+        for (file_id, _content), vector in zip(chunk, outcome.vectors):
+            records.append((file_id, vector))
+            if vector is None:
+                status = "pending"
+            elif outcome.mode_used == "hash":
+                status = "hash"
+            else:
+                status = "embedded"
+            conn.execute(
+                "UPDATE files SET embedding_status = ? WHERE id = ?",
+                (status, file_id),
+            )
+        if outcome.mode_used == "semantic":
+            saw_semantic = True
+            index_model = outcome.model
+            index_dimension = outcome.dimension
+        elif outcome.mode_used == "hash" and not saw_semantic:
+            index_model = outcome.model
+            index_dimension = outcome.dimension
+
+    write_embeddings(embeddings_file, records, model=index_model, dimension=index_dimension)
+
+
+def embed_pending_records(
+    vault: Path | None = None,
+    db_path: Path | None = None,
+    embeddings_file: Path | None = None,
+) -> dict[str, Any]:
+    """Drain records left at embedding_status='pending' (e.g. captured while the
+    embedder was down) by embedding them and merging the vectors into the
+    existing index — without requiring a full rebuild. Reuses the same
+    EmbeddingProvider transport as the full rebuild.
+
+    Exposed as the ``index.embed_pending`` job type so the existing job queue /
+    sync sweep can recover semantic coverage incrementally."""
+    vault = vault or vault_root()
+    db_path = db_path or sqlite_path()
+    embeddings_file = embeddings_file or embeddings_path()
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        _ensure_files_columns(conn)
+        pending = conn.execute(
+            "SELECT id, path FROM files WHERE COALESCE(embedding_status, 'pending') = 'pending'"
+        ).fetchall()
+        if not pending:
+            return {"pending": 0, "embedded": 0, "still_pending": 0, "mode_used": "none"}
+
+        targets: list[tuple[str, str]] = []
+        for row in pending:
+            doc_path = vault / str(row["path"])
+            try:
+                doc = load_markdown(doc_path)
+            except (FrontmatterError, OSError):
+                continue
+            content = f"{str(doc.frontmatter.get('summary', ''))}\n\n{doc.body.strip()}".strip()
+            targets.append((str(row["id"]), content))
+
+        provider = EmbeddingProvider(load_config())
+        existing = load_index(embeddings_file)
+        merged: dict[str, list[float]] = dict(existing.vectors)
+        index_model = existing.model
+        index_dimension = existing.dimension
+
+        embedded = 0
+        mode_used = "skip"
+        batch_size = max(1, int(provider.settings.get("batch_size", 64) or 64))
+        for start in range(0, len(targets), batch_size):
+            chunk = targets[start : start + batch_size]
+            outcome = provider.embed_records([content for _, content in chunk])
+            mode_used = outcome.mode_used
+            if outcome.mode_used == "skip":
+                break  # still unreachable; leave the rest pending
+            if outcome.mode_used == "semantic":
+                if index_dimension and existing.vectors and outcome.dimension != index_dimension:
+                    raise ValueError(
+                        f"pending re-embed dimension {outcome.dimension} != index dimension "
+                        f"{index_dimension}; the embedding model changed — run `lisan rebuild-index`"
+                    )
+                index_model = outcome.model
+                index_dimension = outcome.dimension
+            for (file_id, _content), vector in zip(chunk, outcome.vectors):
+                if vector is None:
+                    continue
+                merged[file_id] = vector
+                status = "hash" if outcome.mode_used == "hash" else "embedded"
+                conn.execute("UPDATE files SET embedding_status = ? WHERE id = ?", (status, file_id))
+                embedded += 1
+
+        conn.commit()
+        write_embeddings(
+            embeddings_file,
+            list(merged.items()),
+            model=index_model,
+            dimension=index_dimension,
+        )
+        clear_index_cache()
+        still_pending = conn.execute(
+            "SELECT COUNT(*) FROM files WHERE COALESCE(embedding_status, 'pending') = 'pending'"
+        ).fetchone()[0]
+        return {
+            "pending": len(targets),
+            "embedded": embedded,
+            "still_pending": int(still_pending),
+            "mode_used": mode_used,
+        }
     finally:
         conn.close()
 

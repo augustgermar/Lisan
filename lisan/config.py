@@ -89,8 +89,80 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "per_layer_limit": 30,
             "fused_limit": 20,
         },
+        "embeddings": {
+            # mode: auto | semantic | hash
+            #   auto     - attempt the semantic embedder; the embed call itself
+            #              is the reachability probe. If reachable, use it; if
+            #              not, apply unreachable_policy. Full semantic search
+            #              out of the box whenever a server is present.
+            #   semantic - same as auto, but emit a loud WARNING when the
+            #              embedder is unreachable (for an operator who expects
+            #              it to be up).
+            #   hash     - deterministic hash only; never touches the network
+            #              (reproducible CI / byte-stable baseline).
+            "mode": "auto",
+            # provider: fastembed | local | sentence-transformers
+            #   fastembed (default, recommended) - in-process ONNX embedder.
+            #     Optional dependency: `pip install lisan[embeddings]`.
+            #     Installing the extra IS the activation; a base install without
+            #     it degrades to keyword-only via unreachable_policy.
+            #   local - OpenAI-compatible POST {base_url}/v1/embeddings server.
+            #   sentence-transformers - secondary in-process backend (lazy).
+            "provider": "fastembed",
+            # FastEmbed default model (BGE small, 384-dim). For provider:local
+            # set this to your server's embedding model instead.
+            "model": "BAAI/bge-small-en-v1.5",
+            # HINT ONLY. The authoritative dimension is whatever the embedder
+            # actually returns; it is written into the embeddings.bin header. If
+            # the observed dimension differs from this hint we warn.
+            "dimensions": 384,
+            # FastEmbed weight cache. null -> $FASTEMBED_CACHE_PATH, else
+            # ~/.cache/lisan/fastembed (never the system temp dir). First use
+            # downloads the model (~90MB for the default).
+            "cache_dir": None,
+            # Query/passage convention. The default model (BGE small) does not
+            # apply any distinction through FastEmbed's native query_embed /
+            # passage_embed methods, so we apply its DOCUMENTED convention
+            # explicitly: queries get the instruction prefix, passages get none.
+            # This is the silent-quality footgun, defaulted correctly.
+            #   - Set both to null to defer to FastEmbed's native methods (use
+            #     this for a model whose FastEmbed build applies its own
+            #     query/passage logic).
+            #   - Set custom strings for a model with a different convention.
+            # Changing passage_prefix requires a full rebuild-index (every
+            # stored passage vector changes). Changing query_prefix does NOT:
+            # query vectors are computed fresh per query against the existing
+            # bare passage vectors, so the new instruction just takes effect on
+            # the next query.
+            "query_prefix": "Represent this sentence for searching relevant passages: ",
+            "passage_prefix": "",
+            # Used by provider:local (the HTTP endpoint).
+            "base_url": "http://127.0.0.1:8080",
+            "api_key_env": None,
+            "timeout_seconds": 30,
+            "batch_size": 64,
+            # unreachable_policy: skip | hash
+            #   skip - drop the vector leg and mark records embedding_status=
+            #          "pending" so a later sweep can re-embed them (default).
+            #          Never writes hash vectors into a semantic index.
+            #   hash - substitute deterministic hash vectors.
+            "unreachable_policy": "skip",
+            # Only used by mode:hash or unreachable_policy:hash.
+            "hash_dimensions": 32,
+        },
     },
 }
+
+
+def embedding_settings(config: dict[str, Any]) -> dict[str, Any]:
+    """Resolve the retrieval.embeddings block, backfilling any missing keys
+    from the defaults so older config files keep working."""
+    defaults = DEFAULT_CONFIG["retrieval"]["embeddings"]
+    merged = deepcopy(defaults)
+    block = config.get("retrieval", {}).get("embeddings", {})
+    if isinstance(block, dict):
+        merged.update(block)
+    return merged
 
 
 def load_config(path: Path | None = None) -> dict[str, Any]:

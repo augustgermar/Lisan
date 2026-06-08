@@ -1,5 +1,25 @@
 # Changelog
 
+## 26.6.7.2
+
+- Added FastEmbed (Qdrant's ONNX, CPU-only, no PyTorch) as an in-process embedding backend behind the existing provider abstraction, selectable via `retrieval.embeddings.provider = "fastembed"` (now the default). The `TextEmbedding` model is lazily imported and instantiated exactly once per process (singleton keyed by model name + cache_dir), reused by every query and record.
+- Shipped as an optional extra: `pip install lisan[embeddings]`. Installing the extra IS the activation — with the default `provider: fastembed` + `mode: auto`, semantic retrieval turns on the moment the package is importable, with no config flag. A base `pip install lisan` runs keyword-only: a missing `fastembed` package is treated as an unreachable embedder (honors `unreachable_policy`, default `skip`), warns once per process with an install hint, and caches the unavailable state so the import is not retried. `requirements.txt` stays stdlib-only.
+- Applied the BGE query/passage distinction correctly (the silent-quality footgun): FastEmbed's native `query_embed`/`passage_embed` are a no-op for the default `BAAI/bge-small-en-v1.5` model, so Lisan defaults `query_prefix`/`passage_prefix` to the model's documented convention (queries get the instruction prefix, passages none). Records embed with the passage form, queries with the query form. Setting both prefixes to `null` defers to FastEmbed's native methods; custom strings support other models. Changing the model or the `passage_prefix` requires a full `rebuild-index`; changing only the `query_prefix` does not (query vectors are computed fresh per query against the existing bare passage vectors).
+- Observed dimension stays authoritative (BGE default = 384 written to the `embeddings.bin` header, not the config hint); FastEmbed's generator of numpy arrays is materialized and converted to `list[float]` for the existing JSON-lines store, using native batching.
+- New `cache_dir` config key for FastEmbed weights, honoring `$FASTEMBED_CACHE_PATH`, defaulting to `~/.cache/lisan/fastembed` (never the system temp dir). Documented the one-time ~90MB download.
+- Default config provider changed from `local` to `fastembed`; default model `BAAI/bge-small-en-v1.5`; default dimension hint 384. The OpenAI-compatible HTTP endpoint remains available via `provider: local`.
+- Bumped version to 26.6.7.2.
+
+## 26.6.7.1
+
+- Replaced the SHA256 hash "embedding" placeholder with real local-first semantic embeddings. New `EmbeddingProvider` (`lisan/providers/embeddings.py`) talks to an OpenAI-compatible `POST {base_url}/v1/embeddings` endpoint (llama.cpp / LM Studio / Ollama-compatible, or hosted OpenAI/Google via an OAI-compatible endpoint), with an optional, lazily-imported `sentence-transformers` backend. The deterministic `hash_embedding` is kept but demoted to an explicit fallback.
+- New `retrieval.embeddings` config block with a tri-state `mode` (`auto` | `semantic` | `hash`) and an `unreachable_policy` (`skip` | `hash`). `auto` (default) uses semantic embeddings whenever a server answers and fails over per policy when it does not; the embed attempt itself is the reachability probe and connection-refused fast-fails without waiting out `timeout_seconds`. `hash` never touches the network (reproducible CI baseline).
+- Fixed the retrieval performance trap: the query is now embedded exactly once per retrieval call and `embeddings.bin` is loaded once into an mtime-cached in-memory map, instead of re-embedding the query and rescanning the whole file for every candidate.
+- Fixed the dimension-mismatch trap: `embeddings.bin` now carries a model+dimension header, the authoritative dimension is whatever the embedder actually returns (config `dimensions` is a hint only), and cosine scoring skips (never truncates) vectors whose dimension differs from the live query model — with a loud warning telling the operator to run `rebuild-index`. Switching the embedding model requires a full `rebuild-index`.
+- `unreachable_policy: skip` (default) writes no vectors for records embedded while the server was down and flags them `embedding_status='pending'` (new `files` column). Pending records are re-embedded on the next full `rebuild-index`, or incrementally via the new `index.embed_pending` job — no hash vectors are ever written into a semantic index.
+- `retrieval_log` now records the actual embedding mode used per call (`semantic` | `hash` | `skip`) via the new `embedding_mode` column, and `lisan health` shows the active mode, embedder reachability, the index model + dimension, and the count of pending records.
+- Bumped version to 26.6.7.1.
+
 ## 0.1.11
 
 - Removed local testing leftovers from the workspace, including the generated SQLite index and vault transcripts/logs, so a fresh checkout is back to a plain open-source-friendly codebase.

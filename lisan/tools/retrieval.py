@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import math
 import re
 import sqlite3
 from collections import defaultdict, deque
@@ -12,10 +11,11 @@ from typing import Any
 
 from ..config import load_config
 from ..frontmatter import load_markdown
-from ..paths import embeddings_path, sqlite_path, vault_root
+from ..paths import sqlite_path, vault_root
 from ..tools.common import iter_markdown_files
 from ..tools.tracing import record_retrieval_result
-from ..utils import approx_word_count, hash_embedding, today_iso
+from ..tools.vector_store import VectorScorer, build_query_scorer
+from ..utils import approx_word_count, today_iso
 
 
 DOMAIN_KEYWORDS: dict[str, set[str]] = {
@@ -259,6 +259,17 @@ def retrieve_context(
     inferred_domain, confidence = _infer_domain(domain_query, domain or arena)
     active_contexts = _active_contexts(inferred_domain, domain_query)
 
+    # Embed the query exactly once and load embeddings.bin exactly once per
+    # retrieval call. The scorer ranks every candidate against this preloaded
+    # map — no per-candidate disk reads, no per-candidate query embeds. The
+    # index lives next to the SQLite file so tests and external vaults resolve
+    # the right one.
+    vector_scorer = build_query_scorer(
+        effective_query,
+        embeddings_file=db_path.parent / "embeddings.bin",
+        config=config,
+    )
+
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
@@ -298,13 +309,12 @@ def retrieve_context(
             )
             vector_candidates = _vector_ranked_candidates(
                 file_rows,
-                vault=vault,
+                vector_scorer=vector_scorer,
                 active_contexts=active_contexts,
                 quarantined_artifact_ids=quarantined_artifact_ids,
                 quarantined_batch_ids=quarantined_batch_ids,
                 include_quarantined=include_quarantined,
                 limit=retrieval_settings["per_layer_limit"],
-                query=effective_query,
             )
             direct_loaded, fusion_stats = _fuse_ranked_candidates(
                 rows_by_id=rows_by_id,
@@ -362,6 +372,7 @@ def retrieve_context(
                 graph_blocked=graph_blocked,
                 retrieval_mode="rrf",
                 fusion_enabled=True,
+                embedding_mode=vector_scorer.mode_used,
                 sql_candidate_count=fusion_stats["sql_candidate_count"],
                 fts_candidate_count=fusion_stats["fts_candidate_count"],
                 vector_candidate_count=fusion_stats["vector_candidate_count"],
@@ -392,6 +403,7 @@ def retrieve_context(
                 vault,
                 active_contexts,
                 fts_ids,
+                vector_scorer=vector_scorer,
                 quarantined_artifact_ids=quarantined_artifact_ids,
                 quarantined_batch_ids=quarantined_batch_ids,
                 include_quarantined=include_quarantined,
@@ -431,6 +443,7 @@ def retrieve_context(
             graph_blocked=graph_blocked,
             retrieval_mode="legacy",
             fusion_enabled=False,
+            embedding_mode=vector_scorer.mode_used,
             sql_candidate_count=0,
             fts_candidate_count=0,
             vector_candidate_count=0,
@@ -623,14 +636,18 @@ def _fts_ranked_candidates(
 def _vector_ranked_candidates(
     file_rows: list[sqlite3.Row],
     *,
-    vault: Path,
+    vector_scorer: VectorScorer,
     active_contexts: set[str],
     quarantined_artifact_ids: set[str],
     quarantined_batch_ids: set[str],
     include_quarantined: bool,
     limit: int,
-    query: str,
 ) -> list[_LayerCandidate]:
+    # When the scorer is inactive (query skipped, or empty index) there is no
+    # vector signal — return nothing so RRF runs on SQL+FTS only rather than
+    # padding the fusion with zero-score ties.
+    if not vector_scorer.active:
+        return []
     candidates: list[_LayerCandidate] = []
     for row in file_rows:
         if _visibility_block_reason(
@@ -641,7 +658,9 @@ def _vector_ranked_candidates(
             include_quarantined=include_quarantined,
         ) is not None:
             continue
-        score = _vector_score(query, str(row["id"]), vault)
+        score = vector_scorer.score(row["id"])
+        if score <= 0:
+            continue
         candidates.append(_LayerCandidate(id=str(row["id"]), score=score, source="vector"))
     return _truncate_layer_candidates(candidates, limit)
 
@@ -849,6 +868,8 @@ def _score_row(
     vault: Path,
     active_contexts: set[str],
     fts_ids: set[str],
+    *,
+    vector_scorer: VectorScorer,
     quarantined_artifact_ids: set[str],
     quarantined_batch_ids: set[str],
     include_quarantined: bool,
@@ -933,7 +954,7 @@ def _score_row(
         score += 2.0
         reasons.append("fts")
 
-    vector_score = _vector_score(query, row["id"], vault)
+    vector_score = vector_scorer.score(row["id"])
     if vector_score:
         score += vector_score * 2.0
         reasons.append("vector")
@@ -1546,40 +1567,6 @@ def _expansion_detail_lines(item: RetrievalItem) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _vector_score(query: str, file_id: str, vault: Path) -> float:
-    query_vec = hash_embedding(query)
-    emb_path = embeddings_path()
-    if not emb_path.exists():
-        return 0.0
-    best = 0.0
-    with emb_path.open("r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if str(payload.get("id")) != file_id:
-                continue
-            vector = payload.get("embedding")
-            if not isinstance(vector, list):
-                continue
-            best = max(best, _cosine(query_vec, vector))
-    return best
-
-
-def _cosine(a: list[float], b: list[float]) -> float:
-    length = min(len(a), len(b))
-    if not length:
-        return 0.0
-    dot = sum(a[i] * float(b[i]) for i in range(length))
-    a_norm = math.sqrt(sum(v * v for v in a)) or 1.0
-    b_norm = math.sqrt(sum(float(v) * float(v) for v in b[:length])) or 1.0
-    return dot / (a_norm * b_norm)
-
-
 def _fts_candidate_ids(conn: sqlite3.Connection, query: str) -> set[str]:
     terms = [term for term in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]+", query.lower()) if len(term) > 2]
     if not terms:
@@ -1633,6 +1620,7 @@ def _log_retrieval(
     per_layer_limit: int | None = None,
     fused_limit: int | None = None,
     fts_mode: str | None = None,
+    embedding_mode: str | None = None,
 ) -> None:
     try:
         _ensure_retrieval_log_columns(conn)
@@ -1644,8 +1632,8 @@ def _log_retrieval(
                 graph_blocked_count, graph_blocked_reasons, token_count, privacy_level,
                 cross_compartment, model_used, retrieval_mode, fusion_enabled,
                 sql_candidate_count, fts_candidate_count, vector_candidate_count, fused_candidate_count,
-                overlap_count, rrf_k, per_layer_limit, fused_limit, fts_mode
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                overlap_count, rrf_k, per_layer_limit, fused_limit, fts_mode, embedding_mode
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 conversation_id,
@@ -1674,6 +1662,7 @@ def _log_retrieval(
                 per_layer_limit,
                 fused_limit,
                 fts_mode,
+                embedding_mode,
             ),
         )
         conn.commit()
@@ -1698,6 +1687,7 @@ def _ensure_retrieval_log_columns(conn: sqlite3.Connection) -> None:
         "per_layer_limit": "INTEGER",
         "fused_limit": "INTEGER",
         "fts_mode": "TEXT",
+        "embedding_mode": "TEXT",
     }
     for column, column_type in desired.items():
         if column in existing:

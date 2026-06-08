@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+*.egg-info/
 lisan.sqlite
 embeddings.bin
 .DS_Store

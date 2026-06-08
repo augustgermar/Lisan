@@ -34,6 +34,7 @@ JOB_TYPES = {
     "ingest.reindex_artifact",
     "index.rebuild_record",
     "index.rebuild_all",
+    "index.embed_pending",
     "analyst.scan",
     "dreamer.maintenance",
     "manifest.regenerate",
@@ -750,6 +751,12 @@ def dispatch_job(
 
         embeddings_file = Path(str(payload.get("embeddings_file"))) if payload.get("embeddings_file") else None
         return rebuild_index(vault=vault, db_path=db_path, embeddings_file=embeddings_file)
+
+    if job_type == "index.embed_pending":
+        from .rebuild_index import embed_pending_records
+
+        embeddings_file = Path(str(payload.get("embeddings_file"))) if payload.get("embeddings_file") else None
+        return embed_pending_records(vault=vault, db_path=db_path, embeddings_file=embeddings_file)
 
     if job_type == "ingest.scan_path":
         from .ingest import scan_path
