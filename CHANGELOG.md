@@ -1,5 +1,11 @@
 # Changelog
 
+## 26.6.12.1
+
+- Added `install.sh`, a one-line installer (`curl -fsSL https://raw.githubusercontent.com/augustgermar/Lisan/main/install.sh | bash`). It finds a Python >= 3.11 interpreter and git, clones into `~/.lisan/repo`, builds an isolated virtualenv at `~/.lisan/venv`, does an editable install (so a later `git pull` updates the CLI in place), writes a `lisan` launcher to `~/.local/bin` that defaults `LISAN_VAULT` to `~/.lisan/vault` while honoring an externally-set value, seeds the vault, and wires up PATH. Fully non-interactive (pipe-safe) and re-runnable; tunable via `LISAN_HOME`, `LISAN_BIN_DIR`, `LISAN_VAULT`, `LISAN_REF`, `LISAN_EMBEDDINGS`, `LISAN_NO_INIT`, and `LISAN_NO_PATH`.
+- Fixed `pip install` from a clean clone: `pyproject.toml` listed `lisan.evals` in `[tool.setuptools] packages`, but that directory carries no tracked source, so setuptools failed every build with "package directory 'lisan/evals' does not exist". Removed it from the package list (nothing imports it).
+- Bumped version to 26.6.12.1.
+
 ## 26.6.7.2
 
 - Added FastEmbed (Qdrant's ONNX, CPU-only, no PyTorch) as an in-process embedding backend behind the existing provider abstraction, selectable via `retrieval.embeddings.provider = "fastembed"` (now the default). The `TextEmbedding` model is lazily imported and instantiated exactly once per process (singleton keyed by model name + cache_dir), reused by every query and record.

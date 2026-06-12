@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+# ============================================================================
+# Lisan installer
+# ============================================================================
+# One-line install:
+#
+#   curl -fsSL https://raw.githubusercontent.com/augustgermar/Lisan/main/install.sh | bash
+#
+# What it does (non-interactively, safe to re-run):
+#   1. Finds a Python >= 3.11 interpreter and git
+#   2. Clones (or updates) Lisan into $LISAN_HOME (default ~/.lisan/repo)
+#   3. Creates an isolated virtualenv and installs Lisan into it
+#   4. Drops a `lisan` launcher into $LISAN_BIN_DIR (default ~/.local/bin)
+#   5. Seeds a vault and prints next steps
+#
+# Tunables (export before running):
+#   LISAN_HOME        install root            (default: ~/.lisan)
+#   LISAN_BIN_DIR     launcher location       (default: ~/.local/bin)
+#   LISAN_VAULT       default vault path      (default: $LISAN_HOME/vault)
+#   LISAN_REPO_URL    git URL to clone        (default: the public GitHub repo)
+#   LISAN_REF         branch/tag/commit       (default: main)
+#   LISAN_EMBEDDINGS  install semantic extra  (1 = yes, default: 0)
+#   LISAN_NO_INIT     skip vault seeding      (1 = skip)
+#   LISAN_NO_PATH     skip editing shell rc   (1 = skip)
+# ============================================================================
+
+set -euo pipefail
+
+# ── Config ──────────────────────────────────────────────────────────────────
+LISAN_HOME="${LISAN_HOME:-$HOME/.lisan}"
+LISAN_BIN_DIR="${LISAN_BIN_DIR:-$HOME/.local/bin}"
+LISAN_REPO_URL="${LISAN_REPO_URL:-https://github.com/augustgermar/Lisan.git}"
+LISAN_REF="${LISAN_REF:-main}"
+LISAN_EMBEDDINGS="${LISAN_EMBEDDINGS:-0}"
+LISAN_NO_INIT="${LISAN_NO_INIT:-0}"
+LISAN_NO_PATH="${LISAN_NO_PATH:-0}"
+
+REPO_DIR="$LISAN_HOME/repo"
+VENV_DIR="$LISAN_HOME/venv"
+DEFAULT_VAULT="${LISAN_VAULT:-$LISAN_HOME/vault}"
+LAUNCHER="$LISAN_BIN_DIR/lisan"
+
+# ── Pretty output ───────────────────────────────────────────────────────────
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  C_GREEN='\033[0;32m'; C_YELLOW='\033[0;33m'; C_CYAN='\033[0;36m'; C_RED='\033[0;31m'; C_DIM='\033[2m'; C_NC='\033[0m'
+else
+  C_GREEN=''; C_YELLOW=''; C_CYAN=''; C_RED=''; C_DIM=''; C_NC=''
+fi
+info() { printf "${C_CYAN}→${C_NC} %s\n" "$1"; }
+ok()   { printf "${C_GREEN}✓${C_NC} %s\n" "$1"; }
+warn() { printf "${C_YELLOW}!${C_NC} %s\n" "$1"; }
+die()  { printf "${C_RED}✗ %s${C_NC}\n" "$1" >&2; exit 1; }
+
+# ── Prerequisite discovery ──────────────────────────────────────────────────
+find_python() {
+  # Prefer well-supported minor versions; 3.11 is the project floor.
+  local candidate
+  for candidate in python3.13 python3.12 python3.11 python3; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      if "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 11) else 1)' >/dev/null 2>&1; then
+        echo "$candidate"; return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+printf "\n${C_CYAN}Lisan installer${C_NC}\n"
+printf "${C_DIM}local-first memory vault${C_NC}\n\n"
+
+command -v git >/dev/null 2>&1 || die "git is required but was not found. Install git and re-run."
+
+PYTHON="$(find_python)" || die "Python >= 3.11 is required but was not found. Install it and re-run."
+ok "Using $("$PYTHON" --version 2>&1) ($(command -v "$PYTHON"))"
+ok "git $(git --version | awk '{print $3}')"
+
+# ── Clone or update the repo ────────────────────────────────────────────────
+mkdir -p "$LISAN_HOME"
+if [ -d "$REPO_DIR/.git" ]; then
+  info "Updating existing checkout in $REPO_DIR"
+  git -C "$REPO_DIR" fetch --quiet origin
+  git -C "$REPO_DIR" checkout --quiet "$LISAN_REF"
+  # Fast-forward when on a branch; ignore when REF is a detached tag/commit.
+  git -C "$REPO_DIR" merge --ff-only "origin/$LISAN_REF" --quiet 2>/dev/null || true
+  ok "Updated to $(git -C "$REPO_DIR" rev-parse --short HEAD)"
+else
+  info "Cloning $LISAN_REPO_URL"
+  git clone --quiet "$LISAN_REPO_URL" "$REPO_DIR"
+  git -C "$REPO_DIR" checkout --quiet "$LISAN_REF"
+  ok "Cloned to $REPO_DIR ($(git -C "$REPO_DIR" rev-parse --short HEAD))"
+fi
+
+# ── Virtualenv + install ────────────────────────────────────────────────────
+if [ ! -x "$VENV_DIR/bin/python" ]; then
+  info "Creating virtualenv at $VENV_DIR"
+  "$PYTHON" -m venv "$VENV_DIR"
+fi
+VENV_PY="$VENV_DIR/bin/python"
+
+info "Installing dependencies (this can take a minute)…"
+"$VENV_PY" -m pip install --quiet --upgrade pip >/dev/null
+
+PKG_SPEC="."
+if [ "$LISAN_EMBEDDINGS" = "1" ]; then
+  PKG_SPEC=".[embeddings]"
+  info "Including semantic embeddings extra (FastEmbed)"
+fi
+# Editable install: a future `git pull` in $REPO_DIR updates the CLI in place.
+( cd "$REPO_DIR" && "$VENV_PY" -m pip install --quiet --editable "$PKG_SPEC" )
+ok "Installed Lisan $("$VENV_PY" -c 'import lisan; print(lisan.__version__)')"
+
+# ── Launcher ────────────────────────────────────────────────────────────────
+mkdir -p "$LISAN_BIN_DIR"
+cat > "$LAUNCHER" <<EOF
+#!/usr/bin/env bash
+# Lisan launcher — generated by install.sh. Re-running the installer rewrites it.
+# Honors an externally-set LISAN_VAULT; otherwise defaults to the managed vault.
+export LISAN_VAULT="\${LISAN_VAULT:-$DEFAULT_VAULT}"
+exec "$VENV_DIR/bin/lisan" "\$@"
+EOF
+chmod +x "$LAUNCHER"
+ok "Launcher written to $LAUNCHER"
+
+# ── Seed a vault ────────────────────────────────────────────────────────────
+if [ "$LISAN_NO_INIT" != "1" ]; then
+  info "Seeding vault at $DEFAULT_VAULT"
+  mkdir -p "$DEFAULT_VAULT"
+  if LISAN_VAULT="$DEFAULT_VAULT" "$VENV_DIR/bin/lisan" init >/dev/null 2>&1; then
+    ok "Vault ready"
+  else
+    warn "Vault seeding skipped (run 'lisan init' yourself later)"
+  fi
+fi
+
+# ── PATH wiring ─────────────────────────────────────────────────────────────
+on_path() { case ":$PATH:" in *":$LISAN_BIN_DIR:"*) return 0;; *) return 1;; esac; }
+
+rc_file() {
+  case "$(basename "${SHELL:-}")" in
+    zsh)  echo "$HOME/.zshrc" ;;
+    bash) [ -f "$HOME/.bashrc" ] && echo "$HOME/.bashrc" || echo "$HOME/.bash_profile" ;;
+    *)    echo "" ;;
+  esac
+}
+
+if on_path; then
+  ok "$LISAN_BIN_DIR is already on your PATH"
+elif [ "$LISAN_NO_PATH" = "1" ]; then
+  warn "$LISAN_BIN_DIR is not on your PATH (skipping rc edit as requested)"
+else
+  RC="$(rc_file)"
+  LINE="export PATH=\"$LISAN_BIN_DIR:\$PATH\""
+  if [ -n "$RC" ]; then
+    if [ ! -f "$RC" ] || ! grep -qF "$LISAN_BIN_DIR" "$RC"; then
+      printf '\n# Added by Lisan installer\n%s\n' "$LINE" >> "$RC"
+      ok "Added $LISAN_BIN_DIR to PATH in $RC"
+    fi
+    warn "Run 'source $RC' or open a new terminal for 'lisan' to be found"
+  else
+    warn "Add this to your shell profile:  $LINE"
+  fi
+fi
+
+# ── Done ────────────────────────────────────────────────────────────────────
+printf "\n${C_GREEN}Lisan is installed.${C_NC}\n\n"
+printf "  Repo:    %s\n" "$REPO_DIR"
+printf "  Vault:   %s\n" "$DEFAULT_VAULT"
+printf "  Command: %s\n\n" "$LAUNCHER"
+printf "Next steps:\n"
+printf "  ${C_DIM}# start a chat session${C_NC}\n"
+printf "  lisan chat\n\n"
+printf "  ${C_DIM}# or capture a memory${C_NC}\n"
+printf "  lisan capture --conversation-id demo \"I had a weird day at work\"\n\n"
+printf "Update later with:  ${C_DIM}curl -fsSL https://raw.githubusercontent.com/augustgermar/Lisan/main/install.sh | bash${C_NC}\n\n"
