@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -168,6 +169,10 @@ class ChatPerformanceTests(unittest.TestCase):
     def test_startup_check_shows_local_provider_error(self) -> None:
         self.client.complete.side_effect = ProviderError("Connection refused to http://127.0.0.1:8080/v1/chat/completions")
         config = load_config()
+        # Pin the startup provider check to local so this test exercises the
+        # local-unreachable path regardless of repo config.yaml routing (which
+        # points agents at openrouter). _check_provider reads routing.elicitor.medium.
+        config.setdefault("routing", {}).setdefault("elicitor", {})["medium"] = "local"
         buffer = io.StringIO()
 
         with redirect_stdout(buffer):
@@ -177,6 +182,33 @@ class ChatPerformanceTests(unittest.TestCase):
         self.assertFalse(ready)
         self.assertIn("Provider: local not reachable", output)
         self.assertIn("Connection refused to http://127.0.0.1:8080/v1/chat/completions", output)
+
+    def test_startup_check_validates_openrouter_api_key(self) -> None:
+        # Regression: openrouter (the provider config.yaml routes agents to)
+        # must be validated against its API key, not assumed reachable via the
+        # catch-all. _check_provider reads routing.elicitor.medium.
+        config = load_config()
+        config.setdefault("routing", {}).setdefault("elicitor", {})["medium"] = "openrouter"
+        config.setdefault("providers", {}).setdefault("openrouter", {})["api_key_env"] = "OPENROUTER_API_KEY"
+
+        # Key absent -> provider reported not reachable.
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("OPENROUTER_API_KEY", None)
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                ready = startup_check(self.vault, config)
+        output = buffer.getvalue()
+        self.assertFalse(ready)
+        self.assertIn("Provider: openrouter not reachable", output)
+
+        # Key present -> provider reported reachable (no live call required).
+        with patch.dict("os.environ", {"OPENROUTER_API_KEY": "sk-or-test"}, clear=False):
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                startup_check(self.vault, config)
+        output = buffer.getvalue()
+        self.assertIn("Provider: openrouter", output)
+        self.assertNotIn("openrouter not reachable", output)
 
     def test_thanks_schedules_no_background_jobs(self) -> None:
         result = _process_chat_turn(
