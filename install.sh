@@ -125,10 +125,13 @@ ok "Launcher written to $LAUNCHER"
 if [ "$LISAN_NO_INIT" != "1" ]; then
   info "Seeding vault at $DEFAULT_VAULT"
   mkdir -p "$DEFAULT_VAULT"
-  if LISAN_VAULT="$DEFAULT_VAULT" "$VENV_DIR/bin/lisan" init >/dev/null 2>&1; then
+  # init seeds the vault files; rebuild-index creates the SQLite index so
+  # index-backed commands (health, retrieval, chat context) work immediately.
+  if LISAN_VAULT="$DEFAULT_VAULT" "$VENV_DIR/bin/lisan" init >/dev/null 2>&1 \
+     && LISAN_VAULT="$DEFAULT_VAULT" "$VENV_DIR/bin/lisan" rebuild-index >/dev/null 2>&1; then
     ok "Vault ready"
   else
-    warn "Vault seeding skipped (run 'lisan init' yourself later)"
+    warn "Vault seeding incomplete (run 'lisan init && lisan rebuild-index' later)"
   fi
 fi
 

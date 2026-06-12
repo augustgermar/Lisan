@@ -1,5 +1,10 @@
 # Changelog
 
+## 26.6.12.2
+
+- `install.sh` now builds the SQLite index (`rebuild-index`) right after seeding the vault, so index-backed commands (`health`, retrieval, chat context) work on a fresh install instead of failing with "no such table: files".
+- Bumped version to 26.6.12.2.
+
 ## 26.6.12.1
 
 - Added `install.sh`, a one-line installer (`curl -fsSL https://raw.githubusercontent.com/augustgermar/Lisan/main/install.sh | bash`). It finds a Python >= 3.11 interpreter and git, clones into `~/.lisan/repo`, builds an isolated virtualenv at `~/.lisan/venv`, does an editable install (so a later `git pull` updates the CLI in place), writes a `lisan` launcher to `~/.local/bin` that defaults `LISAN_VAULT` to `~/.lisan/vault` while honoring an externally-set value, seeds the vault, and wires up PATH. Fully non-interactive (pipe-safe) and re-runnable; tunable via `LISAN_HOME`, `LISAN_BIN_DIR`, `LISAN_VAULT`, `LISAN_REF`, `LISAN_EMBEDDINGS`, `LISAN_NO_INIT`, and `LISAN_NO_PATH`.
