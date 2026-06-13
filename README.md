@@ -500,6 +500,17 @@ lisan telegram run
 
 Only ids in the allowlist are answered; everyone else is refused. Environment variables take precedence over the `config.yaml` `telegram:` block.
 
+### Always-on (auto-start)
+
+To keep the bot running across reboots without leaving a terminal open, install it as an OS service:
+
+```bash
+lisan telegram install-service     # launchd on macOS, systemd --user on Linux
+lisan telegram uninstall-service   # stop + remove
+```
+
+The service runs `lisan telegram run` against your configured vault, restarts automatically if it crashes, and starts on login. Run only one poller at a time — stop any manual `lisan telegram run` before installing the service (Telegram allows a single long-poller per bot).
+
 ### In-chat commands
 
 - `/new` — start a fresh conversation

@@ -544,6 +544,9 @@ def build_parser() -> argparse.ArgumentParser:
     telegram_run.add_argument("--vault", type=Path, default=vault_root())
     telegram_run.add_argument("--provider", default=None)
     telegram_run.add_argument("--model", default=None)
+    telegram_install = telegram_subparsers.add_parser("install-service", help="Install + start an always-on service (launchd/systemd)")
+    telegram_install.add_argument("--vault", type=Path, default=vault_root())
+    telegram_subparsers.add_parser("uninstall-service", help="Stop + remove the always-on service")
 
     return parser
 
@@ -901,6 +904,14 @@ def main(argv: list[str] | None = None) -> int:
             from .tools.telegram_bot import run_telegram_bot
 
             return run_telegram_bot(vault=args.vault, provider=args.provider, model=args.model)
+        if args.telegram_command == "install-service":
+            from .tools.telegram_bot import install_service
+
+            return install_service(vault=args.vault)
+        if args.telegram_command == "uninstall-service":
+            from .tools.telegram_bot import uninstall_service
+
+            return uninstall_service()
 
     if args.command == "sync":
         generate_manifests(args.vault, write=True)
