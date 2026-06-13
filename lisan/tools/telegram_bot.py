@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -46,6 +47,15 @@ _HELP_TEXT = (
     "/logs [N] — show recent log lines\n"
     "/help — this message"
 )
+
+
+def _telegram_api(token: str, method: str, params: dict[str, Any], *, timeout: float) -> dict[str, Any]:
+    """Call a Telegram Bot API method. Stdlib-only; raises on transport error."""
+    url = _API_URL.format(token=token, method=method)
+    data = json.dumps(params).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
 
 
 class _ChatState:
@@ -100,11 +110,7 @@ class TelegramBot:
 
     # ── Telegram transport (mockable in tests) ──────────────────────────────
     def _call_api(self, method: str, params: dict[str, Any], *, timeout: float) -> dict[str, Any]:
-        url = _API_URL.format(token=self.token, method=method)
-        data = json.dumps(params).encode("utf-8")
-        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+        return _telegram_api(self.token, method, params, timeout=timeout)
 
     def _send_message(self, chat_id: int, text: str) -> None:
         for piece in _chunk(text):
@@ -319,3 +325,152 @@ def run_telegram_bot(
     )
     print(f"⚕ Lisan Telegram bot running — {len(allowed)} allowed user(s). Ctrl-C to stop.")
     return bot.run()
+
+
+# ── Setup wizard ────────────────────────────────────────────────────────────
+
+_TOKEN_RE = re.compile(r"^\d{6,}:[A-Za-z0-9_-]{30,}$")
+
+ApiFn = Callable[..., dict[str, Any]]
+
+
+def _valid_token_format(token: str) -> bool:
+    return bool(_TOKEN_RE.match(token.strip()))
+
+
+def get_me(token: str, *, api: ApiFn = _telegram_api) -> dict[str, Any] | None:
+    """Return the bot's user object (incl. 'username') if the token works, else None."""
+    try:
+        resp = api(token, "getMe", {}, timeout=10)
+    except Exception:
+        return None
+    result = resp.get("result")
+    return result if resp.get("ok") and isinstance(result, dict) else None
+
+
+def detect_owner_id(
+    token: str,
+    *,
+    api: ApiFn = _telegram_api,
+    max_wait: float = 120.0,
+    on_wait: Callable[[], None] | None = None,
+) -> tuple[int, str] | None:
+    """Poll getUpdates until someone messages the bot; return (user_id, display_name).
+
+    Returns None if no message arrives within ``max_wait`` seconds.
+    """
+    offset: int | None = None
+    deadline = time.monotonic() + max_wait
+    while True:
+        params: dict[str, Any] = {"timeout": 5}
+        if offset is not None:
+            params["offset"] = offset
+        try:
+            resp = api(token, "getUpdates", params, timeout=25)
+        except Exception:
+            resp = {}
+        for update in resp.get("result", []) or []:
+            offset = int(update["update_id"]) + 1
+            message = update.get("message") or update.get("edited_message") or {}
+            sender = message.get("from") or {}
+            if sender.get("id"):
+                name = str(sender.get("first_name") or sender.get("username") or "")
+                return int(sender["id"]), name
+        if time.monotonic() >= deadline:
+            return None
+        if on_wait:
+            on_wait()
+
+
+def save_telegram_settings(token: str, allowed_ids: list[int], *, path: Path | None = None) -> Path:
+    """Persist token + allowlist into the (gitignored) config.yaml telegram block."""
+    from ..paths import config_path
+
+    path = path or config_path()
+    cfg: dict[str, Any] = {}
+    if path.exists():
+        try:
+            cfg = json.loads(path.read_text(encoding="utf-8") or "{}")
+        except Exception:
+            cfg = {}
+    if not cfg:
+        from copy import deepcopy
+
+        from ..config import DEFAULT_CONFIG
+
+        cfg = deepcopy(DEFAULT_CONFIG)
+    cfg["telegram"] = {"token": token, "allowed_user_ids": list(allowed_ids)}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def run_telegram_setup() -> int:
+    """Interactive wizard: validate a bot token, auto-detect your user id, save config."""
+    import getpass
+
+    config = load_config()
+    existing = config.get("telegram", {}) if isinstance(config.get("telegram"), dict) else {}
+
+    print("⚕ Lisan — Telegram setup\n")
+    if existing.get("token"):
+        if input("Telegram is already configured. Reconfigure? [y/N] ").strip().lower() not in ("y", "yes"):
+            return 0
+        print()
+
+    print("First, create a bot:")
+    print("  1. Open Telegram and message @BotFather")
+    print("  2. Send /newbot and follow the prompts")
+    print("  3. Copy the token it gives you\n")
+
+    me = None
+    token = ""
+    while True:
+        entered = getpass.getpass("Paste your bot token (hidden): ").strip()
+        if not entered:
+            print("Aborted.")
+            return 1
+        if not _valid_token_format(entered):
+            print("  That doesn't look like a token (expected <digits>:<hash>). Try again.\n")
+            continue
+        me = get_me(entered)
+        if not me:
+            print("  Telegram rejected that token. Double-check it and try again.\n")
+            continue
+        token = entered
+        print(f"  ✓ Connected to @{me.get('username')} ({me.get('first_name', '')})\n")
+        break
+
+    allowed: list[int] = []
+    print("Now let's authorize your account (so only you can use the bot):")
+    print(f"  → Open Telegram, find @{me.get('username')}, and send it any message (e.g. 'hi').")
+    print("  Waiting for your message… (Ctrl-C to enter your id manually)")
+    try:
+        detected = detect_owner_id(token)
+    except KeyboardInterrupt:
+        detected = None
+        print()
+    if detected:
+        uid, name = detected
+        print(f"  ✓ Got it — {name or 'you'} (id {uid})")
+        allowed.append(uid)
+    else:
+        manual = input("  Enter your numeric Telegram user id: ").strip()
+        if manual.lstrip("-").isdigit():
+            allowed.append(int(manual))
+
+    extra = input("  Additional allowed user ids (comma-separated, optional): ").strip()
+    for part in extra.split(","):
+        part = part.strip()
+        if part.lstrip("-").isdigit() and int(part) not in allowed:
+            allowed.append(int(part))
+
+    if not allowed:
+        print("\n✗ No users authorized — aborting (the bot would refuse everyone).")
+        return 1
+
+    path = save_telegram_settings(token, allowed)
+    print(f"\n✓ Saved to {path} (gitignored — your token stays local).")
+    print(f"  Authorized ids: {', '.join(map(str, allowed))}")
+    print("\nStart the bot with:  lisan telegram run")
+    return 0

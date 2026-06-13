@@ -539,6 +539,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     telegram_cmd = subparsers.add_parser("telegram", help="Talk to Lisan over a Telegram bot")
     telegram_subparsers = telegram_cmd.add_subparsers(dest="telegram_command", required=True)
+    telegram_setup = telegram_subparsers.add_parser("setup", help="Interactive wizard: token + allowlist")
     telegram_run = telegram_subparsers.add_parser("run", help="Start the Telegram long-poll bot (Ctrl-C to stop)")
     telegram_run.add_argument("--vault", type=Path, default=vault_root())
     telegram_run.add_argument("--provider", default=None)
@@ -892,6 +893,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if result.status in {"ok", "warning"} else 1
 
     if args.command == "telegram":
+        if args.telegram_command == "setup":
+            from .tools.telegram_bot import run_telegram_setup
+
+            return run_telegram_setup()
         if args.telegram_command == "run":
             from .tools.telegram_bot import run_telegram_bot
 

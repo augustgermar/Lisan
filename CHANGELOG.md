@@ -3,6 +3,7 @@
 ## 26.6.13.2
 
 - Added a Telegram bridge (`lisan telegram run`): talk to Lisan from Telegram using the same capture pipeline as the CLI, so messages are remembered and recalled identically. Long-polling, stdlib-only (`urllib`, no new dependencies), per-chat conversation state, an allowlist (`LISAN_TELEGRAM_ALLOWED`) so only your own user id is answered, a "typing" indicator during generation, reply chunking to Telegram's 4096-char limit, and `/new` / `/domain` / `/logs` / `/help` commands. Token via `LISAN_TELEGRAM_TOKEN` (or a gitignored `telegram:` block in `config.yaml`).
+- Added a setup wizard (`lisan telegram setup`): validates the bot token live via `getMe`, then auto-detects your numeric user id by watching for a message you send the bot (no @userinfobot lookup needed), and saves the token + allowlist into the gitignored `config.yaml`.
 - Bumped version to 26.6.13.2.
 
 ## 26.6.13.1
