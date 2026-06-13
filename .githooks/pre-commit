@@ -1,5 +1,17 @@
 #!/bin/sh
 set -eu
 
+# Guard: never let personal data or live machine config into a commit.
+# Only inspects files being added/changed (ACM) so removing a tracked file
+# from the index does not trip the guard.
+blocked=$(git diff --cached --name-only --diff-filter=ACM \
+  | grep -E '(^|/)config\.yaml$|(^|/)lisan-vault/|(^|/)lisan\.sqlite$|(^|/)embeddings\.bin$' || true)
+if [ -n "$blocked" ]; then
+  echo "pre-commit: refusing to commit personal/local files (gitignored by design):" >&2
+  printf '  %s\n' $blocked >&2
+  echo "These are vault data or live config. Unstage them (git restore --staged <file>)." >&2
+  exit 1
+fi
+
 python3 -m lisan manifest
 python3 -m lisan validate
