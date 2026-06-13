@@ -1,5 +1,11 @@
 # Changelog
 
+## 26.6.13.2
+
+- Added a Telegram bridge (`lisan telegram run`): talk to Lisan from Telegram using the same capture pipeline as the CLI, so messages are remembered and recalled identically. Long-polling, stdlib-only (`urllib`, no new dependencies), per-chat conversation state, an allowlist (`LISAN_TELEGRAM_ALLOWED`) so only your own user id is answered, a "typing" indicator during generation, reply chunking to Telegram's 4096-char limit, and `/new` / `/domain` / `/logs` / `/help` commands. Token via `LISAN_TELEGRAM_TOKEN` (or a gitignored `telegram:` block in `config.yaml`).
+- Added a setup wizard (`lisan telegram setup`): validates the bot token live via `getMe`, then auto-detects your numeric user id by watching for a message you send the bot (no @userinfobot lookup needed), and saves the token + allowlist into the gitignored `config.yaml`.
+- Bumped version to 26.6.13.2.
+
 ## 26.6.13.1
 
 - Stopped tracking the live `config.yaml` (now gitignored) and added a tracked `config.example.yaml` template. `config.yaml` holds machine-specific routing/endpoints (e.g. a local Ollama embedding server) that should not live in the public repo; the app already falls back to the built-in `DEFAULT_CONFIG` (identical to the shipped default) when it is absent, so this is behavior-neutral for clones. Copy `config.example.yaml` to `config.yaml` to customize locally.

@@ -537,6 +537,14 @@ def build_parser() -> argparse.ArgumentParser:
     provider_check.add_argument("--provider", default=None)
     provider_check.add_argument("--model", default=None)
 
+    telegram_cmd = subparsers.add_parser("telegram", help="Talk to Lisan over a Telegram bot")
+    telegram_subparsers = telegram_cmd.add_subparsers(dest="telegram_command", required=True)
+    telegram_setup = telegram_subparsers.add_parser("setup", help="Interactive wizard: token + allowlist")
+    telegram_run = telegram_subparsers.add_parser("run", help="Start the Telegram long-poll bot (Ctrl-C to stop)")
+    telegram_run.add_argument("--vault", type=Path, default=vault_root())
+    telegram_run.add_argument("--provider", default=None)
+    telegram_run.add_argument("--model", default=None)
+
     return parser
 
 
@@ -883,6 +891,16 @@ def main(argv: list[str] | None = None) -> int:
             result = diagnose_provider(provider=args.provider, model=args.model, config=config)
             print(json.dumps(result.to_dict(), indent=2, ensure_ascii=True))
             return 0 if result.status in {"ok", "warning"} else 1
+
+    if args.command == "telegram":
+        if args.telegram_command == "setup":
+            from .tools.telegram_bot import run_telegram_setup
+
+            return run_telegram_setup()
+        if args.telegram_command == "run":
+            from .tools.telegram_bot import run_telegram_bot
+
+            return run_telegram_bot(vault=args.vault, provider=args.provider, model=args.model)
 
     if args.command == "sync":
         generate_manifests(args.vault, write=True)
