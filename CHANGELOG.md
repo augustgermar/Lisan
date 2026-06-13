@@ -1,5 +1,10 @@
 # Changelog
 
+## 26.6.13.3
+
+- Added `lisan telegram install-service` / `uninstall-service`: install the Telegram bot as an always-on OS service (launchd on macOS, systemd `--user` on Linux) so it auto-starts on login and restarts if it crashes — no terminal left open. The generated unit runs `lisan telegram run` against the configured vault; the token stays in the gitignored `config.yaml`, never in the service file. Unit/plist rendering is unit-tested.
+- Bumped version to 26.6.13.3.
+
 ## 26.6.13.2
 
 - Added a Telegram bridge (`lisan telegram run`): talk to Lisan from Telegram using the same capture pipeline as the CLI, so messages are remembered and recalled identically. Long-polling, stdlib-only (`urllib`, no new dependencies), per-chat conversation state, an allowlist (`LISAN_TELEGRAM_ALLOWED`) so only your own user id is answered, a "typing" indicator during generation, reply chunking to Telegram's 4096-char limit, and `/new` / `/domain` / `/logs` / `/help` commands. Token via `LISAN_TELEGRAM_TOKEN` (or a gitignored `telegram:` block in `config.yaml`).
