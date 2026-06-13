@@ -474,11 +474,23 @@ Environment variables:
 
 Talk to Lisan from Telegram. The bot runs the same capture pipeline as `lisan chat`, so messages are remembered and recalled exactly like the CLI. It uses long-polling (no public URL needed) and only the Python standard library.
 
-### Setup
+### Setup (wizard)
 
-1. Create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`) and copy the token.
-2. Get your numeric user id from [@userinfobot](https://t.me/userinfobot).
-3. Export both (keep the token out of git) and start the bot:
+The easiest path is the interactive wizard:
+
+```bash
+lisan telegram setup
+```
+
+It walks you through creating a bot with [@BotFather](https://t.me/BotFather), validates the token live, then **auto-detects your user id** — just message your new bot once and it captures your id (no @userinfobot needed). It saves the token and allowlist to a `telegram:` block in `config.yaml` (gitignored, so your token stays local). Then:
+
+```bash
+lisan telegram run
+```
+
+### Setup (manual)
+
+Prefer environment variables? Skip the wizard and export them instead:
 
 ```bash
 export LISAN_TELEGRAM_TOKEN="123456:ABC-your-bot-token"
@@ -486,7 +498,7 @@ export LISAN_TELEGRAM_ALLOWED="<your-user-id>"   # comma-separated for multiple 
 lisan telegram run
 ```
 
-Only ids listed in `LISAN_TELEGRAM_ALLOWED` are answered; everyone else is refused. You may instead put `token` / `allowed_user_ids` under a `telegram:` block in `config.yaml` (gitignored), but the environment takes precedence.
+Only ids in the allowlist are answered; everyone else is refused. Environment variables take precedence over the `config.yaml` `telegram:` block.
 
 ### In-chat commands
 

@@ -7,7 +7,15 @@ from unittest.mock import patch
 
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools import telegram_bot
-from lisan.tools.telegram_bot import TelegramBot, _chunk, _resolve_settings
+from lisan.tools.telegram_bot import (
+    TelegramBot,
+    _chunk,
+    _resolve_settings,
+    _valid_token_format,
+    detect_owner_id,
+    get_me,
+    save_telegram_settings,
+)
 
 
 def _update(text: str, *, user_id: int = 1, chat_id: int = 99, update_id: int = 1) -> dict:
@@ -126,6 +134,48 @@ class ResolveSettingsTests(unittest.TestCase):
             token, allowed = _resolve_settings({"telegram": {"token": "cfgtok", "allowed_user_ids": [7, 8]}})
         self.assertEqual(token, "cfgtok")
         self.assertEqual(allowed, {7, 8})
+
+
+class WizardTests(unittest.TestCase):
+    def test_token_format_validation(self):
+        self.assertTrue(_valid_token_format("123456789:ABCdefGHI-jklMNOpqrSTUvwxYZ012345678"))
+        self.assertFalse(_valid_token_format("not-a-token"))
+        self.assertFalse(_valid_token_format("123:short"))
+
+    def test_get_me_returns_bot_on_ok(self):
+        api = lambda token, method, params, *, timeout=0: {"ok": True, "result": {"username": "lisanbot", "first_name": "Lisan"}}
+        self.assertEqual(get_me("tok", api=api)["username"], "lisanbot")
+
+    def test_get_me_returns_none_on_failure(self):
+        self.assertIsNone(get_me("tok", api=lambda *a, **k: {"ok": False}))
+        def boom(*a, **k):
+            raise OSError("network")
+        self.assertIsNone(get_me("tok", api=boom))
+
+    def test_detect_owner_id_captures_sender(self):
+        payload = {"result": [{"update_id": 7, "message": {"from": {"id": 4242, "first_name": "Augie"}}}]}
+        got = detect_owner_id("tok", api=lambda *a, **k: payload, max_wait=5)
+        self.assertEqual(got, (4242, "Augie"))
+
+    def test_detect_owner_id_times_out(self):
+        self.assertIsNone(detect_owner_id("tok", api=lambda *a, **k: {"result": []}, max_wait=0))
+
+    def test_save_settings_roundtrips_and_resolves(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg_path = Path(d) / "config.yaml"
+            save_telegram_settings("123:tok", [1, 2], path=cfg_path)
+            import json
+            saved = json.loads(cfg_path.read_text())
+            self.assertEqual(saved["telegram"]["token"], "123:tok")
+            self.assertEqual(saved["telegram"]["allowed_user_ids"], [1, 2])
+            # and the runtime resolver reads it back (env cleared)
+            import os
+            with patch.dict("os.environ", {}, clear=False):
+                os.environ.pop("LISAN_TELEGRAM_TOKEN", None)
+                os.environ.pop("LISAN_TELEGRAM_ALLOWED", None)
+                token, allowed = _resolve_settings(saved)
+            self.assertEqual(token, "123:tok")
+            self.assertEqual(allowed, {1, 2})
 
 
 if __name__ == "__main__":
