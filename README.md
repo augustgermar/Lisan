@@ -470,6 +470,31 @@ Environment variables:
 - `ANTHROPIC_API_KEY`
 - `GOOGLE_API_KEY`
 
+## Telegram
+
+Talk to Lisan from Telegram. The bot runs the same capture pipeline as `lisan chat`, so messages are remembered and recalled exactly like the CLI. It uses long-polling (no public URL needed) and only the Python standard library.
+
+### Setup
+
+1. Create a bot with [@BotFather](https://t.me/BotFather) (`/newbot`) and copy the token.
+2. Get your numeric user id from [@userinfobot](https://t.me/userinfobot).
+3. Export both (keep the token out of git) and start the bot:
+
+```bash
+export LISAN_TELEGRAM_TOKEN="123456:ABC-your-bot-token"
+export LISAN_TELEGRAM_ALLOWED="<your-user-id>"   # comma-separated for multiple users
+lisan telegram run
+```
+
+Only ids listed in `LISAN_TELEGRAM_ALLOWED` are answered; everyone else is refused. You may instead put `token` / `allowed_user_ids` under a `telegram:` block in `config.yaml` (gitignored), but the environment takes precedence.
+
+### In-chat commands
+
+- `/new` — start a fresh conversation
+- `/domain <name>` — pin the retrieval domain (no argument clears it)
+- `/logs [N]` — show recent log lines
+- `/help` — list commands
+
 ## Important Commands
 
 Core checks:
