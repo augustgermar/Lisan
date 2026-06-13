@@ -451,6 +451,12 @@ python3 -m lisan agent writer --provider local
 
 To change the default provider settings, edit `config.yaml` in the repo root. The provider settings live under the `providers` key, and routing lives under `routing`.
 
+`config.yaml` is gitignored so your local routing and endpoints stay private; the app falls back to the built-in defaults when it is absent. Copy the tracked template to create your own:
+
+```bash
+cp config.example.yaml config.yaml
+```
+
 The local provider defaults are:
 
 - Base URL: `http://127.0.0.1:8080/v1/chat/completions`

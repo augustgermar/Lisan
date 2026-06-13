@@ -1,5 +1,11 @@
 # Changelog
 
+## 26.6.13.1
+
+- Stopped tracking the live `config.yaml` (now gitignored) and added a tracked `config.example.yaml` template. `config.yaml` holds machine-specific routing/endpoints (e.g. a local Ollama embedding server) that should not live in the public repo; the app already falls back to the built-in `DEFAULT_CONFIG` (identical to the shipped default) when it is absent, so this is behavior-neutral for clones. Copy `config.example.yaml` to `config.yaml` to customize locally.
+- Hardened `.githooks/pre-commit` with a guard that refuses to commit personal/local files — anything under `lisan-vault/`, plus `config.yaml`, `lisan.sqlite`, and `embeddings.bin` — so vault data and live config can't be published by accident.
+- Bumped version to 26.6.13.1.
+
 ## 26.6.12.2
 
 - `install.sh` now builds the SQLite index (`rebuild-index`) right after seeding the vault, so index-backed commands (`health`, retrieval, chat context) work on a fresh install instead of failing with "no such table: files".
