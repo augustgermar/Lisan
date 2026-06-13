@@ -10,6 +10,8 @@ from lisan.tools import telegram_bot
 from lisan.tools.telegram_bot import (
     TelegramBot,
     _chunk,
+    _render_launchd_plist,
+    _render_systemd_unit,
     _resolve_settings,
     _valid_token_format,
     detect_owner_id,
@@ -176,6 +178,31 @@ class WizardTests(unittest.TestCase):
                 token, allowed = _resolve_settings(saved)
             self.assertEqual(token, "123:tok")
             self.assertEqual(allowed, {1, 2})
+
+
+class ServiceRenderTests(unittest.TestCase):
+    def test_launchd_plist_has_exec_vault_and_label(self):
+        plist = _render_launchd_plist(
+            label="com.lisan.telegram",
+            python="/venv/bin/python",
+            vault=Path("/home/me/.lisan/vault"),
+            repo_dir=Path("/home/me/.lisan/repo"),
+            out_log=Path("/x/out.log"),
+            err_log=Path("/x/err.log"),
+        )
+        self.assertIn("<string>com.lisan.telegram</string>", plist)
+        self.assertIn("<string>/venv/bin/python</string>", plist)
+        self.assertIn("<string>telegram</string>", plist)
+        self.assertIn("<string>/home/me/.lisan/vault</string>", plist)
+        self.assertIn("<key>RunAtLoad</key>", plist)
+        self.assertIn("<key>KeepAlive</key>", plist)
+
+    def test_systemd_unit_has_execstart_and_restart(self):
+        unit = _render_systemd_unit(python="/venv/bin/python", vault=Path("/home/me/.lisan/vault"))
+        self.assertIn("ExecStart=/venv/bin/python -m lisan telegram run --vault /home/me/.lisan/vault", unit)
+        self.assertIn("Environment=LISAN_VAULT=/home/me/.lisan/vault", unit)
+        self.assertIn("Restart=always", unit)
+        self.assertIn("WantedBy=default.target", unit)
 
 
 if __name__ == "__main__":

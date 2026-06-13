@@ -19,7 +19,10 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import re
+import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -473,4 +476,163 @@ def run_telegram_setup() -> int:
     print(f"\n✓ Saved to {path} (gitignored — your token stays local).")
     print(f"  Authorized ids: {', '.join(map(str, allowed))}")
     print("\nStart the bot with:  lisan telegram run")
+    print("Keep it always-on with: lisan telegram install-service")
     return 0
+
+
+# ── Always-on service install ─────────────────────────────────────────────────
+
+_SERVICE_LABEL = "com.lisan.telegram"          # macOS launchd label
+_SYSTEMD_UNIT = "lisan-telegram.service"        # Linux systemd --user unit
+
+
+def _xml_escape(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _launchd_plist_path() -> Path:
+    return Path.home() / "Library" / "LaunchAgents" / f"{_SERVICE_LABEL}.plist"
+
+
+def _systemd_unit_path() -> Path:
+    return Path.home() / ".config" / "systemd" / "user" / _SYSTEMD_UNIT
+
+
+def _render_launchd_plist(*, label: str, python: str, vault: Path, repo_dir: Path, out_log: Path, err_log: Path) -> str:
+    args = [python, "-m", "lisan", "telegram", "run", "--vault", str(vault)]
+    args_xml = "\n".join(f"      <string>{_xml_escape(a)}</string>" for a in args)
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>{label}</string>
+    <key>ProgramArguments</key>
+    <array>
+{args_xml}
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>LISAN_VAULT</key>
+      <string>{_xml_escape(str(vault))}</string>
+    </dict>
+    <key>WorkingDirectory</key>
+    <string>{_xml_escape(str(repo_dir))}</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{_xml_escape(str(out_log))}</string>
+    <key>StandardErrorPath</key>
+    <string>{_xml_escape(str(err_log))}</string>
+  </dict>
+</plist>
+"""
+
+
+def _render_systemd_unit(*, python: str, vault: Path) -> str:
+    return f"""[Unit]
+Description=Lisan Telegram bot
+After=network-online.target
+
+[Service]
+ExecStart={python} -m lisan telegram run --vault {vault}
+Environment=LISAN_VAULT={vault}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+"""
+
+
+def _install_launchd(vault: Path) -> int:
+    from ..paths import repo_root
+
+    uid = os.getuid()
+    logs = vault / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    plist_path = _launchd_plist_path()
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    plist_path.write_text(
+        _render_launchd_plist(
+            label=_SERVICE_LABEL,
+            python=sys.executable,
+            vault=vault,
+            repo_dir=repo_root(),
+            out_log=logs / "telegram-service.out.log",
+            err_log=logs / "telegram-service.err.log",
+        )
+    )
+    subprocess.run(["launchctl", "bootout", f"gui/{uid}/{_SERVICE_LABEL}"], capture_output=True)
+    result = subprocess.run(
+        ["launchctl", "bootstrap", f"gui/{uid}", str(plist_path)], capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        print(f"✗ Failed to load service: {result.stderr.strip() or result.stdout.strip()}")
+        print(f"  plist written to {plist_path}")
+        return 1
+    print(f"✓ Installed and started {_SERVICE_LABEL} — auto-starts on login.")
+    print(f"  plist: {plist_path}")
+    print(f"  logs:  {logs / 'telegram-service.err.log'}")
+    return 0
+
+
+def _install_systemd(vault: Path) -> int:
+    unit_path = _systemd_unit_path()
+    unit_path.parent.mkdir(parents=True, exist_ok=True)
+    unit_path.write_text(_render_systemd_unit(python=sys.executable, vault=vault))
+    subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    result = subprocess.run(
+        ["systemctl", "--user", "enable", "--now", _SYSTEMD_UNIT], capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        print(f"✗ Failed to enable service: {result.stderr.strip() or result.stdout.strip()}")
+        print(f"  unit written to {unit_path}")
+        return 1
+    print(f"✓ Installed and started {_SYSTEMD_UNIT} (systemd --user).")
+    print("  To keep it running without an active login: sudo loginctl enable-linger $USER")
+    return 0
+
+
+def install_service(*, vault: Path | None = None) -> int:
+    """Install + start the Telegram bot as an always-on OS service."""
+    vault = vault or vault_root()
+    config = load_config()
+    token, allowed = _resolve_settings(config)
+    if not token or not allowed:
+        print("✗ Configure the bot first: run `lisan telegram setup`.")
+        return 1
+
+    system = platform.system()
+    if system == "Darwin":
+        return _install_launchd(vault)
+    if system == "Linux":
+        return _install_systemd(vault)
+    print(f"✗ Automatic service install isn't supported on {system}.")
+    print("  Run `lisan telegram run` under your own process manager.")
+    return 1
+
+
+def uninstall_service() -> int:
+    """Stop + remove the always-on Telegram service."""
+    system = platform.system()
+    if system == "Darwin":
+        uid = os.getuid()
+        subprocess.run(["launchctl", "bootout", f"gui/{uid}/{_SERVICE_LABEL}"], capture_output=True)
+        plist_path = _launchd_plist_path()
+        if plist_path.exists():
+            plist_path.unlink()
+        print(f"✓ Removed {_SERVICE_LABEL}.")
+        return 0
+    if system == "Linux":
+        subprocess.run(["systemctl", "--user", "disable", "--now", _SYSTEMD_UNIT], capture_output=True)
+        unit_path = _systemd_unit_path()
+        if unit_path.exists():
+            unit_path.unlink()
+        subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+        print(f"✓ Removed {_SYSTEMD_UNIT}.")
+        return 0
+    print(f"✗ Nothing to do on {system}.")
+    return 1
