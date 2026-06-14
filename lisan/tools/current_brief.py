@@ -8,6 +8,7 @@ from typing import Any
 from ..frontmatter import load_markdown
 from ..paths import vault_root
 from ..utils import today_iso
+from .deixis import render_for_display
 from .domain_fields import domain_primary as get_domain_primary, normalize_domain_fields
 
 
@@ -53,7 +54,7 @@ def generate_current_brief(vault: Path | None = None) -> str:
         review_after = state.review_after or "none"
         updated = state.updated or "unknown"
         lines.append(f"### {state.category}")
-        lines.append(f"- summary: {state.summary}")
+        lines.append(f"- summary: {render_for_display(state.summary, vault)}")
         lines.append(f"- confidence: {state.confidence}")
         lines.append(f"- freshness: {freshness}")
         lines.append(f"- ttl_days: {ttl}")
@@ -65,7 +66,7 @@ def generate_current_brief(vault: Path | None = None) -> str:
     if stale_states:
         lines.append("## Stale Domains")
         for state in stale_states:
-            lines.append(f"- {state.category}: {state.summary}")
+            lines.append(f"- {state.category}: {render_for_display(state.summary, vault)}")
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"

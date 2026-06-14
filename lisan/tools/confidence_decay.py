@@ -5,6 +5,7 @@ from datetime import date
 from pathlib import Path
 
 from ..paths import sqlite_path, vault_root
+from .deixis import render_for_display
 
 
 def detect_decay_candidates(vault: Path | None = None, db_path: Path | None = None) -> str:
@@ -34,7 +35,7 @@ def detect_decay_candidates(vault: Path | None = None, db_path: Path | None = No
             lines.append("## Rule 1 — No recent confirmation (>180 days)")
             lines.append("Consider downgrading confidence one level.")
             for row in rows:
-                lines.append(f"- `{row['id']}` | {row['type']} | {row['confidence']} | last_confirmed={row['last_confirmed']} | {row['summary'][:80]}")
+                lines.append(f"- `{row['id']}` | {row['type']} | {row['confidence']} | last_confirmed={row['last_confirmed']} | {render_for_display(row['summary'], vault)[:80]}")
             lines.append("")
 
         # Rule 2: disputed or unresolved claims older than 90 days
@@ -100,7 +101,7 @@ def detect_decay_candidates(vault: Path | None = None, db_path: Path | None = No
             lines.append("## Rule 4 — High-confidence episodes older than 2 years, no re-confirmation")
             lines.append("Consider downgrading from `high` to `medium`.")
             for row in rows:
-                lines.append(f"- `{row['id']}` | created={row['created']} | last_confirmed={row['last_confirmed']} | {row['summary'][:80]}")
+                lines.append(f"- `{row['id']}` | created={row['created']} | last_confirmed={row['last_confirmed']} | {render_for_display(row['summary'], vault)[:80]}")
             lines.append("")
 
         if not found_any:

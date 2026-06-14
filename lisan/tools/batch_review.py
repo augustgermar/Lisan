@@ -8,6 +8,7 @@ from typing import Any
 
 from ..frontmatter import load_markdown
 from ..paths import sqlite_path, vault_root
+from .deixis import render_for_display
 from .narrative_state import load_narrative_state
 
 
@@ -64,7 +65,7 @@ def generate_batch_review(vault: Path | None = None, db_path: Path | None = None
             continue
         lines.append(f"## {category.title()}s")
         for item in grouped[category]:
-            lines.append(f"- `{item.identifier}` | {item.summary} | due={item.due} | `{item.path}`")
+            lines.append(f"- `{item.identifier}` | {render_for_display(item.summary, vault)} | due={item.due} | `{item.path}`")
         lines.append("")
     body = "\n".join(lines).rstrip() + "\n"
     return _render_report(frontmatter, body)

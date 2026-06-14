@@ -10,6 +10,7 @@ from ..agents import ElicitorAgent, InterlocutorAgent, SkepticAgent, WriterAgent
 from ..frontmatter import write_markdown
 from ..utils import slugify, today_iso
 from .assembler import assemble_context
+from .deixis import render_deixis
 from .domain_fields import with_domain_fields
 from .narrative_state import (
     conversation_history,
@@ -61,13 +62,19 @@ def run_elicitor_session(
     # assembler (retrieval.assemble_context) now, gated on whether the
     # conversation is fresh. That way the extraction path gets it too.
     context = assemble_context(text, domain=domain, vault=vault, conversation_id=conversation_id)
+    # Deixis: the elicitor is a conversational consumer — it asks the principal
+    # clarifying questions. Render assembled context + narrative state from role
+    # tokens to second person ("you"/"I") before they reach the agent. The
+    # conversation_history is the principal's raw first-person transcript — leave
+    # it untouched.
+    context = render_deixis(context, "interlocutor")
     elicitor = ElicitorAgent(vault=vault).run_json(
         text,
         significance="medium",
         provider=provider,
         model=model,
         provider_error_mode="raise",
-        current_state=json.dumps(state.as_dict(), indent=2, ensure_ascii=True),
+        current_state=render_deixis(json.dumps(state.as_dict(), indent=2, ensure_ascii=True), "interlocutor"),
         conversation_history=format_history(history),
         assembler_context=context,
         conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),

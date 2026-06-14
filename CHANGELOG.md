@@ -1,5 +1,10 @@
 # Changelog
 
+## 26.6.13.4
+
+- Rendered deixis at the conversational and display boundaries so the interlocutor sees second person and human-facing reports show the principal name, while the substrate keeps role tokens internally. Tightened the pipeline regression test around the summary boundary.
+- Bumped version to 26.6.13.4.
+
 ## 26.6.13.3
 
 - Added `lisan telegram install-service` / `uninstall-service`: install the Telegram bot as an always-on OS service (launchd on macOS, systemd `--user` on Linux) so it auto-starts on login and restarts if it crashes — no terminal left open. The generated unit runs `lisan telegram run` against the configured vault; the token stays in the gitignored `config.yaml`, never in the service file. Unit/plist rendering is unit-tested.

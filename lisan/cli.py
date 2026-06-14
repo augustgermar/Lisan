@@ -839,6 +839,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(generate_batch_review(args.vault))
             return 0
         from .frontmatter import load_markdown
+        from .tools.deixis import render_for_display
 
         drafts = sorted((args.vault / "drafts").glob("*.md"))
         if not drafts:
@@ -855,7 +856,7 @@ def main(argv: list[str] | None = None) -> int:
                 summary = ""
                 status = ""
                 task = ""
-            print(f"{path.name} | {status} | {task} | {summary}")
+            print(f"{path.name} | {status} | {task} | {render_for_display(summary, args.vault)}")
         return 0
 
     if args.command == "new":

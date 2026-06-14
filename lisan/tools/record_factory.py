@@ -833,11 +833,16 @@ def normalize_claim_class(value: Any) -> str:
 
 def normalize_claim_owner(value: Any) -> str:
     from ..paths import vault_root
-    from .primer_index import known_names
+    from .primer_index import principal_aliases
     key = _normalized_key(value)
-    if key in {n.lower() for n in known_names(vault_root())}:
+    # Explicit role/pronoun aliases win first: i/me/myself -> user, agent names -> agent.
+    if key in _CLAIM_OWNER_ALIASES:
+        return _CLAIM_OWNER_ALIASES[key]
+    # Only the principal's own name tokens resolve to "user". A third party in the
+    # known cast (Tia, Laura, ...) is an external_actor, not the user.
+    if key in {_normalized_key(name) for name in principal_aliases(vault_root())}:
         return "user"
-    return _CLAIM_OWNER_ALIASES.get(key, "external_actor")
+    return "external_actor"
 
 
 def normalize_claim_status(value: Any) -> str:

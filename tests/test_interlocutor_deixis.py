@@ -1,0 +1,128 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+from lisan.tools.memory_pipeline import _interlocutor_input
+from lisan.tools.deixis import has_unresolved_token
+
+
+def _writer(**kw) -> dict:
+    base = {
+        "summary": "",
+        "entities_to_create": [],
+        "decisions_to_create": [],
+        "open_loops_to_create": [],
+        "significance": "medium",
+        "questions": [],
+    }
+    base.update(kw)
+    return base
+
+
+def _state(**kw) -> SimpleNamespace:
+    base = {
+        "story_thread": "",
+        "established": [],
+        "open_threads": [],
+        "emotional_texture": "",
+        "turn_count": 0,
+    }
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+def test_writer_summary_rendered_to_second_person() -> None:
+    payload = _interlocutor_input(
+        _writer(summary="{{principal}} captured a lovely moment at the park"),
+        {"memory_type": "episode"},
+        _state(),
+    )
+    assert payload["writer_summary"] == "you captured a lovely moment at the park"
+    assert "{{" not in payload["writer_summary"]
+    assert not has_unresolved_token(payload["writer_summary"])
+
+
+def test_self_token_rendered_to_first_person() -> None:
+    payload = _interlocutor_input(
+        _writer(summary="{{self}} suggested a walk and {{principal}} agreed"),
+        {"memory_type": "episode"},
+        _state(),
+    )
+    assert payload["writer_summary"] == "I suggested a walk and you agreed"
+
+
+def test_decision_and_open_loop_titles_rendered() -> None:
+    payload = _interlocutor_input(
+        _writer(
+            decisions_to_create=[{"title": "{{principal}} will switch to gemini-2.5-pro"}],
+            open_loops_to_create=[{"title": "{{principal}} to email Soren"}],
+        ),
+        {"memory_type": "episode"},
+        _state(),
+    )
+    assert payload["decisions"] == ["you will switch to gemini-2.5-pro"]
+    assert payload["open_loops"] == ["you to email Soren"]
+
+
+def test_narrative_state_rendered() -> None:
+    payload = _interlocutor_input(
+        _writer(),
+        {"memory_type": "episode"},
+        _state(
+            story_thread="{{principal}} is planning a trip",
+            established=["{{principal}} met Tia"],
+            open_threads=["{{principal}} owes Soren a call"],
+            emotional_texture="{{self}} stayed warm",
+            turn_count=3,
+        ),
+    )
+    ns = payload["narrative_state"]
+    assert ns["story_thread"] == "you is planning a trip"
+    assert ns["established"] == ["you met Tia"]
+    assert ns["open_threads"] == ["you owes Soren a call"]
+    assert ns["emotional_texture"] == "I stayed warm"
+    assert ns["turn_count"] == 3  # non-str values pass through untouched
+
+
+def test_entities_kept_verbatim() -> None:
+    payload = _interlocutor_input(
+        _writer(entities_to_create=[{"name": "Priya"}, {"name": "Soren"}]),
+        {"memory_type": "episode"},
+        _state(),
+    )
+    # Third parties are genuine names — never tokenized, never rendered.
+    assert payload["entities"] == ["Priya", "Soren"]
+
+
+def test_user_correction_verbatim_and_state_omitted_on_correction() -> None:
+    payload = _interlocutor_input(
+        _writer(summary="{{principal}} did X"),
+        {"memory_type": "correction"},
+        _state(story_thread="{{principal}} believed Y"),
+        user_text="No, it was Tuesday not Monday",
+    )
+    # Raw first-person user text is passed through verbatim...
+    assert payload["user_correction"] == "No, it was Tuesday not Monday"
+    # ...the stale narrative state is dropped...
+    assert payload["narrative_state"] == {}
+    # ...but the writer-authored summary is still rendered (not user-authored).
+    assert payload["writer_summary"] == "you did X"
+
+
+def test_priya_regression_no_name_no_token() -> None:
+    # The 06-04 eval case: the interlocutor must never receive the principal's
+    # name or a raw token in the summary. "Priya" survives only as a third-party
+    # entity, never inside the summary prose.
+    payload = _interlocutor_input(
+        _writer(
+            summary="{{principal}} captured a lovely moment at the park",
+            entities_to_create=[{"name": "Priya"}],
+        ),
+        {"memory_type": "episode"},
+        _state(),
+    )
+    assert payload["writer_summary"] == "you captured a lovely moment at the park"
+    assert "Priya" not in payload["writer_summary"]
+    assert "{{" not in payload["writer_summary"]
+    assert not has_unresolved_token(payload["writer_summary"])
+    assert "Priya" in payload["entities"]
