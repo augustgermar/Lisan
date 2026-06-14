@@ -59,6 +59,51 @@ def _write_identity(path: Path, name: str, background: str, values: str, relatio
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def _write_identity_core(path: Path, name: str) -> None:
+    """Write the structured principal/assistant/deixis source-of-truth.
+
+    Mirrors the YAML frontmatter parsed by ``primer_index.py`` (principal +
+    assistant + deixis_frame). The given-name token becomes the principal alias
+    that resolves to "you"; legacy ``identity.md`` remains the fallback when this
+    file is absent, so existing vaults keep working.
+    """
+    safe_name = (name or "").replace('"', "").strip()
+    given = safe_name.split()[0] if safe_name else ""
+    who = given or "the principal"
+    aliases = f'["{given}"]' if given else "[]"
+    content = f'''---
+principal:
+  name: "{safe_name}"
+  aliases: {aliases}
+assistant:
+  name: "Lisan"
+  aliases: ["Lisan"]
+deixis_frame: |
+  I / me / Lisan = the assistant (software; no body, no family of its own).
+  you / your     = {who}, the principal. Every stored record describes you.
+  all other names = third parties; refer to them by name.
+---
+
+# Identity Core (invariant)
+
+> Structured, machine-readable source of truth for **who is who**. The
+> frontmatter above is authoritative: `primer_index.py` reads it to tell the
+> principal (you) apart from third parties, and the deixis layer resolves
+> `{{{{principal}}}}` / `{{{{self}}}}` against it at read time (`{{{{user}}}}` is a
+> legacy synonym). Slow-changing; off-limits to automated self-rewrite.
+
+## Principal
+
+{f"You are **{safe_name}**" + (f" (also: {given})" if given else "") + " — the person Lisan serves." if safe_name else "_Principal not yet named. Edit the frontmatter above._"}
+
+## Assistant
+
+**Lisan** — your local personal assistant and memory system. Software; no body,
+no family, no history of its own.
+'''
+    path.write_text(content, encoding="utf-8")
+
+
 def _write_operating_style(path: Path, communication: str, working: str) -> None:
     # Structured preferences sit in JSON frontmatter so the fallback path can
     # read them deterministically; the free-text body is read by the LLM path.
@@ -98,6 +143,7 @@ def needs_onboarding(vault: Path) -> bool:
 def run_onboarding(vault: Path) -> bool:
     """Run the interactive onboarding Q&A. Returns True if completed, False if skipped."""
     identity_path = vault / "primer" / "identity.md"
+    identity_core_path = vault / "primer" / "identity-core.md"
     operating_path = vault / "primer" / "operating-style.md"
 
     print()
@@ -170,6 +216,7 @@ def run_onboarding(vault: Path) -> bool:
         values=values or "",
         relationships=relationships or "",
     )
+    _write_identity_core(identity_core_path, name=name or "")
     _write_operating_style(
         operating_path,
         communication=communication or "",
@@ -180,6 +227,7 @@ def run_onboarding(vault: Path) -> bool:
     print(_c("  ✓", GREEN) + _c(" Primer files written.", BOLD))
     print(_c(f"  You can edit them anytime at:", DIM))
     print(_c(f"    {identity_path}", DIM))
+    print(_c(f"    {identity_core_path}", DIM))
     print(_c(f"    {operating_path}", DIM))
     print()
     return True

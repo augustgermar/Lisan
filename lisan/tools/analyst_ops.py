@@ -10,6 +10,7 @@ from ..agents import AnalystAgent, SkepticAgent
 from ..frontmatter import load_markdown, write_markdown
 from ..paths import vault_root
 from ..utils import slugify, today_iso
+from .deixis import render_for_display
 from .epistemic import (
     canonical_pattern_status,
     load_existing_patterns,
@@ -222,7 +223,7 @@ def _write_report(vault: Path, response: dict[str, Any], pattern_paths: list[Pat
         "compartments": [],
         "allowed_contexts": ["all"],
         "blocked_contexts": [],
-        "summary": str(response.get("summary") or "Analyst longitudinal pattern report"),
+        "summary": render_for_display(str(response.get("summary") or "Analyst longitudinal pattern report"), vault),
         "links": [str(p.relative_to(vault)) for p in pattern_paths + review_paths],
         "confidence": "low",
         "confidence_basis": "Analyst longitudinal scan",
@@ -250,5 +251,5 @@ def _write_report(vault: Path, response: dict[str, Any], pattern_paths: list[Pat
 
 Analyst scan completed over episodes, claims, evidence, skeptical reviews, contradictions, and Dreamer summaries.
 """
-    write_markdown(path, frontmatter, body)
+    write_markdown(path, frontmatter, render_for_display(body, vault))
     return path

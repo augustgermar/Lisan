@@ -8,6 +8,7 @@ from typing import Any
 
 from ..frontmatter import load_markdown
 from ..paths import sqlite_path, vault_root
+from .deixis import render_for_display
 from .domain_fields import with_domain_fields
 
 
@@ -86,7 +87,7 @@ def generate_health_report(vault: Path | None = None, db_path: Path | None = Non
         if overdue_loops:
             for fid, summary, review_after, overdue in overdue_loops:
                 flag = " ⚠ OVERDUE" if overdue else ""
-                lines.append(f"- `{fid}` | {summary} | review_after={review_after}{flag}")
+                lines.append(f"- `{fid}` | {render_for_display(summary, vault)} | review_after={review_after}{flag}")
         else:
             lines.append("- None")
         lines.append("")
@@ -148,7 +149,7 @@ def generate_health_report(vault: Path | None = None, db_path: Path | None = Non
         lines.append("Entities not confirmed in 365+ days:")
         if entity_decay:
             for row in entity_decay:
-                lines.append(f"- `{row['id']}` | {row['summary']} | last_confirmed={row['last_confirmed']}")
+                lines.append(f"- `{row['id']}` | {render_for_display(row['summary'], vault)} | last_confirmed={row['last_confirmed']}")
         else:
             lines.append("- None")
         lines.append("")

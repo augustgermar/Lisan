@@ -13,7 +13,7 @@
   ],
   "properties": {
     "record_type": { "type": "string" },
-    "summary": { "type": "string" },
+    "summary": { "type": "string", "description": "Machine narrative. Use role tokens: principal -> {{principal}}, Lisan -> {{self}}, every other person -> their literal name. Never begin with a token. Same rule applies to claim_text and all titles." },
     "significance": { "type": "string", "enum": ["low", "medium", "high"] },
     "frontmatter": { "type": "object" },
     "sections": { "type": "object" },

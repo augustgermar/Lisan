@@ -10,6 +10,7 @@ already received the conversational response based on the core pass, so the
 goal here is precision and completeness, not speed.
 
 Requirements:
+- Refer to the principal as `{{principal}}` and to Lisan (only if it acts) as `{{self}}` — never their real names, in every `summary`, `claim_text`, and title you emit. Every other person is written by their literal name; entity names themselves stay literal (the self-entity for the principal is the one exception, using `{{principal}}`).
 - Read the transcript and the prior core output before emitting any arrays.
 - Reference the core's claims and their evidence titles when populating
   `evidence_to_create`. Each evidence title used in a claim's

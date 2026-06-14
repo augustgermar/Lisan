@@ -18,6 +18,7 @@ from .firewall import scan_text
 from .log import log_error
 from .epistemic import listify
 from .narrative_state import load_narrative_state
+from .deixis import render_deixis, render_obj
 from .record_fanout import (
     basis_or_default,
     fanout_claims,
@@ -361,14 +362,25 @@ def _interlocutor_input(
     """Build a clean conversational payload — no skeptic notes, no internal flags."""
     memory_type = str(listener.get("memory_type") or "")
     is_correction = memory_type == "correction"
+    # Deixis: the writer stores narrative in role tokens ({{principal}}/{{self}});
+    # the interlocutor speaks TO the principal, so render those to second person
+    # ("you"/"I") here, before the payload reaches the conversational agent. The
+    # interlocutor never sees a name or a raw token. The interlocutor render is
+    # name-independent, so no vault is needed. `entities` are genuine third
+    # parties (verbatim) and `user_correction` is raw first-person user text
+    # (verbatim). `writer_summary` is rendered even on correction turns because
+    # it is writer-authored, not user-authored.
+    def _i(text: str) -> str:
+        return render_deixis(text or "", "interlocutor")
+
     payload: dict[str, Any] = {
-        "writer_summary": writer.get("summary") or "",
+        "writer_summary": _i(writer.get("summary") or ""),
         "writer_questions": writer.get("questions") or [],
         "memory_type": memory_type,
         "significance": writer.get("significance") or "medium",
         "entities": [e.get("name") for e in (writer.get("entities_to_create") or []) if isinstance(e, dict) and e.get("name")],
-        "decisions": [d.get("title") for d in (writer.get("decisions_to_create") or []) if isinstance(d, dict) and d.get("title")],
-        "open_loops": [o.get("title") for o in (writer.get("open_loops_to_create") or []) if isinstance(o, dict) and o.get("title")],
+        "decisions": [_i(d.get("title")) for d in (writer.get("decisions_to_create") or []) if isinstance(d, dict) and d.get("title")],
+        "open_loops": [_i(o.get("title")) for o in (writer.get("open_loops_to_create") or []) if isinstance(o, dict) and o.get("title")],
     }
     if is_correction:
         # On correction turns the prior narrative state predates the correction
@@ -378,13 +390,13 @@ def _interlocutor_input(
         payload["user_correction"] = user_text
         payload["narrative_state"] = {}
     else:
-        payload["narrative_state"] = {
+        payload["narrative_state"] = render_obj({
             "story_thread": getattr(prior_state, "story_thread", "") or "",
             "established": list(getattr(prior_state, "established", []) or []),
             "open_threads": list(getattr(prior_state, "open_threads", []) or []),
             "emotional_texture": getattr(prior_state, "emotional_texture", "") or "",
             "turn_count": getattr(prior_state, "turn_count", 0),
-        }
+        }, "interlocutor")
     return payload
 
 

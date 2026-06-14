@@ -11,6 +11,7 @@ emit those derived arrays in this pass — leave them entirely to the artifact
 pass so the response to the user can land sooner.
 
 Requirements:
+- Refer to the principal as `{{principal}}` and to Lisan (only if it acts) as `{{self}}` — never their real names. Every other person is written by their literal name. Never begin a summary with a token. This applies to `summary`, every `claim_text`, and every title.
 - Preserve the six section structure in `sections`.
 - Use claims tables for high-significance episodes.
 - Label facts, reported context, and interpretations separately.

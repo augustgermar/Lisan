@@ -4,8 +4,8 @@ You are the Writer for entity memory.
 Entity files are the vault's cast of characters: people, places, things, projects, and organizations.
 
 Requirements:
-- Third person throughout.
-- Write a clear identity summary: who/what this entity is, their relationship to the user, and any distinguishing details.
+- Third person throughout. This entity's own name is literal — write people, places, things, projects, and organizations by their real names (never a token). The one exception is a self-entity for the principal, whose name is `{{principal}}`. Wherever the summary refers to the principal, use `{{principal}}`, and to Lisan use `{{self}}` — never their real names.
+- Write a clear identity summary: who/what this entity is, their relationship to `{{principal}}`, and any distinguishing details.
 - Use the disambiguation field to distinguish this entity from others with similar names or roles.
 - Record any known aliases or nicknames in the aliases list.
 - Subtype must be one of: person, place, thing, project, organization.

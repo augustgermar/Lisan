@@ -10,6 +10,7 @@ from ..frontmatter import load_markdown
 from ..frontmatter import write_markdown
 from ..paths import vault_root
 from ..utils import today_iso
+from .deixis import render_for_display
 from .epistemic import canonical_pattern_status, pattern_age_days, pattern_minimum_age_days
 from .primer_audit import build_primer_audit_bundle
 
@@ -429,19 +430,20 @@ def _write_contradiction_log(vault: Path, bundle: str, response: dict[str, Any])
             "compartments": [],
             "allowed_contexts": ["all"],
             "blocked_contexts": [],
-            "summary": "Dreamer contradiction log",
+            "summary": render_for_display("Dreamer contradiction log", vault),
             "links": [],
             "confidence": "low",
             "confidence_basis": "Dreamer contradiction analysis",
             "last_confirmed": today_iso(),
             "review_after": today_iso(),
         },
-        "\n".join(lines) + "\n",
+        render_for_display("\n".join(lines) + "\n", vault),
     )
     return out
 
 
 def _render_report(out: Path, task: str, bundle: str, response: dict[str, Any], artifact_path: Path | None) -> None:
+    vault = out.parents[1]
     stamp = out.stem.split("-")[-1]
     frontmatter = {
         "id": f"dreamer.{task}.{stamp}",
@@ -456,7 +458,7 @@ def _render_report(out: Path, task: str, bundle: str, response: dict[str, Any], 
         "compartments": [],
         "allowed_contexts": ["all"],
         "blocked_contexts": [],
-        "summary": f"Dreamer {task.replace('_', ' ')} report",
+        "summary": render_for_display(f"Dreamer {task.replace('_', ' ')} report", vault),
         "links": [str(artifact_path)] if artifact_path else [],
         "confidence": "low",
         "confidence_basis": f"Dreamer {task} analysis",
@@ -476,4 +478,4 @@ def _render_report(out: Path, task: str, bundle: str, response: dict[str, Any], 
 
 {bundle.strip()}
 """
-    write_markdown(out, frontmatter, body)
+    write_markdown(out, frontmatter, render_for_display(body, vault))
