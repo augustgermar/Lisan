@@ -1,9 +1,28 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from lisan.tools.memory_pipeline import _interlocutor_input
 from lisan.tools.deixis import has_unresolved_token
+
+_CORE = (
+    '---\n'
+    'principal:\n  name: "Mara Okonkwo-Reyes"\n  aliases: ["Mara"]\n'
+    'assistant:\n  name: "Lisan"\n'
+    'deixis_frame: |\n  frame\n'
+    '---\n\n# Identity Core\n'
+)
+
+
+@pytest.fixture
+def mara_vault(tmp_path: Path) -> Path:
+    v = tmp_path / "vault"
+    (v / "primer").mkdir(parents=True)
+    (v / "primer" / "identity-core.md").write_text(_CORE, encoding="utf-8")
+    return v
 
 
 def _writer(**kw) -> dict:
@@ -126,3 +145,52 @@ def test_priya_regression_no_name_no_token() -> None:
     assert "{{" not in payload["writer_summary"]
     assert not has_unresolved_token(payload["writer_summary"])
     assert "Priya" in payload["entities"]
+
+
+# --- C1 regression: a Writer that emits the LITERAL principal name (not the
+# token) must still not leak the name to the interlocutor, thanks to the
+# deterministic tokenize-then-render backstop (vault-scoped). ------------------
+
+def test_literal_principal_name_is_tokenized_then_rendered(mara_vault: Path) -> None:
+    payload = _interlocutor_input(
+        _writer(summary="Mara decided to confront Bram on Thursday"),
+        {"memory_type": "episode"},
+        _state(),
+        vault=mara_vault,
+    )
+    assert payload["writer_summary"] == "you decided to confront Bram on Thursday"
+    assert "Mara" not in payload["writer_summary"]
+
+
+def test_literal_name_in_titles_is_tokenized(mara_vault: Path) -> None:
+    payload = _interlocutor_input(
+        _writer(decisions_to_create=[{"title": "Mara will email Bram"}],
+                open_loops_to_create=[{"title": "Mara to call Priya"}]),
+        {"memory_type": "episode"},
+        _state(),
+        vault=mara_vault,
+    )
+    assert payload["decisions"] == ["you will email Bram"]
+    assert payload["open_loops"] == ["you to call Priya"]
+
+
+def test_literal_name_in_narrative_state_is_tokenized(mara_vault: Path) -> None:
+    payload = _interlocutor_input(
+        _writer(),
+        {"memory_type": "episode"},
+        _state(story_thread="Mara is preparing for the Bram conversation",
+               established=["Mara met Adaeze"]),
+        vault=mara_vault,
+    )
+    assert payload["narrative_state"]["story_thread"] == "you is preparing for the Bram conversation"
+    assert payload["narrative_state"]["established"] == ["you met Adaeze"]
+
+
+def test_third_party_entities_still_verbatim_with_vault(mara_vault: Path) -> None:
+    payload = _interlocutor_input(
+        _writer(entities_to_create=[{"name": "Bram"}, {"name": "Priya"}]),
+        {"memory_type": "episode"},
+        _state(),
+        vault=mara_vault,
+    )
+    assert payload["entities"] == ["Bram", "Priya"]

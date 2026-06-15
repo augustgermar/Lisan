@@ -444,13 +444,18 @@ def fanout_claims(
             entity_names=entity_names,
         )
         # Rewrite writer-supplied evidence titles into evidence IDs so claim
-        # links resolve under validation (Finding 4).
+        # links resolve under validation (Finding 4). Keep ONLY entries that
+        # resolve to a real evidence ID (or are already an `evidence.` id);
+        # unresolvable natural-language prose is dropped rather than stored as a
+        # dangling link target ("Mara's statement", "user_reported_context",
+        # "Bram's recent actions"). The previous `or listify(...)` fallback
+        # re-introduced that prose whenever nothing resolved — the bug this fixes.
         supporting = resolve_evidence_links(
             listify(entry.get("supporting_evidence")), evidence_id_map or {},
-        ) or listify(entry.get("supporting_evidence"))
+        )
         contradicting = resolve_evidence_links(
             listify(entry.get("contradicting_evidence")), evidence_id_map or {},
-        ) or listify(entry.get("contradicting_evidence"))
+        )
         try:
             created = new_claim(
                 vault=vault,

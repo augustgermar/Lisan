@@ -1,5 +1,11 @@
 # Changelog
 
+## 26.6.15.1
+
+- Hardened the deixis layer against weak writer models: the interlocutor payload now deterministically tokenizes the principal's name aliases to `{{principal}}` before rendering, so a writer that emits the principal's literal name instead of the token no longer leaks it into the spoken reply. Added `tokenize_principal()` plus unit and regression tests.
+- Fixed claim evidence links: unresolvable natural-language evidence titles are now dropped instead of being stored as dangling link targets that fail vault validation.
+- Bumped version to 26.6.15.1.
+
 ## 26.6.13.4
 
 - Rendered deixis at the conversational and display boundaries so the interlocutor sees second person and human-facing reports show the principal name, while the substrate keeps role tokens internally. Tightened the pipeline regression test around the summary boundary.

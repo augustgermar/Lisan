@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from lisan.tools.deixis import render_deixis, render_obj, render_for_display
+from lisan.tools.deixis import render_deixis, render_obj, render_for_display, tokenize_principal
 from lisan.tools.primer_index import principal_aliases
 
 CORE_TEXT = """---
@@ -157,3 +157,30 @@ def test_render_for_display_uses_principal_name(core_vault: Path) -> None:
 
 def test_render_for_display_fallback_no_core(bare_vault: Path) -> None:
     assert render_for_display("{{principal}} left.", bare_vault) == "the user left."
+
+
+# --- tokenize_principal: deterministic name -> token safety net ----------------
+
+def test_tokenize_principal_basic(core_vault: Path) -> None:
+    assert tokenize_principal("August told Bram a story", core_vault) == "{{principal}} told Bram a story"
+    assert tokenize_principal("Gus and Bram talked", core_vault) == "{{principal}} and Bram talked"
+
+
+def test_tokenize_principal_possessive(core_vault: Path) -> None:
+    assert tokenize_principal("August's plan", core_vault) == "{{principal}}'s plan"
+
+
+def test_tokenize_principal_word_boundary(core_vault: Path) -> None:
+    # a substring of an alias must not match (no word boundary)
+    assert tokenize_principal("Augustine arrived", core_vault) == "Augustine arrived"
+
+
+def test_tokenize_principal_idempotent_and_empty(core_vault: Path) -> None:
+    assert tokenize_principal("{{principal}} left", core_vault) == "{{principal}} left"
+    assert tokenize_principal("", core_vault) == ""
+
+
+def test_tokenize_then_render_roundtrip(core_vault: Path) -> None:
+    t = tokenize_principal("August met Bram", core_vault)
+    assert render_deixis(t, "interlocutor", core_vault) == "you met Bram"
+    assert render_for_display(t, core_vault) == "August met Bram"

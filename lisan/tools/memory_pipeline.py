@@ -18,7 +18,7 @@ from .firewall import scan_text
 from .log import log_error
 from .epistemic import listify
 from .narrative_state import load_narrative_state
-from .deixis import render_deixis, render_obj
+from .deixis import render_deixis, tokenize_principal
 from .record_fanout import (
     basis_or_default,
     fanout_claims,
@@ -189,7 +189,7 @@ def run_memory_pipeline(
     # interlocutor speaks to the user; it should not see internal review notes.
     interlocutor = InterlocutorAgent(vault=vault).run_json(
         json.dumps(
-            _interlocutor_input(writer=writer_core, listener=listener, prior_state=prior_state, user_text=text),
+            _interlocutor_input(writer=writer_core, listener=listener, prior_state=prior_state, user_text=text, vault=vault),
             indent=2,
             ensure_ascii=True,
         ),
@@ -358,20 +358,27 @@ def _interlocutor_input(
     listener: dict[str, Any],
     prior_state: Any,
     user_text: str = "",
+    vault: Path | None = None,
 ) -> dict[str, Any]:
     """Build a clean conversational payload — no skeptic notes, no internal flags."""
     memory_type = str(listener.get("memory_type") or "")
     is_correction = memory_type == "correction"
-    # Deixis: the writer stores narrative in role tokens ({{principal}}/{{self}});
-    # the interlocutor speaks TO the principal, so render those to second person
-    # ("you"/"I") here, before the payload reaches the conversational agent. The
-    # interlocutor never sees a name or a raw token. The interlocutor render is
-    # name-independent, so no vault is needed. `entities` are genuine third
+    # Deixis: the writer is *supposed* to store narrative in role tokens
+    # ({{principal}}/{{self}}); the interlocutor speaks TO the principal, so render
+    # those to second person ("you"/"I") here, before the payload reaches the
+    # conversational agent. Weaker writer models frequently emit the principal's
+    # literal NAME instead of the token, so we deterministically tokenize the
+    # principal's aliases first (vault-scoped) and then render — without this
+    # backstop an un-tokenized name leaks straight into the spoken reply. The
+    # interlocutor never sees a name or a raw token. `entities` are genuine third
     # parties (verbatim) and `user_correction` is raw first-person user text
     # (verbatim). `writer_summary` is rendered even on correction turns because
     # it is writer-authored, not user-authored.
     def _i(text: str) -> str:
-        return render_deixis(text or "", "interlocutor")
+        t = text or ""
+        if vault is not None:
+            t = tokenize_principal(t, vault)
+        return render_deixis(t, "interlocutor")
 
     payload: dict[str, Any] = {
         "writer_summary": _i(writer.get("summary") or ""),
@@ -390,13 +397,13 @@ def _interlocutor_input(
         payload["user_correction"] = user_text
         payload["narrative_state"] = {}
     else:
-        payload["narrative_state"] = render_obj({
-            "story_thread": getattr(prior_state, "story_thread", "") or "",
-            "established": list(getattr(prior_state, "established", []) or []),
-            "open_threads": list(getattr(prior_state, "open_threads", []) or []),
-            "emotional_texture": getattr(prior_state, "emotional_texture", "") or "",
+        payload["narrative_state"] = {
+            "story_thread": _i(getattr(prior_state, "story_thread", "") or ""),
+            "established": [_i(x) for x in (getattr(prior_state, "established", []) or [])],
+            "open_threads": [_i(x) for x in (getattr(prior_state, "open_threads", []) or [])],
+            "emotional_texture": _i(getattr(prior_state, "emotional_texture", "") or ""),
             "turn_count": getattr(prior_state, "turn_count", 0),
-        }, "interlocutor")
+        }
     return payload
 
 
