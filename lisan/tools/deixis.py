@@ -71,6 +71,24 @@ def render_for_display(text: str, vault: Path) -> str:
     return render_deixis(text, "display", principal_name=principal_display_name(vault))
 
 
+def tokenize_principal(text: str, vault: Path) -> str:
+    """Replace the principal's literal name with the {{principal}} token.
+
+    Deterministic safety net for when a Writer model emits the principal's real
+    name instead of the {{principal}} token the writer prompts request. Matches
+    whole-word principal aliases (so a possessive like "Mara's" becomes
+    "{{principal}}'s"); third-party names are never touched because only the
+    configured ``principal_aliases()`` are matched. Idempotent — text already
+    using tokens is unchanged. Run this BEFORE render_deixis on any field that
+    leaves the system, and at record-write time so stored prose is tokenized.
+    """
+    if not text:
+        return text
+    for alias in sorted((a for a in principal_aliases(vault) if a), key=len, reverse=True):
+        text = re.sub(rf"\b{re.escape(alias)}\b", "{{principal}}", text)
+    return text
+
+
 def has_unresolved_token(text: str) -> bool:
     """Return True when text still contains a raw role token."""
     return bool(text and _UNRESOLVED_TOK.search(text))
