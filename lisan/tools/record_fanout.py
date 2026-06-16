@@ -10,6 +10,7 @@ from ..utils import slugify, today_iso
 from .epistemic import listify
 from .log import log_error
 from .record_factory import (
+    CreatedRecord,
     STATE_TTLS,
     new_claim,
     new_decision,
@@ -18,6 +19,7 @@ from .record_factory import (
     normalize_state_category,
     upsert_state,
 )
+from .rebuild_index import index_single_record
 
 
 # ── Reference resolution (claim IDs) ─────────────────────────────────────────
@@ -143,6 +145,12 @@ def basis_or_default(entry: Any, default: str) -> str:
     return default
 
 
+def index_created_record(vault: Path, record: CreatedRecord | None, conn: sqlite3.Connection | None) -> None:
+    if conn is None or record is None or not record.created:
+        return
+    index_single_record(record.path, vault, conn)
+
+
 # ── Domain inference ──────────────────────────────────────────────────────────
 
 _RELATIONAL_TERMS = (
@@ -237,7 +245,12 @@ def _is_negated_decision(title: str, summary: str) -> bool:
 
 # ── Shared fanout: open loops ─────────────────────────────────────────────────
 
-def fanout_open_loops(vault: Path, writer: dict[str, Any], draft_rel: str) -> None:
+def fanout_open_loops(
+    vault: Path,
+    writer: dict[str, Any],
+    draft_rel: str,
+    index_conn: sqlite3.Connection | None = None,
+) -> None:
     """Materialize open loops immediately — open loops are always capture_now per spec.
 
     Skips any loop whose `owner` is not the user. The writer prompt asks for
@@ -268,7 +281,7 @@ def fanout_open_loops(vault: Path, writer: dict[str, Any], draft_rel: str) -> No
         if priority not in ("low", "medium", "high"):
             priority = "medium"
         try:
-            new_open_loop(
+            created = new_open_loop(
                 vault=vault,
                 title=title,
                 domain_primary=domain,
@@ -279,6 +292,7 @@ def fanout_open_loops(vault: Path, writer: dict[str, Any], draft_rel: str) -> No
                 confidence_basis=basis_or_default(loop, "Auto-extracted from conversation"),
                 links=merge_links(loop.get("linked_claims"), loop.get("linked_episodes"), [draft_rel]),
             )
+            index_created_record(vault, created, index_conn)
         except FileExistsError:
             pass
         except Exception as exc:
@@ -287,7 +301,12 @@ def fanout_open_loops(vault: Path, writer: dict[str, Any], draft_rel: str) -> No
 
 # ── Shared fanout: decisions ──────────────────────────────────────────────────
 
-def fanout_decisions(vault: Path, writer: dict[str, Any], draft_rel: str | None = None) -> None:
+def fanout_decisions(
+    vault: Path,
+    writer: dict[str, Any],
+    draft_rel: str | None = None,
+    index_conn: sqlite3.Connection | None = None,
+) -> None:
     decisions = list(writer.get("decisions_to_create") or [])
     entity_names = _entity_canonical_names(writer)
     # Extraction fallback: when the writer emits record_type=decision at top level
@@ -329,7 +348,7 @@ def fanout_decisions(vault: Path, writer: dict[str, Any], draft_rel: str | None 
         if significance not in ("low", "medium", "high"):
             significance = "low"
         try:
-            new_decision(
+            created = new_decision(
                 vault=vault,
                 title=title,
                 domain_primary=domain,
@@ -345,6 +364,7 @@ def fanout_decisions(vault: Path, writer: dict[str, Any], draft_rel: str | None 
                     [draft_rel] if draft_rel else [],
                 ),
             )
+            index_created_record(vault, created, index_conn)
         except FileExistsError:
             pass
         except Exception as exc:
@@ -358,6 +378,7 @@ def fanout_evidence(
     writer: dict[str, Any],
     transcript_path: Path,
     draft_rel: str,
+    index_conn: sqlite3.Connection | None = None,
 ) -> dict[str, str]:
     """Create evidence records and return a title→evidence_id map.
 
@@ -407,6 +428,7 @@ def fanout_evidence(
             evidence_id = str(evidence_doc.frontmatter.get("id") or "")
             if evidence_id:
                 register_evidence_reference(evidence_id_map, entry, evidence_id)
+            index_created_record(vault, created, index_conn)
         except FileExistsError:
             pass
         except Exception as exc:
@@ -422,8 +444,8 @@ def fanout_claims(
     draft_rel: str,
     db_path: Path | None = None,
     evidence_id_map: dict[str, str] | None = None,
+    index_conn: sqlite3.Connection | None = None,
 ) -> dict[str, str]:
-    from ..paths import sqlite_path as _sqlite_path
     claims = writer.get("claims_to_create") or []
     claim_id_map: dict[str, str] = {}
     entity_names = _entity_canonical_names(writer)
@@ -483,69 +505,13 @@ def fanout_claims(
             claim_id = str(claim_doc.frontmatter.get("id") or "")
             if claim_id:
                 register_claim_reference(claim_id_map, entry, claim_id)
-                _index_claim_row(
-                    vault=vault,
-                    claim_id=claim_id,
-                    draft_rel=draft_rel,
-                    entry=entry,
-                    confidence=confidence,
-                    claim_text=claim_text,
-                    db_path=db_path,
-                )
                 _link_claim_to_draft(vault=vault, claim_id=claim_id, draft_rel=draft_rel)
+                index_created_record(vault, created, index_conn)
         except FileExistsError:
             pass
         except Exception as exc:
             log_error(vault, "fanout.claim", exc)
     return claim_id_map
-
-
-def _index_claim_row(
-    *,
-    vault: Path,
-    claim_id: str,
-    draft_rel: str,
-    entry: dict[str, Any],
-    confidence: float,
-    claim_text: str,
-    db_path: Path | None = None,
-) -> None:
-    """Write the new claim into the SQLite claims table."""
-    from ..paths import sqlite_path as _sqlite_path
-    try:
-        _db = db_path or _sqlite_path()
-        if not _db.exists():
-            return
-        conn = sqlite3.connect(_db)
-        try:
-            today = today_iso()
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO claims (
-                    id, episode_id, claim_text, claim_type, confidence, sensitivity,
-                    source_basis, evidence_id, status, created, last_reviewed, review_after
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    claim_id,
-                    draft_rel,
-                    claim_text,
-                    str(entry.get("claim_class") or "interpretation"),
-                    f"{confidence:.3f}",
-                    str(entry.get("sensitivity") or "low"),
-                    str(entry.get("review_notes") or "Auto-extracted from conversation"),
-                    ", ".join(listify(entry.get("supporting_evidence"))),
-                    str(entry.get("status") or "active"),
-                    today,
-                    today,
-                    today,
-                ),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-    except Exception as exc:
-        log_error(vault, "fanout.claim.index", exc)
 
 
 def _link_claim_to_draft(*, vault: Path, claim_id: str, draft_rel: str) -> None:
@@ -570,7 +536,12 @@ def _link_claim_to_draft(*, vault: Path, claim_id: str, draft_rel: str) -> None:
 
 # ── Shared fanout: state updates ──────────────────────────────────────────────
 
-def fanout_state_updates(vault: Path, writer: dict[str, Any], draft_rel: str | None = None) -> None:
+def fanout_state_updates(
+    vault: Path,
+    writer: dict[str, Any],
+    draft_rel: str | None = None,
+    index_conn: sqlite3.Connection | None = None,
+) -> None:
     updates = writer.get("state_updates") or []
     entity_names = _entity_canonical_names(writer)
     for update in updates:
@@ -593,7 +564,7 @@ def fanout_state_updates(vault: Path, writer: dict[str, Any], draft_rel: str | N
         summary = _resolve_pronouns(summary, entity_names)
         sources: list[Any] = [draft_rel] if draft_rel else []
         try:
-            upsert_state(
+            created = upsert_state(
                 vault=vault,
                 state_category=state_category,
                 summary=summary,
@@ -601,5 +572,6 @@ def fanout_state_updates(vault: Path, writer: dict[str, Any], draft_rel: str | N
                 confidence_basis=basis_or_default(update, "Auto-extracted from conversation"),
                 sources=merge_links(update.get("sources"), sources),
             )
+            index_created_record(vault, created, index_conn)
         except Exception as exc:
             log_error(vault, "fanout.state_update", exc)

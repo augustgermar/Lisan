@@ -26,9 +26,12 @@ from .record_fanout import (
     fanout_evidence,
     fanout_open_loops,
     fanout_state_updates,
+    index_created_record,
 )
+from .rebuild_index import open_index_connection
 from .tracing import record_inline_step
 from .record_factory import (
+    CreatedRecord,
     new_entity,
     supersede_record,
 )
@@ -124,6 +127,7 @@ def run_memory_pipeline(
             model=model,
             transcript_path=transcript_path,
             conversation_policy=conversation_policy,
+            db_path=db_path,
         )
         return MemoryPipelineResult(
             transcript_path=transcript_path,
@@ -226,21 +230,26 @@ def run_memory_pipeline(
     # — they don't carry the same inference risk as state updates, evidence,
     # and claims (which encode the writer's interpretation as durable truth).
     frequent_names = _compute_frequent_names(vault, conversation_id)
-    _create_entity_stubs(vault, writer, draft_rel, text, frequent_names=frequent_names)
-    _create_relationship_edges(vault, writer, db_path=db_path)
-    fanout_open_loops(vault, writer, draft_rel)
-    fanout_decisions(vault, writer, draft_rel)
-    if skeptic_approved:
-        # Evidence runs before claims so claim.supporting_evidence can be
-        # resolved through evidence_id_map (Finding 4). Claims run before the
-        # state update so the state can reference resolved claim IDs in future
-        # passes.
-        evidence_id_map = fanout_evidence(vault, writer, transcript_path, draft_rel)
-        fanout_claims(vault, writer, draft_rel, db_path=db_path, evidence_id_map=evidence_id_map)
-        fanout_state_updates(vault, writer, draft_rel)
-        _supersede_corrected_records(vault, writer, db_path=db_path)
-    else:
-        record_inline_step("memory_pipeline.fanout.skeptic_blocked")
+    index_conn = open_index_connection(db_path)
+    try:
+        _create_entity_stubs(vault, writer, draft_rel, text, frequent_names=frequent_names, index_conn=index_conn)
+        _create_relationship_edges(vault, writer, db_path=db_path, index_conn=index_conn)
+        fanout_open_loops(vault, writer, draft_rel, index_conn=index_conn)
+        fanout_decisions(vault, writer, draft_rel, index_conn=index_conn)
+        if skeptic_approved:
+            # Evidence runs before claims so claim.supporting_evidence can be
+            # resolved through evidence_id_map (Finding 4). Claims run before the
+            # state update so the state can reference resolved claim IDs in future
+            # passes.
+            evidence_id_map = fanout_evidence(vault, writer, transcript_path, draft_rel, index_conn=index_conn)
+            fanout_claims(vault, writer, draft_rel, db_path=db_path, evidence_id_map=evidence_id_map, index_conn=index_conn)
+            fanout_state_updates(vault, writer, draft_rel, index_conn=index_conn)
+            _supersede_corrected_records(vault, writer, db_path=db_path)
+        else:
+            record_inline_step("memory_pipeline.fanout.skeptic_blocked")
+        index_conn.commit()
+    finally:
+        index_conn.close()
     return MemoryPipelineResult(
         transcript_path=transcript_path,
         draft_path=draft_path,
@@ -690,6 +699,7 @@ def _create_entity_stubs(
     draft_rel: str,
     source_text: str,
     frequent_names: frozenset[str] | None = None,
+    index_conn: Any | None = None,
 ) -> None:
     """Materialize entity stubs proposed by the writer."""
     from .primer_index import known_names as _primer_known_names
@@ -730,6 +740,7 @@ def _create_entity_stubs(
         existing = _match_existing_entity(name, subtype, index, allowlist)
         if existing is not None:
             _append_entity_alias(existing, name)
+            index_created_record(vault, CreatedRecord(path=existing, created=True), index_conn)
             # Refresh the in-memory index so the next sibling in the same pass
             # also resolves to this canonical entity. Full-name key only —
             # surname tokens stay subject to the strict-token rule.
@@ -745,6 +756,7 @@ def _create_entity_stubs(
                 confidence="low",
                 confidence_basis=basis_or_default(entry, "Auto-extracted from conversation"),
             )
+            index_created_record(vault, created, index_conn)
         except FileExistsError:
             continue
         # Finding #5: when seeding the index after a creation, register only
@@ -762,7 +774,12 @@ def _create_entity_stubs(
                 existing_entry["kind"] = "ambiguous"
 
 
-def _create_relationship_edges(vault: Path, writer: dict[str, Any], db_path: Path | None = None) -> None:
+def _create_relationship_edges(
+    vault: Path,
+    writer: dict[str, Any],
+    db_path: Path | None = None,
+    index_conn: Any | None = None,
+) -> None:
     """Write entity-to-entity relationship edges from writer relationships_to_create."""
     import sqlite3 as _sqlite3
     from ..paths import sqlite_path
@@ -770,9 +787,9 @@ def _create_relationship_edges(vault: Path, writer: dict[str, Any], db_path: Pat
     if not relationships:
         return
     _db = db_path or sqlite_path()
-    if not _db.exists():
+    if index_conn is None and not _db.exists():
         return
-    conn = _sqlite3.connect(_db)
+    conn = index_conn or _sqlite3.connect(_db)
     try:
         for rel in relationships:
             if not isinstance(rel, dict):
@@ -803,11 +820,13 @@ def _create_relationship_edges(vault: Path, writer: dict[str, Any], db_path: Pat
                     "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
                     (id_a, id_b, rel_type),
                 )
-        conn.commit()
+        if index_conn is None:
+            conn.commit()
     except _sqlite3.Error:
         pass
     finally:
-        conn.close()
+        if index_conn is None:
+            conn.close()
 
 
 def _normalize_entity_subtype(

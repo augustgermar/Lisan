@@ -1,5 +1,10 @@
 # Changelog
 
+## 26.6.16.1
+
+- Auto-index records on capture (C2/C3): fanned-out records (claims, decisions, open loops, state, entities, relationships) are now indexed into the SQLite `files` table and FTS the moment they are written, so within-session and cross-conversation retrieval sees what an earlier turn just wrote — no manual `sync` required. Extracted `index_single_record()` as the single source of truth for per-file indexing (used by both the full rebuild and the incremental path), with INSERT OR REPLACE / delete-then-insert for idempotent upserts. Embedding stays deferred (`embedding_status='pending'`) to the async sweep so capture never blocks on the embedder; one SQLite connection is reused per turn.
+- Bumped version to 26.6.16.1.
+
 ## 26.6.15.1
 
 - Hardened the deixis layer against weak writer models: the interlocutor payload now deterministically tokenizes the principal's name aliases to `{{principal}}` before rendering, so a writer that emits the principal's literal name instead of the token no longer leaks it into the spoken reply. Added `tokenize_principal()` plus unit and regression tests.
