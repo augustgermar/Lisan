@@ -11,6 +11,7 @@ from ..frontmatter import write_markdown
 from ..utils import slugify, today_iso
 from .assembler import assemble_context
 from .deixis import render_deixis
+from .deixis import tokenize_principal_obj
 from .domain_fields import with_domain_fields
 from .narrative_state import (
     conversation_history,
@@ -175,6 +176,7 @@ def _write_elicitor_draft(
         transcript=str(transcript_path.relative_to(vault)),
         conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     )
+    writer = tokenize_principal_obj(writer, vault)
     skeptic = SkepticAgent(vault=vault).run_json(
         json.dumps({"writer": writer, "narrative_state": state, "elicitor": elicitor}, indent=2, ensure_ascii=True),
         significance="medium",
@@ -261,5 +263,4 @@ Elicitor mode closure was detected.
     fanout_open_loops(vault, writer, draft_rel)
     fanout_decisions(vault, writer, draft_rel)
     return path
-
 

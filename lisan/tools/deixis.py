@@ -65,6 +65,15 @@ def render_obj(obj, audience: Audience, vault: Path | None = None, *, principal_
     return obj
 
 
+def tokenize_principal_obj(obj, vault: Path):
+    """Recursively tokenize principal aliases in nested dict/list structures.
+
+    Values under ``name`` and ``canonical_name`` keys are preserved literally so
+    entity proper names stay stable on disk.
+    """
+    return _tokenize_principal_obj(obj, vault)
+
+
 def render_for_display(text: str, vault: Path) -> str:
     """Render tokens for human-facing output (reports, Obsidian): {{principal}} -> name."""
     from .primer_index import principal_display_name
@@ -87,6 +96,20 @@ def tokenize_principal(text: str, vault: Path) -> str:
     for alias in sorted((a for a in principal_aliases(vault) if a), key=len, reverse=True):
         text = re.sub(rf"\b{re.escape(alias)}\b", "{{principal}}", text)
     return text
+
+
+def _tokenize_principal_obj(obj, vault: Path, *, preserve_literal: bool = False):
+    if isinstance(obj, str):
+        return obj if preserve_literal else tokenize_principal(obj, vault)
+    if isinstance(obj, list):
+        return [_tokenize_principal_obj(item, vault, preserve_literal=preserve_literal) for item in obj]
+    if isinstance(obj, dict):
+        out = {}
+        for key, value in obj.items():
+            next_preserve = preserve_literal or key in {"name", "canonical_name"}
+            out[key] = _tokenize_principal_obj(value, vault, preserve_literal=next_preserve)
+        return out
+    return obj
 
 
 def has_unresolved_token(text: str) -> bool:
