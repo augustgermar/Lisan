@@ -27,6 +27,7 @@ from .record_fanout import (
     fanout_open_loops,
     fanout_state_updates,
 )
+from .rebuild_index import open_index_connection
 from .transcripts import append_transcript
 
 # Force Writer handoff after this many turns when enough has been established.
@@ -54,6 +55,7 @@ def run_elicitor_session(
     model: str | None = None,
     transcript_path: Path | None = None,
     conversation_policy: dict[str, Any] | None = None,
+    db_path: Path | None = None,
 ) -> ElicitorSessionResult:
     transcript_path = transcript_path or append_transcript(vault=vault, conversation_id=conversation_id, speaker=speaker, text=text)
     state = load_narrative_state(vault, conversation_id)
@@ -94,6 +96,7 @@ def run_elicitor_session(
             provider=provider,
             model=model,
             conversation_policy=conversation_policy,
+            db_path=db_path,
         )
     return ElicitorSessionResult(
         transcript_path=transcript_path,
@@ -153,6 +156,7 @@ def _write_elicitor_draft(
     provider: str | None,
     model: str | None,
     conversation_policy: dict[str, Any] | None = None,
+    db_path: Path | None = None,
 ) -> Path:
     writer = WriterAgent(vault=vault).run_json(
         json.dumps(
@@ -255,12 +259,16 @@ Elicitor mode closure was detected.
 """
     write_markdown(path, with_domain_fields(frontmatter), body)
     draft_rel = str(path.relative_to(vault))
-    # Evidence runs before claims so claim.supporting_evidence can be resolved
-    # through evidence_id_map — mirrors the extraction path fanout order.
-    evidence_id_map = fanout_evidence(vault, writer, transcript_path, draft_rel)
-    fanout_claims(vault, writer, draft_rel, evidence_id_map=evidence_id_map)
-    fanout_state_updates(vault, writer, draft_rel)
-    fanout_open_loops(vault, writer, draft_rel)
-    fanout_decisions(vault, writer, draft_rel)
+    index_conn = open_index_connection(db_path)
+    try:
+        # Evidence runs before claims so claim.supporting_evidence can be resolved
+        # through evidence_id_map — mirrors the extraction path fanout order.
+        evidence_id_map = fanout_evidence(vault, writer, transcript_path, draft_rel, index_conn=index_conn)
+        fanout_claims(vault, writer, draft_rel, evidence_id_map=evidence_id_map, db_path=db_path, index_conn=index_conn)
+        fanout_state_updates(vault, writer, draft_rel, index_conn=index_conn)
+        fanout_open_loops(vault, writer, draft_rel, index_conn=index_conn)
+        fanout_decisions(vault, writer, draft_rel, index_conn=index_conn)
+        index_conn.commit()
+    finally:
+        index_conn.close()
     return path
-

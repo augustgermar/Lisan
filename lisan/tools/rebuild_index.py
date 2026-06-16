@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -266,12 +265,7 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        conn.executescript(SCHEMA_SQL)
-        _ensure_files_columns(conn)
-        ensure_jobs_table(conn)
-        ensure_ingestion_manifest_table(conn)
-        ensure_ingestion_batches_table(conn)
-        _maybe_create_fts(conn)
+        ensure_index_schema(conn)
         for table in ("files", "links", "claims", "entity_aliases", "entity_epochs"):
             conn.execute(f"DELETE FROM {table}")
         try:
@@ -279,337 +273,365 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
         except sqlite3.Error:
             pass
         conn.commit()
-        counts = {"files": 0, "links": 0, "claims": 0, "aliases": 0, "epochs": 0}
-        # (file_id, content) pairs embedded in a single batched pass after the
-        # row loop, so the embedder is hit with the endpoint's native array
-        # batching instead of once per record.
-        embed_targets: list[tuple[str, str]] = []
-        file_rows: dict[str, dict[str, Any]] = {}
-
         for path in iter_markdown_files(vault):
-            if path.parts[-2] in {"manifests", "transcripts"}:
-                continue
-            # Skip drafts unless they are skeptic-blocked (needs_revision) —
-            # those should be queryable so users can find input that wasn't promoted.
-            if path.parts[-2] == "drafts" and "needs_revision" not in path.name:
-                continue
-            try:
-                doc = load_markdown(path)
-            except FrontmatterError:
-                continue
-            fm = normalize_domain_fields(doc.frontmatter)
-            file_type = str(fm.get("type", ""))
-            if file_type == "evidence":
-                fm = normalize_evidence_frontmatter(fm)
-            elif file_type == "claim":
-                fm = normalize_claim_frontmatter(fm)
-            elif file_type == "skeptical_review":
-                fm = normalize_skeptical_review_frontmatter(fm)
-            file_id = str(fm.get("id", ""))
-            if not file_id or not file_type:
-                continue
-            raw = path.read_text(encoding="utf-8")
-            content_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-            word_count = len(raw.split())
-            token_count = max(1, round(word_count * 1.33))
-            content = f"{str(fm.get('summary', ''))}\n\n{doc.body.strip()}".strip()
-            links = fm.get("links", []) or []
-            if not isinstance(links, list):
-                links = listify(links)
-            confidence_score = None
-            if file_type == "claim":
-                try:
-                    confidence_score = float(fm.get("confidence"))
-                except (TypeError, ValueError):
-                    confidence_score = None
-            row = {
-                "id": file_id,
-                "type": file_type,
-                "path": str(path.relative_to(vault)),
-                "created": str(fm.get("created", "")),
-                "created_at": str(fm.get("created_at", fm.get("created", ""))),
-                "updated": str(fm.get("updated", "")),
-                "status": str(fm.get("status", "")),
-                "significance": str(fm.get("significance", "")),
-                "domain_primary": str(fm.get("domain_primary") or fm.get("arena_primary") or ""),
-                "domain_secondary": json.dumps(fm.get("domain_secondary") or fm.get("arena_secondary") or []),
-                "arena": str(fm.get("arena") or fm.get("domain_primary") or fm.get("arena_primary") or ""),
-                "privacy": str(fm.get("privacy", "")),
-                "compartments": json.dumps(fm.get("compartments") or []),
-                "allowed_contexts": json.dumps(fm.get("allowed_contexts") or []),
-                "blocked_contexts": json.dumps(fm.get("blocked_contexts") or []),
-                "confidence": str(fm.get("confidence", "")),
-                "confidence_score": confidence_score,
-                "confidence_basis": str(fm.get("confidence_basis", "")),
-                "last_confirmed": str(fm.get("last_confirmed", "")),
-                "review_after": str(fm.get("review_after", "")),
-                "summary": str(fm.get("summary", "")),
-                "source_type": str(fm.get("source_type") or ""),
-                "source_uri": str(fm.get("source_uri", "")) if fm.get("source_uri") is not None else None,
-                "artifact_ref": str(fm.get("artifact_ref", "")) if fm.get("artifact_ref") is not None else None,
-                "artifact_hash": str(fm.get("artifact_hash", "")) if fm.get("artifact_hash") is not None else None,
-                "timestamp_of_artifact": str(fm.get("timestamp_of_artifact", "")) if fm.get("timestamp_of_artifact") is not None else None,
-                "batch_id": str(fm.get("batch_id", "")) if fm.get("batch_id") is not None else None,
-                "source_path": str(fm.get("source_path", "")) if fm.get("source_path") is not None else None,
-                "file_name": str(fm.get("file_name", "")) if fm.get("file_name") is not None else None,
-                "file_ext": str(fm.get("file_ext", "")) if fm.get("file_ext") is not None else None,
-                "mime_type": str(fm.get("mime_type", "")) if fm.get("mime_type") is not None else None,
-                "size_bytes": int(fm.get("size_bytes")) if fm.get("size_bytes") is not None else None,
-                "modified_at": str(fm.get("modified_at", "")) if fm.get("modified_at") is not None else None,
-                "imported_at": str(fm.get("imported_at", "")) if fm.get("imported_at") is not None else None,
-                "ingestion_status": str(fm.get("ingestion_status", "")) if fm.get("ingestion_status") is not None else None,
-                "extracted_text_ref": str(fm.get("extracted_text_ref", "")) if fm.get("extracted_text_ref") is not None else None,
-                "linked_evidence": json.dumps(listify(fm.get("linked_evidence"))),
-                "parse_errors": json.dumps(listify(fm.get("parse_errors"))),
-                "actors": json.dumps(listify(fm.get("actors"))),
-                "sensitivity": str(fm.get("sensitivity") or ""),
-                "reliability": str(fm.get("reliability") or ""),
-                "claim_class": str(fm.get("claim_class") or ""),
-                "owner": str(fm.get("owner") or ""),
-                "pattern_type": str(fm.get("pattern_type") or ""),
-                "hypothesis": str(fm.get("hypothesis") or ""),
-                "supporting_records": json.dumps(listify(fm.get("supporting_records"))),
-                "counterexamples": json.dumps(listify(fm.get("counterexamples"))),
-                "alternative_explanations": json.dumps(listify(fm.get("alternative_explanations"))),
-                "supporting_evidence": json.dumps(listify(fm.get("supporting_evidence"))),
-                "contradicting_evidence": json.dumps(listify(fm.get("contradicting_evidence"))),
-                "linked_patterns": json.dumps(listify(fm.get("linked_patterns"))),
-                "first_seen": str(fm.get("first_seen", "")) if fm.get("first_seen") is not None else None,
-                "last_reviewed": str(fm.get("last_reviewed", "")) if fm.get("last_reviewed") is not None else None,
-                "review_notes": str(fm.get("review_notes", "")),
-                "predictions": json.dumps(listify(fm.get("predictions"))),
-                "evidence_needed": json.dumps(listify(fm.get("evidence_needed"))),
-                "observed_facts": json.dumps(listify(fm.get("observed_facts"))),
-                "verbatim_excerpt": str(fm.get("verbatim_excerpt", "")),
-                "linked_claims": json.dumps(listify(fm.get("linked_claims"))),
-                "linked_episodes": json.dumps(listify(fm.get("linked_episodes"))),
-                "reviewed_record_id": str(fm.get("reviewed_record_id") or ""),
-                "reviewed_record_type": str(fm.get("reviewed_record_type") or ""),
-                "approved": int(bool(fm.get("approved"))) if fm.get("approved") is not None else None,
-                "risk": str(fm.get("risk") or ""),
-                "recommended_action": str(fm.get("recommended_action") or ""),
-                "issues": json.dumps(fm.get("issues") or []),
-                "priority_questions": json.dumps(listify(fm.get("priority_questions"))),
-                "alternative_hypotheses": json.dumps(listify(fm.get("alternative_hypotheses"))),
-                "evidence_needed": json.dumps(listify(fm.get("evidence_needed"))),
-                "claim_updates": json.dumps(fm.get("claim_updates") or []),
-                "confidence_adjustments": json.dumps(fm.get("confidence_adjustments") or []),
-                "reasoning_errors": json.dumps(listify(fm.get("reasoning_errors"))),
-                "corrects": str(fm.get("corrects") or ""),
-                "field_corrected": str(fm.get("field_corrected") or ""),
-                "original_value": str(fm.get("original_value") or ""),
-                "corrected_value": str(fm.get("corrected_value") or ""),
-                "basis": str(fm.get("basis") or ""),
-                "approved_by": str(fm.get("approved_by") or ""),
-                "content_hash": content_hash,
-                "word_count": word_count,
-                "token_count_approx": token_count,
-                # Filled in by the batched embedding pass below; "pending" until
-                # a vector is written for this record.
-                "embedding_status": "pending",
-            }
-            file_rows[file_id] = row
-            conn.execute(
-                """
-                INSERT INTO files (
-                    id, type, path, created, created_at, updated, status, significance, domain_primary,
-                    domain_secondary, arena, privacy, compartments, allowed_contexts, blocked_contexts,
-                    confidence, confidence_score, confidence_basis, last_confirmed, review_after, summary,
-                    source_type, source_uri, artifact_ref, artifact_hash, timestamp_of_artifact,
-                    batch_id, source_path, file_name, file_ext, mime_type, size_bytes, modified_at, imported_at,
-                    ingestion_status, extracted_text_ref, linked_evidence, parse_errors,
-                    actors, sensitivity, reliability, claim_class, owner, pattern_type, hypothesis,
-                    supporting_records, counterexamples, alternative_explanations, supporting_evidence,
-                    contradicting_evidence, linked_patterns, first_seen, last_reviewed, review_notes,
-                    predictions, evidence_needed, observed_facts, verbatim_excerpt, linked_claims, linked_episodes, reviewed_record_id,
-                    reviewed_record_type, approved, risk, recommended_action, issues, priority_questions,
-                    alternative_hypotheses, claim_updates, confidence_adjustments,
-                    reasoning_errors, corrects, field_corrected, original_value, corrected_value, basis,
-                    approved_by, content_hash, word_count, token_count_approx, embedding_status
-                ) VALUES (
-                    :id, :type, :path, :created, :created_at, :updated, :status, :significance, :domain_primary,
-                    :domain_secondary, :arena, :privacy, :compartments, :allowed_contexts, :blocked_contexts,
-                    :confidence, :confidence_score, :confidence_basis, :last_confirmed, :review_after, :summary,
-                    :source_type, :source_uri, :artifact_ref, :artifact_hash, :timestamp_of_artifact,
-                    :batch_id, :source_path, :file_name, :file_ext, :mime_type, :size_bytes, :modified_at, :imported_at,
-                    :ingestion_status, :extracted_text_ref, :linked_evidence, :parse_errors,
-                    :actors, :sensitivity, :reliability, :claim_class, :owner, :pattern_type, :hypothesis,
-                    :supporting_records, :counterexamples, :alternative_explanations, :supporting_evidence,
-                    :contradicting_evidence, :linked_patterns, :first_seen, :last_reviewed, :review_notes,
-                    :predictions, :evidence_needed, :observed_facts, :verbatim_excerpt, :linked_claims, :linked_episodes, :reviewed_record_id,
-                    :reviewed_record_type, :approved, :risk, :recommended_action, :issues, :priority_questions,
-                    :alternative_hypotheses, :claim_updates, :confidence_adjustments,
-                    :reasoning_errors, :corrects, :field_corrected, :original_value, :corrected_value, :basis,
-                    :approved_by, :content_hash, :word_count, :token_count_approx, :embedding_status
-                )
-                """,
-                row,
-            )
-            counts["files"] += 1
-            embed_targets.append((file_id, content))
-            try:
-                conn.execute(
-                    "INSERT INTO files_fts (id, summary, content) VALUES (?, ?, ?)",
-                    (file_id, str(fm.get("summary", "")), content),
-                )
-            except sqlite3.Error:
-                pass
-
-            if file_type == "entity":
-                # Index canonical name first so the heuristic gate can find entities by name
-                canonical = str(fm.get("canonical_name") or fm.get("id") or "").strip()
-                if canonical:
-                    try:
-                        conn.execute(
-                            "INSERT OR IGNORE INTO entity_aliases (entity_id, alias, context) VALUES (?, ?, ?)",
-                            (file_id, canonical, None),
-                        )
-                        counts["aliases"] += 1
-                    except sqlite3.Error:
-                        pass
-                for alias in fm.get("aliases", []) or []:
-                    try:
-                        conn.execute(
-                            "INSERT OR IGNORE INTO entity_aliases (entity_id, alias, context) VALUES (?, ?, ?)",
-                            (file_id, str(alias), None),
-                        )
-                        counts["aliases"] += 1
-                    except sqlite3.Error:
-                        pass
-                previous_epochs = fm.get("previous_epochs", []) or []
-                if isinstance(previous_epochs, list):
-                    for previous in previous_epochs:
-                        if not isinstance(previous, dict):
-                            continue
-                        conn.execute(
-                            "INSERT INTO entity_epochs (entity_id, epoch, started, ended, archived_path, summary) VALUES (?, ?, ?, ?, ?, ?)",
-                            (
-                                file_id,
-                                int(previous.get("epoch", 0)),
-                                str(previous.get("period", "").split(" to ")[0].replace("YYYY-MM", "") or fm.get("epoch_started", "")),
-                                None,
-                                str(previous.get("archived", "")),
-                                str(previous.get("summary", "")),
-                            ),
-                        )
-                        counts["epochs"] += 1
-                conn.execute(
-                    "INSERT INTO entity_epochs (entity_id, epoch, started, ended, archived_path, summary) VALUES (?, ?, ?, ?, ?, ?)",
-                    (file_id, int(fm.get("epoch", 0) or 0), str(fm.get("epoch_started", "")), None, None, str(fm.get("summary", ""))),
-                )
-                counts["epochs"] += 1
-
-            if file_type == "episode":
-                for claim in _extract_claims_from_episode(doc.body, file_id):
-                    conn.execute(
-                        """
-                        INSERT INTO claims (
-                            id, episode_id, claim_text, claim_type, confidence, sensitivity,
-                            source_basis, evidence_id, status, created, last_reviewed, review_after
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        claim,
-                    )
-                    counts["claims"] += 1
-
-            # Standalone claim records (written by the capture fanout) belong
-            # in the claims table too — without this, the writer's claims
-            # never make it to retrieval / contradiction detection / Dreamer.
-            if file_type == "claim":
-                episode_id = ""
-                for link_target in listify(fm.get("linked_episodes")) or links:
-                    text = str(link_target).strip()
-                    if text:
-                        episode_id = text
-                        break
-                claim_row = (
-                    file_id,
-                    episode_id,
-                    str(fm.get("claim_text") or fm.get("summary") or ""),
-                    str(fm.get("claim_class") or "interpretation"),
-                    str(fm.get("confidence") or "0.5"),
-                    str(fm.get("sensitivity") or "low"),
-                    str(fm.get("confidence_basis") or fm.get("review_notes") or ""),
-                    ", ".join(listify(fm.get("supporting_evidence"))),
-                    str(fm.get("status") or "active"),
-                    str(fm.get("created") or fm.get("first_seen") or ""),
-                    str(fm.get("last_reviewed") or ""),
-                    str(fm.get("review_after") or ""),
-                )
-                try:
-                    conn.execute(
-                        """
-                        INSERT OR REPLACE INTO claims (
-                            id, episode_id, claim_text, claim_type, confidence, sensitivity,
-                            source_basis, evidence_id, status, created, last_reviewed, review_after
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        claim_row,
-                    )
-                    counts["claims"] += 1
-                except sqlite3.Error:
-                    pass
-
-            if isinstance(links, list):
-                for link in links:
-                    if isinstance(link, str):
-                        conn.execute(
-                            "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
-                            (file_id, link, "related"),
-                        )
-                        counts["links"] += 1
-            if file_type == "artifact":
-                for target in listify(fm.get("linked_evidence")):
-                    if target:
-                        conn.execute(
-                            "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
-                            (file_id, target, "linked_evidence"),
-                        )
-                        counts["links"] += 1
-                for target in listify(fm.get("linked_claims")):
-                    if target:
-                        conn.execute(
-                            "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
-                            (file_id, target, "linked_claims"),
-                        )
-                        counts["links"] += 1
-            if file_type in {"evidence", "claim"}:
-                artifact_ref = str(fm.get("artifact_ref") or "").strip()
-                if artifact_ref:
-                    conn.execute(
-                        "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
-                        (artifact_ref, file_id, "artifact_provenance"),
-                    )
-                    counts["links"] += 1
-            for source_key, relationship in [
-                ("supporting_evidence", "supports"),
-                ("contradicting_evidence", "contradicts"),
-                ("linked_claims", "links_claim"),
-                ("linked_episodes", "links_episode"),
-            ]:
-                for target in listify(fm.get(source_key)):
-                    if target:
-                        conn.execute(
-                            "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
-                            (file_id, target, relationship),
-                            )
-                        counts["links"] += 1
-            for target_key, relationship in [("reviewed_record_id", "reviews"), ("corrects", "corrects")]:
-                target = str(fm.get(target_key, "")).strip()
-                if target:
-                    conn.execute(
-                        "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
-                        (file_id, target, relationship),
-                    )
-                    counts["links"] += 1
-
+            index_single_record(path, vault, conn)
         conn.commit()
+        embed_targets = _embed_targets_from_index(vault, conn)
         _embed_and_write(conn, embed_targets, embeddings_file)
         conn.commit()
+        counts = _index_counts(conn)
         clear_index_cache()
         return counts
     finally:
         conn.close()
+
+
+def open_index_connection(db_path: Path | None = None) -> sqlite3.Connection:
+    """Open a SQLite index connection with the files schema ready for writes."""
+    conn = sqlite3.connect(db_path or sqlite_path())
+    conn.row_factory = sqlite3.Row
+    ensure_index_schema(conn)
+    return conn
+
+
+def ensure_index_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(SCHEMA_SQL)
+    _ensure_files_columns(conn)
+    ensure_jobs_table(conn)
+    ensure_ingestion_manifest_table(conn)
+    ensure_ingestion_batches_table(conn)
+    _maybe_create_fts(conn)
+
+
+def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bool:
+    """Index one markdown record into files + files_fts (+ side tables).
+
+    Returns True if indexed, False if skipped. This mirrors full rebuild's
+    per-file logic and leaves embedding_status='pending' for the async embed
+    sweep.
+    """
+    try:
+        rel = path.relative_to(vault)
+    except ValueError:
+        rel = path
+    parent = rel.parts[-2] if len(rel.parts) >= 2 else ""
+    if parent in {"manifests", "transcripts"}:
+        return False
+    if parent == "drafts" and "needs_revision" not in path.name:
+        return False
+    try:
+        doc = load_markdown(path)
+    except FrontmatterError:
+        return False
+
+    fm = normalize_domain_fields(doc.frontmatter)
+    file_type = str(fm.get("type", ""))
+    if file_type == "evidence":
+        fm = normalize_evidence_frontmatter(fm)
+    elif file_type == "claim":
+        fm = normalize_claim_frontmatter(fm)
+    elif file_type == "skeptical_review":
+        fm = normalize_skeptical_review_frontmatter(fm)
+    file_id = str(fm.get("id", ""))
+    if not file_id or not file_type:
+        return False
+
+    raw = path.read_text(encoding="utf-8")
+    content_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    word_count = len(raw.split())
+    token_count = max(1, round(word_count * 1.33))
+    content = f"{str(fm.get('summary', ''))}\n\n{doc.body.strip()}".strip()
+    links = fm.get("links", []) or []
+    if not isinstance(links, list):
+        links = listify(links)
+    confidence_score = None
+    if file_type == "claim":
+        try:
+            confidence_score = float(fm.get("confidence"))
+        except (TypeError, ValueError):
+            confidence_score = None
+    row = {
+        "id": file_id,
+        "type": file_type,
+        "path": str(rel),
+        "created": str(fm.get("created", "")),
+        "created_at": str(fm.get("created_at", fm.get("created", ""))),
+        "updated": str(fm.get("updated", "")),
+        "status": str(fm.get("status", "")),
+        "significance": str(fm.get("significance", "")),
+        "domain_primary": str(fm.get("domain_primary") or fm.get("arena_primary") or ""),
+        "domain_secondary": json.dumps(fm.get("domain_secondary") or fm.get("arena_secondary") or []),
+        "arena": str(fm.get("arena") or fm.get("domain_primary") or fm.get("arena_primary") or ""),
+        "privacy": str(fm.get("privacy", "")),
+        "compartments": json.dumps(fm.get("compartments") or []),
+        "allowed_contexts": json.dumps(fm.get("allowed_contexts") or []),
+        "blocked_contexts": json.dumps(fm.get("blocked_contexts") or []),
+        "confidence": str(fm.get("confidence", "")),
+        "confidence_score": confidence_score,
+        "confidence_basis": str(fm.get("confidence_basis", "")),
+        "last_confirmed": str(fm.get("last_confirmed", "")),
+        "review_after": str(fm.get("review_after", "")),
+        "summary": str(fm.get("summary", "")),
+        "source_type": str(fm.get("source_type") or ""),
+        "source_uri": str(fm.get("source_uri", "")) if fm.get("source_uri") is not None else None,
+        "artifact_ref": str(fm.get("artifact_ref", "")) if fm.get("artifact_ref") is not None else None,
+        "artifact_hash": str(fm.get("artifact_hash", "")) if fm.get("artifact_hash") is not None else None,
+        "timestamp_of_artifact": str(fm.get("timestamp_of_artifact", "")) if fm.get("timestamp_of_artifact") is not None else None,
+        "batch_id": str(fm.get("batch_id", "")) if fm.get("batch_id") is not None else None,
+        "source_path": str(fm.get("source_path", "")) if fm.get("source_path") is not None else None,
+        "file_name": str(fm.get("file_name", "")) if fm.get("file_name") is not None else None,
+        "file_ext": str(fm.get("file_ext", "")) if fm.get("file_ext") is not None else None,
+        "mime_type": str(fm.get("mime_type", "")) if fm.get("mime_type") is not None else None,
+        "size_bytes": int(fm.get("size_bytes")) if fm.get("size_bytes") is not None else None,
+        "modified_at": str(fm.get("modified_at", "")) if fm.get("modified_at") is not None else None,
+        "imported_at": str(fm.get("imported_at", "")) if fm.get("imported_at") is not None else None,
+        "ingestion_status": str(fm.get("ingestion_status", "")) if fm.get("ingestion_status") is not None else None,
+        "extracted_text_ref": str(fm.get("extracted_text_ref", "")) if fm.get("extracted_text_ref") is not None else None,
+        "linked_evidence": json.dumps(listify(fm.get("linked_evidence"))),
+        "parse_errors": json.dumps(listify(fm.get("parse_errors"))),
+        "actors": json.dumps(listify(fm.get("actors"))),
+        "sensitivity": str(fm.get("sensitivity") or ""),
+        "reliability": str(fm.get("reliability") or ""),
+        "claim_class": str(fm.get("claim_class") or ""),
+        "owner": str(fm.get("owner") or ""),
+        "pattern_type": str(fm.get("pattern_type") or ""),
+        "hypothesis": str(fm.get("hypothesis") or ""),
+        "supporting_records": json.dumps(listify(fm.get("supporting_records"))),
+        "counterexamples": json.dumps(listify(fm.get("counterexamples"))),
+        "alternative_explanations": json.dumps(listify(fm.get("alternative_explanations"))),
+        "supporting_evidence": json.dumps(listify(fm.get("supporting_evidence"))),
+        "contradicting_evidence": json.dumps(listify(fm.get("contradicting_evidence"))),
+        "linked_patterns": json.dumps(listify(fm.get("linked_patterns"))),
+        "first_seen": str(fm.get("first_seen", "")) if fm.get("first_seen") is not None else None,
+        "last_reviewed": str(fm.get("last_reviewed", "")) if fm.get("last_reviewed") is not None else None,
+        "review_notes": str(fm.get("review_notes", "")),
+        "predictions": json.dumps(listify(fm.get("predictions"))),
+        "evidence_needed": json.dumps(listify(fm.get("evidence_needed"))),
+        "observed_facts": json.dumps(listify(fm.get("observed_facts"))),
+        "verbatim_excerpt": str(fm.get("verbatim_excerpt", "")),
+        "linked_claims": json.dumps(listify(fm.get("linked_claims"))),
+        "linked_episodes": json.dumps(listify(fm.get("linked_episodes"))),
+        "reviewed_record_id": str(fm.get("reviewed_record_id") or ""),
+        "reviewed_record_type": str(fm.get("reviewed_record_type") or ""),
+        "approved": int(bool(fm.get("approved"))) if fm.get("approved") is not None else None,
+        "risk": str(fm.get("risk") or ""),
+        "recommended_action": str(fm.get("recommended_action") or ""),
+        "issues": json.dumps(fm.get("issues") or []),
+        "priority_questions": json.dumps(listify(fm.get("priority_questions"))),
+        "alternative_hypotheses": json.dumps(listify(fm.get("alternative_hypotheses"))),
+        "claim_updates": json.dumps(fm.get("claim_updates") or []),
+        "confidence_adjustments": json.dumps(fm.get("confidence_adjustments") or []),
+        "reasoning_errors": json.dumps(listify(fm.get("reasoning_errors"))),
+        "corrects": str(fm.get("corrects") or ""),
+        "field_corrected": str(fm.get("field_corrected") or ""),
+        "original_value": str(fm.get("original_value") or ""),
+        "corrected_value": str(fm.get("corrected_value") or ""),
+        "basis": str(fm.get("basis") or ""),
+        "approved_by": str(fm.get("approved_by") or ""),
+        "content_hash": content_hash,
+        "word_count": word_count,
+        "token_count_approx": token_count,
+        "embedding_status": "pending",
+    }
+
+    conn.execute("DELETE FROM links WHERE source_id = ?", (file_id,))
+    conn.execute("DELETE FROM links WHERE target_id = ? AND relationship_type = ?", (file_id, "artifact_provenance"))
+    conn.execute("DELETE FROM entity_aliases WHERE entity_id = ?", (file_id,))
+    conn.execute("DELETE FROM entity_epochs WHERE entity_id = ?", (file_id,))
+    conn.execute("DELETE FROM claims WHERE id = ?", (file_id,))
+    try:
+        conn.execute("DELETE FROM files_fts WHERE id = ?", (file_id,))
+    except sqlite3.Error:
+        pass
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO files (
+            id, type, path, created, created_at, updated, status, significance, domain_primary,
+            domain_secondary, arena, privacy, compartments, allowed_contexts, blocked_contexts,
+            confidence, confidence_score, confidence_basis, last_confirmed, review_after, summary,
+            source_type, source_uri, artifact_ref, artifact_hash, timestamp_of_artifact,
+            batch_id, source_path, file_name, file_ext, mime_type, size_bytes, modified_at, imported_at,
+            ingestion_status, extracted_text_ref, linked_evidence, parse_errors,
+            actors, sensitivity, reliability, claim_class, owner, pattern_type, hypothesis,
+            supporting_records, counterexamples, alternative_explanations, supporting_evidence,
+            contradicting_evidence, linked_patterns, first_seen, last_reviewed, review_notes,
+            predictions, evidence_needed, observed_facts, verbatim_excerpt, linked_claims, linked_episodes, reviewed_record_id,
+            reviewed_record_type, approved, risk, recommended_action, issues, priority_questions,
+            alternative_hypotheses, claim_updates, confidence_adjustments,
+            reasoning_errors, corrects, field_corrected, original_value, corrected_value, basis,
+            approved_by, content_hash, word_count, token_count_approx, embedding_status
+        ) VALUES (
+            :id, :type, :path, :created, :created_at, :updated, :status, :significance, :domain_primary,
+            :domain_secondary, :arena, :privacy, :compartments, :allowed_contexts, :blocked_contexts,
+            :confidence, :confidence_score, :confidence_basis, :last_confirmed, :review_after, :summary,
+            :source_type, :source_uri, :artifact_ref, :artifact_hash, :timestamp_of_artifact,
+            :batch_id, :source_path, :file_name, :file_ext, :mime_type, :size_bytes, :modified_at, :imported_at,
+            :ingestion_status, :extracted_text_ref, :linked_evidence, :parse_errors,
+            :actors, :sensitivity, :reliability, :claim_class, :owner, :pattern_type, :hypothesis,
+            :supporting_records, :counterexamples, :alternative_explanations, :supporting_evidence,
+            :contradicting_evidence, :linked_patterns, :first_seen, :last_reviewed, :review_notes,
+            :predictions, :evidence_needed, :observed_facts, :verbatim_excerpt, :linked_claims, :linked_episodes, :reviewed_record_id,
+            :reviewed_record_type, :approved, :risk, :recommended_action, :issues, :priority_questions,
+            :alternative_hypotheses, :claim_updates, :confidence_adjustments,
+            :reasoning_errors, :corrects, :field_corrected, :original_value, :corrected_value, :basis,
+            :approved_by, :content_hash, :word_count, :token_count_approx, :embedding_status
+        )
+        """,
+        row,
+    )
+    try:
+        conn.execute(
+            "INSERT INTO files_fts (id, summary, content) VALUES (?, ?, ?)",
+            (file_id, str(fm.get("summary", "")), content),
+        )
+    except sqlite3.Error:
+        pass
+
+    if file_type == "entity":
+        canonical = str(fm.get("canonical_name") or fm.get("id") or "").strip()
+        if canonical:
+            conn.execute(
+                "INSERT OR IGNORE INTO entity_aliases (entity_id, alias, context) VALUES (?, ?, ?)",
+                (file_id, canonical, None),
+            )
+        for alias in fm.get("aliases", []) or []:
+            conn.execute(
+                "INSERT OR IGNORE INTO entity_aliases (entity_id, alias, context) VALUES (?, ?, ?)",
+                (file_id, str(alias), None),
+            )
+        previous_epochs = fm.get("previous_epochs", []) or []
+        if isinstance(previous_epochs, list):
+            for previous in previous_epochs:
+                if not isinstance(previous, dict):
+                    continue
+                conn.execute(
+                    "INSERT INTO entity_epochs (entity_id, epoch, started, ended, archived_path, summary) VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        file_id,
+                        int(previous.get("epoch", 0)),
+                        str(previous.get("period", "").split(" to ")[0].replace("YYYY-MM", "") or fm.get("epoch_started", "")),
+                        None,
+                        str(previous.get("archived", "")),
+                        str(previous.get("summary", "")),
+                    ),
+                )
+        conn.execute(
+            "INSERT INTO entity_epochs (entity_id, epoch, started, ended, archived_path, summary) VALUES (?, ?, ?, ?, ?, ?)",
+            (file_id, int(fm.get("epoch", 0) or 0), str(fm.get("epoch_started", "")), None, None, str(fm.get("summary", ""))),
+        )
+
+    if file_type == "episode":
+        for claim in _extract_claims_from_episode(doc.body, file_id):
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO claims (
+                    id, episode_id, claim_text, claim_type, confidence, sensitivity,
+                    source_basis, evidence_id, status, created, last_reviewed, review_after
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                claim,
+            )
+
+    if file_type == "claim":
+        episode_id = ""
+        for link_target in listify(fm.get("linked_episodes")) or links:
+            text = str(link_target).strip()
+            if text:
+                episode_id = text
+                break
+        claim_row = (
+            file_id,
+            episode_id,
+            str(fm.get("claim_text") or fm.get("summary") or ""),
+            str(fm.get("claim_class") or "interpretation"),
+            str(fm.get("confidence") or "0.5"),
+            str(fm.get("sensitivity") or "low"),
+            str(fm.get("confidence_basis") or fm.get("review_notes") or ""),
+            ", ".join(listify(fm.get("supporting_evidence"))),
+            str(fm.get("status") or "active"),
+            str(fm.get("created") or fm.get("first_seen") or ""),
+            str(fm.get("last_reviewed") or ""),
+            str(fm.get("review_after") or ""),
+        )
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO claims (
+                id, episode_id, claim_text, claim_type, confidence, sensitivity,
+                source_basis, evidence_id, status, created, last_reviewed, review_after
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            claim_row,
+        )
+
+    for link in links:
+        if isinstance(link, str):
+            conn.execute(
+                "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
+                (file_id, link, "related"),
+            )
+    if file_type == "artifact":
+        for target in listify(fm.get("linked_evidence")):
+            if target:
+                conn.execute(
+                    "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
+                    (file_id, target, "linked_evidence"),
+                )
+        for target in listify(fm.get("linked_claims")):
+            if target:
+                conn.execute(
+                    "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
+                    (file_id, target, "linked_claims"),
+                )
+    if file_type in {"evidence", "claim"}:
+        artifact_ref = str(fm.get("artifact_ref") or "").strip()
+        if artifact_ref:
+            conn.execute(
+                "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
+                (artifact_ref, file_id, "artifact_provenance"),
+            )
+    for source_key, relationship in [
+        ("supporting_evidence", "supports"),
+        ("contradicting_evidence", "contradicts"),
+        ("linked_claims", "links_claim"),
+        ("linked_episodes", "links_episode"),
+    ]:
+        for target in listify(fm.get(source_key)):
+            if target:
+                conn.execute(
+                    "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
+                    (file_id, target, relationship),
+                )
+    for target_key, relationship in [("reviewed_record_id", "reviews"), ("corrects", "corrects")]:
+        target = str(fm.get(target_key, "")).strip()
+        if target:
+            conn.execute(
+                "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
+                (file_id, target, relationship),
+            )
+    return True
+
+
+def _embed_targets_from_index(vault: Path, conn: sqlite3.Connection) -> list[tuple[str, str]]:
+    targets: list[tuple[str, str]] = []
+    rows = conn.execute("SELECT id, path, summary FROM files ORDER BY path").fetchall()
+    for row in rows:
+        try:
+            doc = load_markdown(vault / str(row["path"]))
+        except (FrontmatterError, OSError):
+            continue
+        content = f"{str(row['summary'] or '')}\n\n{doc.body.strip()}".strip()
+        targets.append((str(row["id"]), content))
+    return targets
+
+
+def _index_counts(conn: sqlite3.Connection) -> dict[str, int]:
+    return {
+        "files": int(conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]),
+        "links": int(conn.execute("SELECT COUNT(*) FROM links").fetchone()[0]),
+        "claims": int(conn.execute("SELECT COUNT(*) FROM claims").fetchone()[0]),
+        "aliases": int(conn.execute("SELECT COUNT(*) FROM entity_aliases").fetchone()[0]),
+        "epochs": int(conn.execute("SELECT COUNT(*) FROM entity_epochs").fetchone()[0]),
+    }
 
 
 def _ensure_files_columns(conn: sqlite3.Connection) -> None:
