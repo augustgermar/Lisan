@@ -4,8 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from lisan.tools.deixis import render_deixis, render_obj, render_for_display, tokenize_principal
+from lisan.tools.deixis import (
+    render_deixis,
+    render_obj,
+    render_for_display,
+    tokenize_principal,
+    tokenize_principal_obj,
+)
 from lisan.tools.primer_index import principal_aliases
+from lisan.tools.record_fanout import claim_reference_keys
 
 CORE_TEXT = """---
 principal:
@@ -184,3 +191,63 @@ def test_tokenize_then_render_roundtrip(core_vault: Path) -> None:
     t = tokenize_principal("August met Bram", core_vault)
     assert render_deixis(t, "interlocutor", core_vault) == "you met Bram"
     assert render_for_display(t, core_vault) == "August met Bram"
+
+
+def test_tokenize_principal_obj_nested_preserves_entity_names(core_vault: Path) -> None:
+    obj = {
+        "summary": "August met Bram for lunch",
+        "claim_text": "August's plan worked",
+        "title": "August wrote the recap",
+        "name": "August Morgan",
+        "canonical_name": "August Morgan",
+        "nested": {
+            "name": "August Morgan",
+            "summary": "August and Dana talked",
+            "canonical_name": "August Morgan",
+            "count": 2,
+        },
+        "third_party": "Dana stayed out of it",
+        "items": ["August called Bram", 5, None],
+    }
+    assert tokenize_principal_obj(obj, core_vault) == {
+        "summary": "{{principal}} met Bram for lunch",
+        "claim_text": "{{principal}}'s plan worked",
+        "title": "{{principal}} wrote the recap",
+        "name": "August Morgan",
+        "canonical_name": "August Morgan",
+        "nested": {
+            "name": "August Morgan",
+            "summary": "{{principal}} and Dana talked",
+            "canonical_name": "August Morgan",
+            "count": 2,
+        },
+        "third_party": "Dana stayed out of it",
+        "items": ["{{principal}} called Bram", 5, None],
+    }
+
+
+def test_tokenize_principal_obj_roundtrip_reference_keys(core_vault: Path) -> None:
+    writer = {
+        "claims_to_create": [
+            {
+                "claim_text": "August promised Bram a follow-up",
+                "summary": "August promised Bram a follow-up",
+                "title": "August promised Bram a follow-up",
+            }
+        ],
+        "evidence_to_create": [
+            {
+                "title": "August promised Bram a follow-up",
+                "summary": "August promised Bram a follow-up",
+                "verbatim_excerpt": "August promised Bram a follow-up",
+            }
+        ],
+    }
+    tokenized = tokenize_principal_obj(writer, core_vault)
+    claim_keys = set(claim_reference_keys(tokenized["claims_to_create"][0]))
+    evidence_keys = set(claim_reference_keys(tokenized["evidence_to_create"][0]))
+
+    assert "{{principal}}" in " ".join(sorted(claim_keys))
+    assert "{{principal}}" in " ".join(sorted(evidence_keys))
+    assert "August" not in " ".join(sorted(claim_keys))
+    assert claim_keys == evidence_keys

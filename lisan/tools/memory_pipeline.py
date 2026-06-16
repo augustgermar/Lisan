@@ -18,7 +18,7 @@ from .firewall import scan_text
 from .log import log_error
 from .epistemic import listify
 from .narrative_state import load_narrative_state
-from .deixis import render_deixis, tokenize_principal
+from .deixis import render_deixis, tokenize_principal, tokenize_principal_obj
 from .record_fanout import (
     basis_or_default,
     fanout_claims,
@@ -172,6 +172,8 @@ def run_memory_pipeline(
             text, task=task, **common_kwargs,
         )
         writer_core = writer
+    writer_core = tokenize_principal_obj(writer_core, vault)
+    writer = tokenize_principal_obj(writer, vault)
     record_inline_step("memory_pipeline.skeptic")
     skeptic = SkepticAgent(vault=vault).run_json(
         json.dumps(writer_core, indent=2, ensure_ascii=True),
@@ -213,6 +215,7 @@ def run_memory_pipeline(
             **common_kwargs,
         )
         writer = _merge_writer_outputs(writer_core, writer_artifacts)
+        writer = tokenize_principal_obj(writer, vault)
     draft_path = _write_draft(
         vault, text, transcript_path, listener, writer, skeptic, interlocutor,
         task, mode, action, skeptic_approved,
