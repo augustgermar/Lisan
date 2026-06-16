@@ -12,6 +12,7 @@ can extend this without changing call sites.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
@@ -294,3 +295,107 @@ def deixis_frame(vault: Path) -> str:
         f"you / your = {who}, the principal. Every stored record describes you.\n"
         "all other names = third parties; refer to them by name."
     )
+
+
+# ---------------------------------------------------------------------------
+# Roster (P3 entity-kind model): a structured cast carrying name + aliases +
+# kind, parsed from the `roster:` block in identity-core.md. This is the
+# authoritative Layer-1 classifier for entity kinds AND the known-entity set
+# that prevents duplicate invention. Parsed with a dedicated reader so the
+# narrow _parse_core_yaml stays untouched.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RosterEntry:
+    name: str
+    aliases: tuple[str, ...]
+    kind: str
+
+
+def _parse_roster_entries(fm_text: str) -> list[dict]:
+    """Parse the `roster:` YAML sequence-of-mappings from identity-core frontmatter."""
+    lines = fm_text.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if line.strip() == "roster:" and len(line) - len(line.lstrip()) == 0:
+            start = i + 1
+            break
+    if start is None:
+        return []
+    entries: list[dict] = []
+    cur: dict | None = None
+    for line in lines[start:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        stripped = line.strip()
+        if indent == 0 and not stripped.startswith("- "):
+            break  # reached the next top-level key
+        if stripped.startswith("- "):
+            if cur:
+                entries.append(cur)
+            cur = {}
+            rest = stripped[2:].strip()
+            if rest:
+                k, _, v = rest.partition(":")
+                cur[k.strip()] = _parse_scalar(v)
+        elif cur is not None:
+            k, _, v = stripped.partition(":")
+            if k.strip():
+                cur[k.strip()] = _parse_scalar(v)
+    if cur:
+        entries.append(cur)
+    return entries
+
+
+@lru_cache(maxsize=8)
+def _roster_cached(vault: Path, mtime: float) -> tuple[RosterEntry, ...]:
+    path = vault / "primer" / "identity-core.md"
+    if not path.exists():
+        return ()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        return ()
+    fm = _extract_frontmatter(text)
+    if fm is None:
+        return ()
+    out: list[RosterEntry] = []
+    for raw in _parse_roster_entries(fm):
+        name = str(raw.get("name") or "").strip()
+        kind = str(raw.get("kind") or "").strip().lower()
+        if not name or not kind:
+            continue
+        aliases_raw = raw.get("aliases") or []
+        if isinstance(aliases_raw, str):
+            aliases_raw = [aliases_raw]
+        aliases = tuple(str(a).strip() for a in aliases_raw if str(a).strip())
+        out.append(RosterEntry(name=name, aliases=aliases, kind=kind))
+    return tuple(out)
+
+
+def roster(vault: Path) -> list[RosterEntry]:
+    """Structured cast (name, aliases, kind) from identity-core.md `roster:`.
+
+    Returns [] when absent so callers fall through to structural/model layers."""
+    path = vault / "primer" / "identity-core.md"
+    try:
+        mtime = path.stat().st_mtime if path.exists() else 0.0
+    except OSError:
+        mtime = 0.0
+    return list(_roster_cached(vault, mtime))
+
+
+def roster_kind(vault: Path, name: str) -> str | None:
+    """Roster-declared kind for a name/alias (normalized match), or None."""
+    key = " ".join((name or "").strip().lower().split())
+    if not key:
+        return None
+    for entry in roster(vault):
+        if key == entry.name.strip().lower():
+            return entry.kind
+        for alias in entry.aliases:
+            if key == alias.strip().lower():
+                return entry.kind
+    return None

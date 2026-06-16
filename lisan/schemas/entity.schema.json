@@ -32,6 +32,7 @@
     "last_confirmed": {"type": "string"},
     "review_after": {"type": "string"},
     "subtype": {"type": "string"},
+    "kind": {"type": "string", "description": "Entity kind (open set: person, pet, agent, organization, place, system, artifact, project, event, topic, account, thing, or any future kind). Mirrors subtype; thing is the honest fallback, person is never a default."},
     "canonical_name": {"type": "string"},
     "aliases": {"type": "array", "items": {"type": "string"}},
     "disambiguation": {"type": "string"},

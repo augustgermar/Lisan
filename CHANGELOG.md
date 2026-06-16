@@ -1,5 +1,10 @@
 # Changelog
 
+## 26.6.16.2
+
+- Entity kind model (P3): `kind` is now a first-class, open property of every entity (person, pet, agent, organization, place, system, artifact, project, event, topic, account, or `thing`), replacing the people-shaped default that forced non-people — a project ("Atlas"), a city ("Houston") — to become *people*. Kind is assigned deterministic-first: roster (a structured cast in `identity-core.md`: name + aliases + kind) → structural signals (IP/host/path/URL/org-suffix → system/artifact/organization) → the model's explicit choice → `thing` as the honest fallback. `person` is never a default at any layer. Dedup is kind-scoped (a person "Atlas" and a project "Atlas" never merge), and the kind set is open — novel kinds are stored, not rejected. Fixes the I2 entity false-positive finding. (Migration of existing pre-kind records and the typed-relationship graph are deferred to follow-up specs.)
+- Bumped version to 26.6.16.2.
+
 ## 26.6.16.1
 
 - Auto-index records on capture (C2/C3): fanned-out records (claims, decisions, open loops, state, entities, relationships) are now indexed into the SQLite `files` table and FTS the moment they are written, so within-session and cross-conversation retrieval sees what an earlier turn just wrote — no manual `sync` required. Extracted `index_single_record()` as the single source of truth for per-file indexing (used by both the full rebuild and the incremental path), with INSERT OR REPLACE / delete-then-insert for idempotent upserts. Embedding stays deferred (`embedding_status='pending'`) to the async sweep so capture never blocks on the embedder; one SQLite connection is reused per turn.

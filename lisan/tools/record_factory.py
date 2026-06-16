@@ -12,11 +12,22 @@ from .epistemic import listify
 
 
 ENTITY_DIRS = {
+    # animate / agentive
     "person": Path("entities/people"),
-    "place": Path("entities/places"),
-    "thing": Path("entities/things"),
-    "project": Path("entities/projects"),
+    "pet": Path("entities/pets"),
+    "agent": Path("entities/agents"),
     "organization": Path("entities/organizations"),
+    # concrete / physical
+    "place": Path("entities/places"),
+    "system": Path("entities/systems"),
+    "artifact": Path("entities/artifacts"),
+    # abstract / conceptual
+    "project": Path("entities/projects"),
+    "event": Path("entities/events"),
+    "topic": Path("entities/topics"),
+    "account": Path("entities/accounts"),
+    # fallback
+    "thing": Path("entities/things"),
 }
 
 KNOWLEDGE_DIRS = {
@@ -143,12 +154,15 @@ def new_entity(
     epoch_started: str | None = None,
     previous_epochs: list[dict[str, Any]] | None = None,
 ) -> CreatedRecord:
-    subtype = subtype.lower()
-    if subtype not in ENTITY_DIRS:
-        raise ValueError(f"Unsupported entity subtype: {subtype}")
+    # `kind` is an OPEN set (P3): a kind we have a directory for routes there;
+    # any other (novel) kind is accepted, not rejected — it lands in
+    # entities/<kind>/ (created on write) so the system never breaks on a kind
+    # it hasn't seen. Only a truly empty kind degrades to the `thing` fallback.
+    subtype = (subtype or "thing").strip().lower() or "thing"
+    entity_dir = ENTITY_DIRS.get(subtype) or (Path("entities") / slugify(subtype))
 
     safe_slug = slugify(canonical_name or name)
-    path = vault / ENTITY_DIRS[subtype] / f"{safe_slug}.md"
+    path = vault / entity_dir / f"{safe_slug}.md"
     if path.exists():
         raise FileExistsError(path)
 
@@ -173,6 +187,7 @@ def new_entity(
         "confidence_basis": confidence_basis,
         "last_confirmed": last_confirmed or today,
         "review_after": review_after or today,
+        "kind": subtype,
         "subtype": subtype,
         "canonical_name": canonical_name or name,
         "aliases": aliases or [],
