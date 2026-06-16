@@ -703,14 +703,22 @@ def _create_entity_stubs(
 ) -> None:
     """Materialize entity stubs proposed by the writer."""
     from .primer_index import known_names as _primer_known_names
+    from .primer_index import roster as _roster
+    from .entity_kind import assign_kind
 
     entities = writer.get("entities_to_create") or []
     if not entities:
         return
     index = _load_entity_index(vault)
     primer_cast = _primer_known_names(vault)
-    # Combine primer cast with frequently-mentioned names as the acceptance allowlist.
-    allowlist = primer_cast | (frequent_names or frozenset())
+    # Acceptance allowlist = primer cast + roster (known entities of ANY kind) +
+    # frequently-mentioned names. Seeding the roster here also kills the
+    # duplicate-invention problem at the source (spec §4 Layer 1).
+    roster_names: set[str] = set()
+    for _entry in _roster(vault):
+        roster_names.add(_entry.name)
+        roster_names.update(_entry.aliases)
+    allowlist = primer_cast | (frequent_names or frozenset()) | frozenset(roster_names)
     seen_in_pass: set[str] = set()
     for entry in entities:
         if not isinstance(entry, dict):
@@ -724,12 +732,16 @@ def _create_entity_stubs(
             continue
         seen_in_pass.add(normalized)
 
-        subtype = _normalize_entity_subtype(
-            name=name,
-            subtype=str(entry.get("subtype") or "person").strip(),
+        # Kind (P3): roster -> structural -> model's explicit choice -> thing.
+        # NEVER defaults to person — that was the Atlas/Houston bug. The result
+        # is stored as both `kind` and `subtype` (see new_entity) and scopes
+        # dedup so a person "Atlas" and a project "Atlas" never merge.
+        subtype = assign_kind(
+            name,
+            vault,
+            model_kind=str(entry.get("kind") or entry.get("subtype") or "").strip(),
             summary=summary,
             source_text=source_text,
-            primer_cast=allowlist,
         )
         if not subtype:
             continue
