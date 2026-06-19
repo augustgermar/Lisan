@@ -28,6 +28,7 @@ def capture_text(
     queue_background: bool = True,
     db_path: Path | None = None,
     append_response_to_transcript: bool = False,
+    drain_jobs: bool | None = None,
 ) -> dict[str, Any]:
     trace = None
     trace_token = None
@@ -108,6 +109,19 @@ def capture_text(
                     continue
             record_jobs_queued(len(queued_jobs))
             out["queued_jobs"] = queued_jobs
+            # FIX C: drain the indexing/embedding jobs we just enqueued, in
+            # process, before returning — so the records this turn wrote are
+            # actually embedded and semantic retrieval works without a manual
+            # `lisan jobs run`. The user-facing response (out["response"]) is
+            # already finalized above, so the drain never delays response
+            # composition; it only extends the call's total wall-time. Strictly
+            # bounded to index jobs (no LLM-heavy analyst/dreamer), and strictly
+            # non-fatal: a failed embed leaves its job queued for the next drain
+            # and never propagates out of capture.
+            out["drained_jobs"] = _drain_index_jobs(
+                vault=vault, db_path=db_path, provider=provider, model=model,
+                queued_jobs=queued_jobs, drain_jobs=drain_jobs,
+            )
         if created_trace and trace is not None:
             finalized = finalize_turn_trace(trace, db_path=db_path or sqlite_path(), vault=vault)
             out["trace_summary"] = finalized.summary()
@@ -117,6 +131,54 @@ def capture_text(
     finally:
         if created_trace:
             reset_current_turn_trace(trace_token)
+
+
+def _drain_index_jobs(
+    *,
+    vault: Path,
+    db_path: Path | None,
+    provider: str | None,
+    model: str | None,
+    queued_jobs: list[dict[str, Any]],
+    drain_jobs: bool | None,
+) -> dict[str, Any]:
+    """Drain the indexing/embedding jobs enqueued for this turn, in-process.
+
+    Resolves the drain_on_capture config knob when ``drain_jobs`` is None.
+    Bounded (only INDEX_JOB_TYPES, never the LLM-heavy maintenance jobs) and
+    non-fatal (any error is logged and swallowed; the failed job stays queued
+    for the next drain). Returns a small summary dict for observability.
+    """
+    from .jobs import INDEX_JOB_TYPES, run_jobs_worker
+
+    if drain_jobs is None:
+        from ..config import load_config
+        drain_jobs = bool(load_config().get("jobs", {}).get("drain_on_capture", True))
+    if not drain_jobs:
+        return {"drained": False, "reason": "disabled"}
+
+    # Only bother if this turn actually queued an index job.
+    if not any(str(j.get("job_type") or "") in INDEX_JOB_TYPES for j in queued_jobs):
+        return {"drained": False, "reason": "no_index_jobs"}
+
+    try:
+        result = run_jobs_worker(
+            vault=vault,
+            db_path=db_path,
+            provider=provider,
+            model=model,
+            job_types=set(INDEX_JOB_TYPES),
+        )
+        return {
+            "drained": True,
+            "processed_count": result.get("processed_count", 0),
+            "success_count": result.get("success_count", 0),
+            "failure_count": result.get("failure_count", 0),
+        }
+    except Exception as exc:
+        # A failed embed must NEVER fail a capture (preserves P2). Log and move on.
+        log_error(vault, "capture_text.drain_index_jobs", exc)
+        return {"drained": False, "reason": f"error: {exc.__class__.__name__}"}
 
 
 def _extract_capture_response(result: Any) -> str:
