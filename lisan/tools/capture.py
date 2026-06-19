@@ -120,10 +120,9 @@ def capture_text(
 
 
 def _extract_capture_response(result: Any) -> str:
-    mode = str(getattr(result, "mode", "") or "skip")
     elicitor = getattr(result, "elicitor", None) or {}
     response_text = str(elicitor.get("response") or "").strip()
-    if not response_text and mode == "extraction":
+    if not response_text:
         interlocutor = getattr(result, "interlocutor", None) or {}
         response_text = str(interlocutor.get("response") or "").strip()
     return response_text

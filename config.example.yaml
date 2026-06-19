@@ -20,8 +20,8 @@
     "local": {
       "enabled": true,
       "api_key_env": null,
-      "base_url": "http://127.0.0.1:8080/v1/chat/completions",
-      "default_model": null
+      "base_url": "http://127.0.0.1:8990/gemflash/chat/completions",
+      "default_model": "gemini-2.5-pro"
     },
     "openrouter": {
       "enabled": true,
@@ -31,46 +31,14 @@
     }
   },
   "routing": {
-    "router": {
-      "low": "openrouter",
-      "medium": "openrouter",
-      "high": "openrouter"
-    },
-    "listener": {
-      "low": "openrouter",
-      "medium": "openrouter",
-      "high": "openrouter"
-    },
-    "assembler": {
-      "low": "openrouter",
-      "medium": "openrouter",
-      "high": "openrouter"
-    },
-    "elicitor": {
-      "low": "openrouter",
-      "medium": "openrouter",
-      "high": "openrouter"
-    },
-    "writer": {
-      "low": "openrouter",
-      "medium": "openrouter",
-      "high": "openrouter"
-    },
-    "skeptic": {
-      "low": "openrouter",
-      "medium": "openrouter",
-      "high": "openrouter"
-    },
-    "interlocutor": {
-      "low": "openrouter",
-      "medium": "openrouter",
-      "high": "openrouter"
-    },
-    "dreamer": {
-      "low": "openrouter",
-      "medium": "openrouter",
-      "high": "openrouter"
-    }
+    "router": { "low": "local", "medium": "local", "high": "local" },
+    "listener": { "low": "local", "medium": "local", "high": "local" },
+    "assembler": { "low": "local", "medium": "local", "high": "local" },
+    "elicitor": { "low": "local", "medium": "local", "high": "local" },
+    "writer": { "low": "local", "medium": "local", "high": "local" },
+    "skeptic": { "low": "local", "medium": "local", "high": "local" },
+    "interlocutor": { "low": "local", "medium": "local", "high": "local" },
+    "dreamer": { "low": "local", "medium": "local", "high": "local" }
   },
   "heuristic": {
     "thresholds": {

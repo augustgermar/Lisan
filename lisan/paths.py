@@ -146,9 +146,7 @@ def write_seed_files(vault: Path) -> list[str]:
     return written
 
 
-def ensure_repo_layout(base: Path | None = None) -> None:
-    root = base or repo_root()
-    vault = vault_root(base)
+def ensure_vault_layout(vault: Path) -> None:
     for rel in [
         "primer",
         "state",
@@ -183,6 +181,9 @@ def ensure_repo_layout(base: Path | None = None) -> None:
         "logs",
     ]:
         (vault / rel).mkdir(parents=True, exist_ok=True)
+
+
+def ensure_root_layout(root: Path) -> None:
     for rel in [
         "backups",
         "prompts",
@@ -190,3 +191,10 @@ def ensure_repo_layout(base: Path | None = None) -> None:
         ".githooks",
     ]:
         (root / rel).mkdir(parents=True, exist_ok=True)
+
+
+def ensure_repo_layout(base: Path | None = None) -> None:
+    root = base or repo_root()
+    vault = vault_root(base)
+    ensure_vault_layout(vault)
+    ensure_root_layout(root)

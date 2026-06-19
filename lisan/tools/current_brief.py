@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..frontmatter import load_markdown
-from ..paths import vault_root
+from ..paths import ensure_vault_layout, vault_root
 from ..utils import today_iso
 from .deixis import render_for_display
 from .domain_fields import domain_primary as get_domain_primary, normalize_domain_fields
@@ -74,7 +74,9 @@ def generate_current_brief(vault: Path | None = None) -> str:
 
 def write_current_brief(vault: Path | None = None) -> Path:
     vault = vault or vault_root()
+    ensure_vault_layout(vault)
     out = vault / "primer" / "current-brief.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(generate_current_brief(vault), encoding="utf-8")
     return out
 

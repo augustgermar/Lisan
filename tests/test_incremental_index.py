@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from lisan.frontmatter import load_markdown, write_markdown
 from lisan.paths import ensure_repo_layout, vault_root
+from lisan.tools.batch_review import _pending_drafts
 from lisan.tools.capture import capture_text
 from lisan.tools.rebuild_index import index_single_record, open_index_connection
 from lisan.tools.record_factory import new_claim
@@ -150,7 +151,7 @@ class IncrementalIndexTests(unittest.TestCase):
             patch.object(mp.SkepticAgent, "run_json", return_value=skeptic),
             patch.object(mp.InterlocutorAgent, "run_json", return_value=interlocutor),
         ):
-            capture_text(
+            result = capture_text(
                 vault=self.vault,
                 text="I decided to confront Bram Thursday.",
                 conversation_id="demo",
@@ -169,6 +170,9 @@ class IncrementalIndexTests(unittest.TestCase):
 
         context = assemble_context("remind me what I decided about Bram", vault=self.vault, db_path=self.db_path)
         self.assertIn("Person A decided to confront Bram Thursday.", context)
+        draft_doc = load_markdown(Path(result["draft_path"]))
+        self.assertEqual(draft_doc.frontmatter.get("status"), "fanout_applied")
+        self.assertEqual(_pending_drafts(self.vault), [])
 
 
 if __name__ == "__main__":

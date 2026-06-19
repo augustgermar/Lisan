@@ -18,6 +18,7 @@ from .firewall import scan_text
 from .log import log_error
 from .epistemic import listify
 from .narrative_state import load_narrative_state
+from .retrieval import retrieve_context
 from .deixis import render_deixis, tokenize_principal, tokenize_principal_obj
 from .record_fanout import (
     basis_or_default,
@@ -105,13 +106,20 @@ def run_memory_pipeline(
     mode = routing.mode
 
     if action == "skip":
+        response_text = _build_skip_response(
+            vault=vault,
+            text=text,
+            conversation_id=conversation_id,
+            conversation_policy=conversation_policy,
+            db_path=db_path,
+        )
         return MemoryPipelineResult(
             transcript_path=transcript_path,
             draft_path=None,
             listener=listener,
             writer=None,
             skeptic=None,
-            interlocutor=None,
+            interlocutor={"response": response_text},
             action=action,
             mode=mode,
         )
@@ -250,6 +258,8 @@ def run_memory_pipeline(
         index_conn.commit()
     finally:
         index_conn.close()
+    if skeptic_approved:
+        _update_draft_status(draft_path, "fanout_applied")
     return MemoryPipelineResult(
         transcript_path=transcript_path,
         draft_path=draft_path,
@@ -343,6 +353,57 @@ def _choose_task(text: str, listener: dict[str, Any]) -> str:
     if memory_type == "correction":
         return "state"
     return "episode"
+
+
+def _build_skip_response(
+    *,
+    vault: Path,
+    text: str,
+    conversation_id: str | None,
+    conversation_policy: dict[str, Any] | None,
+    db_path: Path | None,
+) -> str:
+    domain_override = None
+    if isinstance(conversation_policy, dict):
+        domain_override = (
+            conversation_policy.get("domain_override")
+            or conversation_policy.get("arena_override")
+        )
+
+    conn = open_index_connection(db_path)
+    conn.close()
+
+    result = retrieve_context(
+        query=text,
+        domain=str(domain_override) if domain_override else None,
+        arena=str(domain_override) if domain_override else None,
+        vault=vault,
+        db_path=db_path,
+        conversation_id=conversation_id,
+    )
+    items = _dedupe_retrieval_items(result.loaded)
+    if not items:
+        return "I don't have anything stored about that yet."
+
+    lines = ["Here's what I found in your stored records:"]
+    for item in items[:3]:
+        summary = str(item.summary or "").strip()
+        if not summary:
+            summary = item.id
+        lines.append(f"- {summary}")
+    return "\n".join(lines)
+
+
+def _dedupe_retrieval_items(items: list[Any]) -> list[Any]:
+    unique: list[Any] = []
+    seen: set[str] = set()
+    for item in items:
+        item_id = str(getattr(item, "id", "") or "")
+        if not item_id or item_id in seen:
+            continue
+        seen.add(item_id)
+        unique.append(item)
+    return unique
 
 
 def _skeptic_approves(skeptic: dict[str, Any] | None) -> bool:
@@ -635,6 +696,14 @@ def _write_draft(
     body = _render_draft_body(text, listener, writer, skeptic, interlocutor, task, skeptic_approved)
     write_markdown(path, with_domain_fields(frontmatter), body)
     return path
+
+
+def _update_draft_status(path: Path, status: str) -> None:
+    doc = load_markdown(path)
+    frontmatter = dict(doc.frontmatter)
+    frontmatter["status"] = status
+    frontmatter["updated"] = today_iso()
+    write_markdown(path, with_domain_fields(frontmatter), doc.body)
 
 
 def _render_draft_body(

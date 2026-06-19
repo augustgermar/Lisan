@@ -168,6 +168,26 @@ class JobQueueTests(unittest.TestCase):
         self.assertEqual(get_job(analyst_job, db_path=self.db_path)["status"], "succeeded")
         self.assertEqual(get_job(dreamer_job, db_path=self.db_path)["status"], "succeeded")
 
+    def test_jobs_run_drains_index_analyst_and_dreamer_queue(self) -> None:
+        index_job = enqueue_job("index.rebuild_record", {"vault": str(self.vault)}, db_path=self.db_path)
+        analyst_job = enqueue_job("analyst.scan", {"vault": str(self.vault)}, db_path=self.db_path)
+        dreamer_job = enqueue_job("dreamer.maintenance", {"vault": str(self.vault), "task": "compress"}, db_path=self.db_path)
+
+        with patch("lisan.tools.analyst_ops.run_analyst_scan", return_value={
+            "report_path": str(self.root / "reports" / "analyst.md"),
+            "pattern_paths": [],
+            "review_paths": [],
+            "response": {"summary": "ok"},
+        }), patch("lisan.tools.dreamer_ops.run_dreamer_task", return_value=self.root / "reports" / "dreamer.md"):
+            summary = run_jobs_worker(vault=self.vault, db_path=self.db_path, worker_id="worker-drain")
+
+        self.assertEqual(summary["failure_count"], 0)
+        self.assertGreaterEqual(summary["success_count"], 3)
+        self.assertEqual(list_jobs(status="queued", db_path=self.db_path), [])
+        self.assertEqual(get_job(index_job, db_path=self.db_path)["status"], "succeeded")
+        self.assertEqual(get_job(analyst_job, db_path=self.db_path)["status"], "succeeded")
+        self.assertEqual(get_job(dreamer_job, db_path=self.db_path)["status"], "succeeded")
+
     def test_audit_output_shows_failures_and_waiting_index_jobs(self) -> None:
         failed_id = enqueue_job("writer.extract_turn", {"text": "hello", "vault": str(self.vault)}, priority=50, db_path=self.db_path)
         retry_wait_id = enqueue_job("writer.extract_turn", {"text": "hello again", "vault": str(self.vault)}, priority=100, db_path=self.db_path)

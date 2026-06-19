@@ -8,7 +8,7 @@ from typing import Any
 from .paths import config_path
 
 
-_LOCAL_DEFAULT_BASE_URL = "http://127.0.0.1:8080/v1/chat/completions"
+_LOCAL_DEFAULT_BASE_URL = "http://127.0.0.1:8990/gemflash/chat/completions"
 _LEGACY_OLLAMA_BASE_URL = "http://localhost:11434/v1/chat/completions"
 
 
@@ -34,8 +34,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "local": {
             "enabled": True,
             "api_key_env": None,
-            "base_url": _LOCAL_DEFAULT_BASE_URL,
-            "default_model": None,
+            "base_url": "http://127.0.0.1:8990/gemflash/chat/completions",
+            "default_model": "gemini-2.5-pro",
         },
         "openrouter": {
             "enabled": True,
@@ -45,14 +45,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
     },
     "routing": {
-        "router":       {"low": "openrouter", "medium": "openrouter", "high": "openrouter"},
-        "listener":     {"low": "openrouter", "medium": "openrouter", "high": "openrouter"},
-        "assembler":    {"low": "openrouter", "medium": "openrouter", "high": "openrouter"},
-        "elicitor":     {"low": "openrouter", "medium": "openrouter", "high": "openrouter"},
-        "writer":       {"low": "openrouter", "medium": "openrouter", "high": "openrouter"},
-        "skeptic":      {"low": "openrouter", "medium": "openrouter", "high": "openrouter"},
-        "interlocutor": {"low": "openrouter", "medium": "openrouter", "high": "openrouter"},
-        "dreamer":      {"low": "openrouter", "medium": "openrouter", "high": "openrouter"},
+        "router":       {"low": "local", "medium": "local", "high": "local"},
+        "listener":     {"low": "local", "medium": "local", "high": "local"},
+        "assembler":    {"low": "local", "medium": "local", "high": "local"},
+        "elicitor":     {"low": "local", "medium": "local", "high": "local"},
+        "writer":       {"low": "local", "medium": "local", "high": "local"},
+        "skeptic":      {"low": "local", "medium": "local", "high": "local"},
+        "interlocutor": {"low": "local", "medium": "local", "high": "local"},
+        "dreamer":      {"low": "local", "medium": "local", "high": "local"},
     },
     "heuristic": {
         "thresholds": {"skip": 3, "lightweight": 6},

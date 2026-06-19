@@ -12,7 +12,7 @@ from urllib import error, request
 
 from ..config import load_config
 from ..paths import sqlite_path
-from .config import select_provider
+from .config import RetrySettings, select_provider, transient_retry_settings
 from ..tools.tracing import record_llm_call
 
 
@@ -245,13 +245,23 @@ class LisanLLM:
         selected = select_provider(self.config, agent=agent, significance=significance, override_provider=provider, override_model=model)
         chosen_provider = selected.provider
         client = _client_for(chosen_provider, self.config)
+        retry_settings = transient_retry_settings(self.config)
         prompt_version = f"{agent}_{significance}"
         start = time.time()
         response_text = ""
         error_text: str | None = None
         error_type: str | None = None
         try:
-            response = client.complete(prompt, schema=schema, temperature=temperature, agent=agent, significance=significance, model=selected.model)
+            response = _complete_with_retry(
+                client=client,
+                retry_settings=retry_settings,
+                prompt=prompt,
+                schema=schema,
+                temperature=temperature,
+                agent=agent,
+                significance=significance,
+                model=selected.model,
+            )
             response_text = response.text
             return response
         except Exception as exc:
@@ -297,6 +307,60 @@ def _sha(text: str) -> str:
 
 def _default_model(config: dict[str, Any], provider: str) -> str:
     return str(config.get("providers", {}).get(provider, {}).get("default_model", ""))
+
+
+def _complete_with_retry(
+    *,
+    client: ProviderClient,
+    retry_settings: RetrySettings,
+    prompt: str,
+    schema: dict[str, Any] | None,
+    temperature: float,
+    agent: str,
+    significance: str,
+    model: str | None,
+) -> LLMResponse:
+    attempt = 0
+    while True:
+        try:
+            return client.complete(
+                prompt,
+                schema=schema,
+                temperature=temperature,
+                agent=agent,
+                significance=significance,
+                model=model,
+            )
+        except Exception as exc:
+            if attempt >= retry_settings.transient_retries or not _is_transient_provider_error(exc):
+                raise
+            delay = min(
+                retry_settings.max_delay_seconds,
+                retry_settings.base_delay_seconds * (2 ** attempt),
+            )
+            if delay > 0:
+                time.sleep(delay)
+            attempt += 1
+
+
+def _is_transient_provider_error(exc: Exception) -> bool:
+    if isinstance(exc, TimeoutError):
+        return True
+    if isinstance(exc, error.URLError):
+        reason = str(getattr(exc, "reason", "") or exc).lower()
+        return "timed out" in reason or "timeout" in reason
+    message = str(exc).lower()
+    transient_markers = (
+        "http 429",
+        "http 503",
+        "http 504",
+        "timed out",
+        "timeout",
+        "temporarily unavailable",
+        "connection reset",
+        "connection aborted",
+    )
+    return any(marker in message for marker in transient_markers)
 
 
 def _client_for(provider: str, config: dict[str, Any]) -> "ProviderClient":
