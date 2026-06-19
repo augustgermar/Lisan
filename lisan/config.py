@@ -74,6 +74,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "text_preview_chars": 4000,
         "skip_if_inside_vault": True,
     },
+    "jobs": {
+        # FIX C: after a capture writes records it enqueues index.rebuild_record
+        # jobs. With drain_on_capture on (default), capture drains those indexing
+        # jobs in-process before returning so semantic retrieval works without a
+        # manual `lisan jobs run`. Only indexing jobs are drained; LLM-heavy
+        # maintenance (analyst/dreamer) stays queued for batch/cron. Set False
+        # for a pure-async caller that runs its own worker.
+        "drain_on_capture": True,
+    },
     "backup": {
         "destination_dir": "backups",
         "encrypt_by_default": False,

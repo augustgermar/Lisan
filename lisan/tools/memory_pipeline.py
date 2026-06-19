@@ -19,7 +19,7 @@ from .log import log_error
 from .epistemic import listify
 from .narrative_state import load_narrative_state
 from .retrieval import retrieve_context
-from .deixis import render_deixis, tokenize_principal, tokenize_principal_obj
+from .deixis import has_unresolved_token, render_deixis, tokenize_principal, tokenize_principal_obj
 from .record_fanout import (
     basis_or_default,
     fanout_claims,
@@ -355,6 +355,49 @@ def _choose_task(text: str, listener: dict[str, Any]) -> str:
     return "episode"
 
 
+_RECALL_QUESTION_PATTERNS = (
+    r"\?",
+    r"\b(remind me|do you remember|what do you remember|what did i|what was|what were|what's|what is)\b",
+    r"\b(when did|when was|when is|where did|where is|who (?:did|is|was)|which|how many|how much|how long)\b",
+    r"\b(tell me|look up|find|check)\b",
+    r"\b(vendor|password|deadline|audit|meeting|appointment|plan|decision)\b",
+)
+
+_NON_RECALL_SKIP_PATTERNS = (
+    r"\b(thanks|thank you|thx|ty)\b",
+    r"\b(ok|okay|sure|got it|sounds good|all good|cool|great|nice)\b",
+    r"\b(bye|goodbye|later|see ya|see you|talk later|heading out|signing off|nvm|never mind)\b",
+)
+
+
+def _normalize_skip_text(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
+def _is_recall_query(text: str) -> bool:
+    lowered = _normalize_skip_text(text)
+    if not lowered:
+        return False
+    if _looks_like_non_recall_skip(lowered):
+        return False
+    return any(re.search(pattern, lowered) for pattern in _RECALL_QUESTION_PATTERNS)
+
+
+def _looks_like_non_recall_skip(lowered: str) -> bool:
+    if not lowered:
+        return True
+    if "?" in lowered:
+        return False
+    return any(re.search(pattern, lowered) for pattern in _NON_RECALL_SKIP_PATTERNS)
+
+
+def _closing_acknowledgment(text: str) -> str:
+    lowered = _normalize_skip_text(text)
+    if any(term in lowered for term in ("bye", "later", "see ya", "see you", "heading out", "signing off")):
+        return "Talk soon."
+    return "Okay."
+
+
 def _build_skip_response(
     *,
     vault: Path,
@@ -369,6 +412,15 @@ def _build_skip_response(
             conversation_policy.get("domain_override")
             or conversation_policy.get("arena_override")
         )
+
+    # FIX B-1: only route to the recall answerer when the turn is plausibly a
+    # request to retrieve something. A trivial farewell/acknowledgment ("ok
+    # thanks, heading out. later.") is also action=="skip" and must NOT be told
+    # "you didn't ask for a specific memory" — it gets a brief acknowledgment.
+    # Deterministic-first gate (no extra LLM call); biased toward the answerer
+    # for anything that isn't a clear closing.
+    if not _is_recall_query(text):
+        return _closing_acknowledgment(text)
 
     conn = open_index_connection(db_path)
     conn.close()
@@ -385,13 +437,83 @@ def _build_skip_response(
     if not items:
         return "I don't have anything stored about that yet."
 
-    lines = ["Here's what I found in your stored records:"]
-    for item in items[:3]:
-        summary = str(item.summary or "").strip()
-        if not summary:
-            summary = item.id
-        lines.append(f"- {summary}")
-    return "\n".join(lines)
+    # FIX B: a recall turn must *answer* the question from the retrieved records,
+    # not dump raw summaries. Route through the Interlocutor (it already speaks to
+    # the user and renders deixis), strictly grounded in the records with an
+    # explicit no-fabrication instruction. FIX A: render the records to the
+    # interlocutor audience first so {{principal}}/{{self}} never reach the user.
+    return _answer_recall_from_records(
+        vault=vault,
+        question=text,
+        items=items,
+        conversation_policy=conversation_policy,
+    )
+
+
+def _render_recall_records(vault: Path, items: list[Any], limit: int = 8) -> list[str]:
+    """Format retrieved records for the recall prompt, deixis-rendered for the
+    user-facing audience ({{principal}}->"you", {{self}}->"I")."""
+    records: list[str] = []
+    for item in items[:limit]:
+        summary = str(getattr(item, "summary", "") or "").strip() or str(getattr(item, "id", "") or "")
+        summary = render_deixis(summary, "interlocutor")
+        rtype = str(getattr(item, "type", "") or "record")
+        records.append(f"[{rtype}] {summary}")
+    return records
+
+
+def _answer_recall_from_records(
+    *,
+    vault: Path,
+    question: str,
+    items: list[Any],
+    conversation_policy: dict[str, Any] | None,
+) -> str:
+    """Generate a grounded recall answer via the Interlocutor.
+
+    Reuses the InterlocutorAgent (decision made post-2026-06-19 eval): it is the
+    answerer, strictly grounded in retrieved records, no fabrication, no external
+    lookup. On any provider error or empty response we fall back to a rendered
+    record list so a recall turn never fails the capture.
+    """
+    records = _render_recall_records(vault, items)
+    recall_input = json.dumps(
+        {
+            "task": "answer_recall_question",
+            "user_question": question,
+            "retrieved_records": records,
+            "instructions": (
+                "The user is asking you to recall something from their stored memory. "
+                "Answer their question directly and concisely using ONLY the retrieved records below. "
+                "Quote the specifics they asked for — names, dates, numbers — when the records contain them. "
+                "If the records do not contain the answer, say plainly that you don't have it stored; "
+                "do NOT guess, infer, or invent any fact that is not in the records. "
+                "Speak directly to the user as 'you'. Put your answer in the 'response' field."
+            ),
+        },
+        indent=2,
+        ensure_ascii=True,
+    )
+    response = ""
+    try:
+        out = InterlocutorAgent(vault=vault).run_json(
+            recall_input,
+            significance="medium",
+            provider_error_mode="raise",
+            conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
+        )
+        response = str(out.get("response") or "").strip()
+    except Exception:
+        response = ""
+    if not response:
+        # Defensive fallback (provider error / unusable response): a rendered
+        # record list. Still no fabrication, and no raw role tokens.
+        lines = ["Here's what I found in your stored records:"]
+        for rec in records[:3]:
+            lines.append(f"- {rec}")
+        response = "\n".join(lines)
+    # Belt-and-suspenders: render any tokens the model may have echoed back.
+    return render_deixis(response, "interlocutor")
 
 
 def _dedupe_retrieval_items(items: list[Any]) -> list[Any]:
@@ -795,6 +917,13 @@ def _create_entity_stubs(
         name = str(entry.get("name") or "").strip()
         summary = str(entry.get("summary") or "").strip()
         if not name:
+            continue
+        # FIX A: {{principal}}/{{self}} are deixis ROLES, not entities. A writer
+        # that emits the role token (or its bare slug) as an entity name must
+        # never materialize a record for it — that produced the bogus
+        # entities/events/principal.md in the 2026-06-19 eval. Drop any
+        # candidate whose name carries a role token or is a bare role slug.
+        if has_unresolved_token(name) or name.strip().lower() in {"principal", "self", "user"}:
             continue
         normalized = name.lower()
         if normalized in seen_in_pass:

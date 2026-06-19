@@ -186,6 +186,28 @@ class CreateEntityStubsTests(unittest.TestCase):
             files = sorted(p.name for p in (vault / "entities" / "people").glob("*.md"))
             self.assertEqual(len(files), 2, f"Expected 2 distinct files, got {files}")
 
+    def test_principal_role_token_is_not_materialized_as_entity(self) -> None:
+        """FIX A (2026-06-19 eval): the {{principal}}/{{self}} role tokens and
+        their bare slugs must never become entity records."""
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            _seed_primer(vault, "# Identity\n\nMarcus Delgado (network admin).\n")
+            writer_out = {
+                "entities_to_create": [
+                    {"name": "{{principal}}", "subtype": "person",
+                     "summary": "{{principal}} is the senior network admin."},
+                    {"name": "{{self}}", "subtype": "person"},
+                    {"name": "principal", "subtype": "person"},
+                    {"name": "Marcus Delgado", "subtype": "person"},
+                ],
+            }
+            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text="")
+            all_entities = list((vault / "entities").rglob("*.md"))
+            slugs = sorted(p.stem for p in all_entities)
+            # Only the real person survives; no principal/self token residue.
+            self.assertEqual(slugs, ["marcus-delgado"], f"unexpected entities: {slugs}")
+            self.assertFalse((vault / "entities" / "events" / "principal.md").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

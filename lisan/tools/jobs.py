@@ -43,6 +43,18 @@ JOB_TYPES = {
     "writer.extract_turn",
 }
 
+# Indexing/embedding jobs are deterministic and cheap (no LLM call). These are
+# the only jobs the end-of-capture drain (FIX C) runs, so semantic retrieval
+# works without a manual `lisan jobs run`. The LLM-heavy maintenance jobs
+# (analyst.scan, dreamer.maintenance, pattern.audit, manifest.regenerate) stay
+# queued for batch/cron — draining them every turn would put an LLM pass on the
+# critical path of every capture.
+INDEX_JOB_TYPES = {
+    "index.rebuild_record",
+    "index.rebuild_all",
+    "index.embed_pending",
+}
+
 _LONG_RUNNING_MINUTES = 15
 
 
@@ -464,23 +476,35 @@ def _claimable_clause(now_iso: str) -> str:
     return "(status = 'queued' AND (scheduled_for IS NULL OR scheduled_for <= ?))"
 
 
-def claim_next_job(worker_id: str, db_path: Path | None = None) -> dict[str, Any] | None:
+def claim_next_job(
+    worker_id: str,
+    db_path: Path | None = None,
+    job_types: set[str] | None = None,
+) -> dict[str, Any] | None:
+    """Claim the next queued job. When ``job_types`` is given, only jobs of
+    those types are eligible (used by the end-of-capture index drain)."""
     conn = _connect(db_path)
     try:
         ensure_jobs_table(conn)
         now_iso = _iso()
         conn.execute("BEGIN IMMEDIATE")
+        type_clause = ""
+        params: list[Any] = [now_iso]
+        if job_types:
+            placeholders = ", ".join("?" for _ in job_types)
+            type_clause = f" AND jobs.job_type IN ({placeholders})"
+            params.extend(sorted(job_types))
         row = conn.execute(
             f"""
             SELECT jobs.*
             FROM jobs
             LEFT JOIN ingestion_batches ON ingestion_batches.id = jobs.batch_id
             WHERE jobs.status = 'queued' AND (jobs.scheduled_for IS NULL OR jobs.scheduled_for <= ?)
-              AND COALESCE(ingestion_batches.status, '') != 'quarantined'
+              AND COALESCE(ingestion_batches.status, '') != 'quarantined'{type_clause}
             ORDER BY jobs.priority ASC, jobs.scheduled_for ASC, jobs.created_at ASC, jobs.id ASC
             LIMIT 1
             """,
-            (now_iso,),
+            tuple(params),
         ).fetchone()
         if row is None:
             conn.commit()
@@ -909,7 +933,11 @@ def run_jobs_worker(
     model: str | None = None,
     worker_id: str | None = None,
     max_jobs: int | None = None,
+    job_types: set[str] | None = None,
 ) -> dict[str, Any]:
+    """Drain the queue once and return — claims jobs until none remain (it does
+    not sleep waiting for new work). ``job_types`` restricts which job types are
+    claimed; ``max_jobs`` bounds how many are processed."""
     db_path = db_path or sqlite_path()
     worker_id = worker_id or f"worker.{_iso().replace(':', '').replace('-', '').replace('Z', '')}.{uuid.uuid4().hex[:8]}"
     processed: list[dict[str, Any]] = []
@@ -918,7 +946,7 @@ def run_jobs_worker(
 
     while True:
         _promote_ready_retry_wait_jobs(db_path)
-        job = claim_next_job(worker_id, db_path=db_path)
+        job = claim_next_job(worker_id, db_path=db_path, job_types=job_types)
         if job is None:
             break
         try:
