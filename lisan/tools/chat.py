@@ -403,10 +403,9 @@ def _process_chat_turn(
 
 
 def _extract_capture_response(result: dict[str, Any]) -> str:
-    mode = str(result.get("mode") or "skip")
     elicitor = result.get("elicitor") or {}
     response_text = str(elicitor.get("response") or "").strip()
-    if not response_text and mode == "extraction":
+    if not response_text:
         interlocutor = result.get("interlocutor") or {}
         response_text = str(interlocutor.get("response") or "").strip()
     return response_text
@@ -424,12 +423,10 @@ def _short_provider_reason(exc: Exception) -> str:
 # ── Response rendering ────────────────────────────────────────────────────────
 
 def _render_response(result: dict[str, Any], vault: Path | None = None, conversation_id: str | None = None) -> None:
-    mode         = result.get("mode", "skip")
     elicitor     = result.get("elicitor") or {}
     response_text = str(elicitor.get("response") or "").strip()
 
-    # In extraction mode the elicitor is silent, but the interlocutor produced an acknowledgment.
-    if not response_text and mode == "extraction":
+    if not response_text:
         interlocutor = result.get("interlocutor") or {}
         response_text = str(interlocutor.get("response") or "").strip()
 
@@ -439,7 +436,7 @@ def _render_response(result: dict[str, Any], vault: Path | None = None, conversa
         print()
         print(_c("Lisan: ", CYAN) + response_text)
         print()
-    elif mode not in ("skip",):
+    elif result.get("mode", "skip") not in ("skip",):
         # Fallback dot for extraction when interlocutor produced nothing.
         print(_c("  ·", DIM))
         print()

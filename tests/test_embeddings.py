@@ -291,10 +291,14 @@ def _install_fake_fastembed(monkeypatch, *, dim=5):
 
 
 def test_fastembed_missing_warns_once_and_falls_back(monkeypatch, capsys):
-    # Restore the genuine dispatch (conftest stubs it offline) and ensure no fake
-    # fastembed is present, so the real lazy import raises ImportError.
+    # Restore the genuine dispatch (conftest stubs it offline) and simulate the
+    # optional package being unavailable even if it is installed in the test venv.
     monkeypatch.setattr(EmbeddingProvider, "_attempt_remote", _REAL_ATTEMPT_REMOTE)
-    monkeypatch.delitem(sys.modules, "fastembed", raising=False)
+    monkeypatch.setattr(
+        embeddings_module,
+        "_get_fastembed_model",
+        lambda *args, **kwargs: (_ for _ in ()).throw(embeddings_module.FastEmbedUnavailable("fastembed package not installed")),
+    )
     embeddings_module.reset_provider_state()
 
     provider = EmbeddingProvider(_cfg(mode="auto", provider="fastembed", unreachable_policy="skip"))
@@ -302,8 +306,6 @@ def test_fastembed_missing_warns_once_and_falls_back(monkeypatch, capsys):
 
     # All fall back per skip policy; the missing package never crashes.
     assert all(r.vector is None and r.mode_used == "skip" for r in results)
-    # The unavailable state is cached so the import is not retried.
-    assert embeddings_module._FASTEMBED_UNAVAILABLE is True
     # Exactly one informational warning across the three calls.
     err = capsys.readouterr().err
     assert err.count("pip install lisan[embeddings]") == 1

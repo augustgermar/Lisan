@@ -1,5 +1,10 @@
 # Changelog
 
+## 26.6.19.1
+
+- Hardened the fresh-repo plumbing and evaluation readiness: `lisan health` and `lisan sync` now bootstrap the vault layout, seed files, and SQLite schema instead of failing on a blank checkout; skip/retrieval turns now always return a user-facing answer; successful fanout no longer leaves drafts stuck in the queued backlog; transient provider failures retry with backoff; and the job-drain, bootstrap, retry, skip-response, and embedding behaviors are covered by new regression tests. The shipped defaults and example config now point at the local Gemini/Rotato endpoint on `127.0.0.1:8990`, with local routing as the tracked default.
+- Bumped version to 26.6.19.1.
+
 ## 26.6.16.2
 
 - Entity kind model (P3): `kind` is now a first-class, open property of every entity (person, pet, agent, organization, place, system, artifact, project, event, topic, account, or `thing`), replacing the people-shaped default that forced non-people — a project ("Atlas"), a city ("Houston") — to become *people*. Kind is assigned deterministic-first: roster (a structured cast in `identity-core.md`: name + aliases + kind) → structural signals (IP/host/path/URL/org-suffix → system/artifact/organization) → the model's explicit choice → `thing` as the honest fallback. `person` is never a default at any layer. Dedup is kind-scoped (a person "Atlas" and a project "Atlas" never merge), and the kind set is open — novel kinds are stored, not rejected. Fixes the I2 entity false-positive finding. (Migration of existing pre-kind records and the typed-relationship graph are deferred to follow-up specs.)

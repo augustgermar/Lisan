@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from ..frontmatter import load_markdown
-from ..paths import sqlite_path, vault_root
+from ..paths import ensure_vault_layout, sqlite_path, vault_root
+from .rebuild_index import ensure_index_schema
 from .deixis import render_for_display
 from .domain_fields import with_domain_fields
 
@@ -15,9 +16,11 @@ from .domain_fields import with_domain_fields
 def generate_health_report(vault: Path | None = None, db_path: Path | None = None) -> str:
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
+    ensure_vault_layout(vault)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
+        ensure_index_schema(conn)
         report_date = date.today().isoformat()
         frontmatter = with_domain_fields(
             {
@@ -43,11 +46,6 @@ def generate_health_report(vault: Path | None = None, db_path: Path | None = Non
             }
         )
         lines = ["# Memory Health Report", ""]
-        if not db_path.exists():
-            lines.append("SQLite index not found.")
-            body = "\n".join(lines).rstrip() + "\n"
-            return _render_report(frontmatter, body)
-
         stale_states = []
         for path in (vault / "state").glob("*.md"):
             try:

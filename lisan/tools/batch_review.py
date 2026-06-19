@@ -201,6 +201,9 @@ def _pending_drafts(vault: Path) -> list[BatchReviewItem]:
             doc = load_markdown(path)
         except Exception:
             continue
+        status = str(doc.frontmatter.get("status", "") or "")
+        if status not in {"pending", "needs_revision"}:
+            continue
         review_after = str(doc.frontmatter.get("review_after", ""))
         if review_after:
             try:

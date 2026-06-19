@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .config import load_config, save_default_config
 from .agents import AdviceAgent, AnalystAgent, AssemblerAgent, DreamerAgent, ElicitorAgent, InterlocutorAgent, ListenerAgent, RouterAgent, SkepticAgent, WriterAgent
-from .paths import ensure_repo_layout, repo_root, sqlite_path, vault_root, write_seed_files
+from .paths import ensure_repo_layout, ensure_root_layout, ensure_vault_layout, repo_root, sqlite_path, vault_root, write_seed_files
 from .providers.base import LisanLLM, ProviderError
 from .prompts import list_prompts, load_prompt
 from .tools.assembler import assemble_context
@@ -49,7 +49,7 @@ from .tools.purge import purge_installation
 from .tools.primer_audit import run_primer_audit
 from .tools.provider_diagnostics import diagnose_provider
 from .tools.record_factory import new_claim, new_decision, new_evidence, new_evidence_correction, new_entity, new_episode, new_knowledge, new_open_loop, new_state, upsert_state
-from .tools.rebuild_index import rebuild_index
+from .tools.rebuild_index import open_index_connection, rebuild_index
 from .tools.narrative_state import conversation_history, load_narrative_state, render_narrative_state, reset_narrative_state
 from .tools.tracing import format_recent_turn_traces, format_turn_trace, list_recent_turn_traces, load_turn_trace
 from .tools.transcripts import append_transcript
@@ -60,6 +60,17 @@ def _split_csv_values(value: str | None) -> list[str]:
     if not value:
         return []
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _bootstrap_runtime(vault: Path, *, ensure_schema: bool = False) -> None:
+    ensure_root_layout(repo_root())
+    ensure_vault_layout(vault)
+    if not (repo_root() / "config.yaml").exists():
+        save_default_config()
+    write_seed_files(vault)
+    if ensure_schema:
+        conn = open_index_connection(sqlite_path())
+        conn.close()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -583,10 +594,8 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if args.command == "init":
-        ensure_repo_layout()
-        if not (repo_root() / "config.yaml").exists():
-            save_default_config()
         vault = vault_root()
+        ensure_repo_layout()
         seeded = write_seed_files(vault)
         print(f"Lisan workspace initialized at {vault}.")
         if seeded:
@@ -780,8 +789,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "health":
+        _bootstrap_runtime(args.vault, ensure_schema=True)
         report = generate_health_report(args.vault)
         out = args.vault / "reports" / "health-latest.md"
+        out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(report, encoding="utf-8")
         print(out)
         return 0
@@ -842,9 +853,7 @@ def main(argv: list[str] | None = None) -> int:
         from .tools.deixis import render_for_display
 
         drafts = sorted((args.vault / "drafts").glob("*.md"))
-        if not drafts:
-            print("No queued drafts.")
-            return 0
+        queued_any = False
         for path in drafts:
             try:
                 doc = load_markdown(path)
@@ -856,7 +865,12 @@ def main(argv: list[str] | None = None) -> int:
                 summary = ""
                 status = ""
                 task = ""
+            if status not in {"pending", "needs_revision"}:
+                continue
+            queued_any = True
             print(f"{path.name} | {status} | {task} | {render_for_display(summary, args.vault)}")
+        if not queued_any:
+            print("No queued drafts.")
         return 0
 
     if args.command == "new":
@@ -915,6 +929,7 @@ def main(argv: list[str] | None = None) -> int:
             return uninstall_service()
 
     if args.command == "sync":
+        _bootstrap_runtime(args.vault, ensure_schema=True)
         generate_manifests(args.vault, write=True)
         write_current_brief(args.vault)
         write_batch_review(args.vault)
