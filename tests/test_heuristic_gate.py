@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from lisan.tools.heuristic_gate import score_text
 
@@ -65,12 +67,61 @@ class HeuristicGateThresholdTests(unittest.TestCase):
     # ── Inside lightweight band (3 <= score < 6) ─────────────────────────────
 
     def test_score_4_is_lightweight(self) -> None:
-        # High-risk keyword alone = +4.
-        text = "Got a medical appointment scheduled."
-        result = score_text(text)
+        # Vault-local/config-driven high-stakes term alone = +4.
+        text = "Some important topic came up at the meeting."
+        result = score_text(text, config={"heuristic": {"high_stakes_terms": ["important topic"]}})
         self.assertGreaterEqual(result.score, 3)
         self.assertLess(result.score, 6)
         self.assertEqual(result.action, "lightweight")
+
+    def test_no_high_stakes_bonus_without_config_or_vault(self) -> None:
+        text = "Some important topic came up at the meeting."
+        result = score_text(text)
+        self.assertEqual(result.score, 0)
+        self.assertEqual(result.action, "skip")
+
+    def test_vault_local_high_stakes_bonus_fires(self) -> None:
+        text = "Some important topic came up at the meeting."
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            (vault / "primer").mkdir(parents=True, exist_ok=True)
+            (vault / "primer" / "high-stakes.yaml").write_text(
+                'terms: ["important topic"]\n',
+                encoding="utf-8",
+            )
+            result = score_text(text, vault=vault)
+
+        self.assertGreaterEqual(result.score, 3)
+        self.assertLess(result.score, 6)
+        self.assertEqual(result.action, "lightweight")
+
+    def test_config_high_stakes_bonus_fires_without_vault(self) -> None:
+        text = "Some important topic came up at the meeting."
+        result = score_text(text, config={"heuristic": {"high_stakes_terms": ["important topic"]}})
+        self.assertGreaterEqual(result.score, 3)
+        self.assertLess(result.score, 6)
+        self.assertEqual(result.action, "lightweight")
+
+    def test_trimmed_affect_defaults_do_not_fire_on_broad_adjectives(self) -> None:
+        result = score_text("The weather is cold and nice today.")
+        self.assertEqual(result.score, 0)
+        self.assertEqual(result.action, "skip")
+        self.assertNotIn("affect term", result.reasons)
+
+    def test_unambiguous_affect_terms_still_fire(self) -> None:
+        result = score_text("I'm devastated and heartbroken about what happened yesterday.")
+        self.assertGreaterEqual(result.score, 2)
+        self.assertIn("affect term", result.reasons)
+
+    def test_biographical_density_defaults_to_family_life_terms(self) -> None:
+        text = "My mom and dad visited my hometown last weekend, and we talked about my birthday plans for the summer."
+        result = score_text(text)
+        self.assertIn("biographical content", result.reasons)
+
+    def test_biographical_density_can_be_disabled_via_config(self) -> None:
+        text = "My mom and dad visited my hometown last weekend, and we talked about my birthday plans for the summer."
+        result = score_text(text, config={"heuristic": {"biographical_terms": []}})
+        self.assertNotIn("biographical content", result.reasons)
 
     def test_score_5_is_lightweight(self) -> None:
         # Decision phrase (+3) + one affect term (+2) = 5.
@@ -90,9 +141,9 @@ class HeuristicGateThresholdTests(unittest.TestCase):
         self.assertEqual(result.action, "full")
 
     def test_score_above_6_is_full(self) -> None:
-        # High-risk keyword (+4) + decision phrase (+3) = 7.
-        text = "I decided to consult a lawyer about this."
-        result = score_text(text)
+        # High-stakes term (+4) + decision phrase (+3) = 7.
+        text = "I decided this important topic needs an immediate fix."
+        result = score_text(text, config={"heuristic": {"high_stakes_terms": ["important topic"]}})
         self.assertGreaterEqual(result.score, 6)
         self.assertEqual(result.action, "full")
 
@@ -101,7 +152,7 @@ class HeuristicGateThresholdTests(unittest.TestCase):
     def test_short_personal_event_is_elicitor_mode(self) -> None:
         # Short first-person event scores >= 3 (open-loop phrase) so the mode
         # override for skip-action doesn't apply. Seed score beats narrative.
-        result = score_text("I had a weird day at work. I need to follow up with my boss.")
+        result = score_text("I had an unusual day at work. I need to follow up with my boss.")
         self.assertNotEqual(result.action, "skip")
         self.assertEqual(result.mode, "elicitor")
 

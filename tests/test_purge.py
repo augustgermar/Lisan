@@ -61,6 +61,7 @@ class PurgeTests(unittest.TestCase):
         for rel in [
             "primer/identity.md",
             "primer/operating-style.md",
+            "primer/high-stakes.yaml",
             "domains/domains-definition.md",
             "domains/domain-migration-log.md",
             "backup.md",

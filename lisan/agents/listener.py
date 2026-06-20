@@ -15,7 +15,7 @@ class ListenerAgent(PromptAgent):
 
     def fallback_output(self, user_input: str, **kwargs: Any) -> str:
         """Heuristic fallback when no LLM provider is available."""
-        score = score_text(user_input, self.config, db_path=sqlite_path())
+        score = score_text(user_input, self.config, db_path=sqlite_path(), vault=self.vault)
         memory_type = "correction" if is_correction_turn(user_input) else None
         payload = {
             "worth_remembering": score.action != "skip",

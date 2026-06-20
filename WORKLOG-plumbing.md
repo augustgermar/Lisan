@@ -230,3 +230,31 @@ Files touched: docs/eval_harness.md
 What I changed: Added a dedicated eval-harness procedure doc covering the remaining Erasmus-side improvements. The manual now makes `identity-core.md` + roster seeding mandatory (E-1 / D-1), requires a semantic-retrieval preflight (`fastembed` import + `retrieval_log.vector_candidate_count > 0`) before a run is considered valid (E-2), requires commit/working-tree/provider-model/embeddings-confirmed/timeout metadata in every report header (E-3 + E-6), separates objective mechanical checks from subjective judgment findings (E-4), and adds explicit operating-style probes as labeled judgment checks (E-5). It also carries the context-window monkeypatch caveat as a harness note, not a product fix (E-7 note only).
 Tests: Documentation / procedure change only. Verification for the new helper-backed seeding lives in `tests/test_eval_seed.py`; no product runtime behavior changed here.
 Notes / gotchas: There was no existing Erasmus eval manual in this tree to patch in place, so I added `docs/eval_harness.md` as the canonical local procedure. It is intentionally explicit that runs without confirmed embeddings or without `identity-core.md` are invalid, not merely degraded.
+
+## [2026-06-20 09:52:34 PDT] FIX 1: move heuristic high-stakes terms to vault-local config
+Status: DONE
+Files touched: lisan/tools/heuristic_gate.py, lisan/config.py, lisan/paths.py, lisan/tools/onboarding.py, lisan/agents/listener.py, lisan/agents/router.py, lisan/agents/writer.py, lisan/cli.py, .gitignore, config.example.yaml, README.md, README.AGENTS.md, tests/test_heuristic_gate.py, tests/test_cli_bootstrap.py, tests/test_purge.py
+What I changed: Removed `_HIGH_RISK_KEYWORDS` from committed source and replaced it with `_get_high_stakes_terms(config, vault=None)`, which reads `primer/high-stakes.yaml` from the vault first, then falls back to `heuristic.high_stakes_terms` in config, then to empty. Threaded `vault` through all `score_text()` call sites that already have vault scope. Added a vault seed template for `primer/high-stakes.yaml`, wrote it during onboarding, included it in generic seed-file creation, and explicitly gitignored the repo-local eval path. Updated Writer’s follow-up question hook from the old reason label to `high-stakes term`.
+Tests: `~/.lisan/venv/bin/python -m pytest -q tests/test_heuristic_gate.py` -> 21 passed. Coverage now proves: no high-stakes bonus without config/vault; vault-local `primer/high-stakes.yaml` fires the +4 bonus; config fallback fires the +4 bonus; the boosted score routes to `lightweight` / `full` as expected.
+Notes / gotchas: `config.example.yaml` stays valid JSON on purpose because the runtime loader parses JSON, not commented YAML. The user-facing documentation therefore uses `__comment_*` keys instead of inline YAML comments.
+
+## [2026-06-20 09:52:35 PDT] FIX 2: make biographical-density terms config-overridable
+Status: DONE
+Files touched: lisan/tools/heuristic_gate.py, lisan/config.py, config.example.yaml, tests/test_heuristic_gate.py
+What I changed: Split the family/life-event defaults into `_DEFAULT_BIOGRAPHICAL_TERMS`, added `_get_biographical_terms(config)`, and passed `config` through `_has_biographical_density()` and `_classify_mode()`. The built-in default remains the broad family/life-event set, but a user can now override it or disable it entirely via `heuristic.biographical_terms`.
+Tests: `~/.lisan/venv/bin/python -m pytest -q tests/test_heuristic_gate.py` -> 21 passed. Added regressions proving the default terms still trigger `biographical content` on family/life-event text, while `{"heuristic": {"biographical_terms": []}}` suppresses that signal.
+Notes / gotchas: This intentionally leaves the default family/life-event nouns hardcoded; they are treated as broad structural biographical markers, not user-specific secret topics.
+
+## [2026-06-20 09:52:36 PDT] FIX 3: trim broad affect defaults from the heuristic gate
+Status: DONE
+Files touched: lisan/tools/heuristic_gate.py, lisan/config.py, config.example.yaml, tests/test_heuristic_gate.py
+What I changed: Replaced the old shipped affect list with a trimmed built-in default that keeps clearly emotional/distress language and drops the broad adjectives called out in the cleanup brief (`hard`, `cold`, `warm`, `nice`, `fun`, `busy`, `interesting`, `weird`, `strange`, `cozy`, `heavy`). Runtime config now defaults `heuristic.affect_terms` to `None` so the gate’s built-in default controls the shipped vocabulary and users can still override it locally if they want a broader net.
+Tests: `~/.lisan/venv/bin/python -m pytest -q tests/test_heuristic_gate.py` -> 21 passed. Added regressions proving `The weather is cold and nice today.` gets no affect bonus, while `I'm devastated and heartbroken...` still does.
+Notes / gotchas: The removed words may still appear elsewhere in the repo where they serve unrelated roles (for example natural-language examples or other classifiers). The cleanup here is specifically the heuristic gate’s shipped affect vocabulary.
+
+## [2026-06-20 09:52:37 PDT] FIX 4: document the structural-vs-personal heuristic principle
+Status: DONE
+Files touched: lisan/tools/heuristic_gate.py, config.example.yaml, README.md, README.AGENTS.md
+What I changed: Added the new heuristic-gate module docstring spelling out the design rule: structural signals stay hardcoded, while content-importance signals are config-driven and vault-local. Updated config/example docs to expose `high_stakes_terms`, `biographical_terms`, and `affect_terms` as the supported hooks, and updated the repo docs so Listener is described in terms of vault-local high-stakes terms rather than hardcoded risk keywords. Also documented the future dynamic-learning path for `primer/high-stakes.yaml` without implementing it.
+Tests: Source grep: `rg -n "_HIGH_RISK_KEYWORDS|high-risk keywords|legal, medical, custody" lisan tests README.md README.AGENTS.md config.example.yaml lisan/config.py` -> no matches for the removed high-risk list or wording. The remaining grep hits for words like `warm`, `nice`, or `fun` are in unrelated modules/tests or in explicit negative test coverage, not in the heuristic gate’s default lists.
+Notes / gotchas: This checkpoint is documentation + source-shape verification; it does not change runtime behavior beyond the new docstring/comments.

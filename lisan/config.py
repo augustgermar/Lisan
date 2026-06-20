@@ -56,18 +56,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "heuristic": {
         "thresholds": {"skip": 3, "lightweight": 6},
-        "affect_terms": [
-            "angry", "sad", "anxious", "excited", "afraid", "frustrated",
-            "happy", "proud", "surprised", "confused", "hurt", "nervous",
-            "grateful", "relieved", "disappointed", "interesting", "weird",
-            "strange", "awful", "amazing", "terrible", "wonderful",
-            "great", "fantastic", "incredible", "beautiful", "lovely",
-            "loving", "loved", "love", "enjoy", "enjoyed", "enjoying",
-            "hate", "hated", "miss", "missing", "fun", "tired",
-            "nice", "rough", "tough", "hard",
-            "exhausted", "drained", "overwhelmed", "stressed", "annoyed",
-            "bored", "busy", "sick", "lonely", "cozy", "cold", "warm",
-        ],
+        "high_stakes_terms": None,
+        "biographical_terms": None,
+        "affect_terms": None,
     },
     "ingest": {
         "max_file_size_bytes": 5 * 1024 * 1024,
