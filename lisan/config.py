@@ -53,6 +53,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "skeptic":      {"low": "local", "medium": "local", "high": "local"},
         "interlocutor": {"low": "local", "medium": "local", "high": "local"},
         "dreamer":      {"low": "local", "medium": "local", "high": "local"},
+        "advice":       {"low": "local", "medium": "local", "high": "local"},
+        "analyst":      {"low": "local", "medium": "local", "high": "local"},
     },
     "heuristic": {
         "thresholds": {"skip": 3, "lightweight": 6},

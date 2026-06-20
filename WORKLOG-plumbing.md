@@ -279,3 +279,10 @@ Files touched: lisan/config.py, config.example.yaml, README.md
 What I changed: Replaced the old machine-specific local provider default with the standard OpenAI-compatible localhost endpoint `http://127.0.0.1:8080/v1/chat/completions` in both the code defaults and the public template. Set the public/local default model back to `null`, reordered the template to lead with `local` and `codex`, and flipped external API providers (`openai`, `google`, `openrouter`) to `enabled: false` by default so the shipped config is generic and local-first. Updated the README provider section to match the new unset-by-default local model behavior.
 Tests: `~/.lisan/venv/bin/python -m pytest -q tests/test_config_defaults.py tests/test_purge.py` -> 7 passed in 0.22s.
 Notes / gotchas: This changes the built-in defaults returned by `load_config()` / `save_default_config()` when no local config exists. It does not touch any existing user-local `config.yaml`, which remains ignored.
+
+## [2026-06-20 10:05:45 PDT] TASK 4: document multi-model routing strategy
+Status: DONE
+Files touched: config.example.yaml, lisan/config.py, README.md
+What I changed: Expanded the public routing example with JSON-safe `__comment_*` guidance explaining significance-based tiering and the common split between cheap/mechanical agents and judgment-heavy agents. Added `advice` and `analyst` to the shipped all-local routing map so the generated default config and the public example cover the same agent surface. Added a new README “Multi-model routing” section explaining how per-agent `low` / `medium` / `high` routing works, why users might reserve Codex for Writer/Skeptic/Interlocutor, and why token-billed APIs benefit from this split.
+Tests: `python3 -m json.tool config.example.yaml >/dev/null` -> pass. `~/.lisan/venv/bin/python -m pytest -q tests/test_config_defaults.py tests/test_purge.py` -> 7 passed in 0.20s.
+Notes / gotchas: The routing logic itself was not changed. This commit only updates the default config surface and the documentation that explains how to use it.

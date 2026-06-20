@@ -31,6 +31,16 @@
     }
   },
   "routing": {
+    "__comment_routing_format": "Agent routing: each agent maps low/medium/high significance turns to provider names from the providers block.",
+    "__comment_routing_significance": "Significance is determined by the listener's heuristic score per turn.",
+    "__comment_routing_strategy": "Route cheap or mechanical agents to a local or low-cost model to save tokens; reserve stronger frontier models for agents that need more judgment.",
+    "__comment_routing_listener": "Recommended tiering: listener, assembler, and router are mostly mechanical classification with small context, so they are safe on a local/cheap model at all significance levels.",
+    "__comment_routing_elicitor": "Elicitor asks clarifying questions and needs moderate judgment. A common setup is local for low significance and a frontier model for medium/high.",
+    "__comment_routing_writer": "Writer does the heaviest narrative synthesis. A common setup is local for low-significance turns and a frontier model for medium/high.",
+    "__comment_routing_reviewers": "Skeptic and Interlocutor are user-visible judgment layers. Many users reserve a frontier model for medium/high on those agents.",
+    "__comment_routing_background": "Dreamer and Analyst are offline/background passes and can usually stay on a local or cheap model.",
+    "__comment_routing_default": "The shipped default routes everything to local so Lisan works out of the box with any OpenAI-compatible local server. Customize per your available models and budget.",
+    "__comment_routing_tier_example": "Example tiering with codex: writer={low:local,medium:codex,high:codex}, skeptic={low:local,medium:codex,high:codex}, interlocutor={low:local,medium:codex,high:codex}.",
     "router": { "low": "local", "medium": "local", "high": "local" },
     "listener": { "low": "local", "medium": "local", "high": "local" },
     "assembler": { "low": "local", "medium": "local", "high": "local" },
@@ -38,7 +48,9 @@
     "writer": { "low": "local", "medium": "local", "high": "local" },
     "skeptic": { "low": "local", "medium": "local", "high": "local" },
     "interlocutor": { "low": "local", "medium": "local", "high": "local" },
-    "dreamer": { "low": "local", "medium": "local", "high": "local" }
+    "dreamer": { "low": "local", "medium": "local", "high": "local" },
+    "advice": { "low": "local", "medium": "local", "high": "local" },
+    "analyst": { "low": "local", "medium": "local", "high": "local" }
   },
   "heuristic": {
     "thresholds": {
