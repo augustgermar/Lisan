@@ -136,11 +136,11 @@ class WriterAgent(PromptAgent):
         }
 
     def _questions(self, text: str) -> list[str]:
-        heuristics = score_text(text)
+        heuristics = score_text(text, vault=self.vault)
         questions: list[str] = []
         if "decision phrase" in heuristics.reasons:
             questions.append("What alternative options were considered?")
-        if "high-risk keyword" in heuristics.reasons:
+        if "high-stakes term" in heuristics.reasons:
             questions.append("What factual details need verification before recording this?")
         if "possible named entity" in heuristics.reasons:
             questions.append("Which person or entity is this referring to?")

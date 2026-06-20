@@ -1,3 +1,16 @@
+"""Heuristic pre-filter for the capture pipeline.
+
+Design principle: this gate uses STRUCTURAL signals (message length, punctuation,
+code formatting, explicit decision/action verbs, entity references) to score input
+cheaply before an LLM call. Content-interpretation signals (what topics are
+high-stakes, what words are emotionally significant) are config-driven and
+vault-local, not hardcoded, because importance is personal and varies by user.
+
+The gate's job is to filter obvious noise and escalate obvious significance. The
+model handles everything in between. When uncertain, prefer escalation (let the
+model see it) over suppression (silently drop it).
+"""
+
 from __future__ import annotations
 
 import re
@@ -39,14 +52,6 @@ _OPEN_LOOP_PHRASES = (
     "i need to", "i should", "remind me to", "i have to", "don't let me forget",
     "i want to remember", "need to follow up", "need to check", "follow up on",
     "i must", "we need to", "we should",
-)
-
-_HIGH_RISK_KEYWORDS = (
-    "legal", "lawsuit", "lawyer", "attorney", "court", "judge", "custody",
-    "child support", "settlement", "medical", "diagnosis", "doctor", "hospital",
-    "surgery", "prescription", "medication", "cancer", "fired", "termination",
-    "laid off", "harassment", "fraud", "debt", "bankruptcy", "eviction",
-    "restraining order", "police", "arrest",
 )
 
 _DURABLE_PLAN_PHRASES = (
@@ -98,11 +103,34 @@ _SKIP_WORDS = frozenset({
     "September", "October", "November", "December",
 })
 
+_DEFAULT_BIOGRAPHICAL_TERMS = (
+    "born", "mom", "dad", "mother", "father", "sister", "brother",
+    "wife", "husband", "daughter", "son",
+    "grew up", "hometown", "birthday", "years old",
+)
+
+_DEFAULT_AFFECT_TERMS = [
+    "angry", "sad", "anxious", "excited", "afraid", "frustrated",
+    "happy", "proud", "surprised", "confused", "hurt", "nervous",
+    "grateful", "relieved", "disappointed", "awful", "amazing",
+    "terrible", "wonderful", "great", "fantastic", "incredible",
+    "beautiful", "lovely", "loving", "loved", "love", "enjoy",
+    "enjoyed", "enjoying", "hate", "hated", "miss", "missing",
+    "tired", "rough", "tough", "exhausted", "drained", "overwhelmed",
+    "stressed", "annoyed", "bored", "sick", "lonely",
+    "scared", "scary", "fear", "fearful", "worried", "worry", "dread",
+    "dreading", "panic", "panicked", "terrified", "uneasy", "shaken",
+    "unsettled", "heartbroken", "devastated", "ashamed", "guilty",
+    "regretful", "bitter", "resentful", "betrayed", "blindsided",
+    "humiliated",
+]
+
 
 def score_text(
     text: str,
     config: dict[str, Any] | None = None,
     db_path: Path | None = None,
+    vault: Path | None = None,
 ) -> HeuristicResult:
     """Full spec-compliant heuristic scoring. Structural signals only; semantics go to the LLM."""
     lowered = text.strip().lower()
@@ -158,10 +186,11 @@ def score_text(
         score += 4
         reasons.append("correction phrase")
 
-    # High-risk keyword (+4)
-    if any(kw in lowered for kw in _HIGH_RISK_KEYWORDS):
+    # Vault-local high-stakes term (+4)
+    high_stakes = _get_high_stakes_terms(config, vault=vault)
+    if high_stakes and any(term in lowered for term in high_stakes):
         score += 4
-        reasons.append("high-risk keyword")
+        reasons.append("high-stakes term")
 
     # Affect terms: +2 for first hit, +1 per additional, cap at +4
     affect_terms = _get_affect_terms(config)
@@ -177,7 +206,7 @@ def score_text(
         reasons.append("durable plan request")
 
     # Biographical density: multiple family/life facts in one message (+3)
-    if _has_biographical_density(lowered, len(stripped.split())):
+    if _has_biographical_density(lowered, len(stripped.split()), config=config):
         score += 3
         reasons.append("biographical content")
 
@@ -214,6 +243,7 @@ def score_text(
         lowered=lowered,
         word_count=word_count,
         reasons=reasons,
+        config=config,
     )
 
     # Hard overrides based on action
@@ -243,6 +273,7 @@ def _classify_mode(
     lowered: str,
     word_count: int,
     reasons: list[str],
+    config: dict[str, Any] | None = None,
 ) -> tuple[int, int, str]:
     seed_score = 0
     narrative_score = 0
@@ -259,7 +290,7 @@ def _classify_mode(
     if any(phrase in lowered for phrase in _NARRATIVE_PHRASES):
         narrative_score += 2
     # Biographical facts: multiple life/family facts → extraction (score > seed)
-    if _has_biographical_density(lowered, word_count):
+    if _has_biographical_density(lowered, word_count, config=config):
         narrative_score += 4
 
     # Seed indicators
@@ -375,17 +406,96 @@ def _is_factual_lookup(text: str, lowered: str) -> bool:
     return True
 
 
+def _unquote_yaml_scalar(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    return value
+
+
+def _parse_yaml_terms_list(text: str) -> list[str]:
+    lines = text.splitlines()
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if not stripped.startswith("terms:"):
+            continue
+        raw = stripped.partition(":")[2].strip()
+        if raw:
+            if raw.startswith("[") and raw.endswith("]"):
+                inner = raw[1:-1].strip()
+                if not inner:
+                    return []
+                return [
+                    _unquote_yaml_scalar(item).strip().lower()
+                    for item in inner.split(",")
+                    if _unquote_yaml_scalar(item).strip()
+                ]
+            value = _unquote_yaml_scalar(raw).strip().lower()
+            return [value] if value else []
+        terms: list[str] = []
+        for child in lines[idx + 1 :]:
+            child_stripped = child.strip()
+            if not child_stripped or child_stripped.startswith("#"):
+                continue
+            indent = len(child) - len(child.lstrip())
+            if indent == 0:
+                break
+            if not child_stripped.startswith("- "):
+                continue
+            item = _unquote_yaml_scalar(child_stripped[2:]).strip().lower()
+            if item:
+                terms.append(item)
+        return terms
+    return []
+
+
+def _get_high_stakes_terms(
+    config: dict[str, Any] | None,
+    vault: Path | None = None,
+) -> list[str]:
+    """Read high-stakes terms from the user's vault-local config.
+
+    These are personal — what topics matter to THIS user. Not hardcoded in
+    source. Vault-local primer/high-stakes.yaml takes priority; config fallback
+    exists for callers who prefer to keep the list in config.yaml.
+    """
+    if vault:
+        hs_path = vault / "primer" / "high-stakes.yaml"
+        if hs_path.exists():
+            try:
+                return _parse_yaml_terms_list(hs_path.read_text(encoding="utf-8"))
+            except Exception:
+                return []
+
+    if config:
+        terms = config.get("heuristic", {}).get("high_stakes_terms")
+        if terms:
+            return [str(term).strip().lower() for term in terms if str(term).strip()]
+
+    return []
+
+
 # ── Biographical density ──────────────────────────────────────────────────────
 
-def _has_biographical_density(lowered: str, word_count: int) -> bool:
+def _get_biographical_terms(config: dict[str, Any] | None) -> tuple[str, ...]:
+    if config:
+        terms = config.get("heuristic", {}).get("biographical_terms")
+        if terms is not None:
+            return tuple(str(term).strip().lower() for term in terms if str(term).strip())
+    return _DEFAULT_BIOGRAPHICAL_TERMS
+
+
+def _has_biographical_density(
+    lowered: str,
+    word_count: int,
+    config: dict[str, Any] | None = None,
+) -> bool:
     """Multiple distinct biographical nouns in one message suggest extraction mode."""
     if word_count < 15:
         return False
-    bio_terms = (
-        "born", "mom", "dad", "mother", "father", "sister", "brother",
-        "wife", "husband", "daughter", "son", "married", "divorced",
-        "grew up", "hometown", "birthday", "age", "years old",
-    )
+    bio_terms = _get_biographical_terms(config)
     hits = sum(1 for t in bio_terms if t in lowered)
     return hits >= 2
 
@@ -395,23 +505,6 @@ def _has_biographical_density(lowered: str, word_count: int) -> bool:
 def _get_affect_terms(config: dict[str, Any] | None) -> list[str]:
     if config:
         terms = config.get("heuristic", {}).get("affect_terms")
-        if terms:
-            return [str(t) for t in terms]
-    return [
-        "angry", "sad", "anxious", "excited", "afraid", "frustrated",
-        "happy", "proud", "surprised", "confused", "hurt", "nervous",
-        "grateful", "relieved", "disappointed", "interesting", "weird",
-        "strange", "awful", "amazing", "terrible", "wonderful",
-        "great", "fantastic", "incredible", "beautiful", "lovely",
-        "loving", "loved", "love", "enjoy", "enjoyed", "enjoying",
-        "hate", "hated", "miss", "missing", "fun", "tired",
-        "nice", "rough", "tough", "hard",
-        "exhausted", "drained", "overwhelmed", "stressed", "annoyed",
-        "bored", "busy", "sick", "lonely", "proud", "cozy", "cold", "warm",
-        # v0.1.7: distress / fear vocabulary the prior list missed
-        "scared", "scary", "fear", "fearful", "worried", "worry", "dread",
-        "dreading", "panic", "panicked", "terrified", "uneasy", "shaken",
-        "unsettled", "heavy", "heartbroken", "devastated", "ashamed",
-        "guilty", "regretful", "bitter", "resentful", "betrayed",
-        "blindsided", "humiliated",
-    ]
+        if terms is not None:
+            return [str(term).strip().lower() for term in terms if str(term).strip()]
+    return list(_DEFAULT_AFFECT_TERMS)

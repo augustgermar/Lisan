@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from ..paths import write_high_stakes_seed
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -132,6 +134,10 @@ def _write_operating_style(path: Path, communication: str, working: str) -> None
     path.write_text(dump_markdown(frontmatter, "\n".join(body_lines)), encoding="utf-8")
 
 
+def _write_high_stakes(path: Path) -> None:
+    write_high_stakes_seed(path)
+
+
 # ── Main flow ─────────────────────────────────────────────────────────────────
 
 def needs_onboarding(vault: Path) -> bool:
@@ -145,6 +151,7 @@ def run_onboarding(vault: Path) -> bool:
     identity_path = vault / "primer" / "identity.md"
     identity_core_path = vault / "primer" / "identity-core.md"
     operating_path = vault / "primer" / "operating-style.md"
+    high_stakes_path = vault / "primer" / "high-stakes.yaml"
 
     print()
     print(_c("  Welcome to Lisan.", BOLD))
@@ -222,6 +229,7 @@ def run_onboarding(vault: Path) -> bool:
         communication=communication or "",
         working=working or "",
     )
+    _write_high_stakes(high_stakes_path)
 
     print()
     print(_c("  ✓", GREEN) + _c(" Primer files written.", BOLD))
@@ -229,6 +237,7 @@ def run_onboarding(vault: Path) -> bool:
     print(_c(f"    {identity_path}", DIM))
     print(_c(f"    {identity_core_path}", DIM))
     print(_c(f"    {operating_path}", DIM))
+    print(_c(f"    {high_stakes_path}", DIM))
     print()
     return True
 

@@ -41,6 +41,7 @@ class CliBootstrapTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertTrue((self.vault / "primer" / "identity.md").exists())
+        self.assertTrue((self.vault / "primer" / "high-stakes.yaml").exists())
         self.assertTrue((self.vault / "reports" / "health-latest.md").exists())
         self.assertTrue(self.db_path.exists())
 
@@ -60,6 +61,7 @@ class CliBootstrapTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertTrue((self.vault / "primer" / "current-brief.md").exists())
+        self.assertTrue((self.vault / "primer" / "high-stakes.yaml").exists())
         self.assertTrue((self.vault / "reports" / "health-latest.md").exists())
         self.assertTrue(self.db_path.exists())
 

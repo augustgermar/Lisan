@@ -78,7 +78,7 @@ Useful direct commands:
 ```bash
 python3 -m lisan validate
 python3 -m lisan rebuild-index
-python3 -m lisan capture --conversation-id demo "I had a weird day at work"
+python3 -m lisan capture --conversation-id demo "I had an unusual day at work"
 python3 -m lisan agent advice "What can I make with tuna, pasta, celery, and mayo?"
 python3 -m lisan agent elicitor "I am excited to build this"
 ```
@@ -282,12 +282,18 @@ The heuristic gate scores text using:
 - Vault entity lookup (+3 per hit, cap +6): names already in the vault raise the score
 - Decision phrases ("I decided", "going forward", etc.): +3
 - Open-loop phrases ("I need to", "remind me to", etc.): +3
-- High-risk keywords (legal, medical, custody, etc.): +4
+- High-stakes terms from `primer/high-stakes.yaml` (or `heuristic.high_stakes_terms` in config as a fallback): +4
 - Affect terms: +2 base, +1 per additional hit up to +4
 - Biographical density (multiple personal-detail facts): +3
 - Durable plan phrases: +2
 - Pure code formatting: -3
 - Factual lookup (single question, no personal stake): -3
+
+High-stakes terms are intentionally vault-local and user-defined. There is no
+universal hardcoded topic list in source, because what counts as high-stakes is
+personal. Future enhancement: Lisan can learn suggested additions dynamically
+from recurring high-significance turns and present them back as edits to
+`primer/high-stakes.yaml`.
 
 Listener outputs:
 
@@ -537,7 +543,7 @@ Lisan uses date-based build versions going forward. The version number should tr
 Capture and conversation:
 
 ```bash
-python3 -m lisan capture --conversation-id demo "I had a weird day at work"
+python3 -m lisan capture --conversation-id demo "I had an unusual day at work"
 python3 -m lisan conversation show --conversation-id demo
 python3 -m lisan conversation history --conversation-id demo
 python3 -m lisan conversation digest --conversation-id demo

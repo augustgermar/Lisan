@@ -882,7 +882,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "heuristic":
-        result = score_text(" ".join(args.text), db_path=sqlite_path())
+        result = score_text(" ".join(args.text), db_path=sqlite_path(), vault=args.vault)
         print(json.dumps(result.as_dict(), indent=2))
         return 0
 

@@ -72,6 +72,18 @@ _Not yet filled in._
 _Not yet filled in._
 """
 
+_HIGH_STAKES_TEMPLATE = """\
+# High-stakes terms — topics that matter enough to always get full processing.
+# Customize this list for your life. Add terms that signal important domains;
+# remove ones that don't apply. This file is local to your vault and is not
+# committed to the repo.
+#
+# Future: Lisan will learn these dynamically from your usage patterns —
+# topics that repeatedly appear in high-significance turns will be suggested
+# as additions. For now, edit manually.
+terms: []
+"""
+
 _DOMAINS_TEMPLATE = """\
 # Life Domains Definition
 
@@ -129,12 +141,18 @@ Log result below.
 """
 
 
+def write_high_stakes_seed(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_HIGH_STAKES_TEMPLATE, encoding="utf-8")
+
+
 def write_seed_files(vault: Path) -> list[str]:
     """Write starter content files that must exist but cannot be generated. Returns list of files written."""
     written = []
     seeds = {
         vault / "primer" / "identity.md": _IDENTITY_TEMPLATE,
         vault / "primer" / "operating-style.md": _OPERATING_STYLE_TEMPLATE,
+        vault / "primer" / "high-stakes.yaml": _HIGH_STAKES_TEMPLATE,
         vault / "domains" / "domains-definition.md": _DOMAINS_TEMPLATE,
         vault / "domains" / "domain-migration-log.md": _DOMAIN_MIGRATION_LOG_TEMPLATE,
         vault / "backup.md": _BACKUP_LOG_TEMPLATE,

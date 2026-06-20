@@ -42,7 +42,7 @@ turn → Listener → (Router) → Policy → Elicitor          (stateful, conve
 
 | Agent | Role |
 | --- | --- |
-| **Listener** | Scores each turn with a deterministic heuristic gate (entity hits, decision/open-loop phrases, affect, risk keywords, biographical density). Decides *skip / lightweight / full*, picks a memory type, and only falls back to an LLM when the turn is ambiguous. |
+| **Listener** | Scores each turn with a deterministic heuristic gate (entity hits, decision/open-loop phrases, vault-local high-stakes terms, affect, biographical density). Decides *skip / lightweight / full*, picks a memory type, and only falls back to an LLM when the turn is ambiguous. |
 | **Router** | Resolves ambiguous turns between *elicitor* and *extraction* modes. |
 | **Elicitor** | A stateful conversational mode that draws stories out over multiple turns, tracking per-conversation narrative state and emitting a draft when a story resolves. |
 | **Writer** | Produces structured memory drafts using a type-specific specialist prompt (episode, decision, open loop, state, knowledge, entity, questions). Schema-backed, with deterministic fallbacks. |
@@ -170,7 +170,7 @@ lisan init | validate | manifest | rebuild-index | sync | health | purge
 Capture & conversation:
 
 ```bash
-lisan capture --conversation-id demo "I had a weird day at work"
+lisan capture --conversation-id demo "I had an unusual day at work"
 lisan conversation show | history | digest | reset --conversation-id demo
 lisan chat
 ```
