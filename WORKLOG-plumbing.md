@@ -265,3 +265,10 @@ Files touched: .gitignore
 What I changed: Confirmed `config.yaml` was already gitignored and untracked, so no recovery from a bad tracked file was required. Tightened `.gitignore` comments so the repo explicitly documents the intended split: `config.example.yaml` is the public template, `config.yaml` is local-only, and repo-local fallback vault data under `lisan-vault/` is private user state. Kept explicit coverage for `lisan-vault/primer/high-stakes.yaml` as belt-and-suspenders even though the parent vault path is already ignored.
 Tests: `git ls-files config.yaml` -> no output (not tracked). `git status --short` before edits -> only `?? tokencount.sh`. Manual `.gitignore` audit confirmed entries for `config.yaml`, `lisan-vault/`, and `lisan-vault/primer/high-stakes.yaml`.
 Notes / gotchas: I did not run `git rm --cached config.yaml` because it was already absent from the index. The local file, if present on this machine, is untouched.
+
+## [2026-06-20 10:03:12 PDT] TASK 2: clarify Dreamer contradiction testing is read-only
+Status: DONE
+Files touched: README.md, SPEC.md
+What I changed: Replaced the README’s “Active contradiction injection” wording with explicit read-only language: synthetic contradiction testing happens only in ephemeral evaluation context and writes nothing to storage. In the spec, clarified that note-writing applies to real contradiction detection / TTL enforcement, not the synthetic `contradict` test path, and changed the persisted-note wording from “injected” to “appended.”
+Tests: `rg -n "inject|contradict|Active contradiction" README.md SPEC.md prompts/dreamer_contradict_v1.md` before edit identified the misleading README/SPEC wording. `prompts/dreamer_contradict_v1.md` did not use “inject,” so no prompt edit was necessary.
+Notes / gotchas: `SPEC.md` still legitimately contains the unrelated security term “Prompt injection firewall” in the version history; that is outside the contradict workflow and was left alone.
