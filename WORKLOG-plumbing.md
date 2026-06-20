@@ -272,3 +272,10 @@ Files touched: README.md, SPEC.md
 What I changed: Replaced the README’s “Active contradiction injection” wording with explicit read-only language: synthetic contradiction testing happens only in ephemeral evaluation context and writes nothing to storage. In the spec, clarified that note-writing applies to real contradiction detection / TTL enforcement, not the synthetic `contradict` test path, and changed the persisted-note wording from “injected” to “appended.”
 Tests: `rg -n "inject|contradict|Active contradiction" README.md SPEC.md prompts/dreamer_contradict_v1.md` before edit identified the misleading README/SPEC wording. `prompts/dreamer_contradict_v1.md` did not use “inject,” so no prompt edit was necessary.
 Notes / gotchas: `SPEC.md` still legitimately contains the unrelated security term “Prompt injection firewall” in the version history; that is outside the contradict workflow and was left alone.
+
+## [2026-06-20 10:04:28 PDT] TASK 3: sanitize public provider defaults and align code
+Status: DONE
+Files touched: lisan/config.py, config.example.yaml, README.md
+What I changed: Replaced the old machine-specific local provider default with the standard OpenAI-compatible localhost endpoint `http://127.0.0.1:8080/v1/chat/completions` in both the code defaults and the public template. Set the public/local default model back to `null`, reordered the template to lead with `local` and `codex`, and flipped external API providers (`openai`, `google`, `openrouter`) to `enabled: false` by default so the shipped config is generic and local-first. Updated the README provider section to match the new unset-by-default local model behavior.
+Tests: `~/.lisan/venv/bin/python -m pytest -q tests/test_config_defaults.py tests/test_purge.py` -> 7 passed in 0.22s.
+Notes / gotchas: This changes the built-in defaults returned by `load_config()` / `save_default_config()` when no local config exists. It does not touch any existing user-local `config.yaml`, which remains ignored.

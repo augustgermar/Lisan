@@ -466,7 +466,7 @@ cp config.example.yaml config.yaml
 The local provider defaults are:
 
 - Base URL: `http://127.0.0.1:8080/v1/chat/completions`
-- Model: a local model snapshot on this machine
+- Model: unset by default; your local server chooses unless you specify one
 
 Environment variables:
 
