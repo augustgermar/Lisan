@@ -8,37 +8,37 @@ from typing import Any
 from .paths import config_path
 
 
-_LOCAL_DEFAULT_BASE_URL = "http://127.0.0.1:8990/gemflash/chat/completions"
+_LOCAL_DEFAULT_BASE_URL = "http://127.0.0.1:8080/v1/chat/completions"
 _LEGACY_OLLAMA_BASE_URL = "http://localhost:11434/v1/chat/completions"
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "providers": {
+        "local": {
+            "enabled": True,
+            "api_key_env": None,
+            "base_url": _LOCAL_DEFAULT_BASE_URL,
+            "default_model": None,
+        },
         "codex": {
             "enabled": True,
             "binary_env": "CODEX_BIN",
             "default_model": None,
         },
         "openai": {
-            "enabled": True,
+            "enabled": False,
             "api_key_env": "OPENAI_API_KEY",
             "base_url": "https://api.openai.com/v1/chat/completions",
             "default_model": "gpt-4o-mini",
         },
         "google": {
-            "enabled": True,
+            "enabled": False,
             "api_key_env": "GOOGLE_API_KEY",
             "base_url": "https://generativelanguage.googleapis.com/v1beta",
             "default_model": "gemini-2.0-flash",
         },
-        "local": {
-            "enabled": True,
-            "api_key_env": None,
-            "base_url": "http://127.0.0.1:8990/gemflash/chat/completions",
-            "default_model": "gemini-2.5-pro",
-        },
         "openrouter": {
-            "enabled": True,
+            "enabled": False,
             "api_key_env": "OPENROUTER_API_KEY",
             "base_url": "https://openrouter.ai/api/v1/chat/completions",
             "default_model": "mistralai/mistral-nemo",
