@@ -439,13 +439,43 @@ Default routing:
 
 Supported providers:
 
-- `coding agent`
+- `codex`
 - `openai`
-- `anthropic`
 - `google`
+- `openrouter`
 - `local`
 
 The `local` provider is configured by default to use a local LLM running on this machine.
+
+## Multi-model routing
+
+Lisan routes each agent's LLM calls to a provider based on the turn's significance
+level (`low` / `medium` / `high`, determined by the listener's heuristic score).
+This lets you keep mechanical agents like Listener, Router, and Assembler on a
+cheap local model while reserving a frontier model for agents that need stronger
+reasoning or better language quality, like Writer, Skeptic, and Interlocutor.
+
+Configure tiering in `config.yaml` under `routing`. Each agent has three slots
+(`low`, `medium`, `high`) that point at provider names defined under
+`providers`. The default routes everything to `local`; customize it to match
+your available models and budget.
+
+For example, a local-first setup with Codex reserved for the judgment-heavy
+user-facing agents can look like this:
+
+```json
+{
+  "routing": {
+    "writer": { "low": "local", "medium": "codex", "high": "codex" },
+    "skeptic": { "low": "local", "medium": "codex", "high": "codex" },
+    "interlocutor": { "low": "local", "medium": "codex", "high": "codex" }
+  }
+}
+```
+
+Token-billed APIs charge per token, not per call. Routing small classification
+or assembly tasks to cheap models and saving frontier models for high-judgment
+turns reduces cost without giving up quality where it matters.
 
 To switch providers, pass `--provider` on the command you are running, for example:
 
