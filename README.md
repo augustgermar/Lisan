@@ -36,7 +36,7 @@ The working system now includes:
 - Local backup creation and restore testing
 - Current brief regeneration from active state files
 - Confidence decay candidate surfacing via deterministic SQL (`lisan decay`)
-- Active contradiction injection into assembled context (spec §10.3)
+- Synthetic contradiction testing in ephemeral context (spec §10.3) — read-only; nothing written to storage
 - `/remember` and `/forget` prefix stripping before transcript and agent calls
 - `/logs [N]` command in interactive chat
 - `/domain [name]` command to override retrieval domain for the current session (legacy `/arena` still works)

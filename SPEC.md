@@ -1128,7 +1128,7 @@ Runs weekly (configurable) or on `/dream` command.
     
 3. **Contradiction detection.** Cross-references recent episodes against entity and state files. Writes to `contradictions/`.
     
-4. **Contradiction TTL enforcement.** Contradictions unresolved for 90 days are marked `stale_unresolved`. A note is added to the affected files. The contradiction is not resolved — it is surfaced into the narrative where it cannot be ignored.
+4. **Contradiction TTL enforcement.** Contradictions unresolved for 90 days are marked `stale_unresolved`. A note is added to the affected files. The contradiction is not resolved — it is surfaced into the narrative where it cannot be ignored. This persistence applies to real contradiction detection, not the read-only synthetic contradiction test workflow.
     
 5. **Decay identification.** Flags files not referenced or updated within configurable threshold (default: 180 days).
     
@@ -1678,7 +1678,7 @@ All evaluated as SQL queries. Dreamer surfaces candidates. Interlocutor presents
 - Contradictions detected by Dreamer are written to `contradictions/`
 - Contradictions have a 90-day TTL
 - After 90 days unresolved: status becomes `stale_unresolved`
-- A note is injected into affected files
+- A note is appended to affected files for real, unresolved contradictions
 - The assembler loads these notes when contextually relevant
 - The contradiction is not auto-resolved — it is surfaced into the narrative where it cannot be ignored
 
