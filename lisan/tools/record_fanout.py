@@ -8,7 +8,7 @@ from typing import Any
 from ..frontmatter import load_markdown, write_markdown
 from ..utils import slugify, today_iso
 from .epistemic import listify
-from .log import log_error
+from .log import get_logger, log_error
 from .reference_resolution import normalize_text, resolve_reference
 from .record_factory import (
     CreatedRecord,
@@ -366,6 +366,8 @@ _OPEN_LOOP_COMPLETION_MARKERS = (
     "called",
     "updated",
     "handled",
+    "separated",
+    "reconciled",
     "fixed",
 )
 
@@ -387,7 +389,7 @@ def _close_matching_open_loops(vault: Path, source_text: str, *, draft_rel: str)
     if not candidates:
         return
     result = resolve_reference(source_text, candidates)
-    if result.candidate is None or result.confidence < 0.4:
+    if result.candidate is None or result.confidence < 0.35:
         return
     path = Path(str(result.candidate["path"]))
     resolved_note = f"Resolved by {draft_rel}"
@@ -452,12 +454,16 @@ def fanout_decisions(
         revisit = listify(entry.get("revisit_conditions"))
         if significance not in ("low", "medium", "high"):
             significance = "low"
-        supersedes = _supersede_matching_decisions(
+        reconciliation = _supersede_matching_decisions(
             vault=vault,
             title=title,
             summary=summary,
             source_text=source_text or str(writer.get("summary") or ""),
+            draft_rel=draft_rel,
         )
+        if reconciliation.get("skip_create"):
+            continue
+        supersedes = list(reconciliation.get("supersedes") or [])
         try:
             created = new_decision(
                 vault=vault,
@@ -508,15 +514,33 @@ def _looks_like_decision_reversal(text: str) -> bool:
     return any(marker in lowered for marker in _DECISION_REVERSAL_MARKERS)
 
 
+_DECISION_REINSTATEMENT_MARKERS = (
+    "going back to",
+    "reverting to",
+    "back to",
+    "like i originally",
+    "as i first",
+    "as i originally",
+    "originally said",
+)
+
+
+def _looks_like_reinstatement(text: str) -> bool:
+    lowered = normalize_text(text)
+    return any(marker in lowered for marker in _DECISION_REINSTATEMENT_MARKERS)
+
+
 def _supersede_matching_decisions(
     *,
     vault: Path,
     title: str,
     summary: str,
     source_text: str,
-) -> list[str]:
-    if not _looks_like_decision_reversal(f"{title} {summary} {source_text}"):
-        return []
+    draft_rel: str | None = None,
+) -> dict[str, Any]:
+    query = f"{title} {summary} {source_text}".strip()
+    if not (_looks_like_decision_reversal(query) or _looks_like_reinstatement(query)):
+        return {"supersedes": [], "skip_create": False}
     candidates = []
     for path, fm in _load_records_by_type(vault, "decisions", "decision"):
         if str(fm.get("status") or "") != "active":
@@ -532,21 +556,93 @@ def _supersede_matching_decisions(
             }
         )
     if not candidates:
-        return []
-    result = resolve_reference(f"{title} {summary} {source_text}", candidates)
-    if result.candidate is None or result.confidence < 0.4:
-        return []
-    path = Path(str(result.candidate["path"]))
-    old_id = str(result.candidate.get("id") or path.stem)
-    _update_frontmatter(
-        path,
-        {
-            "status": "superseded",
-            "superseded_by": f"decision.{slugify(title)}",
-            "links": merge_links(load_markdown(path).frontmatter.get("links"), [f"decision.{slugify(title)}"]),
-        },
-    )
-    return [old_id]
+        return {"supersedes": [], "skip_create": False}
+    logger = get_logger(vault)
+    active_matches: list[tuple[float, dict[str, Any]]] = []
+    for candidate in candidates:
+        result = resolve_reference(query, [candidate])
+        if result.candidate is None or result.confidence < 0.35:
+            continue
+        active_matches.append((result.confidence, candidate))
+    active_matches.sort(key=lambda item: (-item[0], str(item[1].get("id") or ""), str(item[1].get("path") or "")))
+    active_matches = active_matches[:3]
+
+    reinstated_candidate: dict[str, Any] | None = None
+    if _looks_like_reinstatement(query):
+        superseded_candidates = []
+        for path, fm in _load_records_by_type(vault, "decisions", "decision"):
+            if str(fm.get("status") or "") != "superseded":
+                continue
+            candidate_summary = _record_text(fm.get("title"), fm.get("summary"), fm.get("links"), fm.get("alternatives_considered"))
+            superseded_candidates.append(
+                {
+                    "path": path,
+                    "id": fm.get("id"),
+                    "title": fm.get("summary") or fm.get("title"),
+                    "summary": candidate_summary,
+                    "links": fm.get("links"),
+                }
+            )
+        reinstated_matches: list[tuple[float, dict[str, Any]]] = []
+        for candidate in superseded_candidates:
+            result = resolve_reference(query, [candidate])
+            if result.candidate is None or result.confidence < 0.35:
+                continue
+            reinstated_matches.append((result.confidence, candidate))
+        reinstated_matches.sort(key=lambda item: (-item[0], str(item[1].get("id") or ""), str(item[1].get("path") or "")))
+        if reinstated_matches:
+            reinstated_candidate = reinstated_matches[0][1]
+
+    superseded_ids: list[str] = []
+    if reinstated_candidate is not None:
+        reinstated_path = Path(str(reinstated_candidate["path"]))
+        reinstated_id = str(reinstated_candidate.get("id") or reinstated_path.stem)
+        _update_frontmatter(
+            reinstated_path,
+            {
+                "status": "active",
+                "superseded_by": "",
+                "links": merge_links(
+                    load_markdown(reinstated_path).frontmatter.get("links"),
+                    [item for item in (draft_rel, f"decision.{slugify(title)}") if item],
+                ),
+            },
+        )
+        logger.info(f"fanout.decision.reinstate | restored={reinstated_id}")
+        for _, candidate in active_matches:
+            path = Path(str(candidate["path"]))
+            candidate_id = str(candidate.get("id") or path.stem)
+            if candidate_id == reinstated_id:
+                continue
+            _update_frontmatter(
+                path,
+                {
+                    "status": "superseded",
+                    "superseded_by": reinstated_id,
+                    "links": merge_links(load_markdown(path).frontmatter.get("links"), [reinstated_id]),
+                },
+            )
+            superseded_ids.append(candidate_id)
+            logger.info(f"fanout.decision.supersede | {candidate_id} -> {reinstated_id}")
+        return {"supersedes": superseded_ids, "reinstated": reinstated_id, "skip_create": True}
+
+    if not active_matches:
+        return {"supersedes": [], "skip_create": False}
+    superseder_id = f"decision.{slugify(title)}"
+    for _, candidate in active_matches:
+        path = Path(str(candidate["path"]))
+        candidate_id = str(candidate.get("id") or path.stem)
+        _update_frontmatter(
+            path,
+            {
+                "status": "superseded",
+                "superseded_by": superseder_id,
+                "links": merge_links(load_markdown(path).frontmatter.get("links"), [superseder_id]),
+            },
+        )
+        superseded_ids.append(candidate_id)
+        logger.info(f"fanout.decision.supersede | {candidate_id} -> {superseder_id}")
+    return {"supersedes": superseded_ids, "skip_create": False}
 
 
 # ── Shared fanout: evidence ───────────────────────────────────────────────────

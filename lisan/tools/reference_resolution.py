@@ -141,7 +141,7 @@ def resolve_reference(
         lexical = _lexical_score(query_tokens, candidate_tokens)
         semantic = _semantic_score(query, candidate_text_value, provider)
 
-        score = max(exact, 0.55 * lexical + 0.35 * semantic)
+        score = max(exact, 0.40 * lexical + 0.55 * semantic)
         if exact > 0.0:
             score = max(score, 0.95)
             method = "deterministic"

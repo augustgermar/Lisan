@@ -36,7 +36,7 @@ from .record_factory import (
     new_entity,
     supersede_record,
 )
-from .reference_resolution import normalize_text, resolve_reference
+from .reference_resolution import normalize_text, resolve_reference, resolution_action
 from .transcripts import append_transcript
 from ..agents.writer import _truncate_summary as _truncate_summary_boundary
 
@@ -946,7 +946,7 @@ def _create_entity_stubs(
         if not _looks_like_entity(name, subtype, allowlist, source_text):
             continue
 
-        existing = _match_existing_entity(vault, name, subtype, index, allowlist, source_text)
+        existing = _match_existing_entity(vault, name, subtype, index, allowlist, source_text, summary=summary)
         if existing is not None:
             _append_entity_alias(existing, name)
             index_created_record(vault, CreatedRecord(path=existing, created=True), index_conn)
@@ -964,6 +964,7 @@ def _create_entity_stubs(
                 summary=summary or f"{name} mentioned in conversation.",
                 confidence="low",
                 confidence_basis=basis_or_default(entry, "Auto-extracted from conversation"),
+                disambiguation=_entity_disambiguator_from_candidates(vault, name, subtype, index, summary, source_text),
             )
             index_created_record(vault, created, index_conn)
         except FileExistsError:
@@ -1220,7 +1221,11 @@ def _load_entity_index(vault: Path) -> dict[str, dict[str, Any]]:
             if not name:
                 continue
             key = name.lower()
-            index.setdefault(key, {"path": path, "kind": "full", "canonical": canonical or name})
+            existing = index.get(key)
+            if existing is None:
+                index[key] = {"path": path, "kind": "full", "canonical": canonical or name}
+            elif existing.get("path") != path:
+                existing["kind"] = "ambiguous"
             for token in name.split():
                 tkey = token.lower()
                 existing = index.get(tkey)
@@ -1283,6 +1288,35 @@ def _entity_resolution_candidates(
     return candidates
 
 
+def _entity_disambiguator(name: str, summary: str, source_text: str) -> str | None:
+    tokens = []
+    combined = " ".join(part for part in (summary, source_text) if part).strip().lower()
+    if not combined:
+        return None
+    exclude = {token.lower() for token in name.split() if token}
+    for token in re.findall(r"[a-z0-9][a-z0-9_-]+", combined):
+        if len(token) <= 3 or token in exclude:
+            continue
+        if token in {"this", "that", "with", "from", "into", "over", "under", "about", "after", "before", "kept", "named"}:
+            continue
+        tokens.append(token)
+    return tokens[0] if tokens else None
+
+
+def _entity_disambiguator_from_candidates(
+    vault: Path,
+    name: str,
+    subtype: str,
+    index: dict[str, dict[str, Any]],
+    summary: str,
+    source_text: str,
+) -> str | None:
+    candidates = _entity_resolution_candidates(vault, name, subtype, index)
+    if not candidates:
+        return None
+    return _entity_disambiguator(name, summary, source_text)
+
+
 def _match_existing_entity(
     vault: Path,
     name: str,
@@ -1290,6 +1324,8 @@ def _match_existing_entity(
     index: dict[str, dict[str, Any]],
     primer_cast: frozenset[str] | None = None,
     source_text: str = "",
+    *,
+    summary: str = "",
 ) -> Path | None:
     """Find an entity that this proposed name should fold into, if any.
 
@@ -1319,8 +1355,9 @@ def _match_existing_entity(
         candidates = _entity_resolution_candidates(vault, name, subtype, index)
         if not candidates:
             return None
-        result = resolve_reference(f"{name} {source_text}".strip(), candidates)
-        if result.candidate is not None and result.confidence >= 0.75:
+        neighborhood = " ".join(part for part in (summary, source_text, name) if part).strip()
+        result = resolve_reference(neighborhood, candidates)
+        if resolution_action(result.confidence, load_bearing=True) == "bind" and result.candidate is not None:
             path = result.candidate.get("path")
             if isinstance(path, Path):
                 return path
@@ -1341,8 +1378,9 @@ def _match_existing_entity(
             return path
     candidates = _entity_resolution_candidates(vault, name, subtype, index)
     if candidates:
-        result = resolve_reference(f"{name} {source_text}".strip(), candidates)
-        if result.candidate is not None and result.confidence >= 0.75:
+        neighborhood = " ".join(part for part in (summary, source_text, name) if part).strip()
+        result = resolve_reference(neighborhood, candidates)
+        if resolution_action(result.confidence, load_bearing=True) == "bind" and result.candidate is not None:
             path = result.candidate.get("path")
             if isinstance(path, Path):
                 return path
