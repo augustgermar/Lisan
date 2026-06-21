@@ -6,6 +6,8 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from lisan.frontmatter import dump_markdown
 from lisan.tools.memory_pipeline import (
@@ -139,7 +141,7 @@ class MatchExistingEntityTests(unittest.TestCase):
             # Ambiguous "Marcus" → refuse to pick a side.
             self.assertIsNone(match)
 
-    def test_context_disambiguation_picks_matching_matts(self) -> None:
+    def test_context_disambiguation_uses_resolver_for_same_name_collision(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp)
             _seed_entity(
@@ -157,14 +159,79 @@ class MatchExistingEntityTests(unittest.TestCase):
                 summary="Matt Forester handles the budget and quarterly planning.",
             )
             index = _load_entity_index(vault)
-            match = _match_existing_entity(
-                vault,
-                "Matt",
-                "person",
-                index,
-                source_text="record music with Matt at the studio",
+            fake = SimpleNamespace(
+                candidate={"path": vault / "entities" / "people" / "matt-fidler.md"},
+                confidence=0.91,
+                score=0.91,
+                method="context",
             )
+            with patch("lisan.tools.memory_pipeline.resolve_reference", return_value=fake) as mock_resolve:
+                match = _match_existing_entity(
+                    vault,
+                    "Matt",
+                    "person",
+                    index,
+                    source_text="record music with Matt at the studio",
+                )
             self.assertEqual(match, vault / "entities" / "people" / "matt-fidler.md")
+            mock_resolve.assert_called_once()
+
+    def test_context_disambiguation_aggressively_splits_on_uncertainty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            _seed_entity(
+                vault,
+                "matt-fidler",
+                "Matt Fidler",
+                aliases=["Matt"],
+                summary="Matt Fidler records music at the studio.",
+            )
+            _seed_entity(
+                vault,
+                "matt-forester",
+                "Matt Forester",
+                aliases=["Matt"],
+                summary="Matt Forester handles the budget and quarterly planning.",
+            )
+            index = _load_entity_index(vault)
+            fake = SimpleNamespace(
+                candidate={"path": vault / "entities" / "people" / "matt-fidler.md"},
+                confidence=0.22,
+                score=0.22,
+                method="residue",
+            )
+            with patch("lisan.tools.memory_pipeline.resolve_reference", return_value=fake):
+                match = _match_existing_entity(
+                    vault,
+                    "Matt",
+                    "person",
+                    index,
+                    source_text="record music with Matt at the studio",
+                )
+            self.assertIsNone(match)
+
+    def test_kind_scoping_keeps_project_atlas_separate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            project_path = vault / "entities" / "projects" / "atlas.md"
+            project_path.parent.mkdir(parents=True, exist_ok=True)
+            project_path.write_text(
+                dump_markdown(
+                    {
+                        "id": "entity.project.atlas",
+                        "type": "entity",
+                        "subtype": "project",
+                        "canonical_name": "Atlas",
+                        "aliases": [],
+                        "summary": "Atlas is a project.",
+                    },
+                    "# Atlas\n",
+                ),
+                encoding="utf-8",
+            )
+            index = _load_entity_index(vault)
+            match = _match_existing_entity(vault, "Atlas", "person", index)
+            self.assertIsNone(match)
 
 
 class CreateEntityStubsTests(unittest.TestCase):

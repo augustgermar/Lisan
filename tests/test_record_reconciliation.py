@@ -5,9 +5,11 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from lisan.frontmatter import dump_markdown, load_markdown
-from lisan.tools.record_factory import new_decision, upsert_state
+from lisan.providers.embeddings import EmbeddingProvider
+from lisan.tools.record_factory import upsert_state
 from lisan.tools.record_fanout import fanout_decisions, fanout_open_loops
 
 
@@ -16,15 +18,27 @@ def _write_record(path: Path, frontmatter: dict[str, object], body: str) -> None
     path.write_text(dump_markdown(frontmatter, body), encoding="utf-8")
 
 
+def _fake_embed_text(self, text: str) -> list[float]:
+    lowered = str(text).lower()
+    if "jonah" in lowered:
+        return [1.0, 0.0]
+    if any(term in lowered for term in ("budget", "balance", "tax", "money", "fund", "aside")):
+        return [0.0, 1.0]
+    return [0.0, 0.0]
+
+
 class DecisionSupersessionTests(unittest.TestCase):
-    def test_reversal_supersedes_prior_active_decision(self) -> None:
+    def test_reversal_supersedes_matching_set(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp)
-            old_path = vault / "decisions" / "2026-06-20-switch-writer-to-local-provider.md"
+            active_one = vault / "decisions" / "2026-06-20-keep-jonah-direct.md"
+            active_two = vault / "decisions" / "2026-06-20-use-full-names-for-jonah.md"
+            unrelated_path = vault / "decisions" / "2026-06-20-keep-budget-on-track.md"
+
             _write_record(
-                old_path,
+                active_one,
                 {
-                    "id": "decision.switch-writer-to-local-provider",
+                    "id": "decision.keep-jonah-direct",
                     "type": "decision",
                     "created": "2026-06-20",
                     "updated": "2026-06-20",
@@ -34,7 +48,7 @@ class DecisionSupersessionTests(unittest.TestCase):
                     "domain_secondary": [],
                     "privacy": "personal",
                     "disclosure": "private",
-                    "summary": "Switch writer to local provider",
+                    "summary": "Keep Jonah named directly",
                     "links": [],
                     "confidence": "low",
                     "confidence_basis": "seed",
@@ -46,44 +60,265 @@ class DecisionSupersessionTests(unittest.TestCase):
                     "supersedes": [],
                     "superseded_by": "",
                 },
-                "# Switch writer to local provider\n\nSwitch writer to local provider.\n",
+                "# Keep Jonah named directly\n\nKeep Jonah named directly.\n",
             )
-
-            fanout_decisions(
-                vault,
+            _write_record(
+                active_two,
                 {
-                    "decisions_to_create": [
-                        {
-                            "title": "Switch writer to codex provider",
-                            "summary": "Switch writer to codex provider",
-                            "significance": "medium",
-                        }
-                    ],
+                    "id": "decision.use-full-names-for-jonah",
+                    "type": "decision",
+                    "created": "2026-06-20",
+                    "updated": "2026-06-20",
+                    "status": "active",
+                    "significance": "medium",
+                    "domain_primary": "work",
+                    "domain_secondary": [],
+                    "privacy": "personal",
+                    "disclosure": "private",
+                    "summary": "Use full names for Jonah",
+                    "links": [],
+                    "confidence": "low",
+                    "confidence_basis": "seed",
+                    "last_confirmed": "2026-06-20",
+                    "review_after": "2026-06-20",
+                    "revisit_after": "2026-06-20",
+                    "revisit_conditions": [],
+                    "alternatives_considered": [],
+                    "supersedes": [],
+                    "superseded_by": "",
                 },
-                draft_rel="drafts/test.md",
-                source_text="I changed my mind and will switch to codex provider instead.",
+                "# Use full names for Jonah\n\nUse full names for Jonah.\n",
+            )
+            _write_record(
+                unrelated_path,
+                {
+                    "id": "decision.keep-budget-on-track",
+                    "type": "decision",
+                    "created": "2026-06-20",
+                    "updated": "2026-06-20",
+                    "status": "active",
+                    "significance": "medium",
+                    "domain_primary": "work",
+                    "domain_secondary": [],
+                    "privacy": "personal",
+                    "disclosure": "private",
+                    "summary": "Keep the budget on track",
+                    "links": [],
+                    "confidence": "low",
+                    "confidence_basis": "seed",
+                    "last_confirmed": "2026-06-20",
+                    "review_after": "2026-06-20",
+                    "revisit_after": "2026-06-20",
+                    "revisit_conditions": [],
+                    "alternatives_considered": [],
+                    "supersedes": [],
+                    "superseded_by": "",
+                },
+                "# Keep the budget on track\n\nKeep the budget on track.\n",
             )
 
-            old_fm = load_markdown(old_path).frontmatter
-            self.assertEqual(old_fm["status"], "superseded")
-            self.assertEqual(old_fm["superseded_by"], "decision.switch-writer-to-codex-provider")
+            with patch.object(EmbeddingProvider, "embed_text", new=_fake_embed_text):
+                fanout_decisions(
+                    vault,
+                    {
+                        "decisions_to_create": [
+                            {
+                                "title": "Use full names for Jonah",
+                                "summary": "Use full names for Jonah",
+                                "significance": "medium",
+                            }
+                        ],
+                    },
+                    draft_rel="drafts/test.md",
+                    source_text="I changed my mind and want to keep Jonah named directly.",
+                )
 
-            new_docs = list((vault / "decisions").glob("*switch-writer-to-codex-provider.md"))
-            self.assertEqual(len(new_docs), 1)
-            new_fm = load_markdown(new_docs[0]).frontmatter
-            self.assertIn("decision.switch-writer-to-local-provider", new_fm["supersedes"])
-            self.assertIn("decision.switch-writer-to-local-provider", new_fm["links"])
+            self.assertEqual(load_markdown(active_one).frontmatter["status"], "superseded")
+            self.assertEqual(load_markdown(active_two).frontmatter["status"], "superseded")
+            self.assertEqual(load_markdown(unrelated_path).frontmatter["status"], "active")
+            self.assertEqual(load_markdown(active_one).frontmatter["superseded_by"], "decision.use-full-names-for-jonah")
+            self.assertEqual(load_markdown(active_two).frontmatter["superseded_by"], "decision.use-full-names-for-jonah")
+
+            docs = sorted((vault / "decisions").glob("*.md"))
+            self.assertEqual(len(docs), 4)
+            created_docs = [path for path in docs if path not in {active_one, active_two, unrelated_path}]
+            self.assertEqual(len(created_docs), 1)
+            self.assertEqual(load_markdown(created_docs[0]).frontmatter["status"], "active")
+
+    def test_reinstatement_reactivates_prior_decision_without_duplicate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            prior_path = vault / "decisions" / "2026-06-20-keep-jonah-direct.md"
+            intermediate_path = vault / "decisions" / "2026-06-20-use-full-names-for-jonah.md"
+
+            _write_record(
+                prior_path,
+                {
+                    "id": "decision.keep-jonah-direct",
+                    "type": "decision",
+                    "created": "2026-06-20",
+                    "updated": "2026-06-20",
+                    "status": "superseded",
+                    "significance": "medium",
+                    "domain_primary": "work",
+                    "domain_secondary": [],
+                    "privacy": "personal",
+                    "disclosure": "private",
+                    "summary": "Keep Jonah named directly",
+                    "links": [],
+                    "confidence": "low",
+                    "confidence_basis": "seed",
+                    "last_confirmed": "2026-06-20",
+                    "review_after": "2026-06-20",
+                    "revisit_after": "2026-06-20",
+                    "revisit_conditions": [],
+                    "alternatives_considered": [],
+                    "supersedes": [],
+                    "superseded_by": "decision.use-full-names-for-jonah",
+                },
+                "# Keep Jonah named directly\n\nKeep Jonah named directly.\n",
+            )
+            _write_record(
+                intermediate_path,
+                {
+                    "id": "decision.use-full-names-for-jonah",
+                    "type": "decision",
+                    "created": "2026-06-20",
+                    "updated": "2026-06-20",
+                    "status": "active",
+                    "significance": "medium",
+                    "domain_primary": "work",
+                    "domain_secondary": [],
+                    "privacy": "personal",
+                    "disclosure": "private",
+                    "summary": "Use full names for Jonah",
+                    "links": [],
+                    "confidence": "low",
+                    "confidence_basis": "seed",
+                    "last_confirmed": "2026-06-20",
+                    "review_after": "2026-06-20",
+                    "revisit_after": "2026-06-20",
+                    "revisit_conditions": [],
+                    "alternatives_considered": [],
+                    "supersedes": [],
+                    "superseded_by": "",
+                },
+                "# Use full names for Jonah\n\nUse full names for Jonah.\n",
+            )
+
+            with patch.object(EmbeddingProvider, "embed_text", new=_fake_embed_text):
+                fanout_decisions(
+                    vault,
+                    {
+                        "decisions_to_create": [
+                            {
+                                "title": "Going back to keeping Jonah named directly",
+                                "summary": "Going back to keeping Jonah named directly",
+                                "significance": "medium",
+                            }
+                        ],
+                    },
+                    draft_rel="drafts/test.md",
+                    source_text="I am going back to keeping Jonah named directly.",
+                )
+
+            self.assertEqual(load_markdown(prior_path).frontmatter["status"], "active")
+            self.assertEqual(load_markdown(prior_path).frontmatter["superseded_by"], "")
+            self.assertEqual(load_markdown(intermediate_path).frontmatter["status"], "superseded")
+            self.assertEqual(load_markdown(intermediate_path).frontmatter["superseded_by"], "decision.keep-jonah-direct")
+            self.assertEqual(len(list((vault / "decisions").glob("*.md"))), 2)
+
+    def test_vague_reversal_does_not_supersede_unrelated_decisions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            budget_path = vault / "decisions" / "2026-06-20-keep-budget-on-track.md"
+            _write_record(
+                budget_path,
+                {
+                    "id": "decision.keep-budget-on-track",
+                    "type": "decision",
+                    "created": "2026-06-20",
+                    "updated": "2026-06-20",
+                    "status": "active",
+                    "significance": "medium",
+                    "domain_primary": "work",
+                    "domain_secondary": [],
+                    "privacy": "personal",
+                    "disclosure": "private",
+                    "summary": "Keep the budget on track",
+                    "links": [],
+                    "confidence": "low",
+                    "confidence_basis": "seed",
+                    "last_confirmed": "2026-06-20",
+                    "review_after": "2026-06-20",
+                    "revisit_after": "2026-06-20",
+                    "revisit_conditions": [],
+                    "alternatives_considered": [],
+                    "supersedes": [],
+                    "superseded_by": "",
+                },
+                "# Keep the budget on track\n\nKeep the budget on track.\n",
+            )
+
+            with patch.object(EmbeddingProvider, "embed_text", new=_fake_embed_text):
+                fanout_decisions(
+                    vault,
+                    {
+                        "decisions_to_create": [
+                            {
+                                "title": "Change the menu",
+                                "summary": "Change the menu",
+                                "significance": "low",
+                            }
+                        ],
+                    },
+                    draft_rel="drafts/test.md",
+                    source_text="I changed my mind about the menu.",
+                )
+
+            self.assertEqual(load_markdown(budget_path).frontmatter["status"], "active")
 
 
 class OpenLoopClosureTests(unittest.TestCase):
-    def test_completion_closes_matching_open_loop(self) -> None:
+    def test_synonym_completion_closes_matching_open_loop_and_not_unrelated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp)
-            old_path = vault / "open_loops" / "2026-06-20-tell-linda-about-the-boundary.md"
+            budget_path = vault / "open_loops" / "2026-06-20-set-aside-money-for-the-budget.md"
+            unrelated_path = vault / "open_loops" / "2026-06-20-email-the-invitation.md"
+
             _write_record(
-                old_path,
+                budget_path,
                 {
-                    "id": "open_loop.tell-linda-about-the-boundary",
+                    "id": "open_loop.set-aside-money-for-the-budget",
+                    "type": "open_loop",
+                    "created": "2026-06-20",
+                    "updated": "2026-06-20",
+                    "status": "active",
+                    "significance": "low",
+                    "domain_primary": "financial",
+                    "domain_secondary": [],
+                    "privacy": "personal",
+                    "disclosure": "private",
+                    "summary": "Set aside money for the budget",
+                    "links": [],
+                    "confidence": "low",
+                    "confidence_basis": "seed",
+                    "last_confirmed": "2026-06-20",
+                    "review_after": "2026-06-20",
+                    "priority": "medium",
+                    "owner": "user",
+                    "next_action": "Set aside money for the budget",
+                    "blocked_by": None,
+                    "resolved_by": "",
+                    "resolved_note": "",
+                    "resolved_at": "",
+                },
+                "# Set aside money for the budget\n\n## Next Action\n\nSet aside money for the budget\n",
+            )
+            _write_record(
+                unrelated_path,
+                {
+                    "id": "open_loop.email-the-invitation",
                     "type": "open_loop",
                     "created": "2026-06-20",
                     "updated": "2026-06-20",
@@ -93,7 +328,7 @@ class OpenLoopClosureTests(unittest.TestCase):
                     "domain_secondary": [],
                     "privacy": "personal",
                     "disclosure": "private",
-                    "summary": "Tell Linda about the boundary",
+                    "summary": "Email the invitation",
                     "links": [],
                     "confidence": "low",
                     "confidence_basis": "seed",
@@ -101,27 +336,66 @@ class OpenLoopClosureTests(unittest.TestCase):
                     "review_after": "2026-06-20",
                     "priority": "medium",
                     "owner": "user",
-                    "next_action": "Tell Linda about the boundary",
+                    "next_action": "Email the invitation",
                     "blocked_by": None,
                     "resolved_by": "",
                     "resolved_note": "",
                     "resolved_at": "",
                 },
-                "# Tell Linda about the boundary\n\n## Next Action\n\nTell Linda about the boundary\n",
+                "# Email the invitation\n\n## Next Action\n\nEmail the invitation\n",
             )
 
-            fanout_open_loops(
-                vault,
-                {"open_loops_to_create": []},
-                draft_rel="drafts/test.md",
-                source_text="I told Linda about the boundary yesterday.",
-            )
+            with patch.object(EmbeddingProvider, "embed_text", new=_fake_embed_text):
+                fanout_open_loops(
+                    vault,
+                    {"open_loops_to_create": []},
+                    draft_rel="drafts/test.md",
+                    source_text="I separated the tax balance.",
+                )
 
-            fm = load_markdown(old_path).frontmatter
-            self.assertEqual(fm["status"], "resolved")
-            self.assertEqual(fm["resolved_by"], "drafts/test.md")
-            self.assertEqual(fm["resolved_note"], "Resolved by drafts/test.md")
-            self.assertEqual(fm["resolved_at"], fm["updated"])
+            self.assertEqual(load_markdown(budget_path).frontmatter["status"], "resolved")
+            self.assertEqual(load_markdown(budget_path).frontmatter["resolved_by"], "drafts/test.md")
+            self.assertEqual(load_markdown(budget_path).frontmatter["resolved_note"], "Resolved by drafts/test.md")
+            self.assertEqual(load_markdown(unrelated_path).frontmatter["status"], "active")
+
+            vague_path = vault / "open_loops" / "2026-06-20-call-the-plumber.md"
+            _write_record(
+                vague_path,
+                {
+                    "id": "open_loop.call-the-plumber",
+                    "type": "open_loop",
+                    "created": "2026-06-20",
+                    "updated": "2026-06-20",
+                    "status": "active",
+                    "significance": "low",
+                    "domain_primary": "cross_arena",
+                    "domain_secondary": [],
+                    "privacy": "personal",
+                    "disclosure": "private",
+                    "summary": "Call the plumber",
+                    "links": [],
+                    "confidence": "low",
+                    "confidence_basis": "seed",
+                    "last_confirmed": "2026-06-20",
+                    "review_after": "2026-06-20",
+                    "priority": "medium",
+                    "owner": "user",
+                    "next_action": "Call the plumber",
+                    "blocked_by": None,
+                    "resolved_by": "",
+                    "resolved_note": "",
+                    "resolved_at": "",
+                },
+                "# Call the plumber\n\n## Next Action\n\nCall the plumber\n",
+            )
+            with patch.object(EmbeddingProvider, "embed_text", new=_fake_embed_text):
+                fanout_open_loops(
+                    vault,
+                    {"open_loops_to_create": []},
+                    draft_rel="drafts/test-2.md",
+                    source_text="I mailed the invitation.",
+                )
+            self.assertEqual(load_markdown(vague_path).frontmatter["status"], "active")
 
 
 class StateMergeTests(unittest.TestCase):
