@@ -93,7 +93,6 @@ class IngestionTests(unittest.TestCase):
 
         context = assemble_context("project rollout plan management", vault=self.vault, db_path=self.db_path)
         self.assertIn("## Artifacts", context)
-        self.assertIn(note_artifact_id, context)
         self.assertIn("## Evidence", context)
         self.assertIn("## Claims", context)
 

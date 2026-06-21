@@ -236,9 +236,7 @@ class GraphRetrievalTests(unittest.TestCase):
         self.assertEqual(counterexample_item.expansion_source, pattern_id)
         self.assertIn("counterexamples", counterexample_item.expansion_reason)
 
-    def test_compartment_blocked_record_is_not_expanded(self) -> None:
-        claim_text = "We should revisit the coordinator note."
-        claim_id = self._record_id("claim", claim_text)
+    def test_legacy_context_fields_do_not_block_retrieval(self) -> None:
         evidence_title = "Legal contract reference"
         evidence_id = self._record_id("evidence", evidence_title)
         evidence = new_evidence(
@@ -256,31 +254,14 @@ class GraphRetrievalTests(unittest.TestCase):
             linked_episodes=[],
         )
         self._retarget_record(evidence.path, domain_primary="status", compartments=["legal"])
-
-        new_claim(
-            vault=self.vault,
-            claim_text=claim_text,
-            claim_class="observation",
-            owner="user",
-            status="active",
-            confidence=0.6,
-            supporting_evidence=[],
-            contradicting_evidence=[],
-            linked_patterns=[],
-            arena="work",
-            summary="A coordination note that points to the legal artifact.",
-        )
         self._rebuild()
 
-        result = retrieve_context("revisit the coordinator note", domain="work", vault=self.vault, db_path=self.db_path)
-        self.assertTrue(any(item.id == claim_id for item in result.direct_loaded))
-        self.assertFalse(any(item.id == evidence_id for item in result.loaded))
-        self.assertTrue(any(item.id == evidence_id for item in result.rejected))
-        blocked_item = next(item for item in result.rejected if item.id == evidence_id)
-        self.assertIn("compartment_blocked", blocked_item.reason)
+        result = retrieve_context("legal contract clause", domain="work", vault=self.vault, db_path=self.db_path)
+        self.assertTrue(any(item.id == evidence_id for item in result.loaded))
+        self.assertFalse(any(item.id == evidence_id for item in result.rejected))
 
-        context = assemble_context("revisit the coordinator note", domain="work", vault=self.vault, db_path=self.db_path)
-        self.assertIn("## Rejected By Compartment", context)
+        context = assemble_context("legal contract clause", domain="work", vault=self.vault, db_path=self.db_path)
+        self.assertNotIn("Rejected By Quarantine", context)
 
     def test_vector_only_record_can_enter_fused_results(self) -> None:
         vector_record = new_evidence(
@@ -392,7 +373,7 @@ class GraphRetrievalTests(unittest.TestCase):
         self.assertEqual(result.direct_loaded[0].id, multi_id)
         self.assertTrue(any(item.id == single_id for item in result.direct_loaded))
 
-    def test_fusion_respects_compartment_blocking_even_when_layer_matches(self) -> None:
+    def test_fusion_does_not_block_legacy_context_fields(self) -> None:
         blocked_record = new_evidence(
             vault=self.vault,
             title="Blocked legal record",
@@ -420,8 +401,8 @@ class GraphRetrievalTests(unittest.TestCase):
         ):
             result = retrieve_context("ordinary search", domain="work", vault=self.vault, db_path=self.db_path)
 
-        self.assertFalse(any(item.id == blocked_id for item in result.loaded))
-        self.assertTrue(any(item.id == blocked_id for item in result.rejected))
+        self.assertTrue(any(item.id == blocked_id for item in result.loaded))
+        self.assertFalse(any(item.id == blocked_id for item in result.rejected))
 
     def test_disabled_fusion_falls_back_to_legacy_retrieval(self) -> None:
         legacy_record = new_evidence(

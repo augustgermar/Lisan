@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS files (
     domain_secondary TEXT,
     arena TEXT,
     privacy TEXT,
+    disclosure TEXT,
     compartments TEXT,
     allowed_contexts TEXT,
     blocked_contexts TEXT,
@@ -363,6 +364,7 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
         "domain_secondary": json.dumps(fm.get("domain_secondary") or fm.get("arena_secondary") or []),
         "arena": str(fm.get("arena") or fm.get("domain_primary") or fm.get("arena_primary") or ""),
         "privacy": str(fm.get("privacy", "")),
+        "disclosure": str(fm.get("disclosure", "private")),
         "compartments": json.dumps(fm.get("compartments") or []),
         "allowed_contexts": json.dumps(fm.get("allowed_contexts") or []),
         "blocked_contexts": json.dumps(fm.get("blocked_contexts") or []),
@@ -447,7 +449,7 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
         """
         INSERT OR REPLACE INTO files (
             id, type, path, created, created_at, updated, status, significance, domain_primary,
-            domain_secondary, arena, privacy, compartments, allowed_contexts, blocked_contexts,
+            domain_secondary, arena, privacy, disclosure, compartments, allowed_contexts, blocked_contexts,
             confidence, confidence_score, confidence_basis, last_confirmed, review_after, summary,
             source_type, source_uri, artifact_ref, artifact_hash, timestamp_of_artifact,
             batch_id, source_path, file_name, file_ext, mime_type, size_bytes, modified_at, imported_at,
@@ -462,7 +464,7 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
             approved_by, content_hash, word_count, token_count_approx, embedding_status
         ) VALUES (
             :id, :type, :path, :created, :created_at, :updated, :status, :significance, :domain_primary,
-            :domain_secondary, :arena, :privacy, :compartments, :allowed_contexts, :blocked_contexts,
+            :domain_secondary, :arena, :privacy, :disclosure, :compartments, :allowed_contexts, :blocked_contexts,
             :confidence, :confidence_score, :confidence_basis, :last_confirmed, :review_after, :summary,
             :source_type, :source_uri, :artifact_ref, :artifact_hash, :timestamp_of_artifact,
             :batch_id, :source_path, :file_name, :file_ext, :mime_type, :size_bytes, :modified_at, :imported_at,
@@ -640,6 +642,11 @@ def _ensure_files_columns(conn: sqlite3.Connection) -> None:
         existing = {str(row[1]) for row in conn.execute("PRAGMA table_info(files)").fetchall()}
     except sqlite3.Error:
         return
+    if "disclosure" not in existing:
+        try:
+            conn.execute("ALTER TABLE files ADD COLUMN disclosure TEXT")
+        except sqlite3.Error:
+            pass
     if "embedding_status" not in existing:
         try:
             conn.execute("ALTER TABLE files ADD COLUMN embedding_status TEXT")

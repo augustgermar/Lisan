@@ -199,7 +199,7 @@ def assemble_context(
         sections.append("")
 
     if result.rejected:
-        sections.append("## Rejected By Compartment")
+        sections.append("## Rejected By Quarantine")
         for item in result.rejected:
             sections.append(f"- `{item.id}` | {item.type} | {item.summary} | `{item.path}` | {item.reason}")
         sections.append("")
@@ -994,7 +994,7 @@ def _unique_items(items: list[RetrievalItem]) -> list[RetrievalItem]:
 
 
 def _is_blocked_visibility_reason(reason: str) -> bool:
-    return reason.startswith("compartment") or reason == "quarantined"
+    return reason == "quarantined"
 
 
 def _quarantine_sets(conn: sqlite3.Connection) -> tuple[set[str], set[str]]:
@@ -1055,18 +1055,12 @@ def _visibility_block_reason(
             return "quarantined"
         if artifact_ref and artifact_ref in quarantined_artifact_ids:
             return "quarantined"
-    allowed_contexts = _json_list(row["allowed_contexts"])
-    blocked_contexts = _json_list(row["blocked_contexts"])
-    compartments = _json_list(row["compartments"])
-
-    if blocked_contexts and set(blocked_contexts).intersection(active_contexts):
-        return "compartment_blocked"
-    if allowed_contexts and "all" not in allowed_contexts:
-        if not set(allowed_contexts).intersection(active_contexts):
-            return "compartment_blocked"
-    sensitive = {"legal", "health", "children"}.intersection(compartments)
-    if sensitive and not sensitive.intersection(active_contexts):
-        return "compartment_blocked"
+    # NOTE: Privacy/disclosure gating intentionally does NOT happen here.
+    # Internal retrieval has full access to memory (the system must reason over
+    # everything it knows). Disclosure control is relational and happens at the
+    # EXTERNAL communication boundary — see execution-layer-spec.md
+    # (disclosure gate). Do not re-add context/compartment blocking to internal
+    # retrieval.
     return None
 
 
@@ -1648,7 +1642,7 @@ def _log_retrieval(
                 len(graph_blocked),
                 json.dumps([item.reason for item in graph_blocked]),
                 sum(approx_word_count(item.summary) for item in loaded),
-                "mixed" if any(item.reason == "compartment_blocked" for item in rejected) or graph_blocked else "normal",
+                "mixed" if any(item.reason == "quarantined" for item in rejected) or graph_blocked else "normal",
                 int(bool(rejected or graph_blocked)),
                 None,
                 retrieval_mode,
