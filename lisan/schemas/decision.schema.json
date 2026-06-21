@@ -36,6 +36,8 @@
     "review_after": {"type": "string"},
     "revisit_after": {"type": "string"},
     "revisit_conditions": {"type": "array", "items": {"type": "string"}},
-    "alternatives_considered": {"type": "array", "items": {"type": "string"}}
+    "alternatives_considered": {"type": "array", "items": {"type": "string"}},
+    "supersedes": {"type": "array", "items": {"type": "string"}},
+    "superseded_by": {"type": "string"}
   }
 }

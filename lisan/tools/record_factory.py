@@ -9,6 +9,7 @@ from ..frontmatter import load_markdown, write_markdown
 from ..utils import slugify, today_iso
 from .domain_fields import with_domain_fields
 from .epistemic import listify
+from .reference_resolution import resolve_reference
 
 
 ENTITY_DIRS = {
@@ -62,6 +63,40 @@ def normalize_disclosure(value: Any | None) -> str:
     if key in {"private", "personal", "public"}:
         return key
     return "private"
+
+
+def _normalize_history_entries(entries: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        summary = str(entry.get("summary") or "").strip()
+        if not summary:
+            continue
+        normalized.append(
+            {
+                "date": str(entry.get("date") or today_iso()),
+                "summary": summary,
+                "confidence": str(entry.get("confidence") or "low"),
+            }
+        )
+    return normalized
+
+
+def _merge_history_entries(existing: list[dict[str, Any]] | None, new_summary: str, confidence: str) -> list[dict[str, Any]]:
+    history = _normalize_history_entries(existing)
+    summary = str(new_summary or "").strip()
+    if not summary:
+        return history
+    if history:
+        last_summary = str(history[-1].get("summary") or "").strip()
+        if last_summary and last_summary.lower() == summary.lower():
+            history[-1] = {"date": today_iso(), "summary": summary, "confidence": confidence}
+        else:
+            history.append({"date": today_iso(), "summary": summary, "confidence": confidence})
+    else:
+        history.append({"date": today_iso(), "summary": summary, "confidence": confidence})
+    return history[-3:]
 
 
 _CLAIM_CLASS_ALIASES = {
@@ -434,6 +469,8 @@ def new_decision(
     revisit_after: str | None = None,
     revisit_conditions: list[str] | None = None,
     alternatives_considered: list[str] | None = None,
+    supersedes: list[str] | None = None,
+    superseded_by: str | None = None,
 ) -> CreatedRecord:
     today = today_iso()
     safe_slug = slugify(title)
@@ -461,6 +498,8 @@ def new_decision(
         "revisit_after": revisit_after or today,
         "revisit_conditions": revisit_conditions or [],
         "alternatives_considered": alternatives_considered or [],
+        "supersedes": supersedes or [],
+        "superseded_by": superseded_by or "",
     }
     decision_text = summary or title
     alts = "\n".join(f"- {a}" for a in (alternatives_considered or [])) or "None recorded."
@@ -501,6 +540,9 @@ def new_open_loop(
     owner: str = "user",
     next_action: str = "Describe the next action.",
     blocked_by: str | None = None,
+    resolved_by: str | None = None,
+    resolved_note: str | None = None,
+    resolved_at: str | None = None,
 ) -> CreatedRecord:
     today = today_iso()
     safe_slug = slugify(title)
@@ -529,6 +571,9 @@ def new_open_loop(
         "owner": owner,
         "next_action": next_action,
         "blocked_by": blocked_by,
+        "resolved_by": resolved_by or "",
+        "resolved_note": resolved_note or "",
+        "resolved_at": resolved_at or "",
     }
     body = f"# {title}\n\n## Next Action\n\n{next_action}\n"
     write_markdown(path, with_domain_fields(frontmatter), body)
@@ -548,6 +593,7 @@ def new_state(
     last_confirmed: str | None = None,
     review_after: str | None = None,
     ttl_days: int | None = None,
+    recent_summaries: list[dict[str, Any]] | None = None,
 ) -> CreatedRecord:
     today = today_iso()
     state_category = normalize_state_category(state_category, summary=summary)
@@ -576,6 +622,7 @@ def new_state(
         "review_after": review_after or today,
         "ttl_days": ttl_days or STATE_TTLS[state_category],
         "sources": sources or [],
+        "recent_summaries": _merge_history_entries(recent_summaries, summary, confidence),
     }
     body = f"# {state_category.title()} State\n\n{summary}\n"
     write_markdown(path, with_domain_fields(frontmatter), body)
@@ -595,16 +642,41 @@ def upsert_state(
     last_confirmed: str | None = None,
     review_after: str | None = None,
     ttl_days: int | None = None,
+    recent_summaries: list[dict[str, Any]] | None = None,
 ) -> CreatedRecord:
     today = today_iso()
     state_category = normalize_state_category(state_category, summary=summary)
     if state_category is None:
         raise ValueError(f"Unsupported state category: {state_category}")
     path = vault / "state" / f"{state_category}-current.md"
+    existing_doc = None
+    existing_recent: list[dict[str, Any]] = []
+    if path.exists():
+        try:
+            existing_doc = load_markdown(path)
+            existing_recent = _normalize_history_entries(existing_doc.frontmatter.get("recent_summaries") or recent_summaries)
+        except Exception:
+            existing_recent = _normalize_history_entries(recent_summaries)
+    new_entry = {"date": today, "summary": summary, "confidence": confidence}
+    if existing_recent:
+        candidates = [{**entry, "_index": idx} for idx, entry in enumerate(existing_recent)]
+        result = resolve_reference(summary, candidates)
+        if result.candidate is not None and result.confidence >= 0.65:
+            match_idx = int(result.candidate.get("_index", len(existing_recent) - 1))
+            if 0 <= match_idx < len(existing_recent):
+                existing_recent[match_idx] = new_entry
+            else:
+                existing_recent.append(new_entry)
+        else:
+            existing_recent.append(new_entry)
+    else:
+        existing_recent.append(new_entry)
+    existing_recent = existing_recent[-3:]
+    merged_summary = " / ".join(entry["summary"] for entry in existing_recent)
     frontmatter = {
         "id": f"state.{state_category}",
         "type": "state",
-        "created": today,
+        "created": str(existing_doc.frontmatter.get("created", today)) if existing_doc else today,
         "updated": today,
         "status": "active",
         "significance": "medium" if state_category in {"physical", "financial", "relational", "work"} else "low",
@@ -620,8 +692,10 @@ def upsert_state(
         "review_after": review_after or today,
         "ttl_days": ttl_days or STATE_TTLS[state_category],
         "sources": sources or [],
+        "recent_summaries": existing_recent,
+        "summary": merged_summary,
     }
-    body = f"# {state_category.title()} State\n\n{summary}\n"
+    body = f"# {state_category.title()} State\n\n" + "\n".join(f"- {entry['summary']}" for entry in existing_recent) + "\n"
     write_markdown(path, with_domain_fields(frontmatter), body)
     return CreatedRecord(path=path, created=True)
 

@@ -16,7 +16,13 @@ from lisan.tools.memory_pipeline import (
 )
 
 
-def _seed_entity(vault: Path, slug: str, canonical: str, aliases: list[str] | None = None) -> Path:
+def _seed_entity(
+    vault: Path,
+    slug: str,
+    canonical: str,
+    aliases: list[str] | None = None,
+    summary: str | None = None,
+) -> Path:
     """Write a minimal person entity file to the vault."""
     path = vault / "entities" / "people" / f"{slug}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -26,6 +32,7 @@ def _seed_entity(vault: Path, slug: str, canonical: str, aliases: list[str] | No
         "subtype": "person",
         "canonical_name": canonical,
         "aliases": aliases or [],
+        "summary": summary or f"{canonical} is a person.",
     }
     path.write_text(dump_markdown(fm, f"# {canonical}\n"), encoding="utf-8")
     return path
@@ -101,7 +108,7 @@ class MatchExistingEntityTests(unittest.TestCase):
             vault = Path(tmp)
             _seed_entity(vault, "emeka-okonkwo", "Emeka Okonkwo")
             index = _load_entity_index(vault)
-            match = _match_existing_entity("Amara Okonkwo", "person", index)
+            match = _match_existing_entity(vault, "Amara Okonkwo", "person", index)
             # Single shared token ("Okonkwo") must NOT trigger a multi-word merge.
             self.assertIsNone(match)
 
@@ -110,7 +117,7 @@ class MatchExistingEntityTests(unittest.TestCase):
             vault = Path(tmp)
             _seed_entity(vault, "marcus-webb", "Marcus Webb")
             index = _load_entity_index(vault)
-            match = _match_existing_entity("Marcus Webb", "person", index)
+            match = _match_existing_entity(vault, "Marcus Webb", "person", index)
             self.assertIsNotNone(match)
 
     def test_first_name_only_proposal_merges_when_unambiguous(self) -> None:
@@ -118,7 +125,7 @@ class MatchExistingEntityTests(unittest.TestCase):
             vault = Path(tmp)
             _seed_entity(vault, "marcus-webb", "Marcus Webb")
             index = _load_entity_index(vault)
-            match = _match_existing_entity("Marcus", "person", index)
+            match = _match_existing_entity(vault, "Marcus", "person", index)
             # Single-token proposal absorbs into the unambiguous existing entity.
             self.assertIsNotNone(match)
 
@@ -128,9 +135,36 @@ class MatchExistingEntityTests(unittest.TestCase):
             _seed_entity(vault, "marcus-webb", "Marcus Webb")
             _seed_entity(vault, "marcus-tan", "Marcus Tan")
             index = _load_entity_index(vault)
-            match = _match_existing_entity("Marcus", "person", index)
+            match = _match_existing_entity(vault, "Marcus", "person", index)
             # Ambiguous "Marcus" → refuse to pick a side.
             self.assertIsNone(match)
+
+    def test_context_disambiguation_picks_matching_matts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            _seed_entity(
+                vault,
+                "matt-fidler",
+                "Matt Fidler",
+                aliases=["Matt"],
+                summary="Matt Fidler records music at the studio.",
+            )
+            _seed_entity(
+                vault,
+                "matt-forester",
+                "Matt Forester",
+                aliases=["Matt"],
+                summary="Matt Forester handles the budget and quarterly planning.",
+            )
+            index = _load_entity_index(vault)
+            match = _match_existing_entity(
+                vault,
+                "Matt",
+                "person",
+                index,
+                source_text="record music with Matt at the studio",
+            )
+            self.assertEqual(match, vault / "entities" / "people" / "matt-fidler.md")
 
 
 class CreateEntityStubsTests(unittest.TestCase):

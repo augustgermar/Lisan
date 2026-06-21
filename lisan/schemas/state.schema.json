@@ -35,6 +35,17 @@
     "last_confirmed": {"type": "string"},
     "review_after": {"type": "string"},
     "ttl_days": {"type": "integer"},
-    "sources": {"type": "array", "items": {"type": "string"}}
+    "sources": {"type": "array", "items": {"type": "string"}},
+    "recent_summaries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "date": {"type": "string"},
+          "summary": {"type": "string"},
+          "confidence": {"type": "string"}
+        }
+      }
+    }
   }
 }

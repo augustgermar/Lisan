@@ -36,6 +36,7 @@ from .record_factory import (
     new_entity,
     supersede_record,
 )
+from .reference_resolution import normalize_text, resolve_reference
 from .transcripts import append_transcript
 from ..agents.writer import _truncate_summary as _truncate_summary_boundary
 
@@ -242,8 +243,8 @@ def run_memory_pipeline(
     try:
         _create_entity_stubs(vault, writer, draft_rel, text, frequent_names=frequent_names, index_conn=index_conn)
         _create_relationship_edges(vault, writer, db_path=db_path, index_conn=index_conn)
-        fanout_open_loops(vault, writer, draft_rel, index_conn=index_conn)
-        fanout_decisions(vault, writer, draft_rel, index_conn=index_conn)
+        fanout_open_loops(vault, writer, draft_rel, source_text=text, index_conn=index_conn)
+        fanout_decisions(vault, writer, draft_rel, source_text=text, index_conn=index_conn)
         if skeptic_approved:
             # Evidence runs before claims so claim.supporting_evidence can be
             # resolved through evidence_id_map (Finding 4). Claims run before the
@@ -945,7 +946,7 @@ def _create_entity_stubs(
         if not _looks_like_entity(name, subtype, allowlist, source_text):
             continue
 
-        existing = _match_existing_entity(name, subtype, index, allowlist)
+        existing = _match_existing_entity(vault, name, subtype, index, allowlist, source_text)
         if existing is not None:
             _append_entity_alias(existing, name)
             index_created_record(vault, CreatedRecord(path=existing, created=True), index_conn)
@@ -1232,11 +1233,63 @@ def _load_entity_index(vault: Path) -> dict[str, dict[str, Any]]:
     return index
 
 
+def _entity_resolution_candidates(
+    vault: Path,
+    name: str,
+    subtype: str,
+    index: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    from .reference_resolution import candidate_keys
+
+    tokens = {token.lower() for token in name.split() if token}
+    if not tokens:
+        return []
+    candidates: list[dict[str, Any]] = []
+    seen_paths: set[Path] = set()
+    for entry in index.values():
+        path = entry.get("path")
+        if not isinstance(path, Path) or path in seen_paths:
+            continue
+        if _entity_subtype(path) != subtype:
+            continue
+        try:
+            doc = load_markdown(path)
+        except Exception:
+            continue
+        payload = dict(doc.frontmatter)
+        payload["path"] = path
+        payload["body"] = doc.body
+        candidate_tokens = candidate_keys(payload)
+        if candidate_tokens.intersection(tokens) or normalize_text(payload.get("canonical_name") or "") == normalize_text(name):
+            candidates.append(payload)
+            seen_paths.add(path)
+    if candidates:
+        return candidates
+    for path in (vault / "entities").rglob("*.md"):
+        try:
+            doc = load_markdown(path)
+        except Exception:
+            continue
+        if str(doc.frontmatter.get("type") or "") != "entity":
+            continue
+        if str(doc.frontmatter.get("subtype") or "") != subtype:
+            continue
+        payload = dict(doc.frontmatter)
+        payload["path"] = path
+        payload["body"] = doc.body
+        candidate_tokens = candidate_keys(payload)
+        if candidate_tokens.intersection(tokens) or normalize_text(payload.get("canonical_name") or "") == normalize_text(name):
+            candidates.append(payload)
+    return candidates
+
+
 def _match_existing_entity(
+    vault: Path,
     name: str,
     subtype: str,
     index: dict[str, dict[str, Any]],
     primer_cast: frozenset[str] | None = None,
+    source_text: str = "",
 ) -> Path | None:
     """Find an entity that this proposed name should fold into, if any.
 
@@ -1261,10 +1314,16 @@ def _match_existing_entity(
         # Single-word proposal can absorb into an existing multi-word entity
         # only when exactly one entity claims that token.
         entry = index.get(tokens[0])
-        if entry is None:
-            return None
-        if entry.get("kind") in ("token", "full") and _entity_subtype(entry["path"]) == subtype:
+        if entry is not None and entry.get("kind") in ("token", "full") and entry.get("kind") != "ambiguous" and _entity_subtype(entry["path"]) == subtype:
             return entry["path"]
+        candidates = _entity_resolution_candidates(vault, name, subtype, index)
+        if not candidates:
+            return None
+        result = resolve_reference(f"{name} {source_text}".strip(), candidates)
+        if result.candidate is not None and result.confidence >= 0.75:
+            path = result.candidate.get("path")
+            if isinstance(path, Path):
+                return path
         return None
 
     # Multi-word proposal: tally per-target token hits.
@@ -1280,6 +1339,13 @@ def _match_existing_entity(
     for path, n in hits.items():
         if n >= 2:
             return path
+    candidates = _entity_resolution_candidates(vault, name, subtype, index)
+    if candidates:
+        result = resolve_reference(f"{name} {source_text}".strip(), candidates)
+        if result.candidate is not None and result.confidence >= 0.75:
+            path = result.candidate.get("path")
+            if isinstance(path, Path):
+                return path
     # Optional primer-cast tiebreaker: if there's exactly one single-token
     # hit *and* the proposed name is in the primer cast and the existing
     # entity's canonical is also in the primer cast under a different name,

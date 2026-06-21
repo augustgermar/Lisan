@@ -37,6 +37,9 @@
     "priority": {"type": "string"},
     "owner": {"type": "string"},
     "next_action": {"type": "string"},
-    "blocked_by": {}
+    "blocked_by": {},
+    "resolved_by": {"type": "string"},
+    "resolved_note": {"type": "string"},
+    "resolved_at": {"type": "string"}
   }
 }
