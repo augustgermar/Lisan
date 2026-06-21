@@ -264,8 +264,8 @@ Elicitor mode closure was detected.
         evidence_id_map = fanout_evidence(vault, writer, transcript_path, draft_rel, index_conn=index_conn)
         fanout_claims(vault, writer, draft_rel, evidence_id_map=evidence_id_map, db_path=db_path, index_conn=index_conn)
         fanout_state_updates(vault, writer, draft_rel, index_conn=index_conn)
-        fanout_open_loops(vault, writer, draft_rel, index_conn=index_conn)
-        fanout_decisions(vault, writer, draft_rel, index_conn=index_conn)
+        fanout_open_loops(vault, writer, draft_rel, source_text=text, index_conn=index_conn)
+        fanout_decisions(vault, writer, draft_rel, source_text=text, index_conn=index_conn)
         index_conn.commit()
     finally:
         index_conn.close()

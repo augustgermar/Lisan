@@ -9,6 +9,7 @@ from ..frontmatter import load_markdown, write_markdown
 from ..utils import slugify, today_iso
 from .epistemic import listify
 from .log import log_error
+from .reference_resolution import normalize_text, resolve_reference
 from .record_factory import (
     CreatedRecord,
     STATE_TTLS,
@@ -145,6 +146,40 @@ def basis_or_default(entry: Any, default: str) -> str:
     return default
 
 
+def _record_text(*values: Any) -> str:
+    parts: list[str] = []
+    for value in values:
+        if isinstance(value, list):
+            parts.extend(str(item) for item in value if str(item).strip())
+        elif value not in (None, ""):
+            parts.append(str(value))
+    return " ".join(parts).strip()
+
+
+def _load_records_by_type(vault: Path, folder: str, record_type: str) -> list[tuple[Path, dict[str, Any]]]:
+    root = vault / folder
+    if not root.exists():
+        return []
+    docs: list[tuple[Path, dict[str, Any]]] = []
+    for path in sorted(root.glob("*.md")):
+        try:
+            doc = load_markdown(path)
+        except Exception:
+            continue
+        if str(doc.frontmatter.get("type") or "") != record_type:
+            continue
+        docs.append((path, dict(doc.frontmatter)))
+    return docs
+
+
+def _update_frontmatter(path: Path, updates: dict[str, Any]) -> None:
+    doc = load_markdown(path)
+    fm = dict(doc.frontmatter)
+    fm.update(updates)
+    fm["updated"] = today_iso()
+    write_markdown(path, fm, doc.body)
+
+
 def disclosure_or_default(entry: Any, writer: dict[str, Any] | None = None) -> str:
     if isinstance(entry, dict):
         explicit = str(entry.get("disclosure") or "").strip()
@@ -263,6 +298,7 @@ def fanout_open_loops(
     vault: Path,
     writer: dict[str, Any],
     draft_rel: str,
+    source_text: str = "",
     index_conn: sqlite3.Connection | None = None,
 ) -> None:
     """Materialize open loops immediately — open loops are always capture_now per spec.
@@ -271,6 +307,7 @@ def fanout_open_loops(
     explicit ownership; this filter is a backstop so other people's pending
     questions never become user-owned todos.
     """
+    _close_matching_open_loops(vault, source_text or str(writer.get("summary") or ""), draft_rel=draft_rel)
     loops = writer.get("open_loops_to_create") or []
     entity_names = _entity_canonical_names(writer)
     for loop in loops:
@@ -314,12 +351,65 @@ def fanout_open_loops(
             log_error(vault, "fanout.open_loop", exc)
 
 
+_OPEN_LOOP_COMPLETION_MARKERS = (
+    "done",
+    "finished",
+    "completed",
+    "closed",
+    "resolved",
+    "taken care of",
+    "took care of",
+    "sent",
+    "emailed",
+    "told",
+    "informed",
+    "called",
+    "updated",
+    "handled",
+    "fixed",
+)
+
+
+def _looks_like_completion(text: str) -> bool:
+    lowered = normalize_text(text)
+    return any(marker in lowered for marker in _OPEN_LOOP_COMPLETION_MARKERS)
+
+
+def _close_matching_open_loops(vault: Path, source_text: str, *, draft_rel: str) -> None:
+    if not source_text or not _looks_like_completion(source_text):
+        return
+    candidates = []
+    for path, fm in _load_records_by_type(vault, "open_loops", "open_loop"):
+        if str(fm.get("status") or "") != "active":
+            continue
+        text = _record_text(fm.get("summary"), fm.get("next_action"), fm.get("title"), fm.get("owner"), fm.get("blocked_by"))
+        candidates.append({"path": path, "id": fm.get("id"), "summary": text, "title": fm.get("title"), "next_action": fm.get("next_action"), "owner": fm.get("owner")})
+    if not candidates:
+        return
+    result = resolve_reference(source_text, candidates)
+    if result.candidate is None or result.confidence < 0.4:
+        return
+    path = Path(str(result.candidate["path"]))
+    resolved_note = f"Resolved by {draft_rel}"
+    _update_frontmatter(
+        path,
+        {
+            "status": "resolved",
+            "resolved_by": draft_rel,
+            "resolved_note": resolved_note,
+            "resolved_at": today_iso(),
+            "links": merge_links(load_markdown(path).frontmatter.get("links"), [draft_rel]),
+        },
+    )
+
+
 # ── Shared fanout: decisions ──────────────────────────────────────────────────
 
 def fanout_decisions(
     vault: Path,
     writer: dict[str, Any],
     draft_rel: str | None = None,
+    source_text: str = "",
     index_conn: sqlite3.Connection | None = None,
 ) -> None:
     decisions = list(writer.get("decisions_to_create") or [])
@@ -362,6 +452,12 @@ def fanout_decisions(
         revisit = listify(entry.get("revisit_conditions"))
         if significance not in ("low", "medium", "high"):
             significance = "low"
+        supersedes = _supersede_matching_decisions(
+            vault=vault,
+            title=title,
+            summary=summary,
+            source_text=source_text or str(writer.get("summary") or ""),
+        )
         try:
             created = new_decision(
                 vault=vault,
@@ -373,11 +469,13 @@ def fanout_decisions(
                 confidence_basis=basis_or_default(entry, "Auto-extracted from conversation"),
                 alternatives_considered=alternatives,
                 revisit_conditions=revisit,
+                supersedes=supersedes,
                 disclosure=disclosure_or_default(entry, writer),
                 links=merge_links(
                     entry.get("linked_claims"),
                     entry.get("linked_episodes"),
                     [draft_rel] if draft_rel else [],
+                    supersedes,
                 ),
             )
             index_created_record(vault, created, index_conn)
@@ -385,6 +483,70 @@ def fanout_decisions(
             pass
         except Exception as exc:
             log_error(vault, "fanout.decision", exc)
+
+
+_DECISION_REVERSAL_MARKERS = (
+    "changed my mind",
+    "change my mind",
+    "instead",
+    "switch to",
+    "switched to",
+    "no longer",
+    "won't",
+    "will not",
+    "not anymore",
+    "replace",
+    "replacing",
+    "reverse",
+    "revise",
+    "update the decision",
+)
+
+
+def _looks_like_decision_reversal(text: str) -> bool:
+    lowered = normalize_text(text)
+    return any(marker in lowered for marker in _DECISION_REVERSAL_MARKERS)
+
+
+def _supersede_matching_decisions(
+    *,
+    vault: Path,
+    title: str,
+    summary: str,
+    source_text: str,
+) -> list[str]:
+    if not _looks_like_decision_reversal(f"{title} {summary} {source_text}"):
+        return []
+    candidates = []
+    for path, fm in _load_records_by_type(vault, "decisions", "decision"):
+        if str(fm.get("status") or "") != "active":
+            continue
+        candidate_summary = _record_text(fm.get("title"), fm.get("summary"), fm.get("links"), fm.get("alternatives_considered"))
+        candidates.append(
+            {
+                "path": path,
+                "id": fm.get("id"),
+                "title": fm.get("summary") or fm.get("title"),
+                "summary": candidate_summary,
+                "links": fm.get("links"),
+            }
+        )
+    if not candidates:
+        return []
+    result = resolve_reference(f"{title} {summary} {source_text}", candidates)
+    if result.candidate is None or result.confidence < 0.4:
+        return []
+    path = Path(str(result.candidate["path"]))
+    old_id = str(result.candidate.get("id") or path.stem)
+    _update_frontmatter(
+        path,
+        {
+            "status": "superseded",
+            "superseded_by": f"decision.{slugify(title)}",
+            "links": merge_links(load_markdown(path).frontmatter.get("links"), [f"decision.{slugify(title)}"]),
+        },
+    )
+    return [old_id]
 
 
 # ── Shared fanout: evidence ───────────────────────────────────────────────────
