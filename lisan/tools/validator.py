@@ -50,9 +50,6 @@ UNIVERSAL_REQUIRED = {
     "domain_primary",
     "domain_secondary",
     "privacy",
-    "compartments",
-    "allowed_contexts",
-    "blocked_contexts",
     "summary",
     "links",
     "confidence",
@@ -206,6 +203,7 @@ ENUMS = {
         "business",
         "sealed",
     },
+    "disclosure": {"private", "personal", "public"},
     "confidence": {"high", "medium", "low"},
     "source": {"elicitor", "extraction", "manual"},
     "priority": {"high", "medium", "low"},
@@ -344,6 +342,9 @@ def _validate_universal(path: Path, frontmatter: dict[str, Any], report: Validat
     for field in ["domain_secondary", "arena_secondary", "compartments", "allowed_contexts", "blocked_contexts", "links"]:
         if field in frontmatter and not isinstance(frontmatter[field], list):
             report.add(path, f"{field} must be a list")
+    disclosure = frontmatter.get("disclosure")
+    if disclosure is not None and str(disclosure) not in ENUMS["disclosure"]:
+        report.add(path, f"Invalid disclosure: {disclosure}")
 
 
 def _validate_type_specific(path: Path, frontmatter: dict[str, Any], report: ValidationReport) -> None:

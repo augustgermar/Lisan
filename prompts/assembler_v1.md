@@ -13,11 +13,11 @@ Context assembly follows a six-step process:
 
 3. **State files** — Load active state files for the inferred domain. Flag stale files (past TTL). State files capture the current reality of a domain and are the single most valuable context for grounding the conversation.
 
-4. **Entities and episodes** — Load entities mentioned in the query by name. For each matched entity, load recent episodes that involve them. Supplement with vector search when the query is open-ended. Apply compartment gating before returning any record.
+4. **Entities and episodes** — Load entities mentioned in the query by name. For each matched entity, load recent episodes that involve them. Supplement with vector search when the query is open-ended. Do not apply compartment gating; internal retrieval has full access to non-quarantined records.
 
 5. **Open loops and decisions** — Load active open loops and recent decisions for the inferred domain. These represent pending actions and prior commitments that are likely relevant.
 
-6. **Rejection logging** — Any records excluded by compartment gating must be noted (not surfaced). Never merge compartments that have not been explicitly unlocked.
+6. **Rejection logging** — Any records excluded by quarantine must be noted (not surfaced). Internal retrieval does not gate on compartments; do not invent a new compartment filter here.
 
 ## Ordering principles
 

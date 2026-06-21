@@ -797,9 +797,7 @@ def _write_draft(
         "domain_primary": "cross_arena",
         "domain_secondary": [],
         "privacy": "personal",
-        "compartments": [],
-        "allowed_contexts": ["all"],
-        "blocked_contexts": [],
+        "disclosure": "private",
         # Finding #7: enforce word/sentence-boundary truncation on the
         # frontmatter summary too. The writer's working summary may be up to
         # 240 chars; the frontmatter convention is 120.

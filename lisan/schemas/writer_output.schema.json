@@ -27,7 +27,8 @@
         "properties": {
           "name":    { "type": "string" },
           "subtype": { "type": "string", "enum": ["person", "place", "thing", "project", "organization"] },
-          "summary": { "type": "string" }
+          "summary": { "type": "string" },
+          "disclosure": { "type": "string", "enum": ["private", "personal", "public"] }
         }
       }
     },
@@ -40,7 +41,8 @@
           "category":   { "type": "string" },
           "arena":      { "type": "string" },
           "summary":    { "type": "string" },
-          "confidence": { "type": "string", "enum": ["low", "medium", "high"] }
+          "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+          "disclosure": { "type": "string", "enum": ["private", "personal", "public"] }
         }
       }
     },
@@ -55,7 +57,8 @@
           "summary":     { "type": "string" },
           "priority":    { "type": "string", "enum": ["low", "medium", "high"] },
           "domain":      { "type": "string" },
-          "arena":       { "type": "string" }
+          "arena":       { "type": "string" },
+          "disclosure":  { "type": "string", "enum": ["private", "personal", "public"] }
         }
       }
     },
@@ -71,7 +74,8 @@
           "arena":                  { "type": "string" },
           "significance":           { "type": "string", "enum": ["low", "medium", "high"] },
           "alternatives_considered":{ "type": "array", "items": { "type": "string" } },
-          "revisit_conditions":     { "type": "array", "items": { "type": "string" } }
+          "revisit_conditions":     { "type": "array", "items": { "type": "string" } },
+          "disclosure":             { "type": "string", "enum": ["private", "personal", "public"] }
         }
       }
     },
@@ -90,6 +94,7 @@
           "actors": {"type": "array", "items": {"type": "string"}},
           "arena": {"type": "string"},
           "compartments": {"type": "array", "items": {"type": "string"}},
+          "disclosure": {"type": "string", "enum": ["private", "personal", "public"]},
           "sensitivity": {"type": "string"},
           "reliability": {"type": "string"},
           "summary": {"type": "string"},
@@ -119,7 +124,8 @@
           "review_notes": {"type": "string"},
           "arena": {"type": "string"},
           "compartments": {"type": "array", "items": {"type": "string"}},
-          "summary": {"type": "string"}
+          "summary": {"type": "string"},
+          "disclosure": {"type": "string", "enum": ["private", "personal", "public"]}
         }
       }
     }

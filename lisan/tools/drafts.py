@@ -44,9 +44,7 @@ def promote_draft_to_episode(draft_path: Path, vault: Path) -> Path:
         "domain_primary": str(fm.get("domain_primary", fm.get("arena_primary", "cross_arena"))),
         "domain_secondary": fm.get("domain_secondary", fm.get("arena_secondary", [])),
         "privacy": str(fm.get("privacy", "personal")),
-        "compartments": fm.get("compartments", []),
-        "allowed_contexts": fm.get("allowed_contexts", ["all"]),
-        "blocked_contexts": fm.get("blocked_contexts", []),
+        "disclosure": str(fm.get("disclosure", "private")),
         "summary": summary,
         "links": fm.get("links", []),
         "confidence": str(fm.get("confidence", "low")),
@@ -111,6 +109,7 @@ def _promote_to_decision(vault: Path, fm: dict, summary: str, created: str, body
         links=list(fm.get("links", [])),
         confidence=str(fm.get("confidence", "low")),
         confidence_basis=str(fm.get("confidence_basis", "Promoted from draft")),
+        disclosure=str(fm.get("disclosure", "private")),
         review_after=str(fm.get("review_after", today_iso())),
     )
     return record.path
@@ -125,6 +124,7 @@ def _promote_to_open_loop(vault: Path, fm: dict, summary: str, created: str, bod
         links=list(fm.get("links", [])),
         confidence=str(fm.get("confidence", "low")),
         confidence_basis=str(fm.get("confidence_basis", "Promoted from draft")),
+        disclosure=str(fm.get("disclosure", "private")),
         review_after=str(fm.get("review_after", today_iso())),
     )
     return record.path
@@ -136,7 +136,8 @@ def _promote_to_state(vault: Path, fm: dict, summary: str, body: str) -> Path:
         vault,
         domain_primary,
         summary,
-        arena_secondary=list(fm.get("arena_secondary", fm.get("domain_secondary", []))),
+        state_secondary=list(fm.get("arena_secondary", fm.get("domain_secondary", []))),
+        disclosure=str(fm.get("disclosure", "private")),
         privacy=str(fm.get("privacy", "personal")),
         confidence=str(fm.get("confidence", "low")),
         confidence_basis=str(fm.get("confidence_basis", "Promoted from draft")),
@@ -155,6 +156,7 @@ def _promote_to_knowledge(vault: Path, fm: dict, summary: str, created: str, bod
         links=list(fm.get("links", [])),
         confidence=str(fm.get("confidence", "low")),
         confidence_basis=str(fm.get("confidence_basis", "Promoted from draft")),
+        disclosure=str(fm.get("disclosure", "private")),
         review_after=str(fm.get("review_after", today_iso())),
     )
     return record.path
@@ -169,6 +171,7 @@ def _promote_to_entity(vault: Path, fm: dict, summary: str, body: str) -> Path:
         summary=summary,
         confidence=str(fm.get("confidence", "low")),
         confidence_basis=str(fm.get("confidence_basis", "Promoted from draft")),
+        disclosure=str(fm.get("disclosure", "private")),
         review_after=str(fm.get("review_after", today_iso())),
     )
     return record.path

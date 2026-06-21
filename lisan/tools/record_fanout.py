@@ -145,6 +145,20 @@ def basis_or_default(entry: Any, default: str) -> str:
     return default
 
 
+def disclosure_or_default(entry: Any, writer: dict[str, Any] | None = None) -> str:
+    if isinstance(entry, dict):
+        explicit = str(entry.get("disclosure") or "").strip()
+        if explicit:
+            return explicit
+    if writer:
+        frontmatter = writer.get("frontmatter")
+        if isinstance(frontmatter, dict):
+            explicit = str(frontmatter.get("disclosure") or "").strip()
+            if explicit:
+                return explicit
+    return "private"
+
+
 def index_created_record(vault: Path, record: CreatedRecord | None, conn: sqlite3.Connection | None) -> None:
     if conn is None or record is None or not record.created:
         return
@@ -290,6 +304,7 @@ def fanout_open_loops(
                 priority=priority,
                 confidence="low",
                 confidence_basis=basis_or_default(loop, "Auto-extracted from conversation"),
+                disclosure=disclosure_or_default(loop, writer),
                 links=merge_links(loop.get("linked_claims"), loop.get("linked_episodes"), [draft_rel]),
             )
             index_created_record(vault, created, index_conn)
@@ -358,6 +373,7 @@ def fanout_decisions(
                 confidence_basis=basis_or_default(entry, "Auto-extracted from conversation"),
                 alternatives_considered=alternatives,
                 revisit_conditions=revisit,
+                disclosure=disclosure_or_default(entry, writer),
                 links=merge_links(
                     entry.get("linked_claims"),
                     entry.get("linked_episodes"),
@@ -412,7 +428,6 @@ def fanout_evidence(
                 timestamp_of_artifact=str(entry.get("timestamp_of_artifact") or "").strip() or None,
                 actors=listify(entry.get("actors")),
                 arena=arena,
-                compartments=listify(entry.get("compartments")),
                 sensitivity=str(entry.get("sensitivity") or "low").strip(),
                 reliability=str(entry.get("reliability") or "medium").strip(),
                 summary=str(entry.get("summary") or title),
@@ -423,6 +438,7 @@ def fanout_evidence(
                 linked_claims=listify(entry.get("linked_claims")),
                 linked_episodes=merge_links(entry.get("linked_episodes"), [draft_rel]),
                 confidence_basis=basis_or_default(entry, "Auto-extracted from conversation"),
+                disclosure=disclosure_or_default(entry, writer),
             )
             evidence_doc = load_markdown(created.path)
             evidence_id = str(evidence_doc.frontmatter.get("id") or "")
@@ -493,8 +509,8 @@ def fanout_claims(
                 last_reviewed=str(entry.get("last_reviewed") or "").strip() or None,
                 review_notes=str(entry.get("review_notes") or "").strip(),
                 arena=arena,
-                compartments=list(entry.get("compartments") or []),
                 privacy=str(entry.get("privacy") or "personal").strip(),
+                disclosure=disclosure_or_default(entry, writer),
                 significance=str(entry.get("significance") or "low").strip(),
                 summary=str(entry.get("summary") or claim_text[:120]),
                 confidence_basis=basis_or_default(
@@ -571,6 +587,7 @@ def fanout_state_updates(
                 confidence=confidence,
                 confidence_basis=basis_or_default(update, "Auto-extracted from conversation"),
                 sources=merge_links(update.get("sources"), sources),
+                disclosure=disclosure_or_default(update, writer),
             )
             index_created_record(vault, created, index_conn)
         except Exception as exc:

@@ -4,8 +4,7 @@
   "type": "object",
   "required": [
     "id", "type", "created", "created_at", "updated", "status", "significance",
-    "domain_primary", "domain_secondary", "arena", "privacy", "compartments",
-    "allowed_contexts", "blocked_contexts", "summary", "links",
+    "domain_primary", "domain_secondary", "arena", "privacy", "summary", "links",
     "confidence", "confidence_basis", "last_confirmed", "review_after",
     "source_type", "actors", "sensitivity", "reliability", "observed_facts",
     "linked_claims", "linked_episodes"
@@ -24,9 +23,14 @@
     "arena_primary": {"type": "string"},
     "arena_secondary": {"type": "array", "items": {"type": "string"}},
     "privacy": {"type": "string"},
-    "compartments": {"type": "array", "items": {"type": "string"}},
-    "allowed_contexts": {"type": "array", "items": {"type": "string"}},
-    "blocked_contexts": {"type": "array", "items": {"type": "string"}},
+    "disclosure": {
+      "type": "string",
+      "enum": ["private", "personal", "public"],
+      "description": "Default sharing posture (private/personal/public). A prior for the future external disclosure gate, not a hard rule. Has no effect on internal retrieval."
+    },
+    "compartments": {"type": "array", "items": {"type": "string"}, "deprecated": true},
+    "allowed_contexts": {"type": "array", "items": {"type": "string"}, "deprecated": true},
+    "blocked_contexts": {"type": "array", "items": {"type": "string"}, "deprecated": true},
     "summary": {"type": "string"},
     "links": {"type": "array", "items": {"type": "string"}},
     "confidence": {"type": "string"},
