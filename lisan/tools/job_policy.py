@@ -23,6 +23,7 @@ DEFAULT_JOB_PRIORITIES = {
     "manifest.regenerate": 90,
     "analyst.scan": 70,
     "dreamer.maintenance": 80,
+    "entity.rewrite_story": 85,
 }
 
 COALESCE_AGGRESSIVE = {
@@ -36,6 +37,7 @@ COALESCE_AGGRESSIVE = {
 COALESCE_BY_RECORD = {
     "index.rebuild_record",
     "skeptic.review_pattern",
+    "entity.rewrite_story",
 }
 
 NO_COALESCE = {
@@ -76,6 +78,11 @@ def coalesce_key_for_job(job_type: str, payload: dict[str, Any] | None) -> str |
         if vault:
             return f"{job_type}|vault={vault}"
         return f"{job_type}|global"
+    if job_type == "entity.rewrite_story":
+        entity_id = str(payload.get("entity_id") or payload.get("entity_path") or "").strip()
+        if entity_id:
+            return f"{job_type}|entity_id={entity_id}"
+        return f"{job_type}|global"
     if job_type in COALESCE_BY_RECORD:
         record_id = _record_identifier(payload)
         if record_id:
@@ -98,6 +105,11 @@ def unique_group_for_job(job_type: str, payload: dict[str, Any] | None) -> str |
         if identifier:
             return f"record:{identifier}"
         return "record:global"
+    if job_type == "entity.rewrite_story":
+        entity_id = str(payload.get("entity_id") or payload.get("entity_path") or "").strip()
+        if entity_id:
+            return f"entity:{entity_id}"
+        return "entity:global"
     if job_type in COALESCE_BY_RECORD:
         record_id = _record_identifier(payload)
         if record_id:
