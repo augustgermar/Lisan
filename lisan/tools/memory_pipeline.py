@@ -1137,16 +1137,35 @@ _PERSON_TITLES: frozenset[str] = frozenset({
     "sgt", "cpl", "cpt", "capt", "lt", "col", "gen", "adm",
 })
 
-# D2a: single-token terms that are never a person's first name, scoped to the
-# person branch only so organizations/places named Bumble or Mercury still work.
-# Primer-known names bypass this set via the `name in primer_cast` early-return.
-_PERSON_NOISE_NAMES: frozenset[str] = frozenset({
-    # Dating / social apps
+# Tokens that are never a person's name, regardless of context.
+# Scoped to the person branch only — other kinds (organization, thing, place) are unaffected.
+#
+# Deliberately excludes day names and month names so that context-named persons
+# like "Tuesday", "January", "August", "May" resolve via _has_person_role_context
+# ("my friend Tuesday", "I went out with January", "my colleague August").
+# Any word can be a name when the surrounding structure says so; this list
+# captures only tokens that have NO plausible person sense.
+_NEVER_PERSON_TOKENS: frozenset[str] = frozenset({
+    # Determiners, pronouns, conjunctions, prepositions
+    "The", "A", "An", "It", "He", "She", "They", "We", "You",
+    "His", "Her", "Their", "Our", "My", "Me", "Mine", "I",
+    "No", "Yes", "Ok", "Okay", "So", "But", "And", "Or",
+    "In", "On", "At", "Of", "For", "With", "From", "By", "Up", "Out",
+    # Interrogatives and sentence-initial adverbs
+    "What", "Why", "How", "When", "Where", "Who", "Whom", "Whose", "Which",
+    "Then", "Now", "Today", "Tomorrow", "Yesterday",
+    "Strategically", "Honestly", "Frankly", "Maybe", "Perhaps", "Probably",
+    "Anyway", "Actually", "Eventually", "Finally", "Basically", "Apparently",
+    "Hopefully", "Obviously", "Clearly", "Suddenly", "Recently",
+    # Productivity tools / platforms (clearly never persons)
+    "Slack", "Zoom", "GitHub", "Gmail", "Notion", "Jira", "Linear",
+    "Google", "Microsoft", "Apple", "Discord", "Figma", "Trello",
+    "Asana", "Confluence", "Outlook", "Teams", "Dropbox", "OneDrive",
+    "Excel", "Word", "PowerPoint", "Sheets", "Docs", "Calendar",
+    "YouTube", "Twitter", "Reddit", "Facebook", "Instagram",
+    "ChatGPT", "Claude", "OpenAI", "Anthropic",
+    # Dating / social apps — person sense is implausible even with social context
     "Bumble", "Hinge", "Tinder", "OkCupid",
-    # Astronomical / astrological tokens
-    "Mercury", "Retrograde",
-    "Aries", "Taurus", "Virgo", "Libra", "Scorpio", "Sagittarius",
-    "Capricorn", "Aquarius", "Pisces",
 })
 
 # Relationship/role words that, when found near a first name, confirm the
@@ -1167,34 +1186,63 @@ _RELATIONSHIP_WORDS: frozenset[str] = frozenset({
 
 
 def _has_person_role_context(name: str, source_text: str) -> bool:
-    """Return True when the source text places *name* in a clear person-role context.
+    """Return True when the source text places *name* in a clear person context.
 
-    Detects two patterns:
-      - possessive-role-name: "my/his/her/their [role] [Name]" within a 4-word window
+    Detects four pattern families:
+      - possessive-role-name: "my/his/her/their [role] [Name]"
       - name-role appositive:  "[Name], my/his/her [role]" or "[Name] is my [role]"
+      - name-as-agent: "[Name] texted/called/messaged/emailed me"
+      - social-action:  "I/we went out with [Name]", "I met/saw [Name]",
+                        "dinner/lunch/drinks/coffee with [Name]"
     """
     if not source_text:
         return False
     lowered = source_text.lower()
     name_lower = name.lower()
+    n = re.escape(name_lower)
     role_group = "(?:" + "|".join(re.escape(w) for w in _RELATIONSHIP_WORDS) + ")"
-    possessive = r"(?:my|his|her|their|our)\s+(?:\w+\s+)?" + role_group + r"\s+" + re.escape(name_lower)
-    appositive = re.escape(name_lower) + r"(?:,?\s+(?:my|his|her|their)\s+" + role_group + r"|\s+is\s+(?:my|his|her|their)\s+" + role_group + r")"
-    return bool(re.search(possessive, lowered) or re.search(appositive, lowered))
+
+    possessive = r"(?:my|his|her|their|our)\s+(?:\w+\s+)?" + role_group + r"\s+" + n
+    appositive = n + r"(?:,?\s+(?:my|his|her|their)\s+" + role_group + r"|\s+is\s+(?:my|his|her|their)\s+" + role_group + r")"
+    # "[Name] texted/called/messaged me" — name acting as a communicating person
+    name_acts = n + r"\s+(?:texted|called|messaged|emailed|reached\s+out|pinged|wrote|rang)"
+    # "I/we texted/called/met/saw [Name]"
+    i_act_name = r"(?:i|we)\s+(?:texted|called|messaged|emailed|met|saw|visited|asked|told)\s+(?:\w+\s+){0,3}" + n
+    # "went (out) with [Name]", "dinner/lunch/drinks/coffee with [Name]"
+    social_with = (
+        r"(?:went\s+(?:out\s+)?with"
+        r"|had\s+(?:dinner|lunch|drinks|coffee|brunch)\s+with"
+        r"|a\s+date\s+with"
+        r"|talking\s+to|talked\s+to|speaking\s+with|spoke\s+with"
+        r")\s+(?:\w+\s+){0,2}" + n
+    )
+    return bool(
+        re.search(possessive, lowered)
+        or re.search(appositive, lowered)
+        or re.search(name_acts, lowered)
+        or re.search(i_act_name, lowered)
+        or re.search(social_with, lowered)
+    )
 
 
 def _looks_like_entity(name: str, subtype: str, primer_cast: frozenset[str], source_text: str = "") -> bool:
     """Validate that *name* is plausibly an entity of *subtype*.
 
     Rules (in priority order):
-    - Primer-known names always accepted.
-    - Title-prefixed names ("Dr. Kwan", "Ms. Reyes") always accepted as persons.
-    - Single-token person names accepted when source text has role/relationship context.
-    - Multi-token person names accepted when all tokens are proper-noun shaped
-      and none are stopwords.
-    - Non-person subtypes: light-touch validation only.
+    1. Primer/roster-known names: always accepted (highest authority).
+    2. Title-prefixed names ("Dr. Kwan", "Ms. Reyes"): always persons.
+    3. Single-token persons:
+       a. Hard reject if in _NEVER_PERSON_TOKENS (function words, platform names).
+       b. Otherwise, accept only when _has_person_role_context fires — this lets
+          day names, month names, seasons, and other "name-that-is-also-a-word"
+          tokens resolve as persons when structural context supports it
+          ("my friend Tuesday", "I went out with January", "my colleague August").
+    4. Multi-token persons: reject if any token is a function word/platform; require
+       all tokens to be proper-noun shaped (uppercase-initial). Day and month names
+       are allowed as name components ("Tuesday Smith", "August Chen").
+    5. Non-person subtypes: light-touch validation only.
     """
-    from .stopwords import SENTENCE_INITIAL_OR_TOOL_STOPWORDS, MONTH_STOPWORDS, DAY_STOPWORDS
+    from .stopwords import SENTENCE_INITIAL_OR_TOOL_STOPWORDS
 
     if not name:
         return False
@@ -1213,25 +1261,18 @@ def _looks_like_entity(name: str, subtype: str, primer_cast: frozenset[str], sou
             return True
 
         if len(tokens) < 2:
-            # D2a: structural reject before role-context test — these tokens can
-            # never be person names even if source text has an accidental match.
-            if name in SENTENCE_INITIAL_OR_TOOL_STOPWORDS:
+            # Hard reject: function words and platform names that can never be
+            # person names. Days, months, seasons, and common-word names are NOT
+            # in this set — they are context-gated below so that persons named
+            # Tuesday, January, August, Mercury, Summer, etc. can still resolve.
+            if name in _NEVER_PERSON_TOKENS:
                 return False
-            if name in MONTH_STOPWORDS and name not in primer_cast:
-                return False
-            if name in _PERSON_NOISE_NAMES and name not in primer_cast:
-                return False
-            # Single first-name: accept only when role context is present in the
-            # source text ("my son Theo", "my colleague Marcus").
             return _has_person_role_context(name, source_text)
 
-        # Multi-token names: reject stopwords, require proper-noun shape.
+        # Multi-token names: reject if any token is a function word or platform;
+        # allow day/month names as valid name components ("Tuesday Smith").
         for tok in tokens:
-            if tok in SENTENCE_INITIAL_OR_TOOL_STOPWORDS:
-                return False
-            if tok in DAY_STOPWORDS:
-                return False
-            if tok in MONTH_STOPWORDS and tok not in primer_cast:
+            if tok in _NEVER_PERSON_TOKENS:
                 return False
         if not all(t[:1].isupper() and len(t) > 1 for t in tokens):
             return False

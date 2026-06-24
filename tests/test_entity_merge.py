@@ -72,9 +72,13 @@ class LooksLikeEntityTests(unittest.TestCase):
         self.assertTrue(_looks_like_entity("Marcus Webb", "person", frozenset()))
         self.assertTrue(_looks_like_entity("Amara Okonkwo", "person", frozenset()))
 
-    def test_multi_word_with_stopword_token_rejected(self) -> None:
-        # "Friday Smith" rejected because "Friday" is a day token.
-        self.assertFalse(_looks_like_entity("Friday Smith", "person", frozenset()))
+    def test_multi_word_with_function_word_token_rejected(self) -> None:
+        # Function words ("The", "It") in a name token make it implausible as a person.
+        # Day names ("Friday") are now allowed as name components ("Friday Smith" is valid).
+        self.assertFalse(_looks_like_entity("The Smith", "person", frozenset()))
+        self.assertFalse(_looks_like_entity("It Jones", "person", frozenset()))
+        # Day name as first token is now accepted (calendar-word names are context-gated)
+        self.assertTrue(_looks_like_entity("Friday Smith", "person", frozenset()))
 
     def test_place_subtype_more_permissive(self) -> None:
         # Non-person subtypes don't enforce the multi-word rule.
@@ -420,14 +424,16 @@ class UserStatedHandleTests(unittest.TestCase):
 
 
 class PersonNoiseRejectTests(unittest.TestCase):
-    """D2a: noise tokens (day names, apps, astrological terms) must never become persons."""
+    """Person gate: function words and apps are hard-rejected; calendar/common-word names
+    are context-gated (person when role/social context present, otherwise not)."""
 
-    def test_day_name_rejected_with_source_text(self) -> None:
-        # Previously only rejected for empty source_text; now structural
-        source = "Going out Saturday. My friend Tuesday recommended the place."
+    # --- hard rejects (NEVER_PERSON_TOKENS, no context can override) ---
+
+    def test_function_word_always_rejected(self) -> None:
         empty = frozenset()
-        self.assertFalse(_looks_like_entity("Tuesday", "person", empty, source))
-        self.assertFalse(_looks_like_entity("Saturday", "person", empty, source))
+        self.assertFalse(_looks_like_entity("The", "person", empty, "The is my friend."))
+        self.assertFalse(_looks_like_entity("It", "person", empty, "my friend It came over."))
+        self.assertFalse(_looks_like_entity("Meanwhile", "person", empty, ""))
 
     def test_dating_app_rejected_as_person(self) -> None:
         empty = frozenset()
@@ -435,25 +441,81 @@ class PersonNoiseRejectTests(unittest.TestCase):
         self.assertFalse(_looks_like_entity("Hinge", "person", empty, "Matched on Hinge."))
         self.assertFalse(_looks_like_entity("Tinder", "person", empty, "Swiped on Tinder."))
 
-    def test_astrological_term_rejected_as_person(self) -> None:
+    def test_platform_tool_rejected_as_person(self) -> None:
         empty = frozenset()
-        self.assertFalse(_looks_like_entity("Mercury", "person", empty,
-                                            "Mercury retrograde is messing with everything."))
+        self.assertFalse(_looks_like_entity("Slack", "person", empty, "my friend Slack"))
+        self.assertFalse(_looks_like_entity("Zoom", "person", empty, "I called Zoom."))
+
+    # --- context-gated (calendar / common-word names) ---
+
+    def test_day_name_allowed_as_person_with_role_context(self) -> None:
+        empty = frozenset()
+        self.assertTrue(_looks_like_entity(
+            "Tuesday", "person", empty, "My friend Tuesday recommended the place."
+        ))
+        self.assertTrue(_looks_like_entity(
+            "Saturday", "person", empty, "I went out with Saturday last night."
+        ))
+
+    def test_day_name_rejected_as_person_without_context(self) -> None:
+        empty = frozenset()
+        self.assertFalse(_looks_like_entity("Tuesday", "person", empty, "The meeting is on Tuesday."))
+        self.assertFalse(_looks_like_entity("Saturday", "person", empty, "Going out Saturday."))
+
+    def test_month_name_allowed_as_person_with_role_context(self) -> None:
+        empty = frozenset()
+        self.assertTrue(_looks_like_entity(
+            "January", "person", empty, "I went out with January last night."
+        ))
+        self.assertTrue(_looks_like_entity(
+            "August", "person", empty, "My colleague August reviewed it."
+        ))
+
+    def test_month_name_rejected_as_person_without_context(self) -> None:
+        empty = frozenset()
+        self.assertFalse(_looks_like_entity("January", "person", empty, "The project ships in January."))
+        self.assertFalse(_looks_like_entity("August", "person", empty, "Back in August we shipped."))
+
+    def test_astrological_term_rejected_without_context(self) -> None:
+        empty = frozenset()
+        self.assertFalse(_looks_like_entity(
+            "Mercury", "person", empty, "Mercury retrograde is messing with everything."
+        ))
+
+    # --- multi-token: day/month names allowed as name components ---
+
+    def test_multi_token_with_day_name_allowed(self) -> None:
+        empty = frozenset()
+        self.assertTrue(_looks_like_entity("Tuesday Smith", "person", empty, ""))
+        self.assertTrue(_looks_like_entity("August Chen", "person", empty, ""))
+
+    def test_multi_token_with_function_word_rejected(self) -> None:
+        empty = frozenset()
+        self.assertFalse(_looks_like_entity("The Great", "person", empty, ""))
+        self.assertFalse(_looks_like_entity("It Smith", "person", empty, ""))
+
+    # --- other kinds: apps/calendar words not blocked ---
 
     def test_noise_tokens_still_allowed_as_other_kinds(self) -> None:
         empty = frozenset()
-        # Bumble as organization, Mercury as thing — non-person path is permissive
         self.assertTrue(_looks_like_entity("Bumble", "organization", empty, ""))
         self.assertTrue(_looks_like_entity("Mercury", "thing", empty, ""))
 
-    def test_primer_known_name_bypasses_noise_check(self) -> None:
-        primer = frozenset({"Mercury"})
-        self.assertTrue(_looks_like_entity("Mercury", "person", primer, ""))
+    # --- roster bypasses everything ---
+
+    def test_roster_known_name_bypasses_check(self) -> None:
+        roster = frozenset({"Mercury", "Tuesday", "January"})
+        self.assertTrue(_looks_like_entity("Mercury", "person", roster, ""))
+        self.assertTrue(_looks_like_entity("Tuesday", "person", roster, ""))
+        self.assertTrue(_looks_like_entity("January", "person", roster, ""))
+
+    # --- regression: original D2 noise cases still rejected ---
 
     def test_noise_entities_not_created_in_vault(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp)
             _seed_primer(vault, "# Identity\n\nDanny Callahan, structural engineer.\n")
+            # None of these have person-role or social-action context for the names
             source = (
                 "Mercury retrograde is wrecking my week. "
                 "Going out Tuesday. Met someone on Bumble."
@@ -469,6 +531,67 @@ class PersonNoiseRejectTests(unittest.TestCase):
             people_dir = vault / "entities" / "people"
             created = list(people_dir.glob("*.md")) if people_dir.exists() else []
             self.assertEqual(created, [], f"Noise entities should not be created: {[p.stem for p in created]}")
+
+
+class CalendarWordPersonTests(unittest.TestCase):
+    """Calendar and common-word names create person entities when context supports it."""
+
+    def test_january_with_social_context(self) -> None:
+        empty = frozenset()
+        self.assertTrue(_looks_like_entity(
+            "January", "person", empty, "I went out with January last night."
+        ))
+
+    def test_january_without_person_context(self) -> None:
+        empty = frozenset()
+        self.assertFalse(_looks_like_entity(
+            "January", "person", empty, "The project ships in January."
+        ))
+
+    def test_august_with_role_context(self) -> None:
+        empty = frozenset()
+        self.assertTrue(_looks_like_entity(
+            "August", "person", empty, "My colleague August reviewed the proposal."
+        ))
+
+    def test_august_without_person_context(self) -> None:
+        empty = frozenset()
+        self.assertFalse(_looks_like_entity(
+            "August", "person", empty, "Back in August we shipped the first version."
+        ))
+
+    def test_tuesday_with_role_context(self) -> None:
+        empty = frozenset()
+        self.assertTrue(_looks_like_entity(
+            "Tuesday", "person", empty, "My friend Tuesday came over for dinner."
+        ))
+
+    def test_tuesday_without_person_context(self) -> None:
+        empty = frozenset()
+        self.assertFalse(_looks_like_entity(
+            "Tuesday", "person", empty, "The meeting is on Tuesday."
+        ))
+
+    def test_january_texted_me(self) -> None:
+        empty = frozenset()
+        self.assertTrue(_looks_like_entity(
+            "January", "person", empty, "January texted me about the weekend plans."
+        ))
+
+    def test_calendar_person_created_in_vault(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            source = "I went out with January last night. January texted me this morning."
+            writer_out = {
+                "entities_to_create": [
+                    {"name": "January", "kind": "person",
+                     "summary": "January, someone the user went out with."},
+                ],
+            }
+            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text=source)
+            people_dir = vault / "entities" / "people"
+            created = list(people_dir.glob("*.md")) if people_dir.exists() else []
+            self.assertEqual(len(created), 1, "January should be created as a person with context")
 
 
 if __name__ == "__main__":
