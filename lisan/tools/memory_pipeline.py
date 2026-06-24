@@ -953,9 +953,23 @@ def _create_entity_stubs(
         if not _looks_like_entity(name, subtype, allowlist, source_text):
             continue
 
+        raw_aliases = entry.get("aliases") or []
+        if isinstance(raw_aliases, str):
+            raw_aliases = [raw_aliases]
+        aliases = [str(alias).strip() for alias in raw_aliases if str(alias).strip()]
+        user_handle = _scan_user_stated_handle(name, source_text, {alias.lower() for alias in aliases})
+        if not user_handle:
+            user_handle = next((alias for alias in aliases if alias.lower() != name.lower()), None)
+        if user_handle and user_handle.lower() not in {alias.lower() for alias in aliases}:
+            aliases.append(user_handle)
+
         existing = _match_existing_entity(vault, name, subtype, index, allowlist, source_text, summary=summary)
         if existing is not None:
             _append_entity_alias(existing, name)
+            for alias in aliases:
+                _append_entity_alias(existing, alias)
+            if user_handle:
+                _assign_entity_nickname(existing, user_handle)
             index_created_record(vault, CreatedRecord(path=existing, created=True), index_conn)
             entities_touched_set.add(existing)
             # Refresh the in-memory index so the next sibling in the same pass
@@ -983,6 +997,8 @@ def _create_entity_stubs(
                         source_text=source_text,
                         existing_handles=existing_handles,
                     )
+                if not nickname and user_handle:
+                    nickname = user_handle
             created = new_entity(
                 vault=vault,
                 name=name,
@@ -990,6 +1006,7 @@ def _create_entity_stubs(
                 summary=summary or f"{name} mentioned in conversation.",
                 confidence="low",
                 confidence_basis=basis_or_default(entry, "Auto-extracted from conversation"),
+                aliases=aliases,
                 nickname=nickname,
                 disambiguation=_entity_disambiguator_from_candidates(vault, name, subtype, index, summary, source_text),
             )
@@ -1187,12 +1204,44 @@ _RELATIONSHIP_WORDS: frozenset[str] = frozenset({
     "grandfather", "grandmother", "grandson", "granddaughter", "nephew",
     "niece", "cousin", "stepmom", "stepdad", "stepson", "stepdaughter",
     "fiance", "fiancee", "ex",
+    # Casual / informal
+    "buddy", "pal", "bro", "bestie", "homie", "mate",
+    "date",  # "my date Friday" — date as a person, not a calendar day
+    "guy", "dude", "crush",
+    "barber", "stylist", "trainer", "instructor", "tutor",
+    "landlord", "tenant",
+    "babysitter", "nanny",
+    "vet",  # "my vet Dr. March"
     # Professional / social
     "colleague", "coworker", "boss", "manager", "supervisor", "therapist",
     "lawyer", "attorney", "accountant", "mentor", "coach", "advisor",
     "friend", "neighbor", "roommate", "classmate", "teammate",
     "boyfriend", "girlfriend", "doctor",
 })
+
+_EVENT_PHRASE = re.compile(
+    r"^(?:dinner|lunch|brunch|breakfast|drinks|coffee|happy\s+hour|meeting|check-?in|"
+    r"appointment|session|practice|rehearsal|game|party|gathering|cookout|barbecue|bbq)"
+    r"\s+"
+    r"(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"tonight|tomorrow|today|morning|afternoon|evening|night|weekly|daily)",
+    re.IGNORECASE,
+)
+
+_EVENT_PHRASE_TIME_FIRST = re.compile(
+    r"^(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"tonight|tomorrow|today|morning|afternoon|evening|night|weekly|daily)"
+    r"\s+"
+    r"(?:check-?in|meeting|appointment|session|practice|rehearsal|game|party|gathering|"
+    r"cookout|barbecue|bbq|dinner|lunch|brunch|breakfast|drinks|coffee|happy\s+hour)",
+    re.IGNORECASE,
+)
+
+_PLACE_PHRASE = re.compile(
+    r"^(?:north|south|east|west|upper|lower|old|new|downtown|midtown|uptown|central|"
+    r"lake|river|park|mount|fort|port|bay|st\.?|saint)\s+\w+",
+    re.IGNORECASE,
+)
 
 
 def _has_person_role_context(name: str, source_text: str) -> bool:
@@ -1214,6 +1263,12 @@ def _has_person_role_context(name: str, source_text: str) -> bool:
 
     possessive = r"(?:my|his|her|their|our)\s+(?:\w+\s+)?" + role_group + r"\s+" + n
     appositive = n + r"(?:,?\s+(?:my|his|her|their)\s+" + role_group + r"|\s+is\s+(?:my|his|her|their)\s+" + role_group + r")"
+    # "Her name is Barbara", "my name is Barbara", "this is Barbara"
+    intro_named = (
+        r"(?:my|his|her|their|our)\s+name\s+is\s+" + n
+        + r"|(?:this|that)\s+is\s+" + n
+        + r"|(?:met\s+(?:someone\s+)?named|someone\s+named)\s+" + n
+    )
     # "[Name] texted/called/messaged me" — name acting as a communicating person
     name_acts = n + r"\s+(?:texted|called|messaged|emailed|reached\s+out|pinged|wrote|rang)"
     # "I/we texted/called/met/saw [Name]"
@@ -1229,6 +1284,7 @@ def _has_person_role_context(name: str, source_text: str) -> bool:
     return bool(
         re.search(possessive, lowered)
         or re.search(appositive, lowered)
+        or re.search(intro_named, lowered)
         or re.search(name_acts, lowered)
         or re.search(i_act_name, lowered)
         or re.search(social_with, lowered)
@@ -1285,6 +1341,9 @@ def _looks_like_entity(name: str, subtype: str, primer_cast: frozenset[str], sou
             if tok in _NEVER_PERSON_TOKENS:
                 return False
         if not all(t[:1].isupper() and len(t) > 1 for t in tokens):
+            return False
+        combined = " ".join(tokens)
+        if _EVENT_PHRASE.match(combined) or _EVENT_PHRASE_TIME_FIRST.match(combined) or _PLACE_PHRASE.match(combined):
             return False
         return True
 

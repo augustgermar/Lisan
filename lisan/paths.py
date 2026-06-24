@@ -37,7 +37,10 @@ def schemas_dir(base: Path | None = None) -> Path:
     return (base or repo_root()) / "lisan" / "schemas"
 
 
-_IDENTITY_TEMPLATE = "# Identity\n"
+_IDENTITY_TEMPLATE = """# identity
+
+the principal has not shared a narrative yet.
+"""
 
 _OPERATING_STYLE_TEMPLATE = """\
 ---
@@ -169,6 +172,7 @@ def ensure_vault_layout(vault: Path) -> None:
         "primer",
         "state",
         "entities/people",
+        "entities/agents",
         "entities/places",
         "entities/things",
         "entities/projects",

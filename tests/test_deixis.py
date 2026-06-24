@@ -30,12 +30,38 @@ deixis_frame: |
 # Identity Core
 """
 
+CORE_TEXT_WITH_NICKNAME = """---
+principal:
+  name: "August Germar"
+  aliases: ["August", "Gus"]
+assistant:
+  name: "Dabiku"
+  canonical_name: "Dabiku"
+  nickname: "Ace"
+  aliases: ["Dabiku", "Ace"]
+deixis_frame: |
+  I / me / Ace = the assistant.
+  you / your     = August, the principal.
+  all other names = third parties; refer to them by name.
+---
+
+# Identity Core
+"""
+
 
 @pytest.fixture
 def core_vault(tmp_path: Path) -> Path:
     vault = tmp_path / "vault"
     (vault / "primer").mkdir(parents=True)
     (vault / "primer" / "identity-core.md").write_text(CORE_TEXT, encoding="utf-8")
+    return vault
+
+
+@pytest.fixture
+def nickname_vault(tmp_path: Path) -> Path:
+    vault = tmp_path / "nickname"
+    (vault / "primer").mkdir(parents=True)
+    (vault / "primer" / "identity-core.md").write_text(CORE_TEXT_WITH_NICKNAME, encoding="utf-8")
     return vault
 
 
@@ -95,6 +121,10 @@ def test_substrate_mixed(core_vault: Path) -> None:
     assert render_deixis("{{self}} asked {{principal}}", "substrate", core_vault) == "Lisan asked the user"
 
 
+def test_substrate_self_token_uses_nickname(nickname_vault: Path) -> None:
+    assert render_deixis("{{self}} asked {{principal}}", "substrate", nickname_vault) == "Ace asked the user"
+
+
 # --- display: human view ({{principal}}->principal name) --------------------
 
 def test_display_principal_token_resolves_name(core_vault: Path) -> None:
@@ -103,6 +133,10 @@ def test_display_principal_token_resolves_name(core_vault: Path) -> None:
 
 def test_display_self_token(core_vault: Path) -> None:
     assert render_deixis("{{self}} suggested a walk", "display", core_vault) == "Lisan suggested a walk"
+
+
+def test_display_self_token_uses_nickname(nickname_vault: Path) -> None:
+    assert render_deixis("{{self}} suggested a walk", "display", nickname_vault) == "Ace suggested a walk"
 
 
 def test_display_possessive(core_vault: Path) -> None:

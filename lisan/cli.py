@@ -602,6 +602,8 @@ def main(argv: list[str] | None = None) -> int:
             print("\nSeed files created (fill these in before first use):")
             for f in seeded:
                 print(f"  {f}")
+        from .tools.onboarding import run_onboarding
+        run_onboarding(vault)
         if not os.environ.get("LISAN_VAULT"):
             print(
                 "\nWARNING: LISAN_VAULT is not set.\n"
