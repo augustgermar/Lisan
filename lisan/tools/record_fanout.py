@@ -137,6 +137,43 @@ def merge_links(*sources: Any) -> list[str]:
     return out
 
 
+_DECISION_SUBJECT_STOPWORDS = {
+    "a", "an", "and", "are", "be", "been", "being", "but", "by", "for", "from",
+    "have", "has", "had", "i", "if", "in", "into", "is", "it", "its", "my",
+    "of", "on", "or", "our", "so", "the", "their", "this", "that", "to", "was",
+    "we", "will", "with", "you", "your", "changed", "change", "mind", "again",
+    "instead", "back", "still", "now", "want", "wants", "wanting", "keep",
+    "kept", "use", "used", "using", "directly",
+}
+
+
+def _decision_subject_tokens(text: str) -> set[str]:
+    import re
+
+    tokens: set[str] = set()
+    for raw in re.findall(r"[a-z0-9][a-z0-9_-]+", normalize_text(text)):
+        token = raw
+        for suffix in ("ing", "ed", "es", "s"):
+            if len(token) > len(suffix) + 2 and token.endswith(suffix):
+                stem = token[: -len(suffix)]
+                if len(stem) >= 3:
+                    token = stem
+                break
+        if len(token) <= 2 or token in _DECISION_SUBJECT_STOPWORDS:
+            continue
+        tokens.add(token)
+    return tokens
+
+
+def _decision_subject_overlap(query: str, candidate: dict[str, Any]) -> bool:
+    candidate_text = _record_text(candidate.get("title"), candidate.get("summary"))
+    query_tokens = _decision_subject_tokens(query)
+    candidate_tokens = _decision_subject_tokens(candidate_text)
+    if not query_tokens or not candidate_tokens:
+        return False
+    return len(query_tokens & candidate_tokens) >= 2
+
+
 def basis_or_default(entry: Any, default: str) -> str:
     """Pull per-record confidence_basis from the writer; fall back only when missing."""
     if isinstance(entry, dict):
@@ -538,19 +575,20 @@ def _supersede_matching_decisions(
     source_text: str,
     draft_rel: str | None = None,
 ) -> dict[str, Any]:
-    query = f"{title} {summary} {source_text}".strip()
-    if not (_looks_like_decision_reversal(query) or _looks_like_reinstatement(query)):
+    query = f"{title} {summary}".strip()
+    stance_text = f"{title} {summary} {source_text}".strip()
+    if not (_looks_like_decision_reversal(stance_text) or _looks_like_reinstatement(stance_text)):
         return {"supersedes": [], "skip_create": False}
     candidates = []
     for path, fm in _load_records_by_type(vault, "decisions", "decision"):
         if str(fm.get("status") or "") != "active":
             continue
-        candidate_summary = _record_text(fm.get("title"), fm.get("summary"), fm.get("links"), fm.get("alternatives_considered"))
+        candidate_summary = _record_text(fm.get("title"), fm.get("summary"))
         candidates.append(
             {
                 "path": path,
                 "id": fm.get("id"),
-                "title": fm.get("summary") or fm.get("title"),
+                "title": fm.get("title"),
                 "summary": candidate_summary,
                 "links": fm.get("links"),
             }
@@ -563,12 +601,16 @@ def _supersede_matching_decisions(
         result = resolve_reference(query, [candidate])
         if result.candidate is None or result.confidence < 0.35:
             continue
+        if result.semantic < 0.55 or result.lexical < 0.30:
+            continue
+        if not _decision_subject_overlap(query, candidate):
+            continue
         active_matches.append((result.confidence, candidate))
     active_matches.sort(key=lambda item: (-item[0], str(item[1].get("id") or ""), str(item[1].get("path") or "")))
     active_matches = active_matches[:3]
 
     reinstated_candidate: dict[str, Any] | None = None
-    if _looks_like_reinstatement(query):
+    if _looks_like_reinstatement(stance_text):
         superseded_candidates = []
         for path, fm in _load_records_by_type(vault, "decisions", "decision"):
             if str(fm.get("status") or "") != "superseded":
@@ -587,6 +629,10 @@ def _supersede_matching_decisions(
         for candidate in superseded_candidates:
             result = resolve_reference(query, [candidate])
             if result.candidate is None or result.confidence < 0.35:
+                continue
+            if result.semantic < 0.55 or result.lexical < 0.30:
+                continue
+            if not _decision_subject_overlap(query, candidate):
                 continue
             reinstated_matches.append((result.confidence, candidate))
         reinstated_matches.sort(key=lambda item: (-item[0], str(item[1].get("id") or ""), str(item[1].get("path") or "")))

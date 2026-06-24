@@ -185,6 +185,7 @@ def new_entity(
     summary: str | None = None,
     canonical_name: str | None = None,
     aliases: list[str] | None = None,
+    nickname: str | None = None,
     disambiguation: str | None = None,
     compartments: list[str] | None = None,
     allowed_contexts: list[str] | None = None,
@@ -237,6 +238,8 @@ def new_entity(
         "epoch_started": epoch_started or today,
         "previous_epochs": previous_epochs or [],
     }
+    if nickname is not None:
+        frontmatter["nickname"] = nickname
     body_summary = summary or f"{canonical_name or name} is a {subtype}."
     body = f"# {canonical_name or name}\n\n{body_summary}\n"
     write_markdown(path, with_domain_fields(frontmatter), body)

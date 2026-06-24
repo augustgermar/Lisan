@@ -13,6 +13,15 @@ from ..config import load_config
 
 _TOKEN_REPLACEMENTS = str.maketrans({"-": " ", "_": " "})
 
+_LEXICAL_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "been", "being", "by", "for",
+    "from", "had", "has", "have", "i", "if", "in", "into", "is", "it", "its",
+    "me", "my", "of", "on", "or", "our", "so", "the", "their", "this", "that",
+    "to", "was", "we", "will", "with", "you", "your", "changed", "change",
+    "mind", "instead", "back", "still", "now", "want", "wants", "wanting",
+    "keep", "kept", "use", "used", "using", "directly", "named", "full",
+}
+
 
 @dataclass(slots=True)
 class ResolutionResult:
@@ -20,6 +29,9 @@ class ResolutionResult:
     confidence: float
     score: float
     method: str
+    exact: float = 0.0
+    lexical: float = 0.0
+    semantic: float = 0.0
 
 
 def normalize_text(value: Any) -> str:
@@ -36,11 +48,26 @@ def tokenize_text(value: Any) -> set[str]:
     }
 
 
+def _lexical_tokens(value: Any) -> set[str]:
+    tokens: set[str] = set()
+    for token in tokenize_text(value):
+        stem = token
+        for suffix in ("ing", "ed", "es", "s"):
+            if len(stem) > len(suffix) + 2 and stem.endswith(suffix):
+                stem = stem[: -len(suffix)]
+                break
+        if len(stem) <= 2 or stem in _LEXICAL_STOPWORDS:
+            continue
+        tokens.add(stem)
+    return tokens
+
+
 def candidate_text(candidate: dict[str, Any]) -> str:
     parts: list[str] = []
     for field in (
         "name",
         "canonical_name",
+        "nickname",
         "title",
         "claim_text",
         "summary",
@@ -75,7 +102,7 @@ def candidate_text(candidate: dict[str, Any]) -> str:
 
 def candidate_keys(candidate: dict[str, Any]) -> set[str]:
     keys: set[str] = set()
-    for field in ("id", "name", "canonical_name", "title", "claim_text", "summary", "next_action", "hypothesis"):
+    for field in ("id", "name", "canonical_name", "nickname", "title", "claim_text", "summary", "next_action", "hypothesis"):
         value = str(candidate.get(field) or "").strip()
         if value:
             keys.add(normalize_text(value))
@@ -123,19 +150,22 @@ def resolve_reference(
     query = normalize_text(new_neighborhood)
     if not query:
         return ResolutionResult(candidate=None, confidence=0.0, score=0.0, method="empty")
-    query_tokens = tokenize_text(query)
+    query_tokens = _lexical_tokens(query)
     provider = EmbeddingProvider(load_config())
 
     best_candidate: dict[str, Any] | None = None
     best_score = -1.0
     best_method = "context"
+    best_exact = 0.0
+    best_lexical = 0.0
+    best_semantic = 0.0
 
     for candidate in candidates:
         if not isinstance(candidate, dict):
             continue
         exact_keys = candidate_keys(candidate)
         candidate_text_value = candidate_text(candidate)
-        candidate_tokens = tokenize_text(candidate_text_value)
+        candidate_tokens = _lexical_tokens(candidate_text_value)
 
         exact = 1.0 if query in exact_keys or any(key and (key in query or query in key) for key in exact_keys) else 0.0
         lexical = _lexical_score(query_tokens, candidate_tokens)
@@ -156,12 +186,23 @@ def resolve_reference(
             best_candidate = candidate
             best_score = score
             best_method = method
+            best_exact = exact
+            best_lexical = lexical
+            best_semantic = semantic
 
     if best_candidate is None:
         return ResolutionResult(candidate=None, confidence=0.0, score=0.0, method="none")
 
     confidence = _normalized_confidence(best_score)
-    return ResolutionResult(candidate=best_candidate, confidence=confidence, score=best_score, method=best_method)
+    return ResolutionResult(
+        candidate=best_candidate,
+        confidence=confidence,
+        score=best_score,
+        method=best_method,
+        exact=best_exact,
+        lexical=best_lexical,
+        semantic=best_semantic,
+    )
 
 
 def resolution_action(confidence: float, *, load_bearing: bool) -> str:

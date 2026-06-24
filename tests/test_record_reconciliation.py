@@ -278,6 +278,86 @@ class DecisionSupersessionTests(unittest.TestCase):
 
             self.assertEqual(load_markdown(budget_path).frontmatter["status"], "active")
 
+    def test_long_source_text_does_not_supersede_priya_note(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            priya_path = vault / "decisions" / "2026-06-20-keep-priya-posted.md"
+            tax_path = vault / "decisions" / "2026-06-20-finalize-tax-reserve.md"
+
+            _write_record(
+                priya_path,
+                {
+                    "id": "decision.keep-priya-posted",
+                    "type": "decision",
+                    "created": "2026-06-20",
+                    "updated": "2026-06-20",
+                    "status": "active",
+                    "significance": "medium",
+                    "domain_primary": "work",
+                    "domain_secondary": [],
+                    "privacy": "personal",
+                    "disclosure": "private",
+                    "summary": "Keep Priya posted on the note",
+                    "links": [],
+                    "confidence": "low",
+                    "confidence_basis": "seed",
+                    "last_confirmed": "2026-06-20",
+                    "review_after": "2026-06-20",
+                    "revisit_after": "2026-06-20",
+                    "revisit_conditions": [],
+                    "alternatives_considered": [],
+                    "supersedes": [],
+                    "superseded_by": "",
+                },
+                "# Keep Priya posted on the note\n\nKeep Priya posted on the note.\n",
+            )
+            _write_record(
+                tax_path,
+                {
+                    "id": "decision.finalize-tax-reserve",
+                    "type": "decision",
+                    "created": "2026-06-20",
+                    "updated": "2026-06-20",
+                    "status": "active",
+                    "significance": "medium",
+                    "domain_primary": "work",
+                    "domain_secondary": [],
+                    "privacy": "personal",
+                    "disclosure": "private",
+                    "summary": "Finalize the tax reserve",
+                    "links": [],
+                    "confidence": "low",
+                    "confidence_basis": "seed",
+                    "last_confirmed": "2026-06-20",
+                    "review_after": "2026-06-20",
+                    "revisit_after": "2026-06-20",
+                    "revisit_conditions": [],
+                    "alternatives_considered": [],
+                    "supersedes": [],
+                    "superseded_by": "",
+                },
+                "# Finalize the tax reserve\n\nFinalize the tax reserve.\n",
+            )
+
+            with patch.object(EmbeddingProvider, "embed_text", new=_fake_embed_text):
+                fanout_decisions(
+                    vault,
+                    {
+                        "decisions_to_create": [
+                            {
+                                "title": "Finalize the tax reserve",
+                                "summary": "Finalize the tax reserve",
+                                "significance": "medium",
+                            }
+                        ],
+                    },
+                    draft_rel="drafts/test.md",
+                    source_text="I changed my mind and want to finalize the tax reserve; I also want to keep Priya posted in a follow-up note.",
+                )
+
+            self.assertEqual(load_markdown(priya_path).frontmatter["status"], "active")
+            self.assertEqual(load_markdown(tax_path).frontmatter["status"], "superseded")
+
 
 class OpenLoopClosureTests(unittest.TestCase):
     def test_synonym_completion_closes_matching_open_loop_and_not_unrelated(self) -> None:
