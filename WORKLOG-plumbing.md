@@ -308,6 +308,17 @@ What I changed: Added a shared `resolve_reference()` helper for deterministic-pl
 Tests: `PYTHONPATH=/Users/august/Code/Lisan ~/.lisan/venv/bin/python -m pytest -q` -> 259 passed, 5 subtests passed, 0 failures. Also verified the same suite without `PYTHONPATH` after mirroring the changed files into `~/.lisan/repo`.
 Notes / gotchas: The local runtime copy under `~/.lisan/repo` was stale relative to the checkout, so I mirrored the changed files there for verification. The commit target remains `/Users/august/Code/Lisan/`; `tokencount.sh` is still unrelated and untouched.
 
+## [2026-06-23 20:05:58 PDT] Eval findings D1a, D1b, D2: nickname stopwords, user-handle priority, noise-person gate
+Status: DONE
+Files touched: lisan/tools/memory_pipeline.py, prompts/writer_episode_artifacts_v1.md, tests/test_entity_merge.py
+What I changed:
+  D1a — Added `"principal"`, `"self"`, `"user"` to `_NICKNAME_STOPWORDS`. The `_entity_name_roots` regex strips `{{` `}}` and left the bare slug "principal" eligible as a nickname root, producing e.g. "PrincipalMary". Adding the slugs to the stopword set blocks this path.
+  D1b — Added `_USER_HANDLE_PREFIXES` patterns and `_scan_user_stated_handle()`. `_entity_nickname` now calls this before `_NICKNAME_HINTS`; if the source text contains an explicit declaration ("I call her X", "goes by X", "aka X", etc.) near the person's first name, that handle is returned as-is. Context-word generation (GymMary, BudgetMatt, etc.) only runs when no user-stated handle is found. Proximity gate: the declaration must appear within 400 chars of a first-name mention to prevent cross-entity bleed when multiple same-first-name people appear in one turn.
+  D2a — Added `_PERSON_NOISE_NAMES` frozenset (dating apps: Bumble, Hinge, Tinder, OkCupid; astrological terms: Mercury, Retrograde, zodiac signs). Patched the single-token person branch of `_looks_like_entity` to reject names in `SENTENCE_INITIAL_OR_TOOL_STOPWORDS`, `MONTH_STOPWORDS`, or `_PERSON_NOISE_NAMES` *before* calling `_has_person_role_context` — making the gate structural, not role-context-dependent. Scoped to the person branch only; organization/place/thing paths are unaffected. Primer-cast bypass preserved.
+  D2b — Added explicit instruction to `prompts/writer_episode_artifacts_v1.md`: "Do not extract as persons: day names, month names, platform/app names (Bumble, Hinge, Tinder, etc.), neighborhood or place names, astrological or calendar terms, or sentence fragments. Only use `kind: person` for an actual named human."
+  C1 NOTE — `{{principal}}`/`{{self}}` in vault files is *by-design* substrate representation. `render_for_display` is called at read time in `current_brief.py`, `confidence_decay.py`, and `batch_review.py`. A real deixis leak would be `{{principal}}` surviving into an interlocutor *response* (user-facing), not into stored records. F2 (pronoun drift — writer generates third-person "him" instead of "{{principal}}" in entity summaries) is a separate low-priority writer-quality item; no code change warranted yet.
+Tests: `PYTHONPATH=/Users/august/Code/Lisan python3 -m pytest -q` -> 281 passed, 5 subtests passed, 0 failures (18 new tests for D1a, D1b, D2).
+
 ## [2026-06-21 16:14:29 PDT] Reference resolution calibration pass: blend retune, set supersede/reinstate, entity seam
 Status: DONE
 Files touched: lisan/tools/reference_resolution.py, lisan/tools/record_fanout.py, lisan/tools/memory_pipeline.py, tests/test_entity_merge.py, tests/test_record_reconciliation.py, WORKLOG-plumbing.md
