@@ -41,6 +41,7 @@ JOB_TYPES = {
     "pattern.audit",
     "skeptic.review_pattern",
     "writer.extract_turn",
+    "entity.rewrite_story",
 }
 
 # Indexing/embedding jobs are deterministic and cheap (no LLM call). These are
@@ -919,6 +920,26 @@ def dispatch_job(
             model=model or payload.get("model"),
             conversation_policy=payload.get("conversation_policy") if isinstance(payload.get("conversation_policy"), dict) else None,
             queue_background=False,
+            db_path=db_path,
+        )
+
+    if job_type == "entity.rewrite_story":
+        from .entity_story import rewrite_entity_story
+
+        entity_path_str = str(payload.get("entity_path") or "").strip()
+        if not entity_path_str:
+            raise ValueError("entity.rewrite_story requires entity_path")
+        entity_path = Path(entity_path_str)
+        draft_path_str = str(payload.get("draft_path") or "").strip()
+        transcript_path_str = str(payload.get("transcript_path") or "").strip()
+        return rewrite_entity_story(
+            vault=vault,
+            entity_path=entity_path,
+            draft_path=Path(draft_path_str) if draft_path_str else None,
+            transcript_path=Path(transcript_path_str) if transcript_path_str else None,
+            conversation_id=payload.get("conversation_id"),
+            provider=provider or payload.get("provider"),
+            model=model or payload.get("model"),
             db_path=db_path,
         )
 

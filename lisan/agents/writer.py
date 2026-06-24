@@ -50,9 +50,10 @@ _TASK_PROMPT_FILES = {
     "decision":  "writer_decision_v1",
     "open_loop": "writer_open_loop_v1",
     "state":     "writer_state_v1",
-    "entity":    "writer_entity_v1",
-    "knowledge": "writer_knowledge_v1",
-    "questions": "writer_questions_v1",
+    "entity":         "writer_entity_v1",
+    "entity_story":   "writer_entity_story_v1",
+    "knowledge":      "writer_knowledge_v1",
+    "questions":      "writer_questions_v1",
 }
 
 

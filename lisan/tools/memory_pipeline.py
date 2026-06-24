@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -56,6 +56,7 @@ class MemoryPipelineResult:
     narrative_state_path: Path | None = None
     narrative_state: dict[str, Any] | None = None
     skeptic_approved: bool = True
+    entities_touched: list[Path] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -241,7 +242,7 @@ def run_memory_pipeline(
     frequent_names = _compute_frequent_names(vault, conversation_id)
     index_conn = open_index_connection(db_path)
     try:
-        _create_entity_stubs(vault, writer, draft_rel, text, frequent_names=frequent_names, index_conn=index_conn)
+        entities_touched = _create_entity_stubs(vault, writer, draft_rel, text, frequent_names=frequent_names, index_conn=index_conn)
         _create_relationship_edges(vault, writer, db_path=db_path, index_conn=index_conn)
         fanout_open_loops(vault, writer, draft_rel, source_text=text, index_conn=index_conn)
         fanout_decisions(vault, writer, draft_rel, source_text=text, index_conn=index_conn)
@@ -271,6 +272,7 @@ def run_memory_pipeline(
         action=action,
         mode=mode,
         skeptic_approved=skeptic_approved,
+        entities_touched=entities_touched,
     )
 
 
@@ -890,15 +892,19 @@ def _create_entity_stubs(
     source_text: str,
     frequent_names: frozenset[str] | None = None,
     index_conn: Any | None = None,
-) -> None:
-    """Materialize entity stubs proposed by the writer."""
+) -> list[Path]:
+    """Materialize entity stubs proposed by the writer.
+
+    Returns paths for all entities processed (new or existing) so callers
+    can enqueue story-rewrite jobs for entities that received new material.
+    """
     from .primer_index import known_names as _primer_known_names
     from .primer_index import roster as _roster
     from .entity_kind import assign_kind
 
     entities = writer.get("entities_to_create") or []
     if not entities:
-        return
+        return []
     index = _load_entity_index(vault)
     primer_cast = _primer_known_names(vault)
     # Acceptance allowlist = primer cast + roster (known entities of ANY kind) +
@@ -910,6 +916,7 @@ def _create_entity_stubs(
         roster_names.update(_entry.aliases)
     allowlist = primer_cast | (frequent_names or frozenset()) | frozenset(roster_names)
     seen_in_pass: set[str] = set()
+    entities_touched_set: set[Path] = set()
     for entry in entities:
         if not isinstance(entry, dict):
             continue
@@ -950,6 +957,7 @@ def _create_entity_stubs(
         if existing is not None:
             _append_entity_alias(existing, name)
             index_created_record(vault, CreatedRecord(path=existing, created=True), index_conn)
+            entities_touched_set.add(existing)
             # Refresh the in-memory index so the next sibling in the same pass
             # also resolves to this canonical entity. Full-name key only —
             # surname tokens stay subject to the strict-token rule.
@@ -986,6 +994,7 @@ def _create_entity_stubs(
                 disambiguation=_entity_disambiguator_from_candidates(vault, name, subtype, index, summary, source_text),
             )
             index_created_record(vault, created, index_conn)
+            entities_touched_set.add(created.path)
             if nickname:
                 index.setdefault(nickname.lower(), {"path": created.path, "kind": "full", "canonical": name})
                 for token in nickname.split():
@@ -1010,6 +1019,7 @@ def _create_entity_stubs(
                 index[tkey] = {"path": created.path, "kind": "token", "canonical": name}
             elif existing_entry.get("path") != created.path and existing_entry.get("kind") == "token":
                 existing_entry["kind"] = "ambiguous"
+    return list(entities_touched_set)
 
 
 def _create_relationship_edges(

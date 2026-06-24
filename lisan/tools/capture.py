@@ -37,6 +37,9 @@ def capture_text(
         turn_id = f"capture.{time.strftime('%Y%m%d%H%M%S')}.{uuid.uuid4().hex[:8]}"
         trace, trace_token = start_turn_trace(turn_id, text, "capture", False)
         created_trace = True
+    # Drain pending entity story rewrites before pipeline so retrieval sees
+    # fresh entity narratives. Non-fatal: a failed drain never blocks capture.
+    _drain_entity_rewrite_jobs(vault=vault, db_path=db_path, provider=provider, model=model)
     try:
         result = run_memory_pipeline(
             vault=vault,
@@ -107,6 +110,34 @@ def capture_text(
                     queued_jobs.append({"job_type": job_type, "job_id": job_id})
                 except Exception:
                     continue
+            # Enqueue story-rewrite jobs for entities that received new material.
+            for entity_path in (result.entities_touched or []):
+                try:
+                    from ..frontmatter import load_markdown as _load_md
+                    entity_fm = _load_md(entity_path).frontmatter
+                    entity_id = str(entity_fm.get("id") or "").strip()
+                except Exception:
+                    entity_id = ""
+                rewrite_payload: dict[str, Any] = {
+                    "vault": str(vault),
+                    "entity_path": str(entity_path),
+                    "entity_id": entity_id or str(entity_path),
+                    "draft_path": str(result.draft_path or ""),
+                    "transcript_path": str(result.transcript_path),
+                    "conversation_id": conversation_id,
+                }
+                rewrite_payload = {k: v for k, v in rewrite_payload.items() if v not in (None, "")}
+                try:
+                    from .job_policy import priority_for_job_type as _prio
+                    job_id = enqueue_job(
+                        "entity.rewrite_story",
+                        rewrite_payload,
+                        priority=_prio("entity.rewrite_story"),
+                        db_path=db_path,
+                    )
+                    queued_jobs.append({"job_type": "entity.rewrite_story", "job_id": job_id})
+                except Exception:
+                    pass
             record_jobs_queued(len(queued_jobs))
             out["queued_jobs"] = queued_jobs
             # FIX C: drain the indexing/embedding jobs we just enqueued, in
@@ -131,6 +162,35 @@ def capture_text(
     finally:
         if created_trace:
             reset_current_turn_trace(trace_token)
+
+
+def _drain_entity_rewrite_jobs(
+    *,
+    vault: Path,
+    db_path: Path | None,
+    provider: str | None,
+    model: str | None,
+) -> dict[str, Any]:
+    """Drain pending entity story rewrite jobs before the pipeline runs.
+
+    Non-fatal: any error is silently swallowed. Returns quickly if there are
+    no pending jobs (just a cheap DB count query). This ensures entity stories
+    are current before retrieval, without blocking when there's nothing to do.
+    """
+    from .jobs import run_jobs_worker
+
+    try:
+        result = run_jobs_worker(
+            vault=vault,
+            db_path=db_path,
+            provider=provider,
+            model=model,
+            job_types={"entity.rewrite_story"},
+        )
+        count = result.get("processed_count", 0)
+        return {"drained": bool(count), "processed_count": count}
+    except Exception:
+        return {"drained": False, "reason": "error"}
 
 
 def _drain_index_jobs(

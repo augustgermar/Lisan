@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "entity_story_output",
+  "type": "object",
+  "required": ["narrative"],
+  "properties": {
+    "narrative": {
+      "type": "string",
+      "description": "Full narrative body for the entity record (third-person, arc-preserving, uses {{principal}} role token for the user)."
+    },
+    "arc_note": {
+      "type": "string",
+      "description": "1-2 sentences summarising what was added or changed relative to the prior story."
+    }
+  },
+  "additionalProperties": false
+}
