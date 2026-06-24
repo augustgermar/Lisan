@@ -6,7 +6,7 @@
     "id", "type", "created", "updated", "status", "significance",
     "domain_primary", "domain_secondary", "privacy", "summary", "links",
     "confidence", "confidence_basis", "last_confirmed", "review_after",
-    "subtype", "canonical_name", "aliases", "disambiguation",
+    "subtype", "canonical_name", "aliases", "nickname", "disambiguation",
     "epoch", "epoch_started", "previous_epochs"
   ],
   "properties": {
@@ -39,6 +39,7 @@
     "kind": {"type": "string", "description": "Entity kind (open set: person, pet, agent, organization, place, system, artifact, project, event, topic, account, thing, or any future kind). Mirrors subtype; thing is the honest fallback, person is never a default."},
     "canonical_name": {"type": "string"},
     "aliases": {"type": "array", "items": {"type": "string"}},
+    "nickname": {"type": ["string", "null"]},
     "disambiguation": {"type": "string"},
     "epoch": {"type": "integer"},
     "epoch_started": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},

@@ -496,6 +496,12 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
                 "INSERT OR IGNORE INTO entity_aliases (entity_id, alias, context) VALUES (?, ?, ?)",
                 (file_id, canonical, None),
             )
+        nickname = str(fm.get("nickname") or "").strip()
+        if nickname:
+            conn.execute(
+                "INSERT OR IGNORE INTO entity_aliases (entity_id, alias, context) VALUES (?, ?, ?)",
+                (file_id, nickname, "nickname"),
+            )
         for alias in fm.get("aliases", []) or []:
             conn.execute(
                 "INSERT OR IGNORE INTO entity_aliases (entity_id, alias, context) VALUES (?, ?, ?)",

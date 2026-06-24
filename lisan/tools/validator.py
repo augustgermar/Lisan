@@ -59,7 +59,7 @@ UNIVERSAL_REQUIRED = {
 }
 
 TYPE_FIELDS = {
-    "entity": {"subtype", "canonical_name", "aliases", "disambiguation", "epoch", "epoch_started", "previous_epochs"},
+    "entity": {"subtype", "canonical_name", "aliases", "nickname", "disambiguation", "epoch", "epoch_started", "previous_epochs"},
     "episode": {"entities", "evidence", "claims", "source"},
     "knowledge": set(),
     "artifact": {
