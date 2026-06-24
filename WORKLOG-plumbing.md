@@ -308,6 +308,12 @@ What I changed: Added a shared `resolve_reference()` helper for deterministic-pl
 Tests: `PYTHONPATH=/Users/august/Code/Lisan ~/.lisan/venv/bin/python -m pytest -q` -> 259 passed, 5 subtests passed, 0 failures. Also verified the same suite without `PYTHONPATH` after mirroring the changed files into `~/.lisan/repo`.
 Notes / gotchas: The local runtime copy under `~/.lisan/repo` was stale relative to the checkout, so I mirrored the changed files there for verification. The commit target remains `/Users/august/Code/Lisan/`; `tokencount.sh` is still unrelated and untouched.
 
+## [2026-06-23 20:29:00 PDT] Person gate: context-detect name-words instead of hard-rejecting calendar terms
+Status: DONE
+Files touched: lisan/tools/memory_pipeline.py, tests/test_entity_merge.py
+What I changed: Replaced the D2a hard-reject lists (MONTH_STOPWORDS, DAY_STOPWORDS, _PERSON_NOISE_NAMES) in the single-token person branch with a smaller, stable `_NEVER_PERSON_TOKENS` set (function words + platform/tool names only) and rely on `_has_person_role_context` for all other single tokens. This allows persons named Tuesday, January, August, Mercury, Summer, etc. to resolve correctly when structural context is present. Extended `_has_person_role_context` with three additional pattern families: name-as-agent ("January texted me"), I-act-name ("I met/saw January"), and social-with ("went out with January", "dinner with January", "a date with January"). Multi-token path updated to use `_NEVER_PERSON_TOKENS` instead of SENTENCE_INITIAL_OR_TOOL_STOPWORDS (which included DAY_STOPWORDS), so "Tuesday Smith" and "August Chen" now pass as valid person names. Deleted `_PERSON_NOISE_NAMES` and removed MONTH_STOPWORDS/DAY_STOPWORDS imports from `_looks_like_entity`. Added CalendarWordPersonTests class (9 tests) and updated PersonNoiseRejectTests (12 tests). One pre-existing test updated: "Friday Smith" is now correctly accepted as a valid person name.
+Tests: `PYTHONPATH=/Users/august/Code/Lisan python3 -m pytest -q` -> 296 passed, 5 subtests passed, 0 failures (15 new tests, 1 updated).
+
 ## [2026-06-23 20:05:58 PDT] Eval findings D1a, D1b, D2: nickname stopwords, user-handle priority, noise-person gate
 Status: DONE
 Files touched: lisan/tools/memory_pipeline.py, prompts/writer_episode_artifacts_v1.md, tests/test_entity_merge.py
