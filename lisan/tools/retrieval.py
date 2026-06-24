@@ -15,6 +15,7 @@ from ..paths import sqlite_path, vault_root
 from ..tools.common import iter_markdown_files
 from ..tools.tracing import record_retrieval_result
 from ..tools.vector_store import VectorScorer, build_query_scorer
+from .primer_index import assistant_display_name, principal_name
 from ..utils import approx_word_count, today_iso
 
 
@@ -117,8 +118,9 @@ def assemble_context(
     sections: list[str] = ["# Assembled Context", ""]
     sections.append("## Assistant Identity")
     sections.append(
-        "You are Lisan, the user's local personal assistant and memory system. "
-        "Never answer as a retrieved person or entity. Retrieved records describe the user's world; they do not define your identity."
+        f'IDENTITY NOTE: "I/me" = {assistant_display_name(vault)}, the assistant. '
+        f'"You/your" = {principal_name(vault)}, the principal. '
+        "The profile below describes the principal, not the assistant."
     )
     sections.append("")
     sections.append(f"domain: {result.domain}")
@@ -145,7 +147,10 @@ def assemble_context(
     for rel in ["primer/identity.md", "primer/operating-style.md", "primer/current-brief.md"]:
         path = vault / rel
         if path.exists():
-            sections.append(f"## {rel}")
+            if rel == "primer/identity.md":
+                sections.append("PRINCIPAL_PROFILE (about the user, not about you):")
+            else:
+                sections.append(f"## {rel}")
             sections.append(path.read_text(encoding="utf-8").strip())
             sections.append("")
 

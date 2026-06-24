@@ -3,12 +3,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Literal
-from .primer_index import principal_aliases, assistant_aliases
+from .primer_index import assistant_display_name, assistant_aliases, principal_aliases
 
 Audience = Literal["interlocutor", "substrate", "display"]
 # interlocutor -> conscious surface: {{principal}}->"you", {{self}}->"I"
-# substrate    -> writer/skeptic/dreamer world-model: {{principal}}->"the user", {{self}}->"Lisan"
-# display      -> human view (health, listings, Obsidian): {{principal}}->principal name, {{self}}->"Lisan"
+# substrate    -> writer/skeptic/dreamer world-model: {{principal}}->"the user", {{self}}->assistant display name
+# display      -> human view (health, listings, Obsidian): {{principal}}->principal name, {{self}}->assistant display name
 #
 # {{principal}} is the canonical token (it names the role, not the pronoun, which
 # is what lets the `audience` seam re-address it for the C-3PO trajectory).
@@ -39,7 +39,7 @@ def render_deixis(
     if audience == "interlocutor":
         u, s = "you", "I"
     elif audience == "substrate":
-        u, s = "the user", "Lisan"
+        u, s = "the user", assistant_display_name(vault) if vault is not None else "Lisan"
     else:  # display
         if principal_name:
             u = principal_name
@@ -48,7 +48,7 @@ def render_deixis(
             u = names[0] if names else "the user"
         else:
             u = "the user"
-        s = "Lisan"
+        s = assistant_display_name(vault) if vault is not None else "Lisan"
     text = _PRINCIPAL_TOK.sub(u, text)
     text = _SELF_TOK.sub(s, text)
     return text

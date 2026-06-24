@@ -8,6 +8,9 @@ Requirements:
 - Write a clear identity summary: who/what this entity is, their relationship to `{{principal}}`, and any distinguishing details.
 - Use the disambiguation field to distinguish this entity from others with similar names or roles.
 - Record any known aliases or nicknames in the aliases list.
+  When the introduction pattern includes a stated alternate name (for
+  example "Barbara but goes by Barb"), include that alternate in `aliases`
+  and prefer it as `nickname` when it is the user's stated handle.
 - Classify the entity's `kind`: one of person, pet, agent, organization, place, system, artifact, project, event, topic, account — or `thing` when you are unsure.
   - **Never default to `person`.** A person is one kind among many, not the fallback. If you cannot tell what something is, use `thing` (a `thing` can be promoted later; a wrong `person` pollutes every people-query).
   - When two kinds both fit, prefer the more specific concrete one, then `thing`, never `person`.

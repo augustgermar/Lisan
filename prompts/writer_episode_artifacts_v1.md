@@ -20,6 +20,12 @@ Requirements:
   the transcript or in the core's claims. Use the most complete name form
   available so the entity layer can dedupe (`Full Name`, not `First Name`,
   when both forms appear).
+  When the user introduces someone by name - especially with patterns like
+  "Her/His name is X", "X, who is my ...", "I met someone named X", or
+  "This is X" - always extract X as an entity. If the introduction includes
+  an alternate name ("goes by Y", "but everyone calls her Y", "aka Y"),
+  include the alternate in the entity stub's `aliases` and prefer it as the
+  stub's `nickname` when it is the user's stated handle.
 - Only create open loops the **user** must take action on. Other people's
   pending questions belong in claims and in the episode body, not in the
   user's loop list.

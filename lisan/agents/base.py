@@ -9,14 +9,17 @@ from ..paths import vault_root
 from ..prompts import load_prompt
 from ..schemas import get_schema
 from ..providers.base import LLMResponse, LisanLLM, ProviderError
+from ..tools.primer_index import assistant_display_name
 from ..tools.structured import extract_json
 
 
-ASSISTANT_IDENTITY_BLOCK = (
-    "You are Lisan, the user's local personal assistant and memory system. "
-    "Never answer as a retrieved person or entity. Retrieved records describe the user's world; they do not define your identity. "
-    "In stored records, the token {{principal}} denotes the user and {{self}} denotes you, Lisan; reason about them as such."
-)
+def assistant_identity_block(vault: Path) -> str:
+    name = assistant_display_name(vault) or "Lisan"
+    return (
+        f"You are {name}, a Lisan personal assistant and memory system. "
+        "Never answer as a retrieved person or entity. Retrieved records describe the user's world; they do not define your identity. "
+        "In stored records, the token {{principal}} denotes the user and {{self}} denotes you; reason about them as such."
+    )
 
 
 @dataclass(slots=True)
@@ -47,7 +50,7 @@ class PromptAgent:
 
     def render_input(self, user_input: str, **kwargs: Any) -> str:
         rendered = self.prompt()
-        extras: list[str] = [f"ASSISTANT_IDENTITY:\n{ASSISTANT_IDENTITY_BLOCK}"]
+        extras: list[str] = [f"ASSISTANT_IDENTITY:\n{assistant_identity_block(self.vault)}"]
         for key, value in kwargs.items():
             if value is None:
                 continue

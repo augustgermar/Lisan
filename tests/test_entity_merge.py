@@ -16,6 +16,7 @@ from lisan.tools.memory_pipeline import (
     _load_entity_index,
     _looks_like_entity,
     _match_existing_entity,
+    _has_person_role_context,
     _scan_user_stated_handle,
 )
 
@@ -423,6 +424,36 @@ class UserStatedHandleTests(unittest.TestCase):
             self.assertIn("Swole Mary", nicknames)
 
 
+class EntityIntroductionTests(unittest.TestCase):
+    """Introduction patterns should create the named entity and carry aliases forward."""
+
+    def test_barbara_but_goes_by_barb(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            source = "Her name is Barbara but goes by Barb."
+            writer_out = {
+                "entities_to_create": [
+                    {"name": "Barbara", "kind": "person", "aliases": ["Barb"], "summary": "Her name is Barbara but goes by Barb."},
+                ],
+            }
+            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text=source)
+            files = list((vault / "entities" / "people").glob("*.md"))
+            self.assertEqual(len(files), 1)
+            fm = load_markdown(files[0]).frontmatter
+            self.assertEqual(fm["canonical_name"], "Barbara")
+            self.assertEqual(fm["nickname"], "Barb")
+            self.assertIn("Barb", fm.get("aliases") or [])
+
+    def test_barb_resolves_to_barbara_via_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            _seed_entity(vault, "barbara", "Barbara", aliases=["Barb"], summary="Barbara goes by Barb.")
+            index = _load_entity_index(vault)
+            match = _match_existing_entity(vault, "Barb", "person", index, source_text="I asked Barb out.")
+            self.assertIsNotNone(match)
+            self.assertEqual(match.name, "barbara.md")
+
+
 class PersonNoiseRejectTests(unittest.TestCase):
     """Person gate: function words and apps are hard-rejected; calendar/common-word names
     are context-gated (person when role/social context present, otherwise not)."""
@@ -592,6 +623,53 @@ class CalendarWordPersonTests(unittest.TestCase):
             people_dir = vault / "entities" / "people"
             created = list(people_dir.glob("*.md")) if people_dir.exists() else []
             self.assertEqual(len(created), 1, "January should be created as a person with context")
+
+    def test_buddy_august_creates_person(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            source = "my buddy August said he would call back tomorrow."
+            writer_out = {
+                "entities_to_create": [
+                    {"name": "August", "kind": "person", "summary": "my buddy August said he would call back tomorrow."},
+                ],
+            }
+            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text=source)
+            people_dir = vault / "entities" / "people"
+            created = list(people_dir.glob("*.md")) if people_dir.exists() else []
+            self.assertEqual(len(created), 1, "August should be created as a person when buddy context is present")
+
+    def test_ships_in_august_still_does_not_create_person(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            source = "Ships in August."
+            writer_out = {
+                "entities_to_create": [
+                    {"name": "August", "kind": "person", "summary": "Ships in August."},
+                ],
+            }
+            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text=source)
+            people_dir = vault / "entities" / "people"
+            created = list(people_dir.glob("*.md")) if people_dir.exists() else []
+            self.assertEqual(created, [], "August should not be created as a person without role context")
+
+    def test_monday_check_in_still_does_not_create_person(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            source = "Monday check-in is on the calendar."
+            writer_out = {
+                "entities_to_create": [
+                    {"name": "Monday Check-in", "kind": "person", "summary": "Monday check-in is on the calendar."},
+                ],
+            }
+            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text=source)
+            people_dir = vault / "entities" / "people"
+            created = list(people_dir.glob("*.md")) if people_dir.exists() else []
+            self.assertEqual(created, [], "Monday check-in should not be created as a person")
+
+    def test_multi_word_event_and_place_phrases_rejected_as_person(self) -> None:
+        empty = frozenset()
+        self.assertFalse(_looks_like_entity("Dinner Saturday", "person", empty, "Dinner Saturday at Maple & Ash"))
+        self.assertFalse(_looks_like_entity("West Loop", "person", empty, "Met her in the West Loop"))
 
 
 if __name__ == "__main__":

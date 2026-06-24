@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lisan.tools.primer_index import known_names, name_in_text
+from lisan.tools.primer_index import assistant_display_name, assistant_name, known_names, name_in_text, principal_name
 
 
 class PrimerIndexTests(unittest.TestCase):
@@ -74,6 +74,32 @@ class PrimerIndexTests(unittest.TestCase):
             second = known_names(vault)
             self.assertIn("Bob", second)
             self.assertNotIn("Maya", second)
+
+    def test_identity_core_helpers_read_canonical_and_display_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            (vault / "primer").mkdir()
+            (vault / "primer" / "identity-core.md").write_text(
+                """---
+principal:
+  name: "August Morgan"
+  aliases: ["August"]
+assistant:
+  name: "Dabiku"
+  canonical_name: "Dabiku"
+  nickname: "Ace"
+  aliases: ["Dabiku", "Ace"]
+deixis_frame: |
+  I / me / Ace = the assistant.
+  you / your = August Morgan, the principal.
+roster: []
+---
+""",
+                encoding="utf-8",
+            )
+            self.assertEqual(principal_name(vault), "August Morgan")
+            self.assertEqual(assistant_name(vault), "Dabiku")
+            self.assertEqual(assistant_display_name(vault), "Ace")
 
 
 class NameInTextTests(unittest.TestCase):

@@ -39,6 +39,8 @@ def capture_text(
         created_trace = True
     # Drain pending entity story rewrites before pipeline so retrieval sees
     # fresh entity narratives. Non-fatal: a failed drain never blocks capture.
+    # TODO: consider capping drain depth if multi-entity turns consistently
+    # exceed latency budget.
     _drain_entity_rewrite_jobs(vault=vault, db_path=db_path, provider=provider, model=model)
     try:
         result = run_memory_pipeline(

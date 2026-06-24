@@ -98,6 +98,8 @@ def _unquote(value: str) -> str:
 
 def _parse_scalar(value: str):
     value = value.strip()
+    if value.lower() == "null":
+        return None
     if value.startswith("[") and value.endswith("]"):
         inner = value[1:-1].strip()
         if not inner:
@@ -214,6 +216,21 @@ def _fallback_principal_name(vault: Path) -> str | None:
     return match.group(1) if match else None
 
 
+def principal_name(vault: Path) -> str:
+    """The principal's full display name, e.g. ``August Morgan``."""
+    core = _identity_core(vault)
+    principal = core.get("principal") if isinstance(core, dict) else None
+    if isinstance(principal, dict):
+        name = str(principal.get("name") or "").strip()
+        if name:
+            return name
+        aliases = principal.get("aliases") or []
+        if aliases:
+            return str(aliases[0]).strip()
+    fallback = _fallback_principal_name(vault)
+    return fallback or "the user"
+
+
 def principal_aliases(vault: Path) -> frozenset[str]:
     """Name tokens that mean "you" (the principal). Drives owner/deixis resolution.
 
@@ -254,10 +271,13 @@ def principal_display_name(vault: Path) -> str:
 
 
 def assistant_name(vault: Path) -> str:
-    """The assistant's name (default ``Lisan``)."""
+    """The assistant's canonical name (default ``Lisan``)."""
     core = _identity_core(vault)
     assistant = core.get("assistant") if isinstance(core, dict) else None
     if isinstance(assistant, dict):
+        canonical = str(assistant.get("canonical_name") or "").strip()
+        if canonical:
+            return canonical
         if assistant.get("name"):
             return str(assistant["name"]).strip()
         aliases = assistant.get("aliases") or []
@@ -266,17 +286,66 @@ def assistant_name(vault: Path) -> str:
     return "Lisan"
 
 
+def assistant_display_name(vault: Path) -> str:
+    """The assistant's user-facing name, preferring any stored nickname."""
+    core = _identity_core(vault)
+    assistant = core.get("assistant") if isinstance(core, dict) else None
+    if isinstance(assistant, dict):
+        nickname = str(assistant.get("nickname") or "").strip()
+        if nickname:
+            return nickname
+        name = str(assistant.get("name") or assistant.get("canonical_name") or "").strip()
+        if name:
+            return name
+        aliases = assistant.get("aliases") or []
+        if aliases:
+            return str(aliases[0]).strip()
+    return assistant_name(vault)
+
+
+def assistant_nickname(vault: Path) -> str | None:
+    """Return the assistant nickname if one exists."""
+    core = _identity_core(vault)
+    assistant = core.get("assistant") if isinstance(core, dict) else None
+    if isinstance(assistant, dict):
+        nickname = str(assistant.get("nickname") or "").strip()
+        return nickname or None
+    return None
+
+
+def assistant_hash(vault: Path) -> str | None:
+    """Return the assistant's stored SHA-256 digest, if present."""
+    core = _identity_core(vault)
+    assistant = core.get("assistant") if isinstance(core, dict) else None
+    if isinstance(assistant, dict):
+        digest = str(assistant.get("hash") or "").strip()
+        return digest or None
+    return None
+
+
+def assistant_seed(vault: Path) -> str | None:
+    """Return the assistant's stored seed, if present."""
+    core = _identity_core(vault)
+    assistant = core.get("assistant") if isinstance(core, dict) else None
+    if isinstance(assistant, dict):
+        seed = str(assistant.get("seed") or "").strip()
+        return seed or None
+    return None
+
+
 def assistant_aliases(vault: Path) -> frozenset[str]:
     """Name tokens that mean the assistant. Defaults to ``{assistant_name}``."""
     core = _identity_core(vault)
     assistant = core.get("assistant") if isinstance(core, dict) else None
     result: set[str] = set()
     if isinstance(assistant, dict):
+        for key in ("name", "canonical_name", "nickname"):
+            value = assistant.get(key)
+            if value and str(value).strip():
+                result.add(str(value).strip())
         for alias in assistant.get("aliases") or []:
             if alias and str(alias).strip():
                 result.add(str(alias).strip())
-        if assistant.get("name"):
-            result.add(str(assistant["name"]).strip())
     if result:
         return frozenset(result)
     return frozenset({assistant_name(vault)})
@@ -288,10 +357,12 @@ def deixis_frame(vault: Path) -> str:
     frame = core.get("deixis_frame") if isinstance(core, dict) else None
     if frame and str(frame).strip():
         return str(frame).strip()
-    name = principal_display_name(vault)
+    name = principal_name(vault)
     who = name if name and name != "the user" else "the principal"
+    assistant = assistant_display_name(vault)
+    assistant = assistant if assistant and assistant != "Lisan" else "Lisan"
     return (
-        "I / me / Lisan = the assistant (software; no body, no family of its own).\n"
+        f"I / me / {assistant} = the assistant (software; no body, no family of its own).\n"
         f"you / your = {who}, the principal. Every stored record describes you.\n"
         "all other names = third parties; refer to them by name."
     )
