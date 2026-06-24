@@ -9,12 +9,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from lisan.frontmatter import dump_markdown
+from lisan.frontmatter import dump_markdown, load_markdown
 from lisan.tools.memory_pipeline import (
     _create_entity_stubs,
+    _entity_nickname,
     _load_entity_index,
     _looks_like_entity,
     _match_existing_entity,
+    _scan_user_stated_handle,
 )
 
 
@@ -308,6 +310,165 @@ class CreateEntityStubsTests(unittest.TestCase):
             # Only the real person survives; no principal/self token residue.
             self.assertEqual(slugs, ["marcus-delgado"], f"unexpected entities: {slugs}")
             self.assertFalse((vault / "entities" / "events" / "principal.md").exists())
+
+    def test_same_first_name_collision_assigns_unique_characteristic_nicknames(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            writer_out = {
+                "entities_to_create": [
+                    {"name": "Matt Fidler", "subtype": "person", "summary": "Matt Fidler records music at the studio."},
+                    {"name": "Matt Forester", "subtype": "person", "summary": "Matt Forester handles the budget and quarterly planning."},
+                ],
+            }
+            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text="")
+            files = sorted((vault / "entities" / "people").glob("*.md"))
+            self.assertEqual(len(files), 2)
+            frontmatters = [load_markdown(path).frontmatter for path in files]
+            nicknames = [str(fm.get("nickname") or "").strip() for fm in frontmatters]
+            self.assertTrue(all(nicknames))
+            self.assertEqual(len(set(nicknames)), 2)
+            self.assertTrue(all(not nickname[-1].isdigit() for nickname in nicknames))
+            self.assertTrue(any("studio" in nickname.lower() or "music" in nickname.lower() for nickname in nicknames))
+            self.assertTrue(any("budget" in nickname.lower() or "planning" in nickname.lower() for nickname in nicknames))
+            self.assertEqual({fm["canonical_name"] for fm in frontmatters}, {"Matt Fidler", "Matt Forester"})
+            self.assertTrue(all("nickname" in fm for fm in frontmatters))
+
+
+class NicknameStopwordsTests(unittest.TestCase):
+    """D1a: deixis role tokens must never appear as nickname roots."""
+
+    def test_principal_token_not_in_nickname(self) -> None:
+        # summary contains "{{principal}}" → regex strips braces → "principal"
+        # which must be in _NICKNAME_STOPWORDS so it's never used as a root
+        name = "Mary Kowalczyk"
+        summary = "{{principal}} met Mary Kowalczyk through a mutual friend."
+        # Two Marys needed to trigger collision → nickname generation
+        existing = {"mary-kowalczyk"}
+        nickname = _entity_nickname(name, summary=summary, source_text=summary, existing_handles=existing)
+        if nickname:
+            self.assertNotIn("Principal", nickname, "deixis token leaked into nickname root")
+
+    def test_self_token_not_in_nickname(self) -> None:
+        summary = "{{self}} recorded notes about Mary Flannery after {{principal}} described her."
+        existing = {"mary-flannery"}
+        nickname = _entity_nickname("Mary Flannery", summary=summary, source_text=summary, existing_handles=existing)
+        if nickname:
+            self.assertNotIn("Self", nickname)
+            self.assertNotIn("User", nickname)
+
+
+class UserStatedHandleTests(unittest.TestCase):
+    """D1b: user-declared nicknames take priority over system-coined ones."""
+
+    def test_scan_detects_i_call_her_pattern(self) -> None:
+        text = "Went on a second date with Mary. I call her Old Fashioned because she always orders one."
+        handle = _scan_user_stated_handle("Mary Kowalczyk", text, set())
+        self.assertEqual(handle, "Old Fashioned")
+
+    def test_scan_detects_been_calling_pattern(self) -> None:
+        text = "Mary Flannery is intense at the gym. I've been calling her Swole Mary."
+        handle = _scan_user_stated_handle("Mary Flannery", text, set())
+        self.assertEqual(handle, "Swole Mary")
+
+    def test_scan_detects_goes_by_pattern(self) -> None:
+        text = "Met Mary McGrath tonight. She goes by Mystic Mary — does tarot readings."
+        handle = _scan_user_stated_handle("Mary McGrath", text, set())
+        self.assertEqual(handle, "Mystic Mary")
+
+    def test_scan_returns_none_when_no_pattern(self) -> None:
+        text = "Had coffee with Mary. She seems nice."
+        handle = _scan_user_stated_handle("Mary Smith", text, set())
+        self.assertIsNone(handle)
+
+    def test_scan_skips_taken_handle(self) -> None:
+        text = "I call her Old Fashioned."
+        handle = _scan_user_stated_handle("Mary Kowalczyk", text, {"old fashioned"})
+        self.assertIsNone(handle)
+
+    def test_entity_nickname_prefers_user_handle_over_hint(self) -> None:
+        # "gym" is in _NICKNAME_HINTS → would generate "GymMary" without D1b fix
+        text = "Mary Flannery hits the gym every day. I've been calling her Swole Mary."
+        existing = {"mary-flannery"}
+        nickname = _entity_nickname("Mary Flannery", summary="goes to gym regularly", source_text=text, existing_handles=existing)
+        self.assertEqual(nickname, "Swole Mary")
+
+    def test_nickname_collision_via_vault(self) -> None:
+        """End-to-end: user-stated handle lands on entity file when there's a collision."""
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            source = (
+                "Mary Kowalczyk and I grabbed drinks. I call her Old Fashioned. "
+                "Also saw Mary Flannery at the gym. I've been calling her Swole Mary."
+            )
+            writer_out = {
+                "entities_to_create": [
+                    {"name": "Mary Kowalczyk", "subtype": "person",
+                     "summary": "Mary Kowalczyk, met for drinks."},
+                    {"name": "Mary Flannery", "subtype": "person",
+                     "summary": "Mary Flannery, goes to the gym."},
+                ],
+            }
+            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text=source)
+            files = list((vault / "entities" / "people").glob("*.md"))
+            self.assertEqual(len(files), 2)
+            nicknames = {
+                str(load_markdown(p).frontmatter.get("nickname") or "").strip()
+                for p in files
+            }
+            self.assertIn("Old Fashioned", nicknames)
+            self.assertIn("Swole Mary", nicknames)
+
+
+class PersonNoiseRejectTests(unittest.TestCase):
+    """D2a: noise tokens (day names, apps, astrological terms) must never become persons."""
+
+    def test_day_name_rejected_with_source_text(self) -> None:
+        # Previously only rejected for empty source_text; now structural
+        source = "Going out Saturday. My friend Tuesday recommended the place."
+        empty = frozenset()
+        self.assertFalse(_looks_like_entity("Tuesday", "person", empty, source))
+        self.assertFalse(_looks_like_entity("Saturday", "person", empty, source))
+
+    def test_dating_app_rejected_as_person(self) -> None:
+        empty = frozenset()
+        self.assertFalse(_looks_like_entity("Bumble", "person", empty, "Met her on Bumble."))
+        self.assertFalse(_looks_like_entity("Hinge", "person", empty, "Matched on Hinge."))
+        self.assertFalse(_looks_like_entity("Tinder", "person", empty, "Swiped on Tinder."))
+
+    def test_astrological_term_rejected_as_person(self) -> None:
+        empty = frozenset()
+        self.assertFalse(_looks_like_entity("Mercury", "person", empty,
+                                            "Mercury retrograde is messing with everything."))
+
+    def test_noise_tokens_still_allowed_as_other_kinds(self) -> None:
+        empty = frozenset()
+        # Bumble as organization, Mercury as thing — non-person path is permissive
+        self.assertTrue(_looks_like_entity("Bumble", "organization", empty, ""))
+        self.assertTrue(_looks_like_entity("Mercury", "thing", empty, ""))
+
+    def test_primer_known_name_bypasses_noise_check(self) -> None:
+        primer = frozenset({"Mercury"})
+        self.assertTrue(_looks_like_entity("Mercury", "person", primer, ""))
+
+    def test_noise_entities_not_created_in_vault(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            _seed_primer(vault, "# Identity\n\nDanny Callahan, structural engineer.\n")
+            source = (
+                "Mercury retrograde is wrecking my week. "
+                "Going out Tuesday. Met someone on Bumble."
+            )
+            writer_out = {
+                "entities_to_create": [
+                    {"name": "Mercury", "kind": "person", "summary": "Mercury retrograde mentioned."},
+                    {"name": "Tuesday", "kind": "person", "summary": "Tuesday mentioned."},
+                    {"name": "Bumble", "kind": "person", "summary": "Dating app."},
+                ],
+            }
+            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text=source)
+            people_dir = vault / "entities" / "people"
+            created = list(people_dir.glob("*.md")) if people_dir.exists() else []
+            self.assertEqual(created, [], f"Noise entities should not be created: {[p.stem for p in created]}")
 
 
 if __name__ == "__main__":

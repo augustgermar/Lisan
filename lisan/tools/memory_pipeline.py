@@ -957,6 +957,24 @@ def _create_entity_stubs(
                              {"path": existing, "kind": "full", "canonical": name})
             continue
         try:
+            same_first_records = []
+            nickname = None
+            if subtype == "person":
+                same_first_records = _same_first_name_records(vault, name, subtype, index)
+                if same_first_records:
+                    assigned_nicknames = _ensure_nicknames_for_collision(vault, same_first_records, source_text=source_text)
+                    existing_handles = {
+                        str(value).strip().lower()
+                        for _, fm, _ in same_first_records
+                        for value in _entity_identity_names(fm)
+                    }
+                    existing_handles.update(str(nickname).strip().lower() for nickname in assigned_nicknames.values())
+                    nickname = _entity_nickname(
+                        name,
+                        summary=summary,
+                        source_text=source_text,
+                        existing_handles=existing_handles,
+                    )
             created = new_entity(
                 vault=vault,
                 name=name,
@@ -964,9 +982,19 @@ def _create_entity_stubs(
                 summary=summary or f"{name} mentioned in conversation.",
                 confidence="low",
                 confidence_basis=basis_or_default(entry, "Auto-extracted from conversation"),
+                nickname=nickname,
                 disambiguation=_entity_disambiguator_from_candidates(vault, name, subtype, index, summary, source_text),
             )
             index_created_record(vault, created, index_conn)
+            if nickname:
+                index.setdefault(nickname.lower(), {"path": created.path, "kind": "full", "canonical": name})
+                for token in nickname.split():
+                    tkey = token.lower()
+                    existing_entry = index.get(tkey)
+                    if existing_entry is None:
+                        index[tkey] = {"path": created.path, "kind": "token", "canonical": name}
+                    elif existing_entry.get("path") != created.path and existing_entry.get("kind") == "token":
+                        existing_entry["kind"] = "ambiguous"
         except FileExistsError:
             continue
         # Finding #5: when seeding the index after a creation, register only
@@ -1109,6 +1137,18 @@ _PERSON_TITLES: frozenset[str] = frozenset({
     "sgt", "cpl", "cpt", "capt", "lt", "col", "gen", "adm",
 })
 
+# D2a: single-token terms that are never a person's first name, scoped to the
+# person branch only so organizations/places named Bumble or Mercury still work.
+# Primer-known names bypass this set via the `name in primer_cast` early-return.
+_PERSON_NOISE_NAMES: frozenset[str] = frozenset({
+    # Dating / social apps
+    "Bumble", "Hinge", "Tinder", "OkCupid",
+    # Astronomical / astrological tokens
+    "Mercury", "Retrograde",
+    "Aries", "Taurus", "Virgo", "Libra", "Scorpio", "Sagittarius",
+    "Capricorn", "Aquarius", "Pisces",
+})
+
 # Relationship/role words that, when found near a first name, confirm the
 # name refers to a real person even though it is a single token.
 _RELATIONSHIP_WORDS: frozenset[str] = frozenset({
@@ -1173,6 +1213,14 @@ def _looks_like_entity(name: str, subtype: str, primer_cast: frozenset[str], sou
             return True
 
         if len(tokens) < 2:
+            # D2a: structural reject before role-context test — these tokens can
+            # never be person names even if source text has an accidental match.
+            if name in SENTENCE_INITIAL_OR_TOOL_STOPWORDS:
+                return False
+            if name in MONTH_STOPWORDS and name not in primer_cast:
+                return False
+            if name in _PERSON_NOISE_NAMES and name not in primer_cast:
+                return False
             # Single first-name: accept only when role context is present in the
             # source text ("my son Theo", "my colleague Marcus").
             return _has_person_role_context(name, source_text)
@@ -1215,8 +1263,9 @@ def _load_entity_index(vault: Path) -> dict[str, dict[str, Any]]:
         except Exception:
             continue
         canonical = str(doc.frontmatter.get("canonical_name") or "").strip()
+        nickname = str(doc.frontmatter.get("nickname") or "").strip()
         aliases = doc.frontmatter.get("aliases") or []
-        names = [canonical] + [str(a) for a in aliases if isinstance(a, str)]
+        names = [canonical, nickname] + [str(a) for a in aliases if isinstance(a, str)]
         for name in names:
             if not name:
                 continue
@@ -1303,6 +1352,239 @@ def _entity_disambiguator(name: str, summary: str, source_text: str) -> str | No
     return tokens[0] if tokens else None
 
 
+_NICKNAME_HINTS: list[tuple[str, str]] = [
+    ("guitar", "Guitar"),
+    ("studio", "Studio"),
+    ("music", "Music"),
+    ("accountant", "Accountant"),
+    ("budget", "Budget"),
+    ("tax", "Tax"),
+    ("lunch", "Lunch"),
+    ("office", "Office"),
+    ("gym", "Gym"),
+    ("meeting", "Meeting"),
+    ("project", "Project"),
+    ("family", "Family"),
+    ("work", "Work"),
+    ("coffee", "Coffee"),
+    ("school", "School"),
+    ("clinic", "Clinic"),
+    ("therapy", "Therapy"),
+]
+
+_NICKNAME_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "been", "being", "by", "for", "from",
+    "had", "has", "have", "he", "her", "his", "i", "in", "into", "is", "it", "its",
+    "me", "my", "of", "on", "or", "our", "she", "that", "the", "their", "them", "there",
+    "they", "this", "to", "was", "we", "with", "you", "your", "who", "what", "when",
+    "where", "why", "how", "record", "records", "handle", "handles", "working", "works",
+    "said", "says", "say", "doing", "do", "did", "done", "directly", "named",
+    # D1a: deixis role tokens — strip {{principal}} → "principal" etc. from roots
+    "principal", "self", "user",
+}
+
+
+def _pascalize_token(token: str) -> str:
+    parts = [part for part in re.split(r"[-_ ]+", str(token).strip()) if part]
+    return "".join(part[:1].upper() + part[1:].lower() for part in parts)
+
+
+def _entity_first_token(name: str) -> str:
+    token = str(name or "").strip().split()[0] if str(name or "").strip() else ""
+    return token.lower()
+
+
+def _entity_name_roots(*values: str) -> list[str]:
+    combined = " ".join(str(value or "") for value in values).strip().lower()
+    roots: list[str] = []
+    seen: set[str] = set()
+    for needle, label in _NICKNAME_HINTS:
+        if needle in combined and label not in seen:
+            seen.add(label)
+            roots.append(label)
+    for token in re.findall(r"[a-z0-9][a-z0-9_-]+", combined):
+        if len(token) <= 3 or token in _NICKNAME_STOPWORDS:
+            continue
+        root = _pascalize_token(token)
+        if root and root not in seen:
+            seen.add(root)
+            roots.append(root)
+    if not roots:
+        roots.extend(["Context", "Signal", "Thread", "Marker"])
+    return roots
+
+
+# D1b: prefix patterns that mark the start of a user-stated handle declaration.
+# Case-insensitive for the trigger phrase; the nickname itself is extracted from
+# the text *after* the match end using _CAPITALIZED_WORDS (case-sensitive anchor)
+# so trailing lowercase clause words ("because", "so", ...) are never captured.
+_USER_HANDLE_PREFIXES: list[re.Pattern[str]] = [
+    # "I call her …", "we've been calling him …"
+    re.compile(r"(?i)(?:i|we)(?:'ve)?\s+(?:been\s+)?call(?:ed|ing)?\s+(?:her|him|them|it)\s+"),
+    # "goes by …"
+    re.compile(r"(?i)goes\s+by\s+"),
+    # "(her/his/their/my) nickname is …"
+    re.compile(r"(?i)(?:her|his|their|my)?\s*nickname\s+(?:is|was)\s+"),
+    # "aka …"
+    re.compile(r"(?i)\baka\b\s+"),
+    # "also known as …"
+    re.compile(r"(?i)also\s+known\s+as\s+"),
+]
+
+# Extracts 1-4 consecutive Title-Cased words from the start of a string.
+_CAPITALIZED_WORDS: re.Pattern[str] = re.compile(
+    r"[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*){0,3}"
+)
+
+_HANDLE_WINDOW = 400  # chars: how close a stated handle must be to the person's first name
+
+
+def _scan_user_stated_handle(
+    name: str,
+    source_text: str,
+    existing_handles: set[str],
+) -> str | None:
+    """Return the first user-stated nickname for *name* found near it in *source_text*.
+
+    Searches for Tier-1 explicit declaration patterns ("I call her X",
+    "goes by X", "aka X") within _HANDLE_WINDOW characters of any occurrence
+    of the person's first name. Returns the handle verbatim (as the user wrote
+    it) if it's not already taken by another entity.
+    """
+    if not source_text:
+        return None
+    first = _entity_first_token(name)
+    if not first:
+        return None
+    text_lower = source_text.lower()
+    first_positions = [
+        m.start()
+        for m in re.finditer(r"\b" + re.escape(first) + r"\b", text_lower)
+    ]
+    if not first_positions:
+        return None
+    for prefix_pat in _USER_HANDLE_PREFIXES:
+        for m in prefix_pat.finditer(source_text):
+            # Extract capitalized-word run starting at the end of the trigger phrase.
+            cap = _CAPITALIZED_WORDS.match(source_text, m.end())
+            if not cap:
+                continue
+            raw = cap.group(0).strip()
+            if not raw:
+                continue
+            if not any(abs(m.start() - pos) <= _HANDLE_WINDOW for pos in first_positions):
+                continue
+            if raw.lower() not in existing_handles:
+                return raw
+    return None
+
+
+def _entity_nickname(
+    name: str,
+    *,
+    summary: str = "",
+    source_text: str = "",
+    existing_handles: set[str] | None = None,
+) -> str | None:
+    first = _pascalize_token(_entity_first_token(name))
+    if not first:
+        return None
+    handles = {str(item).strip().lower() for item in (existing_handles or set()) if str(item).strip()}
+    # D1b Tier 1: user-stated handle wins over any system-coined nickname.
+    user_handle = _scan_user_stated_handle(name, source_text, handles)
+    if user_handle:
+        return user_handle
+    for root in _entity_name_roots(summary, source_text):
+        nickname = f"{root}{first}"
+        if nickname.lower() not in handles:
+            return nickname
+    return None
+
+
+def _entity_identity_names(fm: dict[str, Any]) -> list[str]:
+    values: list[str] = []
+    for field in ("canonical_name", "nickname", "disambiguation"):
+        value = str(fm.get(field) or "").strip()
+        if value:
+            values.append(value)
+    values.extend(str(alias).strip() for alias in listify(fm.get("aliases")))
+    return [value for value in values if value]
+
+
+def _same_first_name_records(
+    vault: Path,
+    name: str,
+    subtype: str,
+    index: dict[str, dict[str, Any]],
+) -> list[tuple[Path, dict[str, Any], str]]:
+    first = _entity_first_token(name)
+    if not first:
+        return []
+    records: list[tuple[Path, dict[str, Any], str]] = []
+    seen: set[Path] = set()
+    for entry in index.values():
+        path = entry.get("path")
+        if not isinstance(path, Path) or path in seen:
+            continue
+        if _entity_subtype(path) != subtype:
+            continue
+        try:
+            doc = load_markdown(path)
+        except Exception:
+            continue
+        fm = dict(doc.frontmatter)
+        names = _entity_identity_names(fm)
+        if not any(_entity_first_token(value) == first for value in names):
+            continue
+        seen.add(path)
+        records.append((path, fm, doc.body))
+    return records
+
+
+def _assign_entity_nickname(
+    path: Path,
+    nickname: str,
+) -> None:
+    try:
+        doc = load_markdown(path)
+    except Exception:
+        return
+    fm = dict(doc.frontmatter)
+    if str(fm.get("nickname") or "").strip() == nickname:
+        return
+    fm["nickname"] = nickname
+    fm["updated"] = today_iso()
+    write_markdown(path, fm, doc.body)
+
+
+def _ensure_nicknames_for_collision(
+    vault: Path,
+    records: list[tuple[Path, dict[str, Any], str]],
+    *,
+    source_text: str = "",
+) -> dict[Path, str]:
+    assigned: dict[Path, str] = {}
+    existing_handles: set[str] = set()
+    for _, fm, _ in records:
+        existing_handles.update(str(value).strip().lower() for value in _entity_identity_names(fm))
+    for path, fm, body in sorted(records, key=lambda item: str(item[0])):
+        if str(fm.get("nickname") or "").strip():
+            existing_handles.add(str(fm.get("nickname") or "").strip().lower())
+            continue
+        nickname = _entity_nickname(
+            str(fm.get("canonical_name") or fm.get("id") or path.stem),
+            summary=str(fm.get("summary") or body or ""),
+            source_text=source_text or body,
+            existing_handles=existing_handles,
+        )
+        if not nickname:
+            continue
+        _assign_entity_nickname(path, nickname)
+        assigned[path] = nickname
+        existing_handles.add(nickname.lower())
+    return assigned
+
+
 def _entity_disambiguator_from_candidates(
     vault: Path,
     name: str,
@@ -1363,6 +1645,22 @@ def _match_existing_entity(
                 return path
         return None
 
+    for entry in index.values():
+        path = entry.get("path")
+        if not isinstance(path, Path):
+            continue
+        if _entity_subtype(path) != subtype:
+            continue
+        try:
+            doc = load_markdown(path)
+        except Exception:
+            continue
+        candidate = dict(doc.frontmatter)
+        candidate["path"] = path
+        candidate["body"] = doc.body
+        if _candidate_has_surname_conflict(name, candidate):
+            return None
+
     # Multi-word proposal: tally per-target token hits.
     hits: dict[Path, int] = {}
     for tok in tokens:
@@ -1399,6 +1697,32 @@ def _entity_subtype(path: Path) -> str:
         return str(load_markdown(path).frontmatter.get("subtype") or "")
     except Exception:
         return ""
+
+
+def _entity_name_tokens(name: str) -> list[str]:
+    return [token.lower() for token in str(name or "").split() if token]
+
+
+def _candidate_has_surname_conflict(name: str, candidate: dict[str, Any]) -> bool:
+    proposal_tokens = _entity_name_tokens(name)
+    if len(proposal_tokens) < 2:
+        return False
+    proposal_surname = proposal_tokens[-1]
+    identity_haystack = " ".join(
+        str(candidate.get(field) or "").strip()
+        for field in ("canonical_name", "nickname", "disambiguation", "summary")
+    ).lower()
+    identity_names = _entity_identity_names(candidate)
+    candidate_surnames = {
+        tokens[-1]
+        for tokens in (_entity_name_tokens(value) for value in identity_names)
+        if len(tokens) >= 2
+    }
+    if proposal_surname in candidate_surnames:
+        return False
+    if candidate_surnames:
+        return True
+    return proposal_surname not in identity_haystack
 
 
 def _append_entity_alias(path: Path, alias: str) -> None:
