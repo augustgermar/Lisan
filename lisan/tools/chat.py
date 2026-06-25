@@ -14,6 +14,7 @@ from typing import Any
 
 from ..config import load_config
 from ..paths import sqlite_path, vault_root
+from ..tools.primer_index import assistant_name as _assistant_name
 from ..utils import today_iso
 from .chat_turns import classify_turn
 from .conversation_policy import assess_conversation_turn
@@ -162,7 +163,8 @@ def run_chat(
         run_onboarding(vault)
 
     conv_id = conversation_id or today_iso()
-    _print_header(__version__, conv_id)
+    agent_name = _assistant_name(vault)
+    _print_header(__version__, conv_id, agent_name)
 
     if not ready:
         print(
@@ -256,7 +258,7 @@ def run_chat(
         if response:
             if turn_result.get("provider_failure"):
                 print()
-                print(_c("Lisan: ", CYAN) + response)
+                print(_c(f"{agent_name}: ", CYAN) + response)
                 print()
             elif turn_result.get("route") == "advice":
                 advice_context_active = True
@@ -269,7 +271,7 @@ def run_chat(
                 if turn_result.get("route") != "advice":
                     advice_topic = None
             print()
-            print(_c("Lisan: ", CYAN) + response)
+            print(_c(f"{agent_name}: ", CYAN) + response)
             print()
         else:
             advice_context_active = False
@@ -301,7 +303,7 @@ def _process_chat_turn(
 ) -> dict[str, Any]:
     from .capture import capture_text
 
-    classification = classify_turn(text)
+    classification = classify_turn(text, vault=vault)
     lowered = text.lower().strip()
     content_text = text
     if lowered.startswith("/remember "):
@@ -347,7 +349,8 @@ def _process_chat_turn(
                     model=model,
                     history=advice_history,
                     conversation_policy=policy,
-                )
+                ),
+                agent_name=_assistant_name(vault),
             )
             result["response"] = response
             result["topic"] = policy.topic
@@ -375,7 +378,8 @@ def _process_chat_turn(
                 model=model,
                 conversation_policy=effective_policy,
                 db_path=db_path,
-            )
+            ),
+            agent_name=_assistant_name(vault),
         )
         result["queued_jobs"] = response_bundle.get("queued_jobs") or []
         record_jobs_queued(len(result["queued_jobs"]))
@@ -433,8 +437,9 @@ def _render_response(result: dict[str, Any], vault: Path | None = None, conversa
     if response_text:
         if vault and conversation_id:
             append_transcript(vault=vault, conversation_id=conversation_id, speaker="LISAN", text=response_text)
+        agent_name = _assistant_name(vault) if vault else "Lisan"
         print()
-        print(_c("Lisan: ", CYAN) + response_text)
+        print(_c(f"{agent_name}: ", CYAN) + response_text)
         print()
     elif result.get("mode", "skip") not in ("skip",):
         # Fallback dot for extraction when interlocutor produced nothing.
@@ -444,10 +449,10 @@ def _render_response(result: dict[str, Any], vault: Path | None = None, conversa
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _print_header(version: str, conv_id: str) -> None:
+def _print_header(version: str, conv_id: str, agent_name: str = "Lisan") -> None:
     bar = _c("─" * 44, DIM)
     print(bar)
-    print(_c(f"  Lisan  ·  v{version}  ·  {conv_id}", BOLD))
+    print(_c(f"  {agent_name}  ·  v{version}  ·  {conv_id}", BOLD))
     print(bar)
     print(_c("  /new      start a new conversation", DIM))
     print(_c("  /status   system health check", DIM))
@@ -518,14 +523,14 @@ def _run_advice_response(
     return str(result.text).strip()
 
 
-def _run_with_thinking_indicator(callable_obj):
+def _run_with_thinking_indicator(callable_obj, agent_name: str = "Lisan"):
     done = threading.Event()
     started = time.time()
 
     def _show_waiting() -> None:
         if not done.wait(0.7):
             print()
-            print(_c("Lisan: ", CYAN) + _c("thinking…", DIM))
+            print(_c(f"{agent_name}: ", CYAN) + _c("thinking…", DIM))
 
     watcher = threading.Thread(target=_show_waiting, daemon=True)
     watcher.start()
