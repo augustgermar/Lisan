@@ -31,9 +31,6 @@
     }
   },
   "routing": {
-    "__comment_routing_format": "Agent routing: each agent maps low/medium/high significance turns to a provider name from the providers block.",
-    "__comment_routing_default": "Default: all agents route to codex (local Claude binary). Set CODEX_BIN to your codex executable path.",
-    "__comment_routing_alternatives": "To use a local OpenAI-compatible server instead, swap all 'codex' values to 'local' and set base_url above.",
     "router":       { "low": "codex", "medium": "codex", "high": "codex" },
     "listener":     { "low": "codex", "medium": "codex", "high": "codex" },
     "assembler":    { "low": "codex", "medium": "codex", "high": "codex" },
@@ -51,12 +48,8 @@
       "lightweight": 6
     },
     "high_stakes_terms": null,
-    "__comment_high_stakes_terms": "Vault-local primer/high-stakes.yaml takes priority over this. If set here, these terms score +4 each, pushing turns to full processing.",
     "biographical_terms": null,
-    "__comment_biographical_terms": "Override the default family/life-event terms used for biographical density detection. null = use built-in defaults.",
-    "affect_terms": null,
-    "__comment_affect_terms": "Override the default emotion vocabulary. null = use built-in defaults.",
-    "__comment_heuristic_config_format": "The __comment_* keys are documentation only and are ignored by the runtime."
+    "affect_terms": null
   },
   "ingest": {
     "max_file_size_bytes": 5242880,

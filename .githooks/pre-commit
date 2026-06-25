@@ -1,11 +1,12 @@
 #!/bin/sh
 set -eu
 
-# Guard: never let personal data or live machine config into a commit.
+# Guard: never let personal data or vault files into a commit.
+# config.yaml is intentionally tracked (shipped codex default).
 # Only inspects files being added/changed (ACM) so removing a tracked file
 # from the index does not trip the guard.
 blocked=$(git diff --cached --name-only --diff-filter=ACM \
-  | grep -E '(^|/)config\.yaml$|(^|/)lisan-vault/|(^|/)lisan\.sqlite$|(^|/)embeddings\.bin$' || true)
+  | grep -E '(^|/)lisan-vault/|(^|/)lisan\.sqlite$|(^|/)embeddings\.bin$' || true)
 if [ -n "$blocked" ]; then
   echo "pre-commit: refusing to commit personal/local files (gitignored by design):" >&2
   printf '  %s\n' $blocked >&2
