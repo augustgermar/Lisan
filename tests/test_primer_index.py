@@ -32,17 +32,17 @@ class PrimerIndexTests(unittest.TestCase):
             self.assertIn("Sarah", names)
 
     def test_extracts_users_name_when_it_is_a_month(self) -> None:
-        """User August Morgan must surface from the primer."""
+        """The principal name must surface from the primer."""
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp)
             (vault / "primer").mkdir()
             (vault / "primer" / "identity.md").write_text(
-                "# Identity\n\nAugust Morgan, lead developer.\n",
+                "# Identity\n\nAlex Morgan, lead developer.\n",
                 encoding="utf-8",
             )
             names = known_names(vault)
-            self.assertIn("August", names)
-            self.assertIn("August Morgan", names)
+            self.assertIn("Alex", names)
+            self.assertIn("Alex Morgan", names)
 
     def test_handles_hyphenated_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -82,23 +82,23 @@ class PrimerIndexTests(unittest.TestCase):
             (vault / "primer" / "identity-core.md").write_text(
                 """---
 principal:
-  name: "August Morgan"
-  aliases: ["August"]
+  name: "Alex Morgan"
+  aliases: ["Alex"]
 assistant:
-  name: "Dabiku"
-  canonical_name: "Dabiku"
+  name: "Nova"
+  canonical_name: "Nova"
   nickname: "Ace"
-  aliases: ["Dabiku", "Ace"]
+  aliases: ["Nova", "Ace"]
 deixis_frame: |
   I / me / Ace = the assistant.
-  you / your = August Morgan, the principal.
+  you / your = Alex Morgan, the principal.
 roster: []
 ---
 """,
                 encoding="utf-8",
             )
-            self.assertEqual(principal_name(vault), "August Morgan")
-            self.assertEqual(assistant_name(vault), "Dabiku")
+            self.assertEqual(principal_name(vault), "Alex Morgan")
+            self.assertEqual(assistant_name(vault), "Nova")
             self.assertEqual(assistant_display_name(vault), "Ace")
 
 

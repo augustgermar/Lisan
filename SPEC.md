@@ -175,17 +175,15 @@ This is why Lisan invests in narrative quality. The Elicitor exists because the 
 
 ---
 
-# Part II: The Life Domains Framework
+# Part II: Life Areas
 
-The Life Domains Framework is stable infrastructure. The ten domain definitions are permanent under normal operation and should not be casually changed. If a migration is ever genuinely needed, it goes through a formal process documented in `domains/domain-migration-log.md` with a full mapping from old to new categories. The design stance is that the ten domains are durable and sufficient for a lifetime, but the system is not brittle if reality demands adjustment.
+The current life-area categories are stable infrastructure. They drive compartment boundaries, state file categories, episode classification, and retrieval scoping. If the set of categories ever changes, the update should be handled through a formal migration plan rather than ad hoc edits.
 
-The domains serve as the organizational spine of the entire vault: they define compartment boundaries, state file categories, episode classification, and retrieval scoping.
+> **Note for open source deployments:** The current categories reflect one user's life design. Lisan's architecture supports any set of life areas; the mechanism is fixed, the labels are configurable.
 
-> **Note for open source deployments:** The ten domains below reflect one user's life design. Lisan's architecture supports any set of life domains — the domain definitions in `domains/domains-definition.md` are your configuration, not a constraint. The framework is the mechanism; the domains are your choices.
+## 2.1 Internal Areas
 
-## 2.1 Internal Domains
-
-|#|Domain|Core Question|
+|#|Area|Core Question|
 |---|---|---|
 |1|**Physical**|Is the user's body and mind supporting the life they want to live?|
 |2|**Environmental**|Does the user's environment make them more capable, calm, and effective?|
@@ -193,9 +191,9 @@ The domains serve as the organizational spine of the entire vault: they define c
 |4|**Relational**|Are the user's relationships nourishing, honest, and aligned?|
 |5|**Work**|Is the user producing useful work that increases income, leverage, skill, or optionality?|
 
-## 2.2 External Domains
+## 2.2 External Areas
 
-|#|Domain|Core Question|
+|#|Area|Core Question|
 |---|---|---|
 |6|**Status**|Does the user appear credible, competent, respectable, and socially legible?|
 |7|**Appearance**|Does the user visually present as attractive, healthy, competent, and intentional?|
@@ -460,10 +458,6 @@ lisan-vault/
 │   ├── manifest-decisions.md
 │   ├── manifest-open-loops.md
 │   └── manifest-archive.md
-│
-├── domains/
-│   ├── domains-definition.md     # The ten domains (stable)
-│   └── domain-migration-log.md   # If migration is ever needed
 │
 ├── archive/
 │   ├── episodes/

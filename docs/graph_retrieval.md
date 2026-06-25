@@ -34,7 +34,7 @@ Cross-domain expansion is also controlled. It is allowed only when at least one 
 
 - the query explicitly references multiple arenas
 - a linked pattern spans multiple arenas
-- a Dreamer summary marks the domains as coupled
+- a Dreamer summary marks the relevant areas as coupled
 
 Even when cross-domain expansion is allowed, it is capped at a small default budget so the context does not drift away from the query.
 

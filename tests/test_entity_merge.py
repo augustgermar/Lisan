@@ -66,7 +66,7 @@ class LooksLikeEntityTests(unittest.TestCase):
 
     def test_month_accepted_when_in_primer(self) -> None:
         # User's name happens to be a month — primer override wins.
-        primer = frozenset({"August", "August Morgan"})
+        primer = frozenset({"August", "Alex Morgan"})
         self.assertTrue(_looks_like_entity("August", "person", primer))
 
     def test_multi_word_proper_name_accepted(self) -> None:
@@ -270,7 +270,7 @@ class CreateEntityStubsTests(unittest.TestCase):
     def test_primer_known_single_name_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp)
-            _seed_primer(vault, "# Identity\n\nAugust Morgan, lead developer.\n")
+            _seed_primer(vault, "# Identity\n\nAlex Morgan, lead developer.\n")
             writer_out = {
                 "entities_to_create": [
                     {"name": "August", "subtype": "person"},

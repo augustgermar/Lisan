@@ -158,7 +158,7 @@ def assemble_context(
     # When a conversation is freshly opened (no narrative state file AND no
     # USER turns for that conversation_id in today's transcript), inject a
     # compact summary of today's state updates and open loops across all
-    # domains. Lets a new conversation react to cumulative load from earlier
+    # areas. Lets a new conversation react to cumulative load from earlier
     # conversations the same day. Lifted out of elicitor_session so the
     # extraction path also gets it.
     if conversation_id and _is_fresh_conversation(vault, conversation_id):
@@ -1379,9 +1379,9 @@ def _path_contains_bridge_pattern(path_ids: list[str], source_domain: str, targe
         row = rows_by_id.get(record_id)
         if row is None or str(row["type"]) != "pattern":
             continue
-        domains = {str(row["domain_primary"] or row["arena"] or "")}
-        domains.update(_json_list(row["domain_secondary"]))
-        if source_domain in domains and target_domain in domains and len({domain for domain in domains if domain}) > 1:
+        areas = {str(row["domain_primary"] or row["arena"] or "")}
+        areas.update(_json_list(row["domain_secondary"]))
+        if source_domain in areas and target_domain in areas and len({domain for domain in areas if domain}) > 1:
             return True
     return False
 
@@ -1785,7 +1785,7 @@ def _is_fresh_conversation(vault: Path, conversation_id: str) -> bool:
 
 
 def _recent_activity_block(vault: Path) -> str:
-    """Summarize today\u2019s state updates and fresh open loops across all domains."""
+    """Summarize today\u2019s state updates and fresh open loops across all areas."""
     today = today_iso()
     state_lines: list[str] = []
     state_dir = vault / "state"

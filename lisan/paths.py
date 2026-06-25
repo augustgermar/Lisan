@@ -77,7 +77,7 @@ _Not yet filled in._
 
 _HIGH_STAKES_TEMPLATE = """\
 # High-stakes terms — topics that matter enough to always get full processing.
-# Customize this list for your life. Add terms that signal important domains;
+# Customize this list for your life. Add terms that signal important life areas;
 # remove ones that don't apply. This file is local to your vault and is not
 # committed to the repo.
 #
@@ -85,42 +85,6 @@ _HIGH_STAKES_TEMPLATE = """\
 # topics that repeatedly appear in high-significance turns will be suggested
 # as additions. For now, edit manually.
 terms: []
-"""
-
-_DOMAINS_TEMPLATE = """\
-# Life Domains Definition
-
-> Stable infrastructure. Changes to this file require a migration log entry in domain-migration-log.md.
-
-## Internal Life Domains
-
-| # | Domain | Core Question |
-|---|-------|---------------|
-| 1 | **Physical** | Is the user's body and mind supporting the life they want to live? |
-| 2 | **Environmental** | Does the user's environment make them more capable, calm, and effective? |
-| 3 | **Financial** | Is the user gaining financial power, resilience, and optionality? |
-| 4 | **Relational** | Are the user's relationships nourishing, honest, and aligned? |
-| 5 | **Work** | Is the user producing useful work that increases income, leverage, skill, or optionality? |
-
-## External Life Domains
-
-| # | Domain | Core Question |
-|---|-------|---------------|
-| 6 | **Status** | Does the user appear credible, competent, respectable, and socially legible? |
-| 7 | **Appearance** | Does the user visually present as attractive, healthy, competent, and intentional? |
-| 8 | **Competence** | Do others experience the user as capable, reliable, intelligent, and effective? |
-| 9 | **Social Presence** | Does the user's presence make people want more contact, trust, and cooperation? |
-| 10 | **Desirability** | Does the user present as someone others can desire, respect, and feel emotionally safe with? |
-"""
-
-_DOMAIN_MIGRATION_LOG_TEMPLATE = """\
-# Domain Migration Log
-
-> Stable infrastructure. If the life-domain taxonomy ever changes, record the mapping from old categories to new categories here.
-
-## Log
-
-<!-- Entries are added only when the domain taxonomy changes. -->
 """
 
 _BACKUP_LOG_TEMPLATE = """\
@@ -156,8 +120,6 @@ def write_seed_files(vault: Path) -> list[str]:
         vault / "primer" / "identity.md": _IDENTITY_TEMPLATE,
         vault / "primer" / "operating-style.md": _OPERATING_STYLE_TEMPLATE,
         vault / "primer" / "high-stakes.yaml": _HIGH_STAKES_TEMPLATE,
-        vault / "domains" / "domains-definition.md": _DOMAINS_TEMPLATE,
-        vault / "domains" / "domain-migration-log.md": _DOMAIN_MIGRATION_LOG_TEMPLATE,
         vault / "backup.md": _BACKUP_LOG_TEMPLATE,
     }
     for path, content in seeds.items():
@@ -194,7 +156,6 @@ def ensure_vault_layout(vault: Path) -> None:
         "transcripts",
         "transcripts/narrative",
         "manifests",
-        "domains",
         "archive/episodes",
         "archive/entities",
         "archive/open_loops",

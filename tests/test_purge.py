@@ -62,8 +62,6 @@ class PurgeTests(unittest.TestCase):
             "primer/identity.md",
             "primer/operating-style.md",
             "primer/high-stakes.yaml",
-            "domains/domains-definition.md",
-            "domains/domain-migration-log.md",
             "backup.md",
         ]:
             self.assertTrue((self.vault / rel).exists(), rel)

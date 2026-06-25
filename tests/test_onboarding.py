@@ -21,10 +21,10 @@ class OnboardingTests(unittest.TestCase):
                 seed="seed-value",
                 sha256="a" * 64,
                 konstel_hash="KONSTEL",
-                name="Dabiku",
+                name="Nova",
             )
             stdout = io.StringIO()
-            inputs = iter(["1", "August Morgan", "I work in finance and play in a band."])
+            inputs = iter(["1", "Alex Morgan", "I work in finance and play in a band."])
             with (
                 patch("lisan.tools.onboarding.generate_agent_identity", return_value=fixed_identity),
                 patch("lisan.tools.chat.startup_check", return_value=True),
@@ -38,7 +38,7 @@ class OnboardingTests(unittest.TestCase):
             core = vault / "primer" / "identity-core.md"
             operating = vault / "primer" / "operating-style.md"
             high_stakes = vault / "primer" / "high-stakes.yaml"
-            self_entity = vault / "entities" / "agents" / "dabiku.md"
+            self_entity = vault / "entities" / "agents" / "nova.md"
 
             self.assertTrue(identity.exists())
             self.assertTrue(core.exists())
@@ -52,12 +52,12 @@ class OnboardingTests(unittest.TestCase):
 
             self.assertIn("# About the Principal", identity_text)
             self.assertNotIn("You are", identity_text)
-            self.assertIn("The principal is August Morgan.", identity_text)
-            self.assertIn("I / me / Dabiku", core_text)
+            self.assertIn("The principal is Alex Morgan.", identity_text)
+            self.assertIn("I / me / Nova", core_text)
             self.assertIn('hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"', core_text)
             self.assertIn('seed: "seed-value"', core_text)
             self.assertIn("kind", self_text)
-            self.assertIn("Dabiku is a freshly initialized Lisan instance", self_text)
+            self.assertIn("Nova is a freshly initialized Lisan instance", self_text)
 
     def test_existing_core_skips_regeneration_and_repairs_missing_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -67,9 +67,9 @@ class OnboardingTests(unittest.TestCase):
                 seed="seed-value",
                 sha256="b" * 64,
                 konstel_hash="KONSTEL",
-                name="Dabiku",
+                name="Nova",
             )
-            _write_identity_core(vault / "primer" / "identity-core.md", "August Morgan", agent_identity=identity)
+            _write_identity_core(vault / "primer" / "identity-core.md", "Alex Morgan", agent_identity=identity)
 
             stdout = io.StringIO()
             with (
@@ -85,7 +85,7 @@ class OnboardingTests(unittest.TestCase):
             self.assertTrue((vault / "primer" / "identity.md").exists())
             self.assertTrue((vault / "primer" / "operating-style.md").exists())
             self.assertTrue((vault / "primer" / "high-stakes.yaml").exists())
-            self.assertTrue((vault / "entities" / "agents" / "dabiku.md").exists())
+            self.assertTrue((vault / "entities" / "agents" / "nova.md").exists())
 
 
 if __name__ == "__main__":

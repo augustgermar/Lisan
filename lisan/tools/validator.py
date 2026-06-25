@@ -641,7 +641,7 @@ def _is_structured_record(path: Path, vault: Path) -> bool:
         return False
     if not rel.parts:
         return False
-    if rel.parts[0] in {"primer", "domains", "transcripts", "manifests"}:
+    if rel.parts[0] in {"primer", "transcripts", "manifests"}:
         return False
     if rel.name == "backup.md":
         return False
