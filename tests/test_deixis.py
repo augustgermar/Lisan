@@ -16,14 +16,14 @@ from lisan.tools.record_fanout import claim_reference_keys
 
 CORE_TEXT = """---
 principal:
-  name: "August Germar"
-  aliases: ["August", "Gus"]
+  name: "Alex Morgan"
+  aliases: ["Alex", "Lex"]
 assistant:
-  name: "Lisan"
-  aliases: ["Lisan"]
+  name: "Nova"
+  aliases: ["Nova"]
 deixis_frame: |
-  I / me / Lisan = the assistant.
-  you / your     = August, the principal.
+  I / me / Nova = the assistant.
+  you / your     = Alex, the principal.
   all other names = third parties; refer to them by name.
 ---
 
@@ -32,16 +32,16 @@ deixis_frame: |
 
 CORE_TEXT_WITH_NICKNAME = """---
 principal:
-  name: "August Germar"
-  aliases: ["August", "Gus"]
+  name: "Alex Morgan"
+  aliases: ["Alex", "Lex"]
 assistant:
-  name: "Dabiku"
-  canonical_name: "Dabiku"
+  name: "Nova"
+  canonical_name: "Nova"
   nickname: "Ace"
-  aliases: ["Dabiku", "Ace"]
+  aliases: ["Nova", "Ace"]
 deixis_frame: |
   I / me / Ace = the assistant.
-  you / your     = August, the principal.
+  you / your     = Alex, the principal.
   all other names = third parties; refer to them by name.
 ---
 
@@ -110,7 +110,7 @@ def test_substrate_principal_token(core_vault: Path) -> None:
 
 
 def test_substrate_self_token(core_vault: Path) -> None:
-    assert render_deixis("{{self}} suggested a walk", "substrate", core_vault) == "Lisan suggested a walk"
+    assert render_deixis("{{self}} suggested a walk", "substrate", core_vault) == "Nova suggested a walk"
 
 
 def test_substrate_possessive(core_vault: Path) -> None:
@@ -118,7 +118,7 @@ def test_substrate_possessive(core_vault: Path) -> None:
 
 
 def test_substrate_mixed(core_vault: Path) -> None:
-    assert render_deixis("{{self}} asked {{principal}}", "substrate", core_vault) == "Lisan asked the user"
+    assert render_deixis("{{self}} asked {{principal}}", "substrate", core_vault) == "Nova asked the user"
 
 
 def test_substrate_self_token_uses_nickname(nickname_vault: Path) -> None:
@@ -128,11 +128,11 @@ def test_substrate_self_token_uses_nickname(nickname_vault: Path) -> None:
 # --- display: human view ({{principal}}->principal name) --------------------
 
 def test_display_principal_token_resolves_name(core_vault: Path) -> None:
-    assert render_deixis("{{principal}} decided to rest", "display", core_vault) == "August decided to rest"
+    assert render_deixis("{{principal}} decided to rest", "display", core_vault) == "Alex decided to rest"
 
 
 def test_display_self_token(core_vault: Path) -> None:
-    assert render_deixis("{{self}} suggested a walk", "display", core_vault) == "Lisan suggested a walk"
+    assert render_deixis("{{self}} suggested a walk", "display", core_vault) == "Nova suggested a walk"
 
 
 def test_display_self_token_uses_nickname(nickname_vault: Path) -> None:
@@ -140,7 +140,7 @@ def test_display_self_token_uses_nickname(nickname_vault: Path) -> None:
 
 
 def test_display_possessive(core_vault: Path) -> None:
-    assert render_deixis("{{principal}}'s park photo", "display", core_vault) == "August's park photo"
+    assert render_deixis("{{principal}}'s park photo", "display", core_vault) == "Alex's park photo"
 
 
 def test_display_fallback_no_core(bare_vault: Path) -> None:
@@ -155,7 +155,7 @@ def test_legacy_user_synonym_interlocutor(core_vault: Path) -> None:
 
 
 def test_legacy_user_synonym_display(core_vault: Path) -> None:
-    assert render_deixis("{{user}}'s park photo", "display", core_vault) == "August's park photo"
+    assert render_deixis("{{user}}'s park photo", "display", core_vault) == "Alex's park photo"
 
 
 # --- render_obj: recursive structures --------------------------------------
@@ -182,18 +182,18 @@ def test_render_obj_nested_mixed(core_vault: Path) -> None:
     obj = {"open_threads": ["{{principal}} owes Soren a call"], "meta": {"turns": 3, "lead": "{{self}}"}}
     assert render_obj(obj, "substrate", core_vault) == {
         "open_threads": ["the user owes Soren a call"],
-        "meta": {"turns": 3, "lead": "Lisan"},
+        "meta": {"turns": 3, "lead": "Nova"},
     }
 
 
 # --- the structured source-of-truth that display resolution depends on ------
 
 def test_principal_aliases_from_core(core_vault: Path) -> None:
-    assert principal_aliases(core_vault) == frozenset({"August", "Gus"})
+    assert principal_aliases(core_vault) == frozenset({"Alex", "Lex"})
 
 
 def test_render_for_display_uses_principal_name(core_vault: Path) -> None:
-    assert render_for_display("{{principal}} left.", core_vault) == "August left."
+    assert render_for_display("{{principal}} left.", core_vault) == "Alex left."
 
 
 def test_render_for_display_fallback_no_core(bare_vault: Path) -> None:
@@ -203,12 +203,12 @@ def test_render_for_display_fallback_no_core(bare_vault: Path) -> None:
 # --- tokenize_principal: deterministic name -> token safety net ----------------
 
 def test_tokenize_principal_basic(core_vault: Path) -> None:
-    assert tokenize_principal("August told Bram a story", core_vault) == "{{principal}} told Bram a story"
-    assert tokenize_principal("Gus and Bram talked", core_vault) == "{{principal}} and Bram talked"
+    assert tokenize_principal("Alex told Bram a story", core_vault) == "{{principal}} told Bram a story"
+    assert tokenize_principal("Lex and Bram talked", core_vault) == "{{principal}} and Bram talked"
 
 
 def test_tokenize_principal_possessive(core_vault: Path) -> None:
-    assert tokenize_principal("August's plan", core_vault) == "{{principal}}'s plan"
+    assert tokenize_principal("Alex's plan", core_vault) == "{{principal}}'s plan"
 
 
 def test_tokenize_principal_word_boundary(core_vault: Path) -> None:
@@ -222,37 +222,37 @@ def test_tokenize_principal_idempotent_and_empty(core_vault: Path) -> None:
 
 
 def test_tokenize_then_render_roundtrip(core_vault: Path) -> None:
-    t = tokenize_principal("August met Bram", core_vault)
+    t = tokenize_principal("Alex met Bram", core_vault)
     assert render_deixis(t, "interlocutor", core_vault) == "you met Bram"
-    assert render_for_display(t, core_vault) == "August met Bram"
+    assert render_for_display(t, core_vault) == "Alex met Bram"
 
 
 def test_tokenize_principal_obj_nested_preserves_entity_names(core_vault: Path) -> None:
     obj = {
-        "summary": "August met Bram for lunch",
-        "claim_text": "August's plan worked",
-        "title": "August wrote the recap",
-        "name": "August Germar",
-        "canonical_name": "August Germar",
+        "summary": "Alex met Bram for lunch",
+        "claim_text": "Alex's plan worked",
+        "title": "Alex wrote the recap",
+        "name": "Alex Morgan",
+        "canonical_name": "Alex Morgan",
         "nested": {
-            "name": "August Germar",
-            "summary": "August and Tia talked",
-            "canonical_name": "August Germar",
+            "name": "Alex Morgan",
+            "summary": "Alex and Tia talked",
+            "canonical_name": "Alex Morgan",
             "count": 2,
         },
         "third_party": "Tia stayed out of it",
-        "items": ["August called Bram", 5, None],
+        "items": ["Alex called Bram", 5, None],
     }
     assert tokenize_principal_obj(obj, core_vault) == {
         "summary": "{{principal}} met Bram for lunch",
         "claim_text": "{{principal}}'s plan worked",
         "title": "{{principal}} wrote the recap",
-        "name": "August Germar",
-        "canonical_name": "August Germar",
+        "name": "Alex Morgan",
+        "canonical_name": "Alex Morgan",
         "nested": {
-            "name": "August Germar",
+            "name": "Alex Morgan",
             "summary": "{{principal}} and Tia talked",
-            "canonical_name": "August Germar",
+            "canonical_name": "Alex Morgan",
             "count": 2,
         },
         "third_party": "Tia stayed out of it",
@@ -264,16 +264,16 @@ def test_tokenize_principal_obj_roundtrip_reference_keys(core_vault: Path) -> No
     writer = {
         "claims_to_create": [
             {
-                "claim_text": "August promised Bram a follow-up",
-                "summary": "August promised Bram a follow-up",
-                "title": "August promised Bram a follow-up",
+                "claim_text": "Alex promised Bram a follow-up",
+                "summary": "Alex promised Bram a follow-up",
+                "title": "Alex promised Bram a follow-up",
             }
         ],
         "evidence_to_create": [
             {
-                "title": "August promised Bram a follow-up",
-                "summary": "August promised Bram a follow-up",
-                "verbatim_excerpt": "August promised Bram a follow-up",
+                "title": "Alex promised Bram a follow-up",
+                "summary": "Alex promised Bram a follow-up",
+                "verbatim_excerpt": "Alex promised Bram a follow-up",
             }
         ],
     }
@@ -283,5 +283,5 @@ def test_tokenize_principal_obj_roundtrip_reference_keys(core_vault: Path) -> No
 
     assert "{{principal}}" in " ".join(sorted(claim_keys))
     assert "{{principal}}" in " ".join(sorted(evidence_keys))
-    assert "August" not in " ".join(sorted(claim_keys))
+    assert "Alex" not in " ".join(sorted(claim_keys))
     assert claim_keys == evidence_keys

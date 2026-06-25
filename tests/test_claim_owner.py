@@ -8,8 +8,8 @@ from lisan.tools.record_factory import normalize_claim_owner
 
 CORE_TEXT = """---
 principal:
-  name: "August Germar"
-  aliases: ["August", "Gus"]
+  name: "Alex Morgan"
+  aliases: ["Alex", "Lex"]
 assistant:
   name: "Lisan"
   aliases: ["Lisan"]
@@ -32,8 +32,8 @@ def core_vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def test_principal_alias_resolves_to_user(core_vault: Path) -> None:
-    assert normalize_claim_owner("August") == "user"
-    assert normalize_claim_owner("Gus") == "user"
+    assert normalize_claim_owner("Alex") == "user"
+    assert normalize_claim_owner("Lex") == "user"
 
 
 def test_non_principal_known_name_is_external_actor(core_vault: Path) -> None:

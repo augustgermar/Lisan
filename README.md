@@ -1,12 +1,21 @@
 # Lisan
 
-Local-first Python CLI framework for the Lisan memory vault.
+Lisan is a local-first memory system and Python CLI for agentic note-taking, recall, and record keeping.
 
-This repository is currently in an MVP-ready state. The codebase is designed so a future coding agent session can work from the repository alone without reading `Draft5.md`.
+It turns conversation turns and vault content into durable Markdown records, indexes them locally, and uses deterministic retrieval plus optional embeddings to bring back relevant context later. The design keeps the data readable, editable, and portable, so the vault stays useful even if the surrounding models or providers change.
 
-## Current System State
+At a glance:
 
-The working system now includes:
+- Stores memory as plain Markdown with JSON frontmatter
+- Builds a local SQLite index for search, claims, and retrieval logging
+- Uses a deterministic-first pipeline before it reaches for an LLM
+- Supports optional semantic retrieval through embeddings
+- Keeps provider routing abstracted so local, hosted, and coding-agent backends can be swapped
+- Exposes the whole system through a CLI instead of a hidden service
+
+The repository is in an MVP-ready state. It is designed so a future maintainer can work from the repository alone without needing a separate design doc.
+
+## What The Current System Includes
 
 - Deterministic vault validation and schema enforcement
 - Markdown records with JSON frontmatter
@@ -50,10 +59,10 @@ The active vault location is resolved like this:
 - If `LISAN_VAULT` is set, the app uses that path by default.
 - If `LISAN_VAULT` is unset, the app creates and uses a local `lisan-vault/` directory inside the repo on first run.
 
-Recommended personal setup:
+Recommended setup:
 
 ```bash
-export LISAN_VAULT="$HOME/Library/Application Support/Lisan/vault"
+export LISAN_VAULT="$HOME/.local/share/Lisan/vault"
 python3 -m lisan init
 ```
 
@@ -65,7 +74,7 @@ For a fresh checkout:
 
 ```bash
 cd /path/to/Lisan
-export LISAN_VAULT="$HOME/Library/Application Support/Lisan/vault"
+export LISAN_VAULT="$HOME/.local/share/Lisan/vault"
 python3 -m lisan init
 python3 -m lisan sync
 python3 -m lisan chat
@@ -83,9 +92,9 @@ python3 -m lisan agent advice "What can I make with tuna, pasta, celery, and may
 python3 -m lisan agent elicitor "I am excited to build this"
 ```
 
-## If You Are A Future Coding Agent
+## Working On The Codebase
 
-Start here instead of the draft spec:
+Start here when making changes:
 
 1. Read this README.
 2. Inspect `lisan/cli.py` for the command surface.
@@ -116,7 +125,6 @@ The architecture is intentionally deterministic-first. If a feature can be done 
 - `lisan-vault/`: local vault directory created on first use when `LISAN_VAULT` is unset
 - `lisan-vault/primer/`: identity, operating style, and current brief
 - `lisan-vault/state/`: per-domain state files
-- `lisan-vault/domains/`: domain definitions and migration notes
 - `lisan-vault/entities/`: entity records
 - `lisan-vault/episodes/`: episode records
 - `lisan-vault/knowledge/`: durable knowledge records

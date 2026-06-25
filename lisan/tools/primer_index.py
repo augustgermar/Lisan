@@ -217,7 +217,7 @@ def _fallback_principal_name(vault: Path) -> str | None:
 
 
 def principal_name(vault: Path) -> str:
-    """The principal's full display name, e.g. ``August Germar``."""
+    """The principal's full display name, e.g. ``Alex Morgan``."""
     core = _identity_core(vault)
     principal = core.get("principal") if isinstance(core, dict) else None
     if isinstance(principal, dict):
@@ -256,7 +256,7 @@ def principal_aliases(vault: Path) -> frozenset[str]:
 
 
 def principal_display_name(vault: Path) -> str:
-    """The principal's primary display name, e.g. ``August``."""
+    """The principal's primary display name, e.g. ``Alex``."""
     core = _identity_core(vault)
     principal = core.get("principal") if isinstance(core, dict) else None
     if isinstance(principal, dict):

@@ -610,7 +610,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Personal memories will be written to the repo-local vault and may be\n"
                 "accidentally committed to git. Set LISAN_VAULT to an external path\n"
                 "before capturing real data:\n\n"
-                '  export LISAN_VAULT="$HOME/Library/Application Support/Lisan/vault"\n'
+                '  export LISAN_VAULT="$HOME/.local/share/Lisan/vault"\n'
             )
         return 0
 

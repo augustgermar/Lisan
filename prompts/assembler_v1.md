@@ -9,7 +9,7 @@ Context assembly follows a six-step process:
 
 1. **Primer** — identity.md and operating-style.md are always loaded. current-brief.md is loaded when available. These are the baseline — every conversation starts with them.
 
-2. **Domain classification** — Infer the most relevant life domain from the query. Domain choices: physical, environmental, financial, relational, work, status, appearance, competence, social_presence, desirability, cross_arena. If the query spans multiple domains or is ambiguous, use cross_arena.
+2. **Area classification** — Infer the most relevant life area from the query. Area choices: physical, environmental, financial, relational, work, status, appearance, competence, social_presence, desirability, cross_arena. If the query spans multiple areas or is ambiguous, use cross_arena.
 
 3. **State files** — Load active state files for the inferred domain. Flag stale files (past TTL). State files capture the current reality of a domain and are the single most valuable context for grounding the conversation.
 

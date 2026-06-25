@@ -51,10 +51,10 @@ class ElicitorEntitySelectionTests(unittest.TestCase):
     def test_august_in_primer_is_recognized(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp)
-            _seed_primer(vault, "# Identity\n\nAugust Germar, developer.\n")
+            _seed_primer(vault, "# Identity\n\nAlex Morgan, developer.\n")
             agent = _make_agent(vault)
-            entities = agent._entities("August asked about the new feature today.")
-            self.assertIn("August", entities)
+            entities = agent._entities("Alex asked about the new feature today.")
+            self.assertIn("Alex", entities)
 
 
 class ElicitorOpenerRotationTests(unittest.TestCase):
