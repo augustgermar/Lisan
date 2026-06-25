@@ -1,9 +1,8 @@
 __pycache__/
 *.pyc
 *.egg-info/
-# Live, machine-specific runtime config — copy config.example.yaml to config.yaml
-# to customize locally. Keeps personal routing/endpoints out of the public repo.
-config.yaml
+# config.yaml is committed as the shipped default (codex backend).
+# Override locally by editing it — git will show it as modified.
 lisan.sqlite
 embeddings.bin
 .DS_Store
