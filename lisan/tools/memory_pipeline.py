@@ -950,6 +950,9 @@ def _create_entity_stubs(
         if not subtype:
             continue
 
+        pronoun_reject = {"she", "he", "they", "her", "him", "them", "it", "we", "i", "me", "us"}
+        if normalized in pronoun_reject:
+            continue
         if not _looks_like_entity(name, subtype, allowlist, source_text):
             continue
 
@@ -1268,6 +1271,7 @@ def _has_person_role_context(name: str, source_text: str) -> bool:
         r"(?:my|his|her|their|our)\s+name\s+is\s+" + n
         + r"|(?:this|that)\s+is\s+" + n
         + r"|(?:met\s+(?:someone\s+)?named|someone\s+named)\s+" + n
+        + r"|(?:named|called|known\s+as|goes\s+by)\s+" + n
     )
     # "[Name] texted/called/messaged me" — name acting as a communicating person
     name_acts = n + r"\s+(?:texted|called|messaged|emailed|reached\s+out|pinged|wrote|rang)"
@@ -1276,10 +1280,10 @@ def _has_person_role_context(name: str, source_text: str) -> bool:
     # "went (out) with [Name]", "dinner/lunch/drinks/coffee with [Name]"
     social_with = (
         r"(?:went\s+(?:out\s+)?with"
-        r"|had\s+(?:dinner|lunch|drinks|coffee|brunch)\s+with"
+        r"|(?:had\s+)?(?:dinner|lunch|drinks|coffee|brunch)\s+with"
         r"|a\s+date\s+with"
         r"|talking\s+to|talked\s+to|speaking\s+with|spoke\s+with"
-        r")\s+(?:\w+\s+){0,2}" + n
+        r")\s+(?:\w+\s+){0,4}" + n
     )
     return bool(
         re.search(possessive, lowered)
@@ -1733,6 +1737,10 @@ def _match_existing_entity(
     direct = index.get(name.lower())
     if direct and direct.get("kind") == "full" and _entity_subtype(direct["path"]) == subtype:
         return direct["path"]
+    if direct and direct.get("kind") == "full":
+        direct_path = direct.get("path")
+        if isinstance(direct_path, Path) and _entity_subtype(direct_path) == "person":
+            return direct_path
 
     tokens = [t.lower() for t in name.split() if t]
     if not tokens:
@@ -1744,6 +1752,10 @@ def _match_existing_entity(
         entry = index.get(tokens[0])
         if entry is not None and entry.get("kind") in ("token", "full") and entry.get("kind") != "ambiguous" and _entity_subtype(entry["path"]) == subtype:
             return entry["path"]
+        if entry is not None and entry.get("kind") in ("token", "full") and entry.get("kind") != "ambiguous":
+            entry_path = entry.get("path")
+            if isinstance(entry_path, Path) and _entity_subtype(entry_path) == "person":
+                return entry_path
         candidates = _entity_resolution_candidates(vault, name, subtype, index)
         if not candidates:
             return None
@@ -1791,6 +1803,15 @@ def _match_existing_entity(
         if resolution_action(result.confidence, load_bearing=True) == "bind" and result.candidate is not None:
             path = result.candidate.get("path")
             if isinstance(path, Path):
+                return path
+    if subtype != "person":
+        # Canonical-person safeguard: if a human with this exact slug already
+        # exists anywhere in the vault, prefer that record over a context-leaked
+        # non-person subtype. This prevents people introduced in event turns
+        # from spawning shadow records under entities/events/.
+        slug = slugify(name)
+        for path in (vault / "entities").rglob(f"{slug}.md"):
+            if _entity_subtype(path) == "person":
                 return path
     # Optional primer-cast tiebreaker: if there's exactly one single-token
     # hit *and* the proposed name is in the primer cast and the existing

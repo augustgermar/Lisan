@@ -259,6 +259,7 @@ class CreateEntityStubsTests(unittest.TestCase):
                     {"name": "Strategically", "subtype": "person"},
                     {"name": "Friday", "subtype": "person"},
                     {"name": "What", "subtype": "person"},
+                    {"name": "she", "kind": "person"},
                 ],
             }
             _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text="")
@@ -444,6 +445,11 @@ class EntityIntroductionTests(unittest.TestCase):
             self.assertEqual(fm["nickname"], "Barb")
             self.assertIn("Barb", fm.get("aliases") or [])
 
+    def test_named_introduction_patterns_mark_person_context(self) -> None:
+        self.assertTrue(_has_person_role_context("Levi", "I ended up talking to this photographer named Levi for like an hour"))
+        self.assertTrue(_has_person_role_context("Barb", "someone called Barb texted me back"))
+        self.assertTrue(_has_person_role_context("Mattress", "a guy known as Mattress showed up"))
+
     def test_barb_resolves_to_barbara_via_alias(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp)
@@ -452,6 +458,38 @@ class EntityIntroductionTests(unittest.TestCase):
             match = _match_existing_entity(vault, "Barb", "person", index, source_text="I asked Barb out.")
             self.assertIsNotNone(match)
             self.assertEqual(match.name, "barbara.md")
+
+
+class EntityRoutingTests(unittest.TestCase):
+    """Kind routing should follow the entity, not the turn context."""
+
+    def test_event_context_non_person_stays_in_event_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            source = "Dinner with Kenji after the game."
+            writer_out = {
+                "entities_to_create": [
+                    {"name": "Kenji", "kind": "event", "summary": "Dinner with Kenji after the game."},
+                ],
+            }
+            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text=source)
+            self.assertTrue((vault / "entities" / "events" / "kenji.md").exists())
+            self.assertFalse((vault / "entities" / "people" / "kenji.md").exists())
+
+    def test_existing_people_record_wins_over_wrong_target_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            existing = _seed_entity(vault, "trevor", "Trevor", summary="Trevor is a friend.")
+            source = "Dinner with Trevor after the game."
+            writer_out = {
+                "entities_to_create": [
+                    {"name": "Trevor", "kind": "event", "summary": "Dinner with Trevor after the game."},
+                ],
+            }
+            touched = _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text=source)
+            files = sorted((vault / "entities").rglob("trevor.md"))
+            self.assertEqual(files, [existing])
+            self.assertIn(existing, touched)
 
 
 class PersonNoiseRejectTests(unittest.TestCase):

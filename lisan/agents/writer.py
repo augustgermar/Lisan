@@ -155,7 +155,8 @@ class WriterAgent(PromptAgent):
         """Deterministic fallback: extract capitalized proper nouns as entity stubs.
 
         Finding #4: the previous version emitted any capitalized word as
-        ``subtype: "person"``. The new logic:
+        ``subtype: "person"`` with a generic placeholder summary. The new
+        logic:
 
         1. Pulls the primer-known cast first — first-name-only mentions of
            known people produce stubs immediately.
@@ -163,8 +164,11 @@ class WriterAgent(PromptAgent):
            tools). Months are *not* in the general stopword set; users can be
            named after months (e.g. "August"). They are blocked only when
            absent from the primer cast.
-        3. Requires multi-word capitalization shape for ``subtype: "person"``
-           when the candidate is not in the primer cast.
+        3. Requires multi-word capitalization shape for person stubs when the
+           candidate is not in the primer cast.
+        4. Emits ``kind`` plus a summary derived from the sentence containing
+           the name, so downstream extraction gets a useful seed instead of a
+           placeholder.
         """
         from ..tools.primer_index import known_names as _primer_known_names
         from ..tools.stopwords import (
@@ -180,6 +184,16 @@ class WriterAgent(PromptAgent):
                            "mountain", "river", "forest")
         stubs: list[dict[str, str]] = []
         seen: set[str] = set()
+
+        def _sentence_for_name(name: str) -> str:
+            pattern = re.compile(rf"[^.?!]*\b{re.escape(name)}\b[^.?!]*[.?!]?", re.I)
+            match = pattern.search(text)
+            if match:
+                snippet = match.group(0).strip()
+            else:
+                snippet = text.strip()
+            return _truncate_summary(snippet or f"{name} mentioned in conversation.", 160)
+
         for match in re.finditer(r"\b[A-Z][a-z]+(?: [A-Z][a-z]+)?\b", text):
             name = match.group(0)
             if name in seen:
@@ -211,10 +225,17 @@ class WriterAgent(PromptAgent):
 
             lower = name.lower()
             if any(lower.endswith(s) for s in _PLACE_SUFFIXES) or any(s in lower for s in _PLACE_SUFFIXES):
-                subtype = "place"
+                kind = "place"
             else:
-                subtype = "person"
-            stubs.append({"name": name, "subtype": subtype, "summary": f"{name} mentioned in conversation."})
+                kind = "person"
+            stubs.append(
+                {
+                    "name": name,
+                    "kind": kind,
+                    "summary": _sentence_for_name(name),
+                    "confidence_basis": f"Extracted from the sentence mentioning {name}.",
+                }
+            )
         return stubs[:10]
 
     def _significance_rationale(self, text: str, significance: str) -> str:

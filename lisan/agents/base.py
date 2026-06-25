@@ -10,6 +10,7 @@ from ..prompts import load_prompt
 from ..schemas import get_schema
 from ..providers.base import LLMResponse, LisanLLM, ProviderError
 from ..tools.primer_index import assistant_display_name
+from ..tools.deixis import render_deixis
 from ..tools.structured import extract_json
 
 
@@ -33,6 +34,7 @@ class PromptAgent:
     name: str = "agent"
     prompt_file: str = ""
     output_schema_name: str | None = None
+    prompt_audience: str = "substrate"
 
     def __init__(self, vault: Path | None = None, config: dict[str, Any] | None = None, prompt_file: str | None = None):
         self.vault = vault or vault_root()
@@ -41,7 +43,8 @@ class PromptAgent:
         self.prompt_file = prompt_file or self.prompt_file
 
     def prompt(self) -> str:
-        return load_prompt(self.prompt_file)
+        prompt = load_prompt(self.prompt_file)
+        return render_deixis(prompt, self.prompt_audience, self.vault)
 
     def output_schema(self) -> dict[str, Any] | None:
         if not self.output_schema_name:
