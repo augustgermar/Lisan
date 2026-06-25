@@ -220,7 +220,7 @@ class MockClient(ProviderClient):
             if "psychologically manipulate" in lowered or "manipulate" in lowered:
                 return "I can’t help with manipulating someone. Use boundaries, specific asks, de-escalation, and clear communication instead."
             if "what is your name" in lowered or "what are you" in lowered:
-                return "My name is Lisan. I am your local personal assistant and memory system."
+                return "I am your local personal assistant and memory system."
             if "do you know my name now" in lowered or "what is my name" in lowered:
                 return "Your name is Person A."
             return "Sure."

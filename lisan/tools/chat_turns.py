@@ -62,7 +62,7 @@ class TurnClassification:
         }
 
 
-def classify_turn(text: str) -> TurnClassification:
+def classify_turn(text: str, vault: Path | None = None) -> TurnClassification:
     stripped = text.strip()
     lowered = _normalize(stripped)
 
@@ -106,7 +106,7 @@ def classify_turn(text: str) -> TurnClassification:
             label="identity",
             route="advice",
             fast_path_used=True,
-            deterministic_response=_identity_response(),
+            deterministic_response=_identity_response(vault),
             reason="assistant identity question",
         )
 
@@ -244,8 +244,10 @@ def _looks_like_practical_question(text: str, lowered: str) -> bool:
     return any(marker in lowered for marker in practical_markers) or lowered.endswith("?")
 
 
-def _identity_response() -> str:
-    return "My name is Lisan. I am your local personal assistant and memory system."
+def _identity_response(vault: Path | None = None) -> str:
+    from ..tools.primer_index import assistant_name as _asst_name
+    name = _asst_name(vault) if vault else "Lisan"
+    return f"My name is {name}. I am your local personal assistant and memory system."
 
 
 def _help_response() -> str:

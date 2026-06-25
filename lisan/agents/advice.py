@@ -13,7 +13,7 @@ class AdviceAgent(PromptAgent):
     def fallback_output(self, user_input: str, significance: str = "medium", **kwargs: Any) -> str:
         policy = _policy_dict(kwargs.get("conversation_policy"))
         _ = kwargs.get("conversation_history")
-        return _fallback_answer(user_input, policy=policy)
+        return _fallback_answer(user_input, policy=policy, vault=self.vault)
 
 
 def _policy_dict(value: Any) -> dict[str, Any]:
@@ -28,10 +28,12 @@ def _policy_dict(value: Any) -> dict[str, Any]:
     return {}
 
 
-def _fallback_answer(text: str, policy: dict[str, Any] | None = None) -> str:
+def _fallback_answer(text: str, policy: dict[str, Any] | None = None, vault=None) -> str:
     lowered = text.lower()
     if any(marker in lowered for marker in ["what is your name", "what's your name", "who are you", "what are you"]):
-        return "My name is Lisan. I am your local personal assistant and memory system."
+        from ..tools.primer_index import assistant_name as _asst_name
+        name = _asst_name(vault) if vault else "Lisan"
+        return f"My name is {name}. I am your local personal assistant and memory system."
     tone = str((policy or {}).get("tone") or "").lower()
     style = str((policy or {}).get("response_style") or "").lower()
     transition = str((policy or {}).get("transition") or "").lower()
