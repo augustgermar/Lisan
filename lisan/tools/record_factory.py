@@ -261,6 +261,12 @@ def new_knowledge(
     confidence_basis: str = "User-authored placeholder",
     last_confirmed: str | None = None,
     review_after: str | None = None,
+    source_document: str | None = None,
+    source_section: str | None = None,
+    source_ref: str | None = None,
+    chunk_index: int | None = None,
+    total_chunks: int | None = None,
+    body: str | None = None,
 ) -> CreatedRecord:
     if category not in KNOWLEDGE_DIRS:
         raise ValueError(f"Unsupported knowledge category: {category}")
@@ -288,8 +294,20 @@ def new_knowledge(
         "last_confirmed": last_confirmed or today,
         "review_after": review_after or today,
     }
-    body = f"# {title}\n\nKnowledge entry created from the CLI.\n"
-    write_markdown(path, with_domain_fields(frontmatter), body)
+    if source_document is not None:
+        frontmatter["source_document"] = source_document
+    if source_section is not None:
+        frontmatter["source_section"] = source_section
+    if source_ref is not None:
+        frontmatter["source_ref"] = source_ref
+    if chunk_index is not None:
+        frontmatter["chunk_index"] = int(chunk_index)
+    if total_chunks is not None:
+        frontmatter["total_chunks"] = int(total_chunks)
+    record_body = body if body is not None else "Knowledge entry created from the CLI."
+    if not record_body.lstrip().startswith("#"):
+        record_body = f"# {title}\n\n{record_body.strip()}\n"
+    write_markdown(path, with_domain_fields(frontmatter), record_body)
     return CreatedRecord(path=path, created=True)
 
 

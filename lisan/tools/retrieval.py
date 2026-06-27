@@ -1549,6 +1549,19 @@ def _format_item_detail(item: RetrievalItem, path: Path) -> str:
             f"{_expansion_detail_lines(item)}"
             f"- reason: {item.reason}"
         )
+    if item.type == "knowledge":
+        return (
+            f"### `{item.id}`\n"
+            f"- summary: {fm.get('summary', item.summary)}\n"
+            f"- source_document: {fm.get('source_document', 'unknown')}\n"
+            f"- source_section: {fm.get('source_section', 'unknown')}\n"
+            f"- source_ref: {fm.get('source_ref', 'unknown')}\n"
+            f"- chunk_index: {fm.get('chunk_index', 'unknown')}\n"
+            f"- total_chunks: {fm.get('total_chunks', 'unknown')}\n"
+            f"- link: `{item.path}`\n"
+            f"{_expansion_detail_lines(item)}"
+            f"- reason: {item.reason}"
+        )
     if item.type == "episode":
         return f"### `{item.id}`\n- summary: {fm.get('summary', item.summary)}\n- link: `{item.path}`\n{_expansion_detail_lines(item)}- reason: {item.reason}"
     return f"- `{item.id}` | {item.type} | {item.summary} | `{item.path}` | {item.reason}"

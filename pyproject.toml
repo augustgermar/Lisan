@@ -14,6 +14,7 @@ authors = [{name = "Lisan Contributors"}]
 # In-process semantic embeddings (Qdrant FastEmbed, ONNX, CPU-only, no torch).
 # Installing this extra activates semantic retrieval with no config change.
 embeddings = ["fastembed>=0.3.0"]
+pdf = ["pymupdf>=1.24.0"]
 
 [project.scripts]
 lisan = "lisan.cli:main"

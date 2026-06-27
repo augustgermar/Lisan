@@ -35,6 +35,8 @@ from .tools.ingest import (
     format_ingest_batch_summary,
     format_ingest_batches,
     format_ingest_plan,
+    format_reference_ingest_plan,
+    ingest_reference_sources,
     format_ingest_status,
     plan_scan_path,
     scan_path,
@@ -118,7 +120,14 @@ def build_parser() -> argparse.ArgumentParser:
     manifest.add_argument("--no-write", action="store_true")
 
     ingest = subparsers.add_parser("ingest", help="Discover and process local artifacts")
-    ingest_subparsers = ingest.add_subparsers(dest="ingest_command", required=True)
+    ingest.add_argument("--vault", type=Path, default=vault_root())
+    ingest.add_argument("--db-path", type=Path, default=sqlite_path())
+    ingest.add_argument("--reference", nargs="+", type=Path, default=None, help="Ingest reference document(s) as chunked knowledge records")
+    ingest.add_argument("--link-entity", action="append", default=[], help="Pre-link all reference chunks to this entity id or name")
+    ingest.add_argument("--replace", action="store_true", help="Replace existing chunks for the same source document")
+    ingest.add_argument("--plan", action="store_true", help="Preview reference ingestion without writing")
+    ingest.add_argument("--json", action="store_true", help="Emit machine-readable JSON for reference ingestion")
+    ingest_subparsers = ingest.add_subparsers(dest="ingest_command", required=False)
     ingest_scan = ingest_subparsers.add_parser("scan", help="Scan a file or directory for ingestible artifacts")
     ingest_scan.add_argument("--vault", type=Path, default=vault_root())
     ingest_scan.add_argument("--db-path", type=Path, default=sqlite_path())
@@ -653,6 +662,27 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "ingest":
+        if args.ingest_command is None and args.reference is not None:
+            try:
+                result = ingest_reference_sources(
+                    list(args.reference),
+                    vault=args.vault,
+                    db_path=args.db_path,
+                    replace=args.replace,
+                    link_entities=args.link_entity,
+                    plan_only=args.plan,
+                )
+            except (FileExistsError, RuntimeError, ValueError) as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            if args.plan:
+                if args.json:
+                    print(json.dumps(result, indent=2, default=str))
+                else:
+                    print(format_reference_ingest_plan(result))
+            else:
+                print(json.dumps(result, indent=2, default=str))
+            return 0
         if args.ingest_command == "scan":
             include_ext = _split_csv_values(args.include_ext)
             exclude_ext = _split_csv_values(args.exclude_ext)
@@ -784,6 +814,9 @@ def main(argv: list[str] | None = None) -> int:
                     return 1
                 print(format_ingest_batch_summary(report))
                 return 0
+        if args.ingest_command is None:
+            print("ingest requires a subcommand or --reference", file=sys.stderr)
+            return 1
 
     if args.command == "rebuild-index":
         counts = rebuild_index(args.vault)

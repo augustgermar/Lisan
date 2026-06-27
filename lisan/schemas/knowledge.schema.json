@@ -32,6 +32,11 @@
     "confidence": {"type": "string"},
     "confidence_basis": {"type": "string"},
     "last_confirmed": {"type": "string"},
-    "review_after": {"type": "string"}
+    "review_after": {"type": "string"},
+    "source_document": {"type": "string", "description": "Title of the source document"},
+    "source_section": {"type": "string", "description": "Section or chapter title within the source"},
+    "source_ref": {"type": "string", "description": "Locator such as filename, page range, or URL"},
+    "chunk_index": {"type": "integer", "description": "0-based position of this chunk in the source"},
+    "total_chunks": {"type": "integer", "description": "Total chunks produced from the source document"}
   }
 }
