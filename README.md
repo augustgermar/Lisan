@@ -52,6 +52,21 @@ The repository is in an MVP-ready state. It is designed so a future maintainer c
 
 The repo is usable as a local memory vault CLI now. Most remaining work is refinement, prompt calibration, and optional automation, not core plumbing.
 
+## Install
+
+Single-command install from GitHub:
+
+```bash
+python3 -m pip install "lisan @ git+https://github.com/augustgermar/Lisan.git"
+```
+
+Then initialize the vault:
+
+```bash
+export LISAN_VAULT="$HOME/.local/share/Lisan/vault"
+python3 -m lisan init
+```
+
 ## Vault Location
 
 The active vault location is resolved like this:
