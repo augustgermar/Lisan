@@ -60,6 +60,12 @@ Single-command install from GitHub:
 python3 -m pip install "lisan @ git+https://github.com/augustgermar/Lisan.git"
 ```
 
+If you want PDF reference ingestion, install the optional PDF extra too:
+
+```bash
+python3 -m pip install "lisan[pdf]"
+```
+
 Then initialize the vault:
 
 ```bash
@@ -106,6 +112,25 @@ python3 -m lisan capture --conversation-id demo "I had an unusual day at work"
 python3 -m lisan agent advice "What can I make with tuna, pasta, celery, and mayo?"
 python3 -m lisan agent elicitor "I am excited to build this"
 ```
+
+## Reference Ingest
+
+Reference documents can be ingested as chunked knowledge records that link into the vault graph:
+
+```bash
+lisan ingest --reference ~/Documents/sdp-training-manual.pdf
+lisan ingest --reference ~/Documents/sdp-docs/ --plan
+lisan ingest --reference ~/Documents/sdp-training-manual.pdf --link-entity Maya
+lisan ingest --reference ~/Documents/sdp-training-manual.pdf --replace
+```
+
+Notes:
+
+- `--reference` switches `lisan ingest` into reference mode instead of artifact mode.
+- `--plan` previews the chunks and entity links without writing anything.
+- `--link-entity` pre-links the imported chunks to a known entity.
+- `--replace` re-ingests the same source document by deleting the prior chunks first.
+- PDF ingestion requires the optional `pymupdf` extra (`pip install "lisan[pdf]"`).
 
 ## Working On The Codebase
 
