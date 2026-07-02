@@ -8,6 +8,7 @@ from typing import Any
 
 from ..frontmatter import load_markdown
 from ..paths import ensure_vault_layout, sqlite_path, vault_root
+from .log import log_error
 from .rebuild_index import ensure_index_schema
 from .deixis import render_for_display
 from .domain_fields import with_domain_fields
@@ -48,7 +49,8 @@ def generate_health_report(vault: Path | None = None, db_path: Path | None = Non
         for path in (vault / "state").glob("*.md"):
             try:
                 doc = load_markdown(path)
-            except Exception:
+            except Exception as exc:
+                log_error(vault, f"health report state load failed for {path}", exc)
                 continue
             ttl = int(doc.frontmatter.get("ttl_days", 0) or 0)
             updated = doc.frontmatter.get("updated")
@@ -99,8 +101,8 @@ def generate_health_report(vault: Path | None = None, db_path: Path | None = Non
                     age = (today - date.fromisoformat(str(created))).days
                     if age > 90:
                         old_contradictions.append((path.name, age))
-            except Exception:
-                pass
+            except Exception as exc:
+                log_error(vault, f"health report contradiction load failed for {path}", exc)
         lines.append("## Contradictions")
         if contradiction_files:
             for path in contradiction_files:
@@ -183,7 +185,8 @@ def generate_health_report(vault: Path | None = None, db_path: Path | None = Non
                     lines.append(f"  - {row['timestamp']} | {row['agent']} | {row['provider']}")
             else:
                 lines.append("- no recent failures")
-        except Exception:
+        except Exception as exc:
+            log_error(vault, "health report llm_call_log lookup failed", exc)
             lines.append("- llm_call_log not available")
         lines.append("")
 

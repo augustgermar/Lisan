@@ -28,6 +28,7 @@ from .tools.epochs import epoch_entity
 from .tools.drafts import promote_draft_to_episode
 from .tools.editor import edit_record
 from .tools.health_report import generate_health_report
+from .tools.log import log_error
 from .tools.ingest import (
     audit_ingestion,
     format_ingest_audit,
@@ -840,7 +841,8 @@ def main(argv: list[str] | None = None) -> int:
         for path in sorted((args.vault / "state").glob("*.md")):
             try:
                 doc = load_markdown(path)
-            except Exception:
+            except Exception as exc:
+                log_error(args.vault, f"stale state load failed for {path}", exc)
                 continue
             ttl = int(doc.frontmatter.get("ttl_days", 0) or 0)
             updated = doc.frontmatter.get("updated")
@@ -855,7 +857,8 @@ def main(argv: list[str] | None = None) -> int:
         for path in sorted((args.vault / "open_loops").glob("*.md")):
             try:
                 doc = load_markdown(path)
-            except Exception:
+            except Exception as exc:
+                log_error(args.vault, f"stale open-loop load failed for {path}", exc)
                 continue
             review_after = doc.frontmatter.get("review_after")
             if not review_after:
@@ -896,7 +899,8 @@ def main(argv: list[str] | None = None) -> int:
                 status = str(doc.frontmatter.get("status", ""))
                 pipeline = doc.frontmatter.get("pipeline", {})
                 task = pipeline.get("task", "") if isinstance(pipeline, dict) else ""
-            except Exception:
+            except Exception as exc:
+                log_error(args.vault, f"review draft load failed for {path}", exc)
                 summary = ""
                 status = ""
                 task = ""

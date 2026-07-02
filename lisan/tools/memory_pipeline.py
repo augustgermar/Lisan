@@ -506,7 +506,8 @@ def _answer_recall_from_records(
             conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
         )
         response = str(out.get("response") or "").strip()
-    except Exception:
+    except Exception as exc:
+        log_error(vault, "interlocutor response generation failed", exc)
         response = ""
     if not response:
         # Defensive fallback (provider error / unusable response): a rendered
@@ -729,8 +730,8 @@ def _supersede_corrected_records(vault: Path, writer: dict[str, Any], db_path: P
         if rid:
             try:
                 supersede_record(vault, rid, db_path=db_path)
-            except Exception:
-                pass
+            except Exception as exc:
+                log_error(vault, f"supersede corrected record failed for {rid}", exc)
 
 
 def _conversation_turn_count(vault: Path, conversation_id: str | None) -> int:
