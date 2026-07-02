@@ -130,6 +130,7 @@ if [ "$LISAN_NO_INIT" != "1" ]; then
   if LISAN_VAULT="$DEFAULT_VAULT" "$VENV_DIR/bin/lisan" init >/dev/null 2>&1 \
      && LISAN_VAULT="$DEFAULT_VAULT" "$VENV_DIR/bin/lisan" rebuild-index >/dev/null 2>&1; then
     ok "Vault ready"
+    printf "${C_CYAN}Next:${C_NC} lisan chat\n"
   else
     warn "Vault seeding incomplete (run 'lisan init && lisan rebuild-index' later)"
   fi
