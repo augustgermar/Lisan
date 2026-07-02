@@ -73,6 +73,20 @@ def test_run_codex_respects_approval_gate(tmp_path: Path, monkeypatch) -> None:
     assert called["complete"] == 1
 
 
+def test_run_codex_tool_description_mentions_lisan_cli_commands() -> None:
+    description = next(tool["description"] for tool in execution_tools.TOOLS if tool["name"] == "run_codex")
+    assert "run Lisan CLI commands" in description
+    assert "run shell commands" in description
+
+
+def test_interlocutor_prompt_strongly_prefers_action_first_rules() -> None:
+    prompt_path = Path("prompts/interlocutor_v1.md")
+    text = prompt_path.read_text(encoding="utf-8")
+    assert "CRITICAL RESPONSE RULE" in text
+    assert "When the user asks you to SHOW, READ, LIST, or DISPLAY a file or directory" in text
+    assert "You can run ANY Lisan CLI command via run_codex" in text
+
+
 def test_interlocutor_tool_loop_executes_tool_and_returns_final_response(tmp_path: Path, monkeypatch) -> None:
     agent = InterlocutorAgent(vault=tmp_path)
 

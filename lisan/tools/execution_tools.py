@@ -39,7 +39,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "run_codex",
-        "description": "Delegate a coding, system administration, or file-editing task to the codex agent. Codex can read/write files, run commands, and fix errors. Describe the task clearly; codex executes and returns the result. Requires user approval for write operations.",
+        "description": "Delegate a coding, system administration, or file-editing task to the codex agent. Codex can read/write files, run shell commands, run Lisan CLI commands, and fix errors. Describe the task clearly; codex executes and returns the result. Requires user approval for write operations.",
         "parameters": {
             "type": "object",
             "properties": {
