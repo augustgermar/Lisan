@@ -15,7 +15,7 @@ from lisan.frontmatter import load_markdown
 from lisan.config import load_config
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.capture import capture_text
-from lisan.tools.chat import _process_chat_turn, run_chat, startup_check
+from lisan.tools.chat import _print_background_summary, _process_chat_turn, run_chat, startup_check
 from lisan.tools.record_fanout import fanout_decisions as _create_decisions
 from lisan.tools.transcripts import append_transcript
 from lisan.tools.tracing import list_recent_turn_traces, load_turn_trace
@@ -227,6 +227,45 @@ class ChatPerformanceTests(unittest.TestCase):
         self.assertEqual(result["queued_jobs"], [])
         self.assertEqual(result["trace"]["jobs_queued"], 0)
         self.assertEqual(self.client.complete.call_count, 0)
+
+    def test_background_summary_includes_steps_and_jobs(self) -> None:
+        buffer = io.StringIO()
+        result = {
+            "route": "memory",
+            "kind": "writer",
+            "queued_jobs": [{"job_type": "index.rebuild_record", "job_id": "job-1"}],
+            "trace": {
+                "fast_path_used": False,
+                "retrieval_used": True,
+                "retrieval_record_count": 4,
+                "graph_expanded_count": 2,
+                "jobs_queued": 1,
+                "elapsed_ms": 321,
+                "inline_steps": ["classify_turn", "memory_pipeline.listener", "memory_pipeline.writer"],
+                "llm_calls": [
+                    {
+                        "call_name": "listener",
+                        "provider": "codex",
+                        "model": "gpt-5",
+                        "elapsed_ms": 88,
+                        "prompt_token_estimate": 120,
+                        "output_token_estimate": 22,
+                    }
+                ],
+            },
+        }
+
+        with redirect_stdout(buffer):
+            _print_background_summary(result)
+
+        output = buffer.getvalue()
+        self.assertIn("background:", output)
+        self.assertIn("stages:", output)
+        self.assertIn("classify the turn", output)
+        self.assertIn("run the writer", output)
+        self.assertIn("llm calls:", output)
+        self.assertIn("queued jobs: index.rebuild_record:job-1", output)
+        self.assertIn("trace: fast_path=false", output)
 
     def test_trivial_turn_does_not_run_retrieval_or_background_analysis(self) -> None:
         result = _process_chat_turn(

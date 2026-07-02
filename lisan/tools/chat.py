@@ -278,14 +278,11 @@ def run_chat(
             if turn_result.get("route") != "advice":
                 advice_topic = None
 
-        queued_jobs = turn_result.get("queued_jobs") or []
-        if queued_jobs:
-            job_list = ", ".join(f"{job['job_type']}:{job['job_id']}" for job in queued_jobs if isinstance(job, dict))
-            print(_c(f"  queued jobs: {job_list}", DIM))
+        _print_background_summary(turn_result)
         if trace:
             trace_text = str(turn_result.get("trace_summary") or "")
             if trace_text:
-                print(_c(f"  {trace_text}", DIM))
+                print(_c(f"  trace: {trace_text}", DIM))
 
 
 def _process_chat_turn(
@@ -422,6 +419,90 @@ def _short_provider_reason(exc: Exception) -> str:
     if len(message) > 180:
         return message[:177] + "..."
     return message
+
+
+def _print_background_summary(result: dict[str, Any]) -> None:
+    trace = result.get("trace") or {}
+    route = str(result.get("route") or "").strip() or "unknown"
+    kind = str(result.get("kind") or "").strip() or "unknown"
+    queued_jobs = [job for job in (result.get("queued_jobs") or []) if isinstance(job, dict)]
+    inline_steps = trace.get("inline_steps") or []
+    llm_calls = trace.get("llm_calls") or []
+    elapsed_ms = trace.get("elapsed_ms") or 0
+    retrieval_count = trace.get("retrieval_record_count") if trace.get("retrieval_used") else 0
+    graph_count = trace.get("graph_expanded_count") if trace.get("retrieval_used") else 0
+    jobs_queued = trace.get("jobs_queued") or 0
+
+    print(_c("  background:", DIM))
+    print(_c(f"    route: {route} | kind: {kind}", DIM))
+
+    if inline_steps:
+        print(_c("    stages:", DIM))
+        for step in inline_steps:
+            print(_c(f"      • {_humanize_trace_step(str(step))}", DIM))
+    else:
+        print(_c("    stages: none", DIM))
+
+    if llm_calls:
+        print(_c("    llm calls:", DIM))
+        for call in llm_calls:
+            call_name = str(call.get("call_name") or "llm")
+            provider = str(call.get("provider") or "")
+            model = str(call.get("model") or "")
+            elapsed = call.get("elapsed_ms") or 0
+            prompt_tokens = call.get("prompt_token_estimate") or 0
+            output_tokens = call.get("output_token_estimate") or 0
+            parts = [call_name]
+            if provider:
+                parts.append(provider)
+            if model:
+                parts.append(model)
+            parts.append(f"{elapsed}ms")
+            parts.append(f"prompt~{prompt_tokens}")
+            parts.append(f"output~{output_tokens}")
+            print(_c(f"      • {' | '.join(parts)}", DIM))
+
+    if queued_jobs:
+        job_list = ", ".join(f"{job['job_type']}:{job['job_id']}" for job in queued_jobs)
+        print(_c(f"    queued jobs: {job_list}", DIM))
+    else:
+        print(_c("    queued jobs: none", DIM))
+
+    print(
+        _c(
+            f"    trace: fast_path={str(bool(trace.get('fast_path_used'))).lower()} | "
+            f"retrieval={retrieval_count} | graph={graph_count} | jobs={jobs_queued} | elapsed={elapsed_ms}ms",
+            DIM,
+        )
+    )
+    print()
+
+
+_TRACE_STEP_LABELS: dict[str, str] = {
+    "classify_turn": "classify the turn",
+    "fast_path_response": "answer from the fast path",
+    "advice_response": "draft a direct advice reply",
+    "memory_capture": "capture the turn into memory",
+    "memory_pipeline.start": "start the memory pipeline",
+    "memory_pipeline.transcript": "append the transcript",
+    "memory_pipeline.listener": "run the listener",
+    "memory_pipeline.assembler": "assemble retrieval context",
+    "memory_pipeline.interlocutor": "run the interlocutor",
+    "memory_pipeline.writer": "run the writer",
+    "memory_pipeline.skeptic": "run the skeptic",
+    "memory_pipeline.writer.artifacts": "expand writer artifacts",
+    "memory_pipeline.fanout": "fan out records into the vault",
+    "memory_pipeline.fanout.skeptic_blocked": "hold fan-out because the skeptic blocked it",
+    "memory_pipeline.elicitor": "enter the elicitor loop",
+}
+
+
+def _humanize_trace_step(step: str) -> str:
+    if step in _TRACE_STEP_LABELS:
+        return _TRACE_STEP_LABELS[step]
+    step = step.replace(".", " ")
+    step = step.replace("_", " ")
+    return step.strip()
 
 
 # ── Response rendering ────────────────────────────────────────────────────────
