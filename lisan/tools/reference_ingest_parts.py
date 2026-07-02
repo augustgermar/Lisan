@@ -1914,11 +1914,17 @@ def ingest_reference_sources(
     vault: Path | None = None,
     db_path: Path | None = None,
     replace: bool = False,
+    on_exists: str | None = None,
     link_entities: list[str] | None = None,
     plan_only: bool = False,
 ) -> dict[str, Any]:
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
+    existence_policy = "replace" if replace else (str(on_exists or "abort").strip().lower() or "abort")
+    if existence_policy not in {"abort", "replace", "merge"}:
+        raise ValueError("on_exists must be one of: abort, replace, merge")
+    if existence_policy == "merge":
+        raise NotImplementedError("Reference merge re-ingestion is not implemented yet; use --on-exists replace or abort.")
     link_entities = [str(item).strip() for item in (link_entities or []) if str(item).strip()]
 
     entity_catalog = _load_entity_catalog(vault)
@@ -1938,6 +1944,7 @@ def ingest_reference_sources(
                 vault=vault,
                 db_path=db_path,
                 replace=replace,
+                on_exists=existence_policy,
                 link_entities=link_entities,
                 plan_only=plan_only,
             )
@@ -1958,11 +1965,15 @@ def ingest_reference_sources(
             mode="auto",
             source_ref_base=source_locator,
         )
-        if replace:
+        if existence_policy == "replace":
             removed = _remove_existing_reference_chunks(vault, source_document, plan_only=plan_only)
             replaced_files.extend(removed)
         elif _has_existing_reference_chunks(vault, source_document):
-            raise FileExistsError(f"Reference document already ingested: {source_document}. Re-run with --replace.")
+            raise FileExistsError(
+                f"Reference document already ingested: {source_document}. "
+                "Re-run with --on-exists replace to replace the old chunks, "
+                "or --on-exists abort to keep the existing version."
+            )
 
         doc_plan = {
             "source_path": str(source),

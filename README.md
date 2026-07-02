@@ -130,6 +130,7 @@ Notes:
 - `--plan` previews the chunks and entity links without writing anything.
 - `--link-entity` pre-links the imported chunks to a known entity.
 - `--replace` re-ingests the same source document by deleting the prior chunks first.
+- `--on-exists abort|replace|merge` makes the re-ingest policy explicit; `merge` is reserved for a later release.
 - PDF ingestion requires the optional `pymupdf` extra (`pip install "lisan[pdf]"`).
 
 ## Working On The Codebase

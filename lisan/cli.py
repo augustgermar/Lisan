@@ -126,6 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("--reference", nargs="+", type=Path, default=None, help="Ingest reference document(s) as chunked knowledge records")
     ingest.add_argument("--link-entity", action="append", default=[], help="Pre-link all reference chunks to this entity id or name")
     ingest.add_argument("--replace", action="store_true", help="Replace existing chunks for the same source document")
+    ingest.add_argument("--on-exists", choices=["abort", "replace", "merge"], default=None, help="Policy when a reference source already exists")
     ingest.add_argument("--plan", action="store_true", help="Preview reference ingestion without writing")
     ingest.add_argument("--json", action="store_true", help="Emit machine-readable JSON for reference ingestion")
     ingest_subparsers = ingest.add_subparsers(dest="ingest_command", required=False)
@@ -670,6 +671,7 @@ def main(argv: list[str] | None = None) -> int:
                     vault=args.vault,
                     db_path=args.db_path,
                     replace=args.replace,
+                    on_exists=args.on_exists,
                     link_entities=args.link_entity,
                     plan_only=args.plan,
                 )

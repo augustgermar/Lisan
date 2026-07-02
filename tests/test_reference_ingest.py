@@ -80,6 +80,23 @@ Participants keep control over their budgets.
         self.assertEqual(len(knowledge_docs), 1)
         self.assertIn("Replaced text.", knowledge_docs[0].body)
 
+    def test_reference_ingest_abort_rejects_existing_chunks(self) -> None:
+        doc = self.src / "policy.md"
+        doc.write_text("# Policy Guide\n\n## Section One\n\nInitial text.\n", encoding="utf-8")
+        ingest_reference_sources([doc], vault=self.vault, db_path=self.db_path)
+
+        doc.write_text("# Policy Guide\n\n## Section One\n\nUpdated text.\n", encoding="utf-8")
+        with self.assertRaises(FileExistsError) as ctx:
+            ingest_reference_sources([doc], vault=self.vault, db_path=self.db_path, on_exists="abort")
+        self.assertIn("--on-exists replace", str(ctx.exception))
+
+    def test_reference_ingest_merge_is_not_implemented(self) -> None:
+        doc = self.src / "policy.md"
+        doc.write_text("# Policy Guide\n\n## Section One\n\nInitial text.\n", encoding="utf-8")
+        with self.assertRaises(NotImplementedError) as ctx:
+            ingest_reference_sources([doc], vault=self.vault, db_path=self.db_path, on_exists="merge")
+        self.assertIn("not implemented yet", str(ctx.exception))
+
     def test_reference_plan_reports_detected_entities(self) -> None:
         new_entity(self.vault, "Maya", subtype="person", summary="Maya is known in the vault.")
         doc = self.src / "manual.md"
