@@ -492,6 +492,8 @@ from .retrieval_parts import (
     _is_blocked_visibility_reason,
     _quarantine_sets,
     _visibility_block_reason,
+)
+from .retrieval_graph import (
     _GraphEdge,
     _expand_graph,
     _build_graph_edges,
