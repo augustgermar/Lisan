@@ -626,14 +626,35 @@ def _interlocutor_input(
         payload["user_correction"] = user_text
         payload["narrative_state"] = {}
     else:
+        emotional_texture = _current_emotional_texture(listener, prior_state)
         payload["narrative_state"] = {
             "story_thread": _i(getattr(prior_state, "story_thread", "") or ""),
             "established": [_i(x) for x in (getattr(prior_state, "established", []) or [])],
             "open_threads": [_i(x) for x in (getattr(prior_state, "open_threads", []) or [])],
-            "emotional_texture": _i(getattr(prior_state, "emotional_texture", "") or ""),
+            "emotional_texture": _i(emotional_texture),
             "turn_count": getattr(prior_state, "turn_count", 0),
         }
     return payload
+
+
+def _current_emotional_texture(listener: dict[str, Any], prior_state: Any) -> str:
+    prior_texture = str(getattr(prior_state, "emotional_texture", "") or "").strip()
+    if not prior_texture:
+        return ""
+    if _listener_has_affect_signal(listener):
+        return prior_texture
+    return ""
+
+
+def _listener_has_affect_signal(listener: dict[str, Any]) -> bool:
+    score = listener.get("score", 0)
+    try:
+        if int(score) >= 4:
+            return True
+    except (TypeError, ValueError):
+        pass
+    reasons = [str(reason).lower() for reason in (listener.get("reason") or [])]
+    return any("affect" in reason or "emotion" in reason or "distress" in reason for reason in reasons)
 
 
 def _has_distress_signal(listener: dict[str, Any], text: str) -> bool:

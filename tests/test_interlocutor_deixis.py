@@ -86,7 +86,7 @@ def test_decision_and_open_loop_titles_rendered() -> None:
 def test_narrative_state_rendered() -> None:
     payload = _interlocutor_input(
         _writer(),
-        {"memory_type": "episode"},
+        {"memory_type": "episode", "score": 5, "reason": ["affect signal"]},
         _state(
             story_thread="{{principal}} is planning a trip",
             established=["{{principal}} met Dana"],
@@ -101,6 +101,24 @@ def test_narrative_state_rendered() -> None:
     assert ns["open_threads"] == ["you owes Soren a call"]
     assert ns["emotional_texture"] == "I stayed warm"
     assert ns["turn_count"] == 3  # non-str values pass through untouched
+
+
+def test_stale_emotional_texture_clears_on_neutral_turn() -> None:
+    payload = _interlocutor_input(
+        _writer(),
+        {"memory_type": "episode", "score": 0, "reason": []},
+        _state(emotional_texture="surge, empire energy"),
+    )
+    assert payload["narrative_state"]["emotional_texture"] == ""
+
+
+def test_emotional_texture_persists_when_current_turn_has_affect() -> None:
+    payload = _interlocutor_input(
+        _writer(),
+        {"memory_type": "episode", "score": 5, "reason": ["affect signal"]},
+        _state(emotional_texture="surge, empire energy"),
+    )
+    assert payload["narrative_state"]["emotional_texture"] == "surge, empire energy"
 
 
 def test_entities_kept_verbatim() -> None:
