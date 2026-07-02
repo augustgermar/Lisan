@@ -210,10 +210,12 @@ class EmbeddingProvider:
             level = "ERROR" if self.mode == "semantic" else "INFO"
             _warn(
                 "fastembed-missing",
-                f"provider 'fastembed' selected but the 'fastembed' package is not installed "
-                f"({exc}). Install it with `pip install lisan[embeddings]` to enable in-process "
-                f"semantic embeddings; running keyword-only via "
-                f"unreachable_policy='{self.settings.get('unreachable_policy', 'skip')}'. [{level}]",
+                f"Semantic embeddings are not available in this Lisan environment "
+                f"({exc}). Retrieval will continue keyword-only via "
+                f"unreachable_policy='{self.settings.get('unreachable_policy', 'skip')}'. "
+                f"To enable embeddings, install `lisan[embeddings]` inside the managed "
+                f"virtualenv at `~/.lisan/venv` or rerun the installer with "
+                f"`LISAN_EMBEDDINGS=1`. [{level}]",
             )
             return None
         except Exception as exc:  # unreachable, bad response, etc.

@@ -68,6 +68,14 @@ If you already have an activated virtualenv and want a manual install, you can s
 python3 -m pip install "lisan @ git+https://github.com/augustgermar/Lisan.git"
 ```
 
+If you want semantic retrieval, add the embeddings extra inside the managed virtualenv or during install:
+
+```bash
+~/.lisan/venv/bin/pip install "lisan[embeddings]"
+# or
+LISAN_EMBEDDINGS=1 curl -fsSL "https://raw.githubusercontent.com/augustgermar/Lisan/main/install.sh?$(date +%s)" | bash
+```
+
 If you want PDF reference ingestion, install the optional PDF extra too:
 
 ```bash
