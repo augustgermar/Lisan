@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from ..paths import skills_root
 from ..tools.operating_style import load_operating_style
+from ..tools.execution_tools import TOOLS, build_tool_handlers
+from ..tools.skill_loader import load_skills
 from .base import PromptAgent
 
 
@@ -11,7 +14,6 @@ class InterlocutorAgent(PromptAgent):
     name = "interlocutor"
     prompt_file = "interlocutor_v1"
     output_schema_name = "interlocutor_output"
-
     def parse_output(self, text: str) -> Any | None:
         """Finding #11: reject LLM output that parses but lacks the required
         ``response`` field. The default ``extract_json`` can return a partial
@@ -49,6 +51,44 @@ class InterlocutorAgent(PromptAgent):
             },
         }
         return json.dumps(out, indent=2, ensure_ascii=True)
+
+    def run_json(
+        self,
+        user_input: str,
+        significance: str = "medium",
+        provider: str | None = None,
+        model: str | None = None,
+        schema: dict[str, Any] | None = None,
+        provider_error_mode: str = "fallback",
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        self.last_tool_calls = []
+        tools = list(TOOLS) + load_skills(skills_root())
+        tool_handlers = build_tool_handlers(
+            vault=self.vault,
+            db_path=kwargs.get("db_path"),
+            config=self.config,
+            conversation_id=kwargs.get("conversation_id"),
+            domain=kwargs.get("domain"),
+        )
+        result = self.complete_with_tools(
+            user_input,
+            significance=significance,
+            provider=provider,
+            model=model,
+            schema=schema or self.output_schema(),
+            tools=tools,
+            tool_handlers=tool_handlers,
+            provider_error_mode=provider_error_mode,
+            **kwargs,
+        )
+        self.last_tool_calls = result.tool_calls or []
+        if isinstance(result.data, dict):
+            return result.data
+        parsed = self.parse_output(result.text)
+        if isinstance(parsed, dict):
+            return parsed
+        return {"response": result.text, "questions": [], "updated_narrative_state": {}}
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

@@ -57,6 +57,7 @@ class MemoryPipelineResult:
     narrative_state: dict[str, Any] | None = None
     skeptic_approved: bool = True
     entities_touched: list[Path] = field(default_factory=list)
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -172,18 +173,57 @@ def run_memory_pipeline(
         "transcript": str(transcript_path.relative_to(vault)),
         "conversation_policy": json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     }
+    record_inline_step("memory_pipeline.interlocutor")
+    # Finding 1: do not forward skeptic flags to the interlocutor.
+    # Skeptic uncertainty about a memory record was bleeding into the user-facing
+    # response (e.g. "this family member" instead of the named person). The
+    # interlocutor speaks to the user; it should not see internal review notes.
+    interlocutor_agent = InterlocutorAgent(vault=vault)
+    interlocutor = interlocutor_agent.run_json(
+        json.dumps(
+            _interlocutor_input(
+                writer=None,
+                listener=listener,
+                prior_state=prior_state,
+                user_text=text,
+                vault=vault,
+                retrieved_context=context,
+            ),
+            indent=2,
+            ensure_ascii=True,
+        ),
+        significance="medium",
+        provider=provider,
+        model=model,
+        provider_error_mode="raise",
+        conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
+        db_path=db_path,
+        conversation_id=conversation_id,
+    )
+    tool_calls = list(getattr(interlocutor_agent, "last_tool_calls", []) or [])
     record_inline_step("memory_pipeline.writer")
     # v0.1.9: the episode path is split. The core call returns body + claims;
     # the artifact call returns entities / decisions / open loops / state /
     # evidence. Non-episode tasks stay single-shot — they're already small.
+    writer_task = "episode_full_turn" if task == "episode" and tool_calls else ("episode_core" if task == "episode" else task)
     if task == "episode":
         writer_core = WriterAgent(vault=vault).run_json(
-            text, task="episode_core", **common_kwargs,
+            text,
+            task=writer_task,
+            interlocutor_response=json.dumps(interlocutor, indent=2, ensure_ascii=True),
+            tool_calls=json.dumps(tool_calls, indent=2, ensure_ascii=True),
+            retrieved_context=context,
+            **common_kwargs,
         )
         writer = dict(writer_core)
     else:
         writer = WriterAgent(vault=vault).run_json(
-            text, task=task, **common_kwargs,
+            text,
+            task=writer_task,
+            interlocutor_response=json.dumps(interlocutor, indent=2, ensure_ascii=True),
+            tool_calls=json.dumps(tool_calls, indent=2, ensure_ascii=True),
+            retrieved_context=context,
+            **common_kwargs,
         )
         writer_core = writer
     writer_core = tokenize_principal_obj(writer_core, vault)
@@ -195,26 +235,11 @@ def run_memory_pipeline(
         provider=provider,
         model=model,
         provider_error_mode="raise",
+        db_path=db_path,
+        conversation_id=conversation_id,
         conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     )
     skeptic_approved = _skeptic_approves(skeptic)
-    record_inline_step("memory_pipeline.interlocutor")
-    # Finding 1: do not forward skeptic flags to the interlocutor.
-    # Skeptic uncertainty about a memory record was bleeding into the user-facing
-    # response (e.g. "this family member" instead of the named person). The
-    # interlocutor speaks to the user; it should not see internal review notes.
-    interlocutor = InterlocutorAgent(vault=vault).run_json(
-        json.dumps(
-            _interlocutor_input(writer=writer_core, listener=listener, prior_state=prior_state, user_text=text, vault=vault),
-            indent=2,
-            ensure_ascii=True,
-        ),
-        significance="medium",
-        provider=provider,
-        model=model,
-        provider_error_mode="raise",
-        conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
-    )
     # v0.1.9: only run the artifact pass when the skeptic approved the core.
     # If the core is rejected, we hold the draft as needs_revision and never
     # spend a second writer call on derived artifacts that would be skipped
@@ -273,6 +298,7 @@ def run_memory_pipeline(
         mode=mode,
         skeptic_approved=skeptic_approved,
         entities_touched=entities_touched,
+        tool_calls=getattr(interlocutor_agent, "last_tool_calls", []),
     )
 
 
@@ -553,11 +579,12 @@ def _skeptic_approves(skeptic: dict[str, Any] | None) -> bool:
 
 
 def _interlocutor_input(
-    writer: dict[str, Any],
+    writer: dict[str, Any] | None,
     listener: dict[str, Any],
     prior_state: Any,
     user_text: str = "",
     vault: Path | None = None,
+    retrieved_context: str | None = None,
 ) -> dict[str, Any]:
     """Build a clean conversational payload — no skeptic notes, no internal flags."""
     memory_type = str(listener.get("memory_type") or "")
@@ -579,6 +606,7 @@ def _interlocutor_input(
             t = tokenize_principal(t, vault)
         return render_deixis(t, "interlocutor")
 
+    writer = writer or {}
     payload: dict[str, Any] = {
         "writer_summary": _i(writer.get("summary") or ""),
         "writer_questions": writer.get("questions") or [],
@@ -588,6 +616,8 @@ def _interlocutor_input(
         "decisions": [_i(d.get("title")) for d in (writer.get("decisions_to_create") or []) if isinstance(d, dict) and d.get("title")],
         "open_loops": [_i(o.get("title")) for o in (writer.get("open_loops_to_create") or []) if isinstance(o, dict) and o.get("title")],
     }
+    if retrieved_context:
+        payload["retrieved_context"] = retrieved_context
     if is_correction:
         # On correction turns the prior narrative state predates the correction
         # and may actively contradict it — omit it to prevent the interlocutor

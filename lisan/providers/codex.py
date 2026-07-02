@@ -23,6 +23,7 @@ class CodexClient(ProviderClient):
         agent: str = "writer",
         significance: str = "medium",
         model: str | None = None,
+        working_directory: Path | None = None,
     ) -> LLMResponse:
         # The coding agent occasionally returns a truncated JSON response — the model
         # finishes mid-key when the streaming session is cut short by the
@@ -34,6 +35,7 @@ class CodexClient(ProviderClient):
                 return self._complete_once(
                     prompt=prompt, schema=schema, temperature=temperature,
                     agent=agent, significance=significance, model=model,
+                    working_directory=working_directory,
                 )
             except ProviderError as exc:
                 if not _is_truncated_json_error(exc):
@@ -51,6 +53,7 @@ class CodexClient(ProviderClient):
         agent: str,
         significance: str,
         model: str | None,
+        working_directory: Path | None,
     ) -> LLMResponse:
         binary = os.getenv(self.config["providers"]["codex"].get("binary_env") or "", "codex")
         chosen_model = model or self.config["providers"]["codex"].get("default_model") or None
@@ -75,7 +78,7 @@ class CodexClient(ProviderClient):
 
         output_path: Path | None = None
         try:
-            args = [binary, "exec", "--skip-git-repo-check", "--cd", str(repo_root())]
+            args = [binary, "exec", "--skip-git-repo-check", "--cd", str(working_directory or repo_root())]
             if chosen_model:
                 args.extend(["--model", chosen_model])
 

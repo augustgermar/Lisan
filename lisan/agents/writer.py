@@ -4,6 +4,7 @@ import json
 import re
 from typing import Any
 
+from ..prompts import load_prompt
 from ..tools.heuristic_gate import score_text
 from ..utils import approx_word_count
 from .base import PromptAgent
@@ -47,6 +48,7 @@ _TASK_PROMPT_FILES = {
     "episode":           "writer_episode_v1",
     "episode_core":      "writer_episode_core_v1",
     "episode_artifacts": "writer_episode_artifacts_v1",
+    "episode_full_turn": "writer_full_turn_v1",
     "decision":  "writer_decision_v1",
     "open_loop": "writer_open_loop_v1",
     "state":     "writer_state_v1",
@@ -61,6 +63,15 @@ class WriterAgent(PromptAgent):
     name = "writer"
     prompt_file = "writer_episode_v1"
     output_schema_name = "writer_output"
+
+    def prompt(self) -> str:
+        if self.prompt_file == "writer_full_turn_v1":
+            base = load_prompt("writer_episode_v1")
+            addon = load_prompt("writer_full_turn_v1")
+            from ..tools.deixis import render_deixis
+
+            return render_deixis(base + "\n\n" + addon, self.prompt_audience, self.vault)
+        return super().prompt()
 
     def run_json(self, user_input: str, **kwargs: Any) -> Any:
         task = str(kwargs.get("task") or "episode")

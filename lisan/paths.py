@@ -33,6 +33,15 @@ def embeddings_path(base: Path | None = None) -> Path:
     return (base or repo_root()) / "embeddings.bin"
 
 
+def skills_root(base: Path | None = None) -> Path:
+    env_value = os.environ.get("LISAN_SKILLS_DIR")
+    if env_value:
+        return Path(env_value).expanduser()
+    if base is not None:
+        return base / "skills"
+    return Path.home() / ".local" / "share" / "Lisan" / "skills"
+
+
 def schemas_dir(base: Path | None = None) -> Path:
     return (base or repo_root()) / "lisan" / "schemas"
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ class AgentResult:
     text: str
     response: LLMResponse | None = None
     data: Any | None = None
+    tool_calls: list[dict[str, Any]] | None = None
 
 
 class PromptAgent:
@@ -62,6 +64,92 @@ class PromptAgent:
             rendered += "\n\n" + "\n\n".join(extras)
         rendered += "\n\nINPUT:\n" + user_input
         return rendered
+
+    def complete_with_tools(
+        self,
+        user_input: str,
+        *,
+        significance: str = "medium",
+        provider: str | None = None,
+        model: str | None = None,
+        schema: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_handlers: dict[str, Any] | None = None,
+        provider_error_mode: str = "fallback",
+        max_iterations: int = 10,
+        **kwargs: Any,
+    ) -> AgentResult:
+        from ..tools.execution_tools import parse_tool_calls
+
+        render_kwargs = dict(kwargs)
+        render_kwargs.pop("provider_error_mode", None)
+        tool_handlers = tool_handlers or {}
+        tool_log: list[dict[str, Any]] = []
+        prompt = self.render_input(
+            user_input,
+            **render_kwargs,
+            available_tools=json.dumps(tools or [], indent=2, ensure_ascii=True) if tools else None,
+        )
+        current_prompt = prompt
+        last_response: LLMResponse | None = None
+        for iteration in range(max_iterations):
+            try:
+                response = self.llm.complete(
+                    current_prompt,
+                    agent=self.name,
+                    significance=significance,
+                    provider=provider,
+                    model=model,
+                    schema=schema,
+                )
+            except ProviderError as exc:
+                from ..tools.log import log_error
+                log_error(self.vault, f"{self.name}.llm", exc)
+                if provider_error_mode == "raise":
+                    raise
+                fallback = self.fallback_output(user_input, significance=significance, **kwargs)
+                return AgentResult(text=fallback, response=None, data=self.parse_output(fallback), tool_calls=tool_log)
+
+            last_response = response
+            tool_calls = parse_tool_calls(response.text)
+            if not tool_calls:
+                data = self.parse_output(response.text)
+                if schema is not None and not _schema_satisfied(data, schema):
+                    from ..tools.log import log_error
+                    log_error(self.vault, f"{self.name}.parse", ValueError(
+                        f"non-JSON response from {response.provider}: {response.text[:120]!r}"
+                    ))
+                    fallback = self.fallback_output(user_input, significance=significance, **kwargs)
+                    return AgentResult(text=fallback, response=response, data=self.parse_output(fallback), tool_calls=tool_log)
+                return AgentResult(text=response.text, response=response, data=data, tool_calls=tool_log)
+
+            for call in tool_calls:
+                tool_name = str(call.get("tool") or "")
+                args = dict(call.get("args") or {})
+                handler = tool_handlers.get(tool_name)
+                if handler is None:
+                    result = f"Error: unknown tool {tool_name}"
+                else:
+                    try:
+                        result = handler(**args)
+                    except TypeError:
+                        result = handler(args)
+                    except Exception as exc:
+                        result = f"Error: {exc}"
+                tool_log.append({"tool": tool_name, "args": args, "result": result, "iteration": iteration + 1})
+                current_prompt += (
+                    "\n\nTOOL_CALL:\n"
+                    + json.dumps({"tool": tool_name, "args": args}, indent=2, ensure_ascii=True)
+                    + "\n\nTOOL_RESULT:\n"
+                    + str(result).strip()
+                    + "\n\nContinue. If you have enough information, provide the final JSON response now."
+                )
+        if last_response is not None:
+            data = self.parse_output(last_response.text)
+            fallback = self.fallback_output(user_input, significance=significance, **kwargs)
+            return AgentResult(text=fallback, response=last_response, data=self.parse_output(fallback), tool_calls=tool_log)
+        fallback = self.fallback_output(user_input, significance=significance, **kwargs)
+        return AgentResult(text=fallback, response=None, data=self.parse_output(fallback), tool_calls=tool_log)
 
     def run(
         self,
@@ -98,7 +186,6 @@ class PromptAgent:
                 ))
                 fallback = self.fallback_output(user_input, significance=significance, **kwargs)
                 return AgentResult(text=fallback, response=response, data=self.parse_output(fallback))
-            return AgentResult(text=response.text, response=response, data=data)
         except ProviderError as exc:
             from ..tools.log import log_error
             log_error(self.vault, f"{self.name}.llm", exc)
@@ -108,6 +195,7 @@ class PromptAgent:
             fallback_kwargs.pop("provider_error_mode", None)
             fallback = self.fallback_output(user_input, significance=significance, **fallback_kwargs)
             return AgentResult(text=fallback, response=None, data=self.parse_output(fallback))
+        return AgentResult(text=response.text, response=response, data=data)
 
     def run_json(
         self,
