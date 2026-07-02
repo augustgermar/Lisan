@@ -4,7 +4,7 @@
 # ============================================================================
 # One-line install:
 #
-#   curl -fsSL https://raw.githubusercontent.com/augustgermar/Lisan/main/install.sh | bash
+#   curl -fsSL "https://raw.githubusercontent.com/augustgermar/Lisan/main/install.sh?$(date +%s)" | bash
 #
 # What it does (non-interactively, safe to re-run):
 #   1. Finds a Python >= 3.11 interpreter and git
@@ -177,4 +177,4 @@ printf "  ${C_DIM}# optional: re-initialize or inspect the vault later${C_NC}\n"
 printf "  lisan init\n\n"
 printf "  ${C_DIM}# or capture a memory${C_NC}\n"
 printf "  lisan capture --conversation-id demo \"I had a weird day at work\"\n\n"
-printf "Update later with:  ${C_DIM}curl -fsSL https://raw.githubusercontent.com/augustgermar/Lisan/main/install.sh | bash${C_NC}\n\n"
+printf "Update later with:  ${C_DIM}curl -fsSL \"https://raw.githubusercontent.com/augustgermar/Lisan/main/install.sh?\$(date +%%s)\" | bash${C_NC}\n\n"

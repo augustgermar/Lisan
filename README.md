@@ -57,10 +57,10 @@ The repo is usable as a local memory vault CLI now. Most remaining work is refin
 Single-command install from GitHub:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/augustgermar/Lisan/main/install.sh | bash
+curl -fsSL "https://raw.githubusercontent.com/augustgermar/Lisan/main/install.sh?$(date +%s)" | bash
 ```
 
-This installer creates an isolated virtualenv under `~/.lisan`, so it works on macOS/Homebrew Python without hitting the PEP 668 "externally managed" error.
+This installer creates an isolated virtualenv under `~/.lisan`, so it works on macOS/Homebrew Python without hitting the PEP 668 "externally managed" error. The timestamp query string bypasses GitHub's raw-file cache, so you get the latest script immediately after a push.
 
 If you already have an activated virtualenv and want a manual install, you can still install from git with pip:
 
