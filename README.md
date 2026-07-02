@@ -145,6 +145,7 @@ Start here when making changes:
 7. Inspect the active vault directory. If `LISAN_VAULT` is set, use that path. Otherwise create or inspect the local vault created by `lisan init`.
 
 The architecture is intentionally deterministic-first. If a feature can be done with file parsing, JSON, regex, or SQL, do that before adding any new LLM behavior.
+Treat `pytest` as the release gate; GitHub Actions runs the suite on pushes and pull requests so `main` stays green.
 
 ## Repository Layout
 
