@@ -89,6 +89,18 @@ export LISAN_VAULT="$HOME/.local/share/Lisan/vault"
 python3 -m lisan init
 ```
 
+To remove the managed install later without deleting your vault, run:
+
+```bash
+lisan uninstall
+```
+
+If you want to remove the install from the installer script instead, you can also run:
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/augustgermar/Lisan/main/install.sh?$(date +%s)" | bash -s -- --uninstall
+```
+
 ## Vault Location
 
 The active vault location is resolved like this:

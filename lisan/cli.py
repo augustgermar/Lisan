@@ -49,6 +49,7 @@ from .tools.confidence_decay import detect_decay_candidates
 from .tools.manifest_gen import generate_manifests
 from .tools.migrator import run_migration
 from .tools.purge import purge_installation
+from .tools.uninstall import default_bin_dir, default_install_root, uninstall_installation
 from .tools.primer_audit import run_primer_audit
 from .tools.provider_diagnostics import diagnose_provider
 from .tools.record_factory import new_claim, new_decision, new_evidence, new_evidence_correction, new_entity, new_episode, new_knowledge, new_open_loop, new_state, upsert_state
@@ -88,6 +89,12 @@ def build_parser() -> argparse.ArgumentParser:
     purge.add_argument("--preserve-config", action="store_const", const=True, default=None, help="Keep config.yaml instead of resetting it")
     purge.add_argument("--backup-before", action="store_const", const=True, default=None, help="Create a backup before deleting anything")
     purge.add_argument("--backup-destination", type=Path, default=None, help="Write the optional pre-purge backup to this directory")
+
+    uninstall = subparsers.add_parser("uninstall", help="Remove the managed Lisan install and launcher")
+    uninstall.add_argument("--yes", action="store_true", help="Skip the confirmation prompt")
+    uninstall.add_argument("--purge-vault", action="store_true", help="Also delete the vault directory")
+    uninstall.add_argument("--home", type=Path, default=None, help="Override the managed install root")
+    uninstall.add_argument("--bin-dir", type=Path, default=None, help="Override the launcher directory")
 
     chat = subparsers.add_parser("chat", help="Start an interactive chat session")
     chat.add_argument("--vault", type=Path, default=vault_root())
@@ -651,6 +658,36 @@ def main(argv: list[str] | None = None) -> int:
             print("Config preserved.")
         else:
             print("Config reset to defaults.")
+        return 0
+
+    if args.command == "uninstall":
+        keep_vault = not args.purge_vault
+        if args.yes:
+            confirmed = True
+        else:
+            confirmed = _confirm_uninstall(keep_vault=keep_vault, install_root=args.home or default_install_root(), bin_dir=args.bin_dir or default_bin_dir())
+        if not confirmed:
+            print("Uninstall cancelled.")
+            return 1
+        result = uninstall_installation(
+            install_root=args.home,
+            bin_dir=args.bin_dir,
+            keep_vault=keep_vault,
+        )
+        print(f"Removed launcher and app files from: {result.install_root}")
+        if result.removed_paths:
+            print("Removed:")
+            for path in result.removed_paths:
+                print(f"  {path}")
+        if result.removed_path_entries:
+            print("Removed shell PATH entry from:")
+            for path in result.removed_path_entries:
+                print(f"  {path}")
+        if result.kept_vault:
+            print(f"Kept vault: {result.vault}")
+            print("If you want a full reset later, run: lisan purge")
+        else:
+            print("Vault removed.")
         return 0
 
     if args.command == "validate":
@@ -1306,6 +1343,18 @@ def _confirm_purge() -> bool:
     print(warning)
     response = input("Type PURGE to continue: ").strip()
     return response == "PURGE"
+
+
+def _confirm_uninstall(*, keep_vault: bool, install_root: Path, bin_dir: Path) -> bool:
+    print("WARNING: this will remove the managed Lisan install, virtualenv, launcher, config, and indices.")
+    print(f"Install root: {install_root}")
+    print(f"Launcher dir:  {bin_dir}")
+    if keep_vault:
+        print("The vault will be kept.")
+    else:
+        print("The vault will also be deleted.")
+    response = input("Type UNINSTALL to continue: ").strip()
+    return response == "UNINSTALL"
 
 
 def _resolve_purge_options(args: argparse.Namespace) -> tuple[bool, bool] | None:
