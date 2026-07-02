@@ -15,6 +15,7 @@ authors = [{name = "Lisan Contributors"}]
 # Installing this extra activates semantic retrieval with no config change.
 embeddings = ["fastembed>=0.3.0"]
 pdf = ["pymupdf>=1.24.0"]
+test = ["pytest>=8.0"]
 
 [project.scripts]
 lisan = "lisan.cli:main"
