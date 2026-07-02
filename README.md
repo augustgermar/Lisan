@@ -101,6 +101,26 @@ If you want to remove the install from the installer script instead, you can als
 curl -fsSL "https://raw.githubusercontent.com/augustgermar/Lisan/main/install.sh?$(date +%s)" | bash -s -- --uninstall
 ```
 
+## Uninstall
+
+To remove the managed install while keeping your vault data:
+
+```bash
+lisan uninstall
+```
+
+If you want to remove the vault too, use:
+
+```bash
+lisan uninstall --purge-vault
+```
+
+The installer wrapper also supports uninstall mode:
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/augustgermar/Lisan/main/install.sh?$(date +%s)" | bash -s -- --uninstall
+```
+
 ## Vault Location
 
 The active vault location is resolved like this:
