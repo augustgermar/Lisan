@@ -105,10 +105,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "mode": "auto",
             # provider: fastembed | local | sentence-transformers
             #   fastembed (default, recommended) - in-process ONNX embedder.
-            #     Optional dependency: `~/.lisan/venv/bin/pip install lisan[embeddings]`
-            #     or rerun the installer with `LISAN_EMBEDDINGS=1`.
-            #     Installing the extra IS the activation; a base install without
-            #     it degrades to keyword-only via unreachable_policy.
+            #     Installed by default with Lisan. The `embeddings` extra remains
+            #     as a compatibility alias for older install flows.
             #   local - OpenAI-compatible POST {base_url}/v1/embeddings server.
             #   sentence-transformers - secondary in-process backend (lazy).
             "provider": "fastembed",

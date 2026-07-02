@@ -86,11 +86,10 @@ class EmbeddingProvider:
     Backends, selected by ``retrieval.embeddings.provider``:
 
     - ``fastembed`` (default, recommended): an in-process ONNX embedder
-      (Qdrant's FastEmbed, no PyTorch, CPU-only). Optional dependency —
-      ``pip install lisan[embeddings]``. Installing the extra is the
-      activation: semantic retrieval turns on with no config change. A base
-      install without the extra treats it as unreachable and degrades to
-      keyword-only via ``unreachable_policy``.
+      (Qdrant's FastEmbed, no PyTorch, CPU-only). It is installed with the
+      default Lisan dependency set and turns on semantic retrieval with no
+      extra install step. If the package is still missing, retrieval treats it
+      as unreachable and degrades to keyword-only via ``unreachable_policy``.
     - ``local`` / hosted: an OpenAI-compatible ``POST {base_url}/v1/embeddings``
       endpoint (llama.cpp / LM Studio / Ollama-compatible, or hosted APIs).
     - ``sentence-transformers``: a secondary in-process backend behind a lazy
@@ -213,9 +212,8 @@ class EmbeddingProvider:
                 f"Semantic embeddings are not available in this Lisan environment "
                 f"({exc}). Retrieval will continue keyword-only via "
                 f"unreachable_policy='{self.settings.get('unreachable_policy', 'skip')}'. "
-                f"To enable embeddings, install `lisan[embeddings]` inside the managed "
-                f"virtualenv at `~/.lisan/venv` or rerun the installer with "
-                f"`LISAN_EMBEDDINGS=1`. [{level}]",
+                f"FastEmbed should be installed by default; if you see this warning, "
+                f"run `pip install fastembed` or reinstall Lisan. [{level}]",
             )
             return None
         except Exception as exc:  # unreachable, bad response, etc.

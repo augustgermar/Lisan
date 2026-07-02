@@ -308,7 +308,7 @@ def test_fastembed_missing_warns_once_and_falls_back(monkeypatch, capsys):
     assert all(r.vector is None and r.mode_used == "skip" for r in results)
     # Exactly one informational warning across the three calls.
     err = capsys.readouterr().err
-    assert err.count("lisan[embeddings]") == 1
+    assert err.count("FastEmbed should be installed by default") == 1
 
 
 def test_fastembed_model_instantiated_once(monkeypatch):

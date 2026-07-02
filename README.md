@@ -2,14 +2,14 @@
 
 Lisan is a local-first memory system and Python CLI for agentic note-taking, recall, and record keeping.
 
-It turns conversation turns and vault content into durable Markdown records, indexes them locally, and uses deterministic retrieval plus optional embeddings to bring back relevant context later. The design keeps the data readable, editable, and portable, so the vault stays useful even if the surrounding models or providers change.
+It turns conversation turns and vault content into durable Markdown records, indexes them locally, and uses deterministic retrieval plus embeddings to bring back relevant context later. The design keeps the data readable, editable, and portable, so the vault stays useful even if the surrounding models or providers change.
 
 At a glance:
 
 - Stores memory as plain Markdown with JSON frontmatter
 - Builds a local SQLite index for search, claims, and retrieval logging
 - Uses a deterministic-first pipeline before it reaches for an LLM
-- Supports optional semantic retrieval through embeddings
+- Supports semantic retrieval through embeddings
 - Keeps provider routing abstracted so local, hosted, and coding-agent backends can be swapped
 - Exposes the whole system through a CLI instead of a hidden service
 
@@ -66,14 +66,6 @@ If you already have an activated virtualenv and want a manual install, you can s
 
 ```bash
 python3 -m pip install "lisan @ git+https://github.com/augustgermar/Lisan.git"
-```
-
-If you want semantic retrieval, add the embeddings extra inside the managed virtualenv or during install:
-
-```bash
-~/.lisan/venv/bin/pip install "lisan[embeddings]"
-# or
-LISAN_EMBEDDINGS=1 curl -fsSL "https://raw.githubusercontent.com/augustgermar/Lisan/main/install.sh?$(date +%s)" | bash
 ```
 
 If you want PDF reference ingestion, install the optional PDF extra too:
@@ -315,13 +307,12 @@ The vector leg of retrieval uses real semantic embeddings, configured under `ret
 
 #### Turning on semantic retrieval
 
-Semantic retrieval with FastEmbed is an optional extra:
-
-```bash
-pip install "lisan[embeddings]"
-```
-
-**Installing the extra is the activation** — there is no separate enable flag. With the shipped defaults (`provider: "fastembed"`, `mode: "auto"`), semantic retrieval turns on the moment the `fastembed` package is importable. A **base `pip install lisan`** (no extra) runs clean keyword-only retrieval: FastEmbed is treated as unreachable, you get one informational warning, and the `skip` policy drops the vector leg so SQL + FTS carry retrieval. Nothing crashes or hangs.
+Semantic retrieval with FastEmbed is included in the default install. With the shipped defaults
+(`provider: "fastembed"`, `mode: "auto"`), semantic retrieval turns on the moment the `fastembed`
+package is importable. A **base `pip install lisan`** now installs FastEmbed too. If the embedder
+is still unavailable for some reason, Lisan treats it as unreachable, emits one informational
+warning, and the `skip` policy drops the vector leg so SQL + FTS carry retrieval. Nothing crashes
+or hangs.
 
 The default model is `BAAI/bge-small-en-v1.5` (**384-dim**). FastEmbed downloads the model weights (~90MB for the default) **once** on first use into the cache directory, then reuses them.
 
