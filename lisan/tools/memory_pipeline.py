@@ -901,6 +901,7 @@ def _create_entity_stubs(
     from .primer_index import known_names as _primer_known_names
     from .primer_index import roster as _roster
     from .entity_kind import assign_kind
+    from .stopwords import MONTH_STOPWORDS
 
     entities = writer.get("entities_to_create") or []
     if not entities:
@@ -954,7 +955,18 @@ def _create_entity_stubs(
         if normalized in pronoun_reject:
             continue
         if not _looks_like_entity(name, subtype, allowlist, source_text):
-            continue
+            # Month names are legitimate human names in this vault, but a
+            # single-token month still needs some primer anchor before we
+            # materialize it as a person stub. That keeps "August" usable when
+            # the primer already establishes a live cast, while leaving other
+            # bare single words rejected.
+            if not (
+                subtype == "person"
+                and len(name.split()) == 1
+                and name in MONTH_STOPWORDS
+                and primer_cast
+            ):
+                continue
 
         raw_aliases = entry.get("aliases") or []
         if isinstance(raw_aliases, str):
