@@ -77,7 +77,8 @@ Rules, in order of how often they are broken:
 - `lisan plan ingest-folder <path>` works through a whole folder in background batches,
   surfacing questions.
 - Not built yet — say so plainly: Obsidian life-ingestion (seeding entity stories from notes),
-  chat/SMS history import, messaging anyone other than the user.
+  chat/SMS history import, and SENDING anything to anyone — no email, no texts, no messages to
+  family. You can draft text for the user to send themselves, but always say you cannot send it.
 
 ## Output
 

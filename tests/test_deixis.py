@@ -95,7 +95,7 @@ def test_interlocutor_token_whitespace_tolerant(core_vault: Path) -> None:
 
 
 def test_interlocutor_no_token_passthrough(core_vault: Path) -> None:
-    text = "Soren and Dana went to the park."
+    text = "Soren and Wren went to the park."
     assert render_deixis(text, "interlocutor", core_vault) == text
 
 
@@ -169,7 +169,7 @@ def test_render_obj_dict(core_vault: Path) -> None:
 
 
 def test_render_obj_list(core_vault: Path) -> None:
-    assert render_obj(["{{principal}} ran", "Dana walked"], "interlocutor", core_vault) == ["you ran", "Dana walked"]
+    assert render_obj(["{{principal}} ran", "Wren walked"], "interlocutor", core_vault) == ["you ran", "Wren walked"]
 
 
 def test_render_obj_passthrough_non_str(core_vault: Path) -> None:
@@ -236,11 +236,11 @@ def test_tokenize_principal_obj_nested_preserves_entity_names(core_vault: Path) 
         "canonical_name": "Alex Morgan",
         "nested": {
             "name": "Alex Morgan",
-            "summary": "Alex and Dana talked",
+            "summary": "Alex and Wren talked",
             "canonical_name": "Alex Morgan",
             "count": 2,
         },
-        "third_party": "Dana stayed out of it",
+        "third_party": "Wren stayed out of it",
         "items": ["Alex called Bram", 5, None],
     }
     assert tokenize_principal_obj(obj, core_vault) == {
@@ -251,11 +251,11 @@ def test_tokenize_principal_obj_nested_preserves_entity_names(core_vault: Path) 
         "canonical_name": "Alex Morgan",
         "nested": {
             "name": "Alex Morgan",
-            "summary": "{{principal}} and Dana talked",
+            "summary": "{{principal}} and Wren talked",
             "canonical_name": "Alex Morgan",
             "count": 2,
         },
-        "third_party": "Dana stayed out of it",
+        "third_party": "Wren stayed out of it",
         "items": ["{{principal}} called Bram", 5, None],
     }
 

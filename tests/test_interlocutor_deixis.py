@@ -106,7 +106,7 @@ def test_narrative_state_rendered() -> None:
         {"memory_type": "episode", "score": 5, "reason": ["affect signal"]},
         _state(
             story_thread="{{principal}} is planning a trip",
-            established=["{{principal}} met Dana"],
+            established=["{{principal}} met Wren"],
             open_threads=["{{principal}} owes Soren a call"],
             emotional_texture="{{self}} stayed warm",
             turn_count=3,
@@ -114,7 +114,7 @@ def test_narrative_state_rendered() -> None:
     )
     ns = payload["narrative_state"]
     assert ns["story_thread"] == "you is planning a trip"
-    assert ns["established"] == ["you met Dana"]
+    assert ns["established"] == ["you met Wren"]
     assert ns["open_threads"] == ["you owes Soren a call"]
     assert ns["emotional_texture"] == "I stayed warm"
     assert ns["turn_count"] == 3  # non-str values pass through untouched

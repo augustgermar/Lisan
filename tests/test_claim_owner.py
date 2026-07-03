@@ -38,7 +38,7 @@ def test_principal_alias_resolves_to_user(core_vault: Path) -> None:
 
 def test_non_principal_known_name_is_external_actor(core_vault: Path) -> None:
     # The latent bug: a third party in the cast used to be stamped owner="user".
-    assert normalize_claim_owner("Dana") == "external_actor"
+    assert normalize_claim_owner("Wren") == "external_actor"
     assert normalize_claim_owner("Dana") == "external_actor"
 
 

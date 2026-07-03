@@ -946,7 +946,7 @@ def normalize_claim_owner(value: Any) -> str:
     if key in _CLAIM_OWNER_ALIASES:
         return _CLAIM_OWNER_ALIASES[key]
     # Only the principal's own name tokens resolve to "user". A third party in the
-    # known cast (Dana, Dana, ...) is an external_actor, not the user.
+    # known cast (Wren, Dana, ...) is an external_actor, not the user.
     if key in {_normalized_key(name) for name in principal_aliases(vault_root())}:
         return "user"
     return "external_actor"
