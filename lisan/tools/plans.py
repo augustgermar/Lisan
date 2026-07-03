@@ -201,7 +201,9 @@ def _execute_step(
         from ..providers.codex import CodexClient
         from .execution_tools import _build_codex_prompt
 
-        wd = Path(str(payload.get("working_directory") or "~")).expanduser()
+        from .execution_tools import codex_workspace
+
+        wd = Path(str(payload.get("working_directory") or codex_workspace())).expanduser()
         prompt = _build_codex_prompt(
             task=f"{description}\n\n{context}", working_directory=wd, vault=vault, db_path=db_path
         )

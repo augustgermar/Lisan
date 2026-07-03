@@ -79,6 +79,11 @@ class CodexClient(ProviderClient):
         output_path: Path | None = None
         try:
             args = [binary, "exec", "--skip-git-repo-check", "--cd", str(working_directory or repo_root())]
+            if agent == "codex":
+                # The executor writes — but only inside its workspace. An
+                # unsandboxed executor edited the owner's personal notes when
+                # asked to update a memory record; never again.
+                args.extend(["--sandbox", "workspace-write"])
             if agent != "codex":
                 # Decision/extraction agents (listener, interlocutor, writer,
                 # skeptic, ...) must never act on the system themselves — all

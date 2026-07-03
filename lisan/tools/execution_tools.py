@@ -139,7 +139,7 @@ def build_tool_handlers(
             domain=domain,
         ),
         "read_file": read_file,
-        "run_codex": lambda task, working_directory="~": run_codex(
+        "run_codex": lambda task, working_directory=None: run_codex(
             task,
             working_directory=working_directory,
             vault=vault,
@@ -214,10 +214,24 @@ def read_file(path: str, *, max_bytes: int = 50 * 1024) -> str:
         return f"Error: failed to read {file_path}: {exc}"
 
 
+def codex_workspace() -> str:
+    """The executor's default workspace: the smallest directory containing
+    both the repo and the vault. Everything outside it is read-only to the
+    executor by sandbox policy."""
+    import os
+
+    from ..paths import vault_root
+
+    try:
+        return os.path.commonpath([str(repo_root()), str(vault_root())])
+    except ValueError:
+        return str(repo_root())
+
+
 def run_codex(
     task: str,
     *,
-    working_directory: str = "~",
+    working_directory: str | None = None,
     vault: Path,
     config: dict[str, Any] | None = None,
     db_path: Path | None = None,
@@ -228,7 +242,7 @@ def run_codex(
     config = config or load_config()
     approval_fn = approval_fn or _approve_action
 
-    wd = Path(working_directory).expanduser()
+    wd = Path(working_directory).expanduser() if working_directory else Path(codex_workspace())
     if not wd.is_absolute():
         wd = repo_root()
 
@@ -358,6 +372,12 @@ def _build_codex_prompt(*, task: str, working_directory: Path, vault: Path, db_p
         "You are Codex executing a task for the Lisan memory system.\n\n"
         f"Working directory: {working_directory}\n\n"
         f"Task:\n{task}\n\n"
+        "HARD WRITE BOUNDARY: you may create or modify files ONLY inside the Lisan "
+        "install (its repo, vault, and database). Everything else on this machine — "
+        "including the user's Obsidian vault and personal documents — is strictly "
+        "READ-ONLY source material, even when a task sounds like it wants an edit "
+        "there. Memory updates always mean Lisan's own records, never the source "
+        "notes they came from.\n\n"
         "Lisan's own CLI is available to you and is usually the right way to act on "
         "Lisan's memory (ingesting files, running jobs, checking health):\n"
         f"{cli_reference()}\n\n"

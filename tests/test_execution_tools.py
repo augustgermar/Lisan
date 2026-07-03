@@ -126,3 +126,31 @@ def test_interlocutor_tool_loop_executes_tool_and_returns_final_response(tmp_pat
     assert len(agent.last_tool_calls) == 1
     assert agent.last_tool_calls[0]["tool"] == "read_file"
     assert agent.last_tool_calls[0]["result"] == "file contents"
+
+
+def test_codex_workspace_is_the_install_not_home():
+    from pathlib import Path
+
+    from lisan.tools.execution_tools import codex_workspace
+
+    workspace = Path(codex_workspace())
+    assert workspace != Path.home()
+    assert "Lisan" in str(workspace) or ".lisan" in str(workspace) or "lisan" in str(workspace).lower()
+
+
+def test_codex_briefing_declares_write_boundary():
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from lisan.paths import ensure_repo_layout, vault_root
+    from lisan.tools import execution_tools
+    from lisan.tools.execution_tools import _build_codex_prompt
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        ensure_repo_layout(root)
+        with patch.object(execution_tools, "assemble_context", return_value="(ctx)"):
+            prompt = _build_codex_prompt(task="t", working_directory=root, vault=vault_root(root), db_path=root / "x.sqlite")
+    assert "HARD WRITE BOUNDARY" in prompt
+    assert "READ-ONLY" in prompt

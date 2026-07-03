@@ -50,6 +50,7 @@ def run_conversation_turn(
 
     history = _rolling_history(vault, conversation_id)
     context = _retrieval_context(vault=vault, text=text, conversation_id=conversation_id, db_path=db_path)
+    profile = _owner_profile(vault)
 
     agent = ConversationAgent(vault=vault)
     record_inline_step("conversation.agent")
@@ -60,6 +61,7 @@ def run_conversation_turn(
         model=model,
         provider_error_mode="raise",
         conversation=history or None,
+        owner_profile=profile or None,
         retrieved_context=context or None,
         capabilities=cached_capability_index(),
         db_path=db_path,
@@ -97,6 +99,35 @@ def run_conversation_turn(
         "tool_calls": tool_calls,
         "queued_jobs": queued,
     }
+
+
+def _owner_profile(vault: Path) -> str:
+    """Who the user is, always in context: the primer profile plus the
+    identity-core roster. Kinship shorthand ("the girls", "my brother") can
+    only ground against an always-present cast — retrieval echoes are too
+    situational to anchor it."""
+    parts: list[str] = []
+    try:
+        identity = (vault / "primer" / "identity.md").read_text(encoding="utf-8").strip()
+        if identity:
+            body = identity.split("---")[-1].strip()
+            parts.append(body[:1500])
+    except Exception:
+        pass
+    try:
+        from .primer_index import _identity_core
+
+        core = _identity_core(vault) or {}
+        roster = core.get("roster") or []
+        if roster:
+            people = "; ".join(
+                f"{r.get('name')} ({r.get('relation')})" if isinstance(r, dict) else str(r)
+                for r in roster
+            )
+            parts.append(f"Household cast: {people}")
+    except Exception:
+        pass
+    return "\n\n".join(parts)
 
 
 def _rolling_history(vault: Path, conversation_id: str | None) -> str:

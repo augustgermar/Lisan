@@ -337,7 +337,7 @@ def run_task_job(
         # not block on an interactive prompt that has nobody at the keyboard.
         result_text = run_codex(
             task,
-            working_directory=str(payload.get("working_directory") or "~"),
+            working_directory=payload.get("working_directory") or None,
             vault=vault,
             config=config or load_config(),
             db_path=db_path,

@@ -73,9 +73,11 @@ class CodexSandboxTests(unittest.TestCase):
             self.assertIn("--sandbox", args, f"{agent} must run sandboxed")
             self.assertIn("read-only", args)
 
-    def test_executor_agent_keeps_write_access(self) -> None:
+    def test_executor_agent_writes_only_in_its_workspace(self) -> None:
         args = self._capture_args("codex")
-        self.assertNotIn("--sandbox", args)
+        self.assertIn("--sandbox", args)
+        self.assertIn("workspace-write", args)
+        self.assertNotIn("read-only", args)
 
 
 class CodexBinaryErrorTests(unittest.TestCase):
