@@ -66,11 +66,11 @@ def _create_entity_stubs(
         summary = str(entry.get("summary") or "").strip()
         if not name:
             continue
-        # FIX A: {{principal}}/{{self}} are deixis ROLES, not entities. A writer
+        # {{principal}}/{{self}} are deixis ROLES, not entities. A writer
         # that emits the role token (or its bare slug) as an entity name must
-        # never materialize a record for it — that produced the bogus
-        # entities/events/principal.md in the 2026-06-19 eval. Drop any
-        # candidate whose name carries a role token or is a bare role slug.
+        # never materialize a record for it — that way lies a bogus
+        # entities/people/principal.md describing the user as a third party.
+        # Drop any candidate whose name carries a role token or bare role slug.
         if has_unresolved_token(name) or name.strip().lower() in {"principal", "self", "user"}:
             continue
         normalized = name.lower()
@@ -179,7 +179,7 @@ def _create_entity_stubs(
                         existing_entry["kind"] = "ambiguous"
         except FileExistsError:
             continue
-        # Finding #5: when seeding the index after a creation, register only
+        # When seeding the index after a creation, register only
         # the full canonical name as a "full" hit and each token as "token".
         # If a second entity later tries to claim the same token, the index
         # marks it ambiguous and the strict matcher refuses cross-merges.
@@ -495,9 +495,9 @@ def _looks_like_entity(name: str, subtype: str, primer_cast: frozenset[str], sou
 def _load_entity_index(vault: Path) -> dict[str, dict[str, Any]]:
     """Map names and tokens to entity records, keeping them distinguishable.
 
-    Finding #5: a previous version flattened "full canonical name" and
-    "individual token" lookups onto the same path, so a surname-only token hit
-    looked identical to a full-name hit. We now mark each entry as ``"full"``,
+    "Full canonical name" and "individual token" lookups must stay
+    distinguishable — a surname-only token hit is not a full-name hit.
+    Each entry is marked ``"full"``,
     ``"token"``, or ``"ambiguous"`` (when two entities both claim the same
     token), and ``_match_existing_entity`` reads those flags to decide whether
     a merge is safe.
@@ -840,7 +840,7 @@ def _match_existing_entity(
 ) -> Path | None:
     """Find an entity that this proposed name should fold into, if any.
 
-    Finding #5 rules:
+    Rules:
     - Full-name match (case-insensitive) → merge if subtype matches.
     - Single-word proposal → merge only if the token is unambiguous.
     - Multi-word proposal → require >= 2 shared tokens with the same target,

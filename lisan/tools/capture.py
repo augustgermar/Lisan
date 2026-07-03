@@ -142,7 +142,7 @@ def capture_text(
                     pass
             record_jobs_queued(len(queued_jobs))
             out["queued_jobs"] = queued_jobs
-            # FIX C: drain the indexing/embedding jobs we just enqueued, in
+            # Drain the indexing/embedding jobs we just enqueued, in
             # process, before returning — so the records this turn wrote are
             # actually embedded and semantic retrieval works without a manual
             # `lisan jobs run`. The user-facing response (out["response"]) is

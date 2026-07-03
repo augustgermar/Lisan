@@ -175,7 +175,7 @@ def assemble_context(
             sections.append(path.read_text(encoding="utf-8").strip())
             sections.append("")
 
-    # v0.1.7: cross-conversation "Recent Activity" preamble.
+    # Cross-conversation "Recent Activity" preamble.
     # When a conversation is freshly opened (no narrative state file AND no
     # USER turns for that conversation_id in today's transcript), inject a
     # compact summary of today's state updates and open loops across all

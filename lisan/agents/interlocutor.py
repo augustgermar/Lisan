@@ -15,7 +15,7 @@ class InterlocutorAgent(PromptAgent):
     prompt_file = "interlocutor_v1"
     output_schema_name = "interlocutor_output"
     def parse_output(self, text: str) -> Any | None:
-        """Finding #11: reject LLM output that parses but lacks the required
+        """Reject LLM output that parses but lacks the required
         ``response`` field. The default ``extract_json`` can return a partial
         dict (e.g. ``{"text": "..."}``) when the bullet-fallback parser fires;
         accepting that lets prose narration leak through as the user-facing
@@ -32,7 +32,7 @@ class InterlocutorAgent(PromptAgent):
         return parsed
 
     def fallback_output(self, user_input: str, significance: str = "medium", **kwargs: Any) -> str:
-        """Finding #10 + #11: build a user-safe acknowledgement from the JSON
+        """Build a user-safe acknowledgement from the JSON
         payload that ``_interlocutor_input`` passes in (writer summary,
         decisions, entities). Honors persona preferences from
         ``primer/operating-style.md`` when present.

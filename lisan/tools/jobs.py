@@ -50,7 +50,7 @@ JOB_TYPES = {
 }
 
 # Indexing/embedding jobs are deterministic and cheap (no LLM call). These are
-# the only jobs the end-of-capture drain (FIX C) runs, so semantic retrieval
+# the only jobs the end-of-capture drain runs, so semantic retrieval
 # works without a manual `lisan jobs run`. The LLM-heavy maintenance jobs
 # (analyst.scan, dreamer.maintenance, pattern.audit, manifest.regenerate) stay
 # queued for batch/cron — draining them every turn would put an LLM pass on the

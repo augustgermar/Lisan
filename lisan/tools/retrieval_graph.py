@@ -734,7 +734,7 @@ def _load_relevant_contradictions(vault: Path, query: str) -> list[str]:
     return notes[:5]
 
 
-# ── Cross-conversation preamble (v0.1.7) ─────────────────────────────────────
+# ── Cross-conversation preamble ──────────────────────────────────────────────
 
 
 def _recent_conversation_turns(vault: Path, conversation_id: str, limit: int = 4) -> list[dict[str, str]]:

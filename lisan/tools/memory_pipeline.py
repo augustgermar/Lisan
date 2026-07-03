@@ -155,8 +155,8 @@ def run_memory_pipeline(
         )
 
     record_inline_step("memory_pipeline.assembler")
-    # Finding #12: pass conversation_id so the cross-conversation preamble
-    # fires on the extraction path as well as the elicitor path.
+    # conversation_id makes the cross-conversation preamble fire on the
+    # extraction path as well as the elicitor path.
     context = AssemblerAgent(vault=vault).run(text, conversation_id=conversation_id).text
     task = _choose_task(text=text, listener=listener)
     if str(listener.get("memory_type") or "").lower() == "correction":
@@ -174,10 +174,9 @@ def run_memory_pipeline(
         "conversation_policy": json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     }
     record_inline_step("memory_pipeline.interlocutor")
-    # Finding 1: do not forward skeptic flags to the interlocutor.
-    # Skeptic uncertainty about a memory record was bleeding into the user-facing
-    # response (e.g. "this family member" instead of the named person). The
-    # interlocutor speaks to the user; it should not see internal review notes.
+    # Never forward skeptic flags to the interlocutor: skeptic uncertainty about a memory record bleeds into the user-facing
+    # response ("this family member" instead of the named person). The
+    # interlocutor speaks to the user; it must not see internal review notes.
     interlocutor_agent = InterlocutorAgent(vault=vault)
     interlocutor = interlocutor_agent.run_json(
         json.dumps(
@@ -202,7 +201,7 @@ def run_memory_pipeline(
     )
     tool_calls = list(getattr(interlocutor_agent, "last_tool_calls", []) or [])
     record_inline_step("memory_pipeline.writer")
-    # v0.1.9: the episode path is split. The core call returns body + claims;
+    # The episode path is split across two writer calls. The core call returns body + claims;
     # the artifact call returns entities / decisions / open loops / state /
     # evidence. Non-episode tasks stay single-shot — they're already small.
     writer_task = "episode_full_turn" if task == "episode" and tool_calls else ("episode_core" if task == "episode" else task)
@@ -240,7 +239,7 @@ def run_memory_pipeline(
         conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     )
     skeptic_approved = _skeptic_approves(skeptic)
-    # v0.1.9: only run the artifact pass when the skeptic approved the core.
+    # Only run the artifact pass when the skeptic approved the core.
     # If the core is rejected, we hold the draft as needs_revision and never
     # spend a second writer call on derived artifacts that would be skipped
     # in fanout anyway.
@@ -273,7 +272,7 @@ def run_memory_pipeline(
         fanout_decisions(vault, writer, draft_rel, source_text=text, index_conn=index_conn)
         if skeptic_approved:
             # Evidence runs before claims so claim.supporting_evidence can be
-            # resolved through evidence_id_map (Finding 4). Claims run before the
+            # resolved through evidence_id_map. Claims run before the
             # state update so the state can reference resolved claim IDs in future
             # passes.
             evidence_id_map = fanout_evidence(vault, writer, transcript_path, draft_rel, index_conn=index_conn)
@@ -303,7 +302,7 @@ def run_memory_pipeline(
 
 
 def _merge_writer_outputs(core: dict[str, Any], artifacts: dict[str, Any]) -> dict[str, Any]:
-    """Combine the episode_core and episode_artifacts JSON payloads (v0.1.9).
+    """Combine the episode_core and episode_artifacts JSON payloads.
 
     The core call owns `summary`, `frontmatter`, `sections`, `claims_to_create`,
     etc.; the artifact call owns `entities_to_create`, `open_loops_to_create`,
@@ -471,7 +470,7 @@ def _build_skip_response(
             or conversation_policy.get("arena_override")
         )
 
-    # FIX B-1: only route to the recall answerer when the turn is plausibly a
+    # Only route to the recall answerer when the turn is plausibly a
     # request to retrieve something. A trivial farewell/acknowledgment ("ok
     # thanks, heading out. later.") is also action=="skip" and must NOT be told
     # "you didn't ask for a specific memory" — it gets a brief acknowledgment.
@@ -495,10 +494,10 @@ def _build_skip_response(
     if not items:
         return "I don't have anything stored about that yet."
 
-    # FIX B: a recall turn must *answer* the question from the retrieved records,
+    # A recall turn must *answer* the question from the retrieved records,
     # not dump raw summaries. Route through the Interlocutor (it already speaks to
     # the user and renders deixis), strictly grounded in the records with an
-    # explicit no-fabrication instruction. FIX A: render the records to the
+    # explicit no-fabrication instruction. Render the records to the
     # interlocutor audience first so {{principal}}/{{self}} never reach the user.
     return _answer_recall_from_records(
         vault=vault,
@@ -529,7 +528,7 @@ def _answer_recall_from_records(
 ) -> str:
     """Generate a grounded recall answer via the Interlocutor.
 
-    Reuses the InterlocutorAgent (decision made post-2026-06-19 eval): it is the
+    Reuses the InterlocutorAgent deliberately — one voice speaks to the user. It is the
     answerer, strictly grounded in retrieved records, no fabrication, no external
     lookup. On any provider error or empty response we fall back to a rendered
     record list so a recall turn never fails the capture.
@@ -701,7 +700,7 @@ def _has_distress_signal(listener: dict[str, Any], text: str) -> bool:
         "i don't know what to do", "i'm worried", "i'm scared", "i'm anxious",
         "freaking out", "falling apart", "can't handle", "feel awful",
         "hurts", "miss", "lonely", "overwhelmed", "stressed", "exhausted",
-        # v0.1.7: distress can be third-person too (talking about a loved one)
+        # distress can be third-person too (talking about a loved one)
         "sounded scared", "she's scared", "he's scared", "they're scared",
         "scared in a way", "shaken", "blindsided", "heavy",
         "i don't know what", "trying not to", "kept asking",
@@ -823,7 +822,7 @@ def _supersede_corrected_records(vault: Path, writer: dict[str, Any], db_path: P
 def _conversation_turn_count(vault: Path, conversation_id: str | None) -> int:
     """Count completed USER turns for `conversation_id` from today's transcript.
 
-    v0.1.7: narrative state only increments on the elicitor path, so the
+    Narrative state only increments on the elicitor path, so
     extraction-only conversations end up with `turn_count` permanently at 0.
     Computing turn position deterministically from the transcript avoids that
     blind spot and lets the Turn-1 elicitor preference fire only once per
@@ -863,16 +862,15 @@ def _write_draft(
     action: str,
     skeptic_approved: bool,
 ) -> Path:
-    # Finding #6: the previous implementation used a live timestamp, so retries
-    # of the same source text produced sibling draft files. Hashing the source
-    # text makes the filename deterministic per turn; retries overwrite the
-    # earlier draft instead of accumulating. today_iso() prefix preserves
+    # The filename hashes the source text rather than using a live timestamp,
+    # making it deterministic per turn: retries overwrite the earlier draft
+    # instead of accumulating siblings. The today_iso() prefix preserves
     # uniqueness across days for the rare case of identical text on two days.
     content_hash = hashlib.sha1(text.encode("utf-8")).hexdigest()[:10]
     slug = slugify(str(writer.get("summary") or text[:48]))[:80]
     path = vault / "drafts" / f"{today_iso()}-{content_hash}-{slug}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Finding 2: rejected drafts are held for Dreamer review with a distinct
+    # Rejected drafts are held for Dreamer review with a distinct
     # status so the batch review process can find them.
     draft_status = "pending" if skeptic_approved else "needs_revision"
     writer_fm_raw = writer.get("frontmatter")
@@ -888,7 +886,7 @@ def _write_draft(
         "domain_secondary": [],
         "privacy": "personal",
         "disclosure": "private",
-        # Finding #7: enforce word/sentence-boundary truncation on the
+        # Enforce word/sentence-boundary truncation on the
         # frontmatter summary too. The writer's working summary may be up to
         # 240 chars; the frontmatter convention is 120.
         "summary": _truncate_summary_boundary(

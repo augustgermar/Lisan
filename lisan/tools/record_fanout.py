@@ -703,7 +703,7 @@ def fanout_evidence(
     """Create evidence records and return a title→evidence_id map.
 
     Evidence is materialized BEFORE claims so the claim-creation step can
-    resolve `supporting_evidence` strings expressed as evidence titles (Finding 4).
+    resolve `supporting_evidence` strings expressed as evidence titles.
     """
     evidence_items = writer.get("evidence_to_create") or []
     transcript_rel = str(transcript_path.relative_to(vault))
@@ -786,7 +786,7 @@ def fanout_claims(
             entity_names=entity_names,
         )
         # Rewrite writer-supplied evidence titles into evidence IDs so claim
-        # links resolve under validation (Finding 4). Keep ONLY entries that
+        # links resolve under validation. Keep ONLY entries that
         # resolve to a real evidence ID (or are already an `evidence.` id);
         # unresolvable natural-language prose is dropped rather than stored as a
         # dangling link target ("Mara's statement", "user_reported_context",

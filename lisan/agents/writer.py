@@ -12,7 +12,7 @@ from .base import PromptAgent
 
 def _truncate_summary(text: str, cap: int) -> str:
     """Return *text* truncated to at most *cap* chars, respecting word and
-    sentence boundaries when possible (Finding #7).
+    sentence boundaries when possible.
 
     Prefers the last sentence boundary inside the window. Falls back to the
     last word boundary with an ellipsis. Never returns a mid-word slice.
@@ -43,7 +43,7 @@ def _truncate_summary(text: str, cap: int) -> str:
 
 
 _TASK_PROMPT_FILES = {
-    # v0.1.9: the legacy single-shot episode prompt is kept as a fallback
+    # The legacy single-shot episode prompt is kept as a fallback
     # alias for callers that haven't migrated to the split.
     "episode":           "writer_episode_v1",
     "episode_core":      "writer_episode_core_v1",
@@ -109,7 +109,7 @@ class WriterAgent(PromptAgent):
             return parsed
         return None
 
-    # Finding #7: the working summary returned by the fallback writer is what
+    # The working summary returned by the fallback writer is what
     # the skeptic and the interlocutor see. The draft frontmatter's `summary`
     # field has its own 120-char convention enforced at write time
     # (memory_pipeline._write_draft uses str(...)[:120]). Giving the working
@@ -165,9 +165,8 @@ class WriterAgent(PromptAgent):
     def _extract_entity_stubs(self, text: str) -> list[dict[str, str]]:
         """Deterministic fallback: extract capitalized proper nouns as entity stubs.
 
-        Finding #4: the previous version emitted any capitalized word as
-        ``subtype: "person"`` with a generic placeholder summary. The new
-        logic:
+        Naive extraction would emit any capitalized word as
+        ``subtype: "person"`` with a generic placeholder summary; instead:
 
         1. Pulls the primer-known cast first — first-name-only mentions of
            known people produce stubs immediately.

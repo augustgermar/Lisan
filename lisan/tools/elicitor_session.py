@@ -61,9 +61,9 @@ def run_elicitor_session(
     state = load_narrative_state(vault, conversation_id)
     history = conversation_history(vault, conversation_id)
     domain = str((conversation_policy or {}).get("domain_override") or (conversation_policy or {}).get("arena_override") or "") or None
-    # v0.1.7: the cross-conversation "Recent Activity" preamble lives in the
-    # assembler (retrieval.assemble_context) now, gated on whether the
-    # conversation is fresh. That way the extraction path gets it too.
+    # The cross-conversation "Recent Activity" preamble lives in the
+    # assembler (retrieval.assemble_context), gated on whether the
+    # conversation is fresh — so the extraction path gets it too.
     context = assemble_context(text, domain=domain, vault=vault, conversation_id=conversation_id)
     # Deixis: the elicitor is a conversational consumer — it asks the principal
     # clarifying questions. Render assembled context + narrative state from role

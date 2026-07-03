@@ -25,7 +25,7 @@ class ElicitorAgent(PromptAgent):
     def fallback_output(self, user_input: str, significance: str = "medium", **kwargs: Any) -> str:
         """Build a minimal but persona-aware fallback elicitor payload.
 
-        Finding #9: primer-aware entity selection + rotating openers seeded by
+        Primer-aware entity selection + rotating openers seeded by
         a hash of the last transcript turn XOR the current hour-of-day. The
         rotation stays deterministic per turn-position but varies across a
         day, so a user replaying a captured input on the same evening still
@@ -60,8 +60,7 @@ class ElicitorAgent(PromptAgent):
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _try_prose_recovery(self, user_input: str, kwargs: dict[str, Any]) -> str | None:
-        """Optional follow-up for Finding #9: when the structured call has
-        failed, try one tiny prose call and lift a question from its output.
+        """When the structured call has failed, try one tiny prose call and lift a question from its output.
 
         Returns a complete JSON payload string on success, or ``None`` to fall
         through to the heuristic. Bounded to one attempt per agent instance
@@ -159,9 +158,9 @@ class ElicitorAgent(PromptAgent):
         return text[:160].strip()
 
     def _entities(self, text: str) -> list[str]:
-        """Finding #9: restrict entity candidates to primer-known names plus
-        full-name shapes that survive the stopword check. The previous
-        regex-only implementation grabbed any capitalized word and reported
+        """Restrict entity candidates to primer-known names plus full-name
+        shapes that survive the stopword check. A regex-only pass would grab
+        any capitalized word and report
         days, adverbs, and interrogatives as entities.
         """
         primer_cast = _primer_known_names(self.vault)
@@ -188,7 +187,7 @@ class ElicitorAgent(PromptAgent):
         return entities[:6]
 
 
-# ── Opener rotation (Finding #9) ──────────────────────────────────────────────
+# ── Opener rotation ───────────────────────────────────────────────────────────
 
 _PERSON_OPENERS_DEFAULT = [
     "What's on your mind with {anchor}?",

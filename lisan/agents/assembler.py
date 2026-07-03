@@ -17,7 +17,7 @@ class AssemblerAgent(PromptAgent):
         domain: str | None = None,
         arena: str | None = None,
     ) -> AgentResult:
-        # Finding #12: forward conversation_id so the cross-conversation
+        # Forward conversation_id so the cross-conversation
         # "Recent Activity" preamble fires on the extraction path. The
         # elicitor path already passes it through elicitor_session.
         # Optional follow-up: also thread domain / arena so the extraction
