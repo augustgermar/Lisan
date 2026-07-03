@@ -142,6 +142,7 @@ def run_chat(
 
     config = load_config()
     ready = startup_check(vault, config)
+    _refresh_capabilities_primer(vault)
 
     if needs_onboarding(vault):
         run_onboarding(vault)
@@ -584,6 +585,7 @@ def _run_advice_response(
         conversation_history=_format_advice_history(history),
         conversation_policy=conversation_policy.as_dict() if conversation_policy is not None else {},
         vault_context=vault_context,
+        capabilities=_capability_index_safe(),
     )
     return str(result.text).strip()
 
@@ -662,6 +664,25 @@ class _ProgressRenderer:
             return f"recalled {records} record(s){graph_note}"
         if kind == "jobs_queued":
             return f"queued {event.get('count')} background job(s)"
+        return None
+
+
+def _refresh_capabilities_primer(vault: Path) -> None:
+    """Keep the generated Layer-2 self-model current with the installed code."""
+    try:
+        from .self_model import ensure_capabilities_primer
+
+        ensure_capabilities_primer(vault)
+    except Exception:
+        pass
+
+
+def _capability_index_safe() -> str | None:
+    try:
+        from .self_model import cached_capability_index
+
+        return cached_capability_index()
+    except Exception:
         return None
 
 

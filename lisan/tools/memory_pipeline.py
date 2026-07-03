@@ -30,6 +30,7 @@ from .record_fanout import (
     index_created_record,
 )
 from .rebuild_index import open_index_connection
+from .self_model import cached_capability_index
 from .tracing import record_inline_step
 from .record_factory import (
     CreatedRecord,
@@ -196,6 +197,7 @@ def run_memory_pipeline(
         model=model,
         provider_error_mode="raise",
         conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
+        capabilities=cached_capability_index(),
         db_path=db_path,
         conversation_id=conversation_id,
     )

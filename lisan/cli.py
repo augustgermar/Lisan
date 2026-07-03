@@ -605,6 +605,18 @@ def build_parser() -> argparse.ArgumentParser:
     task_cancel.add_argument("job_id")
     task_cancel.add_argument("--db-path", type=Path, default=None)
 
+    self_cmd = subparsers.add_parser("self", help="The agent's generated self-model and live state")
+    self_subparsers = self_cmd.add_subparsers(dest="self_command", required=True)
+    self_manifest = self_subparsers.add_parser("manifest", help="Show the generated capability manifest")
+    self_manifest.add_argument("--json", action="store_true", dest="as_json")
+    self_state_cmd = self_subparsers.add_parser("state", help="Show live operational state")
+    self_state_cmd.add_argument("--vault", type=Path, default=vault_root())
+    self_state_cmd.add_argument("--db-path", type=Path, default=None)
+    self_state_cmd.add_argument("--json", action="store_true", dest="as_json")
+    self_primer = self_subparsers.add_parser("primer", help="Regenerate primer/capabilities.md")
+    self_primer.add_argument("--vault", type=Path, default=vault_root())
+    self_primer.add_argument("--force", action="store_true")
+
     return parser
 
 
@@ -1098,6 +1110,28 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"✗ No such task: {args.job_id}")
                 return 1
             print(f"✓ Canceled {args.job_id} (status: {job.get('status')})")
+            return 0
+
+    if args.command == "self":
+        from .tools.self_model import (
+            build_capability_manifest,
+            ensure_capabilities_primer,
+            render_capability_primer,
+            render_self_state,
+            snapshot_self_state,
+        )
+
+        if args.self_command == "manifest":
+            manifest = build_capability_manifest()
+            print(json.dumps(manifest, indent=2, ensure_ascii=True) if args.as_json else render_capability_primer(manifest))
+            return 0
+        if args.self_command == "state":
+            state = snapshot_self_state(vault=args.vault, db_path=args.db_path)
+            print(json.dumps(state, indent=2, ensure_ascii=True) if args.as_json else render_self_state(state))
+            return 0
+        if args.self_command == "primer":
+            path = ensure_capabilities_primer(args.vault, force=args.force)
+            print(f"✓ Wrote {path}" if path else "Already current.")
             return 0
 
     if args.command == "sync":

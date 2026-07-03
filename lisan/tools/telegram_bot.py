@@ -331,6 +331,12 @@ def run_telegram_bot(
         startup_check(vault, config)
     except Exception:
         pass
+    try:
+        from .self_model import ensure_capabilities_primer
+
+        ensure_capabilities_primer(vault)
+    except Exception:
+        pass
 
     bot = TelegramBot(
         token=token,

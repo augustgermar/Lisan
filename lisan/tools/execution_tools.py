@@ -54,6 +54,16 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "self_state",
+        "description": (
+            "Your own live operational state: job queue counts, next scheduled task, index size, "
+            "last dreamer/analyst runs, whether your services are up, recent errors. ALWAYS use "
+            "this to answer questions about your own state, queue, schedule, or health — never "
+            "answer those from memory."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+    {
         "name": "schedule_task",
         "description": (
             "Schedule something to happen at a future time. Kinds: 'reminder' sends the user a "
@@ -107,6 +117,7 @@ def build_tool_handlers(
             db_path=db_path,
             approval_fn=approval_fn,
         ),
+        "self_state": lambda: self_state(vault=vault, db_path=db_path),
         "schedule_task": lambda text, when=None, kind="reminder", recurrence=None: schedule_task_tool(
             text=text,
             when=when,
@@ -136,6 +147,15 @@ def search_memory(
         conversation_id=conversation_id,
         domain=domain,
     )
+
+
+def self_state(*, vault: Path, db_path: Path | None = None) -> str:
+    from .self_model import render_self_state, snapshot_self_state
+
+    try:
+        return render_self_state(snapshot_self_state(vault=vault, db_path=db_path))
+    except Exception as exc:
+        return f"Error: could not read own state: {exc}"
 
 
 def read_file(path: str, *, max_bytes: int = 50 * 1024) -> str:
@@ -250,11 +270,16 @@ def _codex_default_model(config: dict[str, Any], provider: str | None = None) ->
 
 
 def _build_codex_prompt(*, task: str, working_directory: Path, vault: Path, db_path: Path | None) -> str:
+    from .self_model import cli_reference
+
     context = assemble_context(task, vault=vault, db_path=db_path)
     return (
         "You are Codex executing a task for the Lisan memory system.\n\n"
         f"Working directory: {working_directory}\n\n"
         f"Task:\n{task}\n\n"
+        "Lisan's own CLI is available to you and is usually the right way to act on "
+        "Lisan's memory (ingesting files, running jobs, checking health):\n"
+        f"{cli_reference()}\n\n"
         "Relevant memory context:\n"
         f"{context}\n\n"
         "Execute the task directly and return only the result of your work."
