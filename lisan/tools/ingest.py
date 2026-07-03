@@ -1,3 +1,17 @@
+"""Ingestion: external files become memory.
+
+Two layers, only one of them format-specific. EXTRACT turns any source file
+into text plus metadata (per-format, kept trivial); PROCESS turns that text
+into records the pipeline understands. Two modes ride on those layers:
+
+- Artifact ingestion — scan a path, parse files, extract evidence records
+  through the quarantinable batch pipeline (scan_path / parse_file /
+  extract_evidence, driven by the ingest.* job types).
+- Reference ingestion — chunk documents (markdown, text, PDF) into knowledge
+  records with source attribution and deterministic entity linking, so
+  ingested reference material participates in narrative memory
+  (ingest_reference_sources).
+"""
 from __future__ import annotations
 
 import csv
@@ -1905,30 +1919,493 @@ def _hash_file(path: Path) -> str:
 def _iso_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
-from .reference_ingest_parts import (
-    _connect,
-    _hash_file,
-    _iso_now,
-    _reference_files_in_directory,
-    _load_reference_document,
-    _reference_document_title,
-    _extract_pdf_text,
-    _knowledge_category_for_source,
-    _today_iso,
-    _one_year_from_today,
-    _load_entity_catalog,
-    _resolve_explicit_entity_links,
-    _find_entity_by_label,
-    _link_entities_for_chunk,
-    _link_entities_for_chunk_impl,
-    _entity_mentions_text,
-    _extract_entity_candidates,
-    _looks_like_new_reference_entity,
-    _ensure_entity_record,
-    _remove_existing_reference_chunks,
-    _has_existing_reference_chunks,
-    _existing_reference_chunk_paths,
-    _normalize_label,
-    ingest_reference_sources,
-    format_reference_ingest_plan,
-)
+
+
+def ingest_reference_sources(
+    sources: list[Path],
+    *,
+    vault: Path | None = None,
+    db_path: Path | None = None,
+    replace: bool = False,
+    on_exists: str | None = None,
+    link_entities: list[str] | None = None,
+    plan_only: bool = False,
+) -> dict[str, Any]:
+    vault = vault or vault_root()
+    db_path = db_path or sqlite_path()
+    existence_policy = "replace" if replace else (str(on_exists or "abort").strip().lower() or "abort")
+    if existence_policy not in {"abort", "replace", "merge"}:
+        raise ValueError("on_exists must be one of: abort, replace, merge")
+    if existence_policy == "merge":
+        raise NotImplementedError("Reference merge re-ingestion is not implemented yet; use --on-exists replace or abort.")
+    link_entities = [str(item).strip() for item in (link_entities or []) if str(item).strip()]
+
+    entity_catalog = _load_entity_catalog(vault)
+    linked_entity_ids = _resolve_explicit_entity_links(link_entities, entity_catalog, vault)
+    plans: list[dict[str, Any]] = []
+    created_records: list[dict[str, Any]] = []
+    replaced_files: list[str] = []
+    warnings: list[str] = []
+    total_chunks = 0
+
+    for source in sources:
+        source = source.resolve()
+        if source.is_dir():
+            child_sources = _reference_files_in_directory(source)
+            nested = ingest_reference_sources(
+                child_sources,
+                vault=vault,
+                db_path=db_path,
+                replace=replace,
+                on_exists=existence_policy,
+                link_entities=link_entities,
+                plan_only=plan_only,
+            )
+            plans.extend(nested.get("documents", []))
+            created_records.extend(nested.get("created_records", []))
+            replaced_files.extend(nested.get("replaced_files", []))
+            warnings.extend(nested.get("warnings", []))
+            total_chunks += int(nested.get("total_chunks", 0))
+            continue
+
+        document = _load_reference_document(source)
+        document_title = document["title"]
+        source_document = document_title
+        source_locator = document["source_locator"]
+        chunks = chunk_document(
+            document["text"],
+            document_title,
+            mode="auto",
+            source_ref_base=source_locator,
+        )
+        if existence_policy == "replace":
+            removed = _remove_existing_reference_chunks(vault, source_document, plan_only=plan_only)
+            replaced_files.extend(removed)
+        elif _has_existing_reference_chunks(vault, source_document):
+            raise FileExistsError(
+                f"Reference document already ingested: {source_document}. "
+                "Re-run with --on-exists replace to replace the old chunks, "
+                "or --on-exists abort to keep the existing version."
+            )
+
+        doc_plan = {
+            "source_path": str(source),
+            "source_document": source_document,
+            "source_type": document["source_type"],
+            "chunk_count": len(chunks),
+            "linked_entity_ids": sorted(linked_entity_ids),
+            "warnings": list(document["warnings"]),
+        }
+        plans.append(doc_plan)
+        warnings.extend(document["warnings"])
+        total_chunks += len(chunks)
+
+        if plan_only:
+            detected_entities: list[dict[str, Any]] = []
+            for chunk in chunks:
+                chunk_links, would_create = _link_entities_for_chunk_impl(
+                    vault=vault,
+                    chunk=chunk,
+                    entity_catalog=entity_catalog,
+                    explicit_links=linked_entity_ids,
+                    create_entities=False,
+                )
+                detected_entities.extend(would_create)
+                doc_plan.setdefault("detected_entity_ids", [])
+                doc_plan["detected_entity_ids"].extend(chunk_links)
+            if detected_entities:
+                doc_plan["would_create_entities"] = detected_entities
+            continue
+
+        for chunk in chunks:
+            chunk_links = set(linked_entity_ids)
+            new_links, newly_created = _link_entities_for_chunk(
+                vault=vault,
+                chunk=chunk,
+                entity_catalog=entity_catalog,
+                explicit_links=linked_entity_ids,
+            )
+            chunk_links.update(new_links)
+            for entity in newly_created:
+                if entity.get("id"):
+                    entity_catalog.append(entity)
+            title = f"{document_title} - {chunk.title} [chunk {chunk.chunk_index + 1}]"
+            record = new_knowledge(
+                vault,
+                title,
+                    category=_knowledge_category_for_source(document["source_type"], source.suffix.lower()),
+                domain_primary="cross_arena",
+                domain_secondary=[],
+                privacy="personal",
+                disclosure="personal",
+                significance="medium",
+                summary=chunk.breadcrumb,
+                links=sorted(chunk_links),
+                confidence="high",
+                confidence_basis="Authoritative program documentation",
+                last_confirmed=_today_iso(),
+                review_after=_one_year_from_today(),
+                source_document=document_title,
+                source_section=chunk.title,
+                source_ref=chunk.source_ref,
+                chunk_index=chunk.chunk_index,
+                total_chunks=chunk.total_chunks,
+                body=chunk.body,
+            )
+            created_records.append(
+                {
+                    "path": str(record.path),
+                    "title": title,
+                    "links": sorted(chunk_links),
+                    "source_document": document_title,
+                    "source_section": chunk.title,
+                }
+            )
+
+    if not plan_only and (created_records or replaced_files):
+        from .rebuild_index import rebuild_index
+
+        rebuild_index(vault=vault, db_path=db_path)
+
+    return {
+        "plan_only": plan_only,
+        "documents": plans,
+        "created_records": created_records,
+        "replaced_files": replaced_files,
+        "warnings": warnings,
+        "total_chunks": total_chunks,
+        "linked_entity_ids": sorted(linked_entity_ids),
+    }
+
+
+def format_reference_ingest_plan(plan: dict[str, Any]) -> str:
+    lines = ["Reference ingest plan", ""]
+    lines.append(f"documents: {len(plan.get('documents', []))}")
+    lines.append(f"chunks: {plan.get('total_chunks', 0)}")
+    linked = plan.get("linked_entity_ids") or []
+    lines.append(f"prelinked_entities: {len(linked)}")
+    replaced = plan.get("replaced_files") or []
+    if replaced:
+        lines.append(f"would_replace: {len(replaced)}")
+    warnings = plan.get("warnings") or []
+    if warnings:
+        lines.append("warnings:")
+        for warning in warnings:
+            lines.append(f"- {warning}")
+    lines.append("")
+    for document in plan.get("documents", []):
+        lines.append(f"- {document.get('source_document')} ({document.get('chunk_count', 0)} chunks)")
+        detected = document.get("detected_entity_ids") or []
+        if detected:
+            lines.append(f"  - detected_entity_links: {len(set(detected))}")
+        if document.get("would_create_entities"):
+            lines.append(f"  - would_create_entities: {len(document.get('would_create_entities', []))}")
+        for warning in document.get("warnings", []):
+            lines.append(f"  - warning: {warning}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _reference_files_in_directory(root: Path) -> list[Path]:
+    files: list[Path] = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        if path.name.startswith("."):
+            continue
+        if path.suffix.lower() not in {".md", ".markdown", ".txt", ".json", ".csv", ".pdf"}:
+            continue
+        files.append(path)
+    return files
+
+
+def _load_reference_document(path: Path) -> dict[str, Any]:
+    suffix = path.suffix.lower()
+    warnings: list[str] = []
+    if suffix == ".pdf":
+        text, pdf_warnings = _extract_pdf_text(path)
+        warnings.extend(pdf_warnings)
+        source_type = "pdf"
+    elif suffix in {".md", ".markdown"}:
+        doc = load_markdown(path)
+        text = doc.body.strip() or path.read_text(encoding="utf-8", errors="ignore")
+        source_type = "markdown"
+    else:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        source_type = "text"
+    title = _reference_document_title(path, text)
+    source_locator = path.name
+    return {
+        "path": path,
+        "text": text,
+        "title": title,
+        "source_locator": source_locator,
+        "source_type": source_type,
+        "warnings": warnings,
+    }
+
+
+def _reference_document_title(path: Path, text: str) -> str:
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        heading = re.match(r"^#{1,6}\s+(.*\S)\s*$", line)
+        if heading:
+            return heading.group(1).strip()
+        if len(line.split()) <= 12 and not line.endswith((".", ":", ";")):
+            return line
+        break
+    return path.stem.replace("_", " ").replace("-", " ").strip() or path.stem
+
+
+def _extract_pdf_text(path: Path) -> tuple[str, list[str]]:
+    warnings: list[str] = []
+    try:
+        import fitz  # type: ignore
+    except Exception:
+        raise RuntimeError("PDF ingestion requires pymupdf. Install `lisan[pdf]` or `pymupdf`.")
+
+    doc = fitz.open(str(path))
+    pages: list[str] = []
+    for page_index in range(len(doc)):
+        page = doc[page_index]
+        page_number = page_index + 1
+        page_text = page.get_text("text").strip()
+        if page_text:
+            pages.append(f"--- Page {page_number} ---\n{page_text}")
+    combined = "\n\n".join(pages).strip()
+    if len(combined) < 100 and len(doc) > 1:
+        warnings.append("This PDF appears image-based; extracted text is sparse and may need OCR.")
+    return combined, warnings
+
+
+def _knowledge_category_for_source(source_type: str, suffix: str) -> str:
+    lowered = f"{source_type} {suffix}"
+    if any(token in lowered for token in ("legal", ".pdf")):
+        return "frameworks"
+    if any(token in lowered for token in ("technical", ".md", ".txt")):
+        return "frameworks"
+    return "frameworks"
+
+
+def _today_iso() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _one_year_from_today() -> str:
+    return (datetime.now(timezone.utc).date() + timedelta(days=365)).isoformat()
+
+
+def _load_entity_catalog(vault: Path) -> list[dict[str, Any]]:
+    catalog: list[dict[str, Any]] = []
+    root = vault / "entities"
+    if not root.exists():
+        return catalog
+    for path in sorted(root.rglob("*.md")):
+        try:
+            doc = load_markdown(path)
+        except Exception:
+            continue
+        if str(doc.frontmatter.get("type")) != "entity":
+            continue
+        name = str(doc.frontmatter.get("canonical_name") or doc.frontmatter.get("name") or path.stem).strip()
+        aliases = [str(alias).strip() for alias in doc.frontmatter.get("aliases") or [] if str(alias).strip()]
+        catalog.append(
+            {
+                "id": str(doc.frontmatter.get("id") or ""),
+                "name": name,
+                "aliases": aliases,
+                "kind": str(doc.frontmatter.get("kind") or doc.frontmatter.get("subtype") or "thing"),
+                "path": str(path),
+            }
+        )
+    return catalog
+
+
+def _resolve_explicit_entity_links(link_entities: list[str], catalog: list[dict[str, Any]], vault: Path) -> list[str]:
+    resolved: list[str] = []
+    for value in link_entities:
+        entity = _find_entity_by_label(value, catalog)
+        if entity is not None:
+            resolved.append(str(entity["id"]))
+            continue
+        created = _ensure_entity_record(vault, value, kind="organization", summary=f"{value} referenced in imported material.")
+        catalog.append(created)
+        resolved.append(str(created["id"]))
+    return sorted(dict.fromkeys(resolved))
+
+
+def _find_entity_by_label(label: str, catalog: list[dict[str, Any]]) -> dict[str, Any] | None:
+    needle = _normalize_label(label)
+    for entity in catalog:
+        labels = [
+            _normalize_label(entity.get("id")),
+            _normalize_label(entity.get("name")),
+            _normalize_label(slugify(str(entity.get("name") or ""))),
+        ]
+        labels.extend(_normalize_label(alias) for alias in entity.get("aliases", []))
+        if needle and needle in labels:
+            return entity
+    return None
+
+
+def _link_entities_for_chunk(
+    *,
+    vault: Path,
+    chunk: Chunk,
+    entity_catalog: list[dict[str, Any]],
+    explicit_links: list[str],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    return _link_entities_for_chunk_impl(
+        vault=vault,
+        chunk=chunk,
+        entity_catalog=entity_catalog,
+        explicit_links=explicit_links,
+        create_entities=True,
+    )
+
+
+def _link_entities_for_chunk_impl(
+    *,
+    vault: Path,
+    chunk: Chunk,
+    entity_catalog: list[dict[str, Any]],
+    explicit_links: list[str],
+    create_entities: bool,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    linked: set[str] = {str(item).strip() for item in explicit_links if str(item).strip()}
+    created: list[dict[str, Any]] = []
+    text = chunk.body
+    for entity in entity_catalog:
+        if _entity_mentions_text(entity, text):
+            entity_id = str(entity.get("id") or "").strip()
+            if entity_id:
+                linked.add(entity_id)
+
+    candidates = _extract_entity_candidates(text)
+    for candidate in candidates:
+        if _find_entity_by_label(candidate, entity_catalog) is not None:
+            continue
+        if not _looks_like_new_reference_entity(candidate):
+            continue
+        if not create_entities:
+            created.append({"name": candidate, "kind": "organization", "summary": f"{candidate} referenced in {chunk.title}."})
+            continue
+        kind = assign_kind(candidate, vault, model_kind="organization", summary=chunk.title, source_text=text)
+        if kind == "thing":
+            kind = "organization"
+        created_entity = _ensure_entity_record(
+            vault,
+            candidate,
+            kind=kind,
+            summary=f"{candidate} referenced in {chunk.title}.",
+        )
+        entity_catalog.append(created_entity)
+        created.append(created_entity)
+        linked.add(str(created_entity["id"]))
+
+    return sorted(linked), created
+
+
+def _entity_mentions_text(entity: dict[str, Any], text: str) -> bool:
+    haystack = _normalize_label(text)
+    names = [_normalize_label(entity.get("name"))]
+    names.extend(_normalize_label(alias) for alias in entity.get("aliases", []))
+    for name in names:
+        if name and re.search(rf"\b{re.escape(name)}\b", haystack):
+            return True
+    return False
+
+
+def _extract_entity_candidates(text: str) -> list[str]:
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})\b", text):
+        candidate = match.group(1).strip()
+        if len(candidate.split()) > 4:
+            continue
+        if candidate.lower() in {"section", "chapter", "page", "appendix"}:
+            continue
+        if candidate not in seen:
+            seen.add(candidate)
+            candidates.append(candidate)
+    return candidates
+
+
+def _looks_like_new_reference_entity(name: str) -> bool:
+    lowered = name.lower()
+    org_markers = {
+        "center", "council", "board", "agency", "department", "office",
+        "program", "service", "services", "authority", "administration",
+        "association", "institute", "foundation", "committee", "provider",
+        "network", "system", "clinic", "school", "district", "university",
+        "college", "division", "team", "unit",
+    }
+    if any(marker in lowered.split() for marker in org_markers):
+        return True
+    if any(marker in lowered for marker in ("center", "program", "authority", "services")):
+        return True
+    return False
+
+
+def _ensure_entity_record(vault: Path, name: str, *, kind: str, summary: str) -> dict[str, Any]:
+    try:
+        record = new_entity(
+            vault,
+            name,
+            subtype=kind,
+            summary=summary,
+            confidence="high",
+            confidence_basis="Reference ingestion entity linking",
+            review_after=_one_year_from_today(),
+        )
+    except FileExistsError:
+        existing = _find_entity_by_label(name, _load_entity_catalog(vault))
+        if existing is not None:
+            return existing
+        raise
+    doc = load_markdown(record.path)
+    return {
+        "id": str(doc.frontmatter.get("id") or ""),
+        "name": str(doc.frontmatter.get("canonical_name") or doc.frontmatter.get("name") or name),
+        "aliases": [str(alias).strip() for alias in doc.frontmatter.get("aliases") or [] if str(alias).strip()],
+        "kind": str(doc.frontmatter.get("kind") or doc.frontmatter.get("subtype") or kind),
+        "path": str(record.path),
+    }
+
+
+def _remove_existing_reference_chunks(vault: Path, source_document: str, *, plan_only: bool = False) -> list[str]:
+    removed: list[str] = []
+    for path in _existing_reference_chunk_paths(vault, source_document):
+        removed.append(str(path))
+        if not plan_only:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                continue
+    return removed
+
+
+def _has_existing_reference_chunks(vault: Path, source_document: str) -> bool:
+    return bool(_existing_reference_chunk_paths(vault, source_document))
+
+
+def _existing_reference_chunk_paths(vault: Path, source_document: str) -> list[Path]:
+    root = vault / "knowledge"
+    if not root.exists():
+        return []
+    paths: list[Path] = []
+    for path in sorted(root.rglob("*.md")):
+        try:
+            doc = load_markdown(path)
+        except Exception:
+            continue
+        if str(doc.frontmatter.get("type")) != "knowledge":
+            continue
+        if _normalize_label(doc.frontmatter.get("source_document")) == _normalize_label(source_document):
+            paths.append(path)
+    return paths
+
+
+def _normalize_label(value: Any) -> str:
+    return " ".join(str(value or "").strip().lower().split())
