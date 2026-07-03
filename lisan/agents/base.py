@@ -91,6 +91,24 @@ class PromptAgent:
             available_tools=json.dumps(tools or [], indent=2, ensure_ascii=True) if tools else None,
         )
         current_prompt = prompt
+        llm_schema = schema
+        if tools and schema is not None:
+            # The provider layer renders `schema` as a hard "your response must
+            # match this schema" instruction — which forbids the tool-call
+            # shape and silently disables every tool. When tools are present,
+            # the schema instead goes into the prompt as one of two legal
+            # response forms.
+            llm_schema = None
+            current_prompt += (
+                "\n\nYou do NOT execute anything yourself — no shell, no file inspection; your ONLY "
+                "way to act is the tool-call JSON below, which a harness executes and returns to you. "
+                "Respond with valid JSON only — no prose, no code fences. Your response must be "
+                'EITHER a tool call of the form {"tool": "<name>", "args": {...}} using one of the '
+                "AVAILABLE_TOOLS, OR your final answer matching this schema:\n"
+                + json.dumps(schema, indent=2, ensure_ascii=True)
+                + "\n\nIf the INPUT asks for an action that no TOOL_RESULT above has performed yet, "
+                "the correct response is the tool call."
+            )
         last_response: LLMResponse | None = None
         for iteration in range(max_iterations):
             try:
@@ -100,7 +118,7 @@ class PromptAgent:
                     significance=significance,
                     provider=provider,
                     model=model,
-                    schema=schema,
+                    schema=llm_schema,
                 )
             except ProviderError as exc:
                 from ..tools.log import log_error
