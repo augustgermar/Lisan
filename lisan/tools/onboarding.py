@@ -10,30 +10,21 @@ from ..paths import write_high_stakes_seed
 from ..utils import slugify, today_iso
 from .agent_namer import AgentIdentity, generate_agent_identity
 from .primer_index import assistant_display_name, assistant_hash, assistant_nickname, assistant_name, assistant_seed, principal_name
+from .term import color, BOLD, DIM, CYAN, GREEN, YELLOW
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-_USE_COLOR = sys.stdout.isatty()
 
 
-def _c(text: str, *codes: str) -> str:
-    if not _USE_COLOR:
-        return text
-    return "".join(codes) + text + "\033[0m"
 
 
-BOLD = "\033[1m"
-DIM = "\033[2m"
-CYAN = "\033[36m"
-GREEN = "\033[32m"
-YELLOW = "\033[33m"
 
 
 def _ask(prompt: str, *, allow_blank: bool = False) -> str | None:
     """Prompt the user. Returns None on /skip or KeyboardInterrupt; empty string if blank allowed."""
     try:
-        raw = input(_c(f"  {prompt} ", BOLD)).strip()
+        raw = input(color(f"  {prompt} ", BOLD)).strip()
     except (EOFError, KeyboardInterrupt):
         print()
         return None
@@ -356,17 +347,17 @@ def run_onboarding(vault: Path) -> bool:
     if assistant_hash(vault):
         _restore_existing_setup(vault)
         print()
-        print(_c("  Existing identity found.", BOLD))
-        print(_c(f"  Name: {assistant_display_name(vault)}", DIM))
-        print(_c("  Hash is stored in primer/identity-core.md; identity will not be regenerated.", DIM))
+        print(color("  Existing identity found.", BOLD))
+        print(color(f"  Name: {assistant_display_name(vault)}", DIM))
+        print(color("  Hash is stored in primer/identity-core.md; identity will not be regenerated.", DIM))
         print()
         return True
 
     print()
-    print(_c("  Welcome to Lisan.", BOLD))
-    print(_c("  A few quick steps to set up your memory vault.", DIM))
-    print(_c("  Type /skip at any prompt to finish later and edit the files directly.", DIM))
-    print(_c("  Press Enter to leave the open prompt blank for now.", DIM))
+    print(color("  Welcome to Lisan.", BOLD))
+    print(color("  A few quick steps to set up your memory vault.", DIM))
+    print(color("  Type /skip at any prompt to finish later and edit the files directly.", DIM))
+    print(color("  Press Enter to leave the open prompt blank for now.", DIM))
     print()
 
     from .chat import startup_check
@@ -384,7 +375,7 @@ def run_onboarding(vault: Path) -> bool:
     # ── Step 3: principal name ───────────────────────────────────────────────
     principal = _ask("What's your name?", allow_blank=False)
     while principal == "":
-        print(_c("  Please enter a name or /skip.", DIM))
+        print(color("  Please enter a name or /skip.", DIM))
         principal = _ask("What's your name?", allow_blank=False)
         if principal is None:
             _skip_message(vault)
@@ -424,17 +415,17 @@ def run_onboarding(vault: Path) -> bool:
     print()
     display_name = custom_nickname or agent_identity.name
 
-    print(_c("  ✓", GREEN) + _c(" Primer files written.", BOLD))
-    print(_c(f"  Name: {display_name}", DIM))
+    print(color("  ✓", GREEN) + color(" Primer files written.", BOLD))
+    print(color(f"  Name: {display_name}", DIM))
     if custom_nickname and custom_nickname != agent_identity.name:
-        print(_c(f"  Canonical: {agent_identity.name}", DIM))
-    print(_c("  You can edit them anytime at:", DIM))
-    print(_c(f"    {identity_path}", DIM))
-    print(_c(f"    {identity_core_path}", DIM))
-    print(_c(f"    {operating_path}", DIM))
-    print(_c(f"    {high_stakes_path}", DIM))
+        print(color(f"  Canonical: {agent_identity.name}", DIM))
+    print(color("  You can edit them anytime at:", DIM))
+    print(color(f"    {identity_path}", DIM))
+    print(color(f"    {identity_core_path}", DIM))
+    print(color(f"    {operating_path}", DIM))
+    print(color(f"    {high_stakes_path}", DIM))
     print()
-    print(_c(f"  I'm {display_name}. Your vault is set up and I'm ready to go.", BOLD))
+    print(color(f"  I'm {display_name}. Your vault is set up and I'm ready to go.", BOLD))
     print()
     return True
 
@@ -442,17 +433,17 @@ def run_onboarding(vault: Path) -> bool:
 def _prompt_agent_identity() -> tuple[AgentIdentity, str | None] | None:
     while True:
         agent_identity = generate_agent_identity()
-        print(_c("  Your agent's identity has been generated.", BOLD))
+        print(color("  Your agent's identity has been generated.", BOLD))
         print()
-        print(_c(f"  Hash:  {agent_identity.sha256}", DIM))
-        print(_c(f"  Name:  {agent_identity.name}", DIM))
+        print(color(f"  Hash:  {agent_identity.sha256}", DIM))
+        print(color(f"  Name:  {agent_identity.name}", DIM))
         print()
-        print(_c("  This hash uniquely identifies this agent instance.", DIM))
-        print(_c("  The name is a human-readable projection of that hash.", DIM))
+        print(color("  This hash uniquely identifies this agent instance.", DIM))
+        print(color("  The name is a human-readable projection of that hash.", DIM))
         print()
-        print(_c("  [1] Keep the generated name", DIM))
-        print(_c("  [2] Generate a new identity", DIM))
-        print(_c("  [3] Choose a custom name", DIM))
+        print(color("  [1] Keep the generated name", DIM))
+        print(color("  [2] Generate a new identity", DIM))
+        print(color("  [3] Choose a custom name", DIM))
         print()
         choice = _ask("Choose 1, 2, or 3:", allow_blank=False)
         if choice is None:
@@ -469,14 +460,14 @@ def _prompt_agent_identity() -> tuple[AgentIdentity, str | None] | None:
             if custom:
                 return agent_identity, custom
             return agent_identity, None
-        print(_c("  Please choose 1, 2, or 3.", DIM))
+        print(color("  Please choose 1, 2, or 3.", DIM))
 
 
 def _skip_message(vault: Path) -> None:
     identity_path = vault / "primer" / "identity.md"
     operating_path = vault / "primer" / "operating-style.md"
     print()
-    print(_c("  Onboarding skipped. Edit these files to give Lisan context about you:", DIM))
-    print(_c(f"    {identity_path}", DIM))
-    print(_c(f"    {operating_path}", DIM))
+    print(color("  Onboarding skipped. Edit these files to give Lisan context about you:", DIM))
+    print(color(f"    {identity_path}", DIM))
+    print(color(f"    {operating_path}", DIM))
     print()

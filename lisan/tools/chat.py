@@ -23,41 +23,25 @@ from .transcripts import append_transcript
 from .tracing import finalize_turn_trace, record_inline_step, record_jobs_queued, reset_current_turn_trace, start_turn_trace
 from ..providers.base import ProviderError
 from .provider_diagnostics import ProviderDiagnosticResult, diagnose_provider
+from .term import color, BOLD, DIM, CYAN, GREEN, YELLOW, RED
 
 
-# ── ANSI helpers ─────────────────────────────────────────────────────────────
-
-_USE_COLOR = sys.stdout.isatty()
-
-
-def _c(text: str, *codes: str) -> str:
-    if not _USE_COLOR:
-        return text
-    return "".join(codes) + text + "\033[0m"
-
-
-BOLD   = "\033[1m"
-DIM    = "\033[2m"
-CYAN   = "\033[36m"
-GREEN  = "\033[32m"
-YELLOW = "\033[33m"
-RED    = "\033[31m"
 
 
 # ── Startup check ─────────────────────────────────────────────────────────────
 
 def startup_check(vault: Path, config: dict[str, Any]) -> bool:
     """Verify vault, index, and provider. Auto-fix what can be fixed. Returns True if ready."""
-    print(_c("Checking system…", DIM))
+    print(color("Checking system…", DIM))
 
     vault_ok = _check_vault(vault)
     index_ok = _check_index(vault)
     provider_name, provider_ok, provider_diagnostic = _check_provider(config)
 
     if provider_ok:
-        print(f"  {_c('✓', GREEN)} Provider: {provider_name}")
+        print(f"  {color('✓', GREEN)} Provider: {provider_name}")
     else:
-        print(f"  {_c('!', YELLOW)} Provider: {provider_name} not reachable")
+        print(f"  {color('!', YELLOW)} Provider: {provider_name} not reachable")
         if provider_diagnostic is not None:
             diagnostic = provider_diagnostic
             for error_text in diagnostic.errors:
@@ -73,16 +57,16 @@ def startup_check(vault: Path, config: dict[str, Any]) -> bool:
 
 def _check_vault(vault: Path) -> bool:
     if vault.exists():
-        print(f"  {_c('✓', GREEN)} Vault: {vault}")
+        print(f"  {color('✓', GREEN)} Vault: {vault}")
         return True
-    print(f"  {_c('!', YELLOW)} Vault not found — initializing {vault}")
+    print(f"  {color('!', YELLOW)} Vault not found — initializing {vault}")
     try:
         from ..paths import ensure_repo_layout
         ensure_repo_layout()
-        print(f"  {_c('✓', GREEN)} Vault initialized")
+        print(f"  {color('✓', GREEN)} Vault initialized")
         return True
     except Exception as exc:
-        print(f"  {_c('✗', RED)} Vault init failed: {exc}")
+        print(f"  {color('✗', RED)} Vault init failed: {exc}")
         return False
 
 
@@ -97,19 +81,19 @@ def _check_index(vault: Path) -> bool:
             if count == 0:
                 needs_rebuild = True
             else:
-                print(f"  {_c('✓', GREEN)} Index: {count} record{'s' if count != 1 else ''}")
+                print(f"  {color('✓', GREEN)} Index: {count} record{'s' if count != 1 else ''}")
                 return True
         except Exception:
             needs_rebuild = True
 
-    print(f"  {_c('!', YELLOW)} Index missing or empty — rebuilding…")
+    print(f"  {color('!', YELLOW)} Index missing or empty — rebuilding…")
     try:
         from ..tools.rebuild_index import rebuild_index
         counts = rebuild_index(vault)
-        print(f"  {_c('✓', GREEN)} Index built: {counts['files']} records")
+        print(f"  {color('✓', GREEN)} Index built: {counts['files']} records")
         return True
     except Exception as exc:
-        print(f"  {_c('✗', RED)} Index rebuild failed: {exc}")
+        print(f"  {color('✗', RED)} Index rebuild failed: {exc}")
         return False
 
 
@@ -168,7 +152,7 @@ def run_chat(
 
     if not ready:
         print(
-            _c("  No provider is reachable. Configure one in config.yaml before chatting.\n", YELLOW)
+            color("  No provider is reachable. Configure one in config.yaml before chatting.\n", YELLOW)
         )
         # Don't hard-exit — let the user at least see the interface.
 
@@ -183,7 +167,7 @@ def run_chat(
 
     while True:
         try:
-            raw = input(_c("You: ", BOLD)).strip()
+            raw = input(color("You: ", BOLD)).strip()
         except (EOFError, KeyboardInterrupt):
             print()
             _farewell()
@@ -201,7 +185,7 @@ def run_chat(
         if lowered in ("/new", "/reset"):
             reset_narrative_state(vault, conv_id)
             conv_id = f"{today_iso()}-{int(time.time())}"
-            print(_c(f"  New conversation: {conv_id}", DIM))
+            print(color(f"  New conversation: {conv_id}", DIM))
             print()
             continue
 
@@ -214,7 +198,7 @@ def run_chat(
             continue
 
         if lowered == "/id":
-            print(_c(f"  conversation_id: {conv_id}", DIM))
+            print(color(f"  conversation_id: {conv_id}", DIM))
             print()
             continue
 
@@ -226,7 +210,7 @@ def run_chat(
                     n = int(parts[1])
                 except ValueError:
                     pass
-            print(_c(tail_log(vault, lines=n), DIM))
+            print(color(tail_log(vault, lines=n), DIM))
             print()
             continue
 
@@ -234,10 +218,10 @@ def run_chat(
             parts = raw.split(maxsplit=1)
             if len(parts) > 1:
                 domain_override = parts[1].strip().lower() or None
-                print(_c(f"  Domain context set to: {domain_override}", DIM))
+                print(color(f"  Domain context set to: {domain_override}", DIM))
             else:
                 domain_override = None
-                print(_c("  Domain context cleared (auto-detect)", DIM))
+                print(color("  Domain context cleared (auto-detect)", DIM))
             print()
             continue
 
@@ -258,7 +242,7 @@ def run_chat(
         if response:
             if turn_result.get("provider_failure"):
                 print()
-                print(_c(f"{agent_name}: ", CYAN) + response)
+                print(color(f"{agent_name}: ", CYAN) + response)
                 print()
             elif turn_result.get("route") == "advice":
                 advice_context_active = True
@@ -271,7 +255,7 @@ def run_chat(
                 if turn_result.get("route") != "advice":
                     advice_topic = None
             print()
-            print(_c(f"{agent_name}: ", CYAN) + response)
+            print(color(f"{agent_name}: ", CYAN) + response)
             print()
         else:
             advice_context_active = False
@@ -282,7 +266,7 @@ def run_chat(
         if trace:
             trace_text = str(turn_result.get("trace_summary") or "")
             if trace_text:
-                print(_c(f"  trace: {trace_text}", DIM))
+                print(color(f"  trace: {trace_text}", DIM))
 
 
 def _process_chat_turn(
@@ -433,18 +417,18 @@ def _print_background_summary(result: dict[str, Any]) -> None:
     graph_count = trace.get("graph_expanded_count") if trace.get("retrieval_used") else 0
     jobs_queued = trace.get("jobs_queued") or 0
 
-    print(_c("  background:", DIM))
-    print(_c(f"    route: {route} | kind: {kind}", DIM))
+    print(color("  background:", DIM))
+    print(color(f"    route: {route} | kind: {kind}", DIM))
 
     if inline_steps:
-        print(_c("    stages:", DIM))
+        print(color("    stages:", DIM))
         for step in inline_steps:
-            print(_c(f"      • {_humanize_trace_step(str(step))}", DIM))
+            print(color(f"      • {_humanize_trace_step(str(step))}", DIM))
     else:
-        print(_c("    stages: none", DIM))
+        print(color("    stages: none", DIM))
 
     if llm_calls:
-        print(_c("    llm calls:", DIM))
+        print(color("    llm calls:", DIM))
         for call in llm_calls:
             call_name = str(call.get("call_name") or "llm")
             provider = str(call.get("provider") or "")
@@ -460,16 +444,16 @@ def _print_background_summary(result: dict[str, Any]) -> None:
             parts.append(f"{elapsed}ms")
             parts.append(f"prompt~{prompt_tokens}")
             parts.append(f"output~{output_tokens}")
-            print(_c(f"      • {' | '.join(parts)}", DIM))
+            print(color(f"      • {' | '.join(parts)}", DIM))
 
     if queued_jobs:
         job_list = ", ".join(f"{job['job_type']}:{job['job_id']}" for job in queued_jobs)
-        print(_c(f"    queued jobs: {job_list}", DIM))
+        print(color(f"    queued jobs: {job_list}", DIM))
     else:
-        print(_c("    queued jobs: none", DIM))
+        print(color("    queued jobs: none", DIM))
 
     print(
-        _c(
+        color(
             f"    trace: fast_path={str(bool(trace.get('fast_path_used'))).lower()} | "
             f"retrieval={retrieval_count} | graph={graph_count} | jobs={jobs_queued} | elapsed={elapsed_ms}ms",
             DIM,
@@ -520,46 +504,46 @@ def _render_response(result: dict[str, Any], vault: Path | None = None, conversa
             append_transcript(vault=vault, conversation_id=conversation_id, speaker="LISAN", text=response_text)
         agent_name = _assistant_name(vault) if vault else "Lisan"
         print()
-        print(_c(f"{agent_name}: ", CYAN) + response_text)
+        print(color(f"{agent_name}: ", CYAN) + response_text)
         print()
     elif result.get("mode", "skip") not in ("skip",):
         # Fallback dot for extraction when interlocutor produced nothing.
-        print(_c("  ·", DIM))
+        print(color("  ·", DIM))
         print()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _print_header(version: str, conv_id: str, agent_name: str = "Lisan") -> None:
-    bar = _c("─" * 44, DIM)
+    bar = color("─" * 44, DIM)
     print(bar)
-    print(_c(f"  {agent_name}  ·  v{version}  ·  {conv_id}", BOLD))
+    print(color(f"  {agent_name}  ·  v{version}  ·  {conv_id}", BOLD))
     print(bar)
-    print(_c("  /new      start a new conversation", DIM))
-    print(_c("  /status   system health check", DIM))
-    print(_c("  /help     all commands", DIM))
-    print(_c("  /logs     show recent log entries (/logs N for last N lines)", DIM))
-    print(_c("  /quit     exit", DIM))
+    print(color("  /new      start a new conversation", DIM))
+    print(color("  /status   system health check", DIM))
+    print(color("  /help     all commands", DIM))
+    print(color("  /logs     show recent log entries (/logs N for last N lines)", DIM))
+    print(color("  /quit     exit", DIM))
     print(bar)
     print()
 
 
 def _print_help() -> None:
     print()
-    print(_c("  Commands:", BOLD))
-    print(_c("  /new        start a new conversation (clears narrative state)", DIM))
-    print(_c("  /status     re-run system health check", DIM))
-    print(_c("  /id         show the current conversation ID", DIM))
-    print(_c("  /logs [N]   show last N log lines (default 20)", DIM))
-    print(_c("  /domain [name] override retrieval domain (legacy /arena)", DIM))
-    print(_c("  /help       show this message", DIM))
-    print(_c("  /quit       exit", DIM))
+    print(color("  Commands:", BOLD))
+    print(color("  /new        start a new conversation (clears narrative state)", DIM))
+    print(color("  /status     re-run system health check", DIM))
+    print(color("  /id         show the current conversation ID", DIM))
+    print(color("  /logs [N]   show last N log lines (default 20)", DIM))
+    print(color("  /domain [name] override retrieval domain (legacy /arena)", DIM))
+    print(color("  /help       show this message", DIM))
+    print(color("  /quit       exit", DIM))
     print()
-    print(_c("  Prefixes:", BOLD))
-    print(_c("  /remember   force capture regardless of score", DIM))
-    print(_c("  /forget     suppress capture for this turn", DIM))
+    print(color("  Prefixes:", BOLD))
+    print(color("  /remember   force capture regardless of score", DIM))
+    print(color("  /forget     suppress capture for this turn", DIM))
     print()
-    print(_c("  Advice questions are answered directly and are not stored in the vault.", DIM))
+    print(color("  Advice questions are answered directly and are not stored in the vault.", DIM))
     print()
 
 
@@ -641,7 +625,7 @@ class _ProgressRenderer:
         if not self._header_shown:
             self._header_shown = True
             self.out("")
-            self.out(_c(f"{self.agent_name}: ", CYAN) + _c("thinking…", DIM))
+            self.out(color(f"{self.agent_name}: ", CYAN) + color("thinking…", DIM))
 
     def __call__(self, event: dict) -> None:
         line = self._format(event)
@@ -649,7 +633,7 @@ class _ProgressRenderer:
             return
         with self._lock:
             self._ensure_header_locked()
-            self.out(_c(f"  ▸ {line}", DIM))
+            self.out(color(f"  ▸ {line}", DIM))
 
     def _format(self, event: dict) -> str | None:
         kind = event.get("kind")
@@ -704,7 +688,7 @@ def _run_with_thinking_indicator(callable_obj, agent_name: str = "Lisan"):
         done.set()
         elapsed_ms = int((time.time() - started) * 1000)
         if elapsed_ms >= 700:
-            print(_c(f"  [took {elapsed_ms / 1000:.1f}s]", DIM))
+            print(color(f"  [took {elapsed_ms / 1000:.1f}s]", DIM))
 
 
 def _load_current_state(vault: Path, conversation_id: str) -> Any:
@@ -723,7 +707,7 @@ def _format_advice_history(history: list[dict[str, str]]) -> str:
 
 
 def _farewell() -> None:
-    print(_c("  Goodbye.", DIM))
+    print(color("  Goodbye.", DIM))
 
 
 def _enable_readline() -> None:

@@ -12,6 +12,7 @@ from typing import Any, Callable, Iterator
 
 from ..paths import sqlite_path, vault_root
 from ..utils import approx_token_count
+from ..utils import utc_now_iso as _iso_now
 
 
 _CURRENT_TRACE: ContextVar["TurnTrace | None"] = ContextVar("lisan_current_turn_trace", default=None)
@@ -431,8 +432,6 @@ def _json_loads(value: str | None) -> list[Any]:
     return parsed if isinstance(parsed, list) else []
 
 
-def _iso_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 @contextmanager

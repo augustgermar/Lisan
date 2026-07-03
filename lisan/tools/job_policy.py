@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..paths import sqlite_path
+from ..utils import parse_utc_timestamp as _parse_timestamp
 
 
 DEFAULT_JOB_PRIORITIES = {
@@ -354,17 +355,6 @@ def _last_successful_job_time(job_type: str, db_path: Path | None, conn: sqlite3
             conn.close()
 
 
-def _parse_timestamp(value: str) -> datetime | None:
-    text = value.strip()
-    if not text:
-        return None
-    if text.endswith("Z"):
-        text = text[:-1] + "+00:00"
-    try:
-        dt = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 def _hours_since(dt: datetime) -> float:

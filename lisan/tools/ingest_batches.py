@@ -9,6 +9,17 @@ from typing import Any
 
 from ..frontmatter import load_markdown, write_markdown
 from ..paths import sqlite_path, vault_root
+from ..utils import json_loads_forgiving as _json_loads, utc_now_iso as _iso_now
+from .db import connect as _connect
+from ..utils import json_dumps_stable
+
+
+def _json_dumps(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return json_dumps_stable(value)
 
 
 INGESTION_BATCHES_SCHEMA_SQL = """
@@ -35,33 +46,12 @@ CREATE INDEX IF NOT EXISTS idx_ingestion_batches_source_root
 """
 
 
-def _connect(db_path: Path | None = None) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path or sqlite_path())
-    conn.row_factory = sqlite3.Row
-    return conn
 
 
-def _iso_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _json_dumps(value: Any) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return value
-    return json.dumps(value, indent=2, ensure_ascii=True, sort_keys=True)
 
 
-def _json_loads(value: Any) -> Any:
-    if value in (None, ""):
-        return None
-    if isinstance(value, (dict, list)):
-        return value
-    try:
-        return json.loads(str(value))
-    except json.JSONDecodeError:
-        return value
 
 
 def ensure_ingestion_batches_table(conn: sqlite3.Connection) -> None:

@@ -16,6 +16,8 @@ from .job_policy import (
     unique_group_for_job,
 )
 from .ingest_batches import ensure_ingestion_batches_table, get_batch
+from ..utils import json_dumps_stable as _json_dumps, json_loads_forgiving as _json_loads, parse_utc_timestamp as _parse_timestamp
+from .db import connect as _connect
 
 
 JOB_STATUSES = {
@@ -101,14 +103,6 @@ CREATE INDEX IF NOT EXISTS idx_jobs_batch
 """
 
 
-def _connect(db_path: Path | None = None) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path or sqlite_path())
-    conn.row_factory = sqlite3.Row
-    # The scheduler thread, capture-time drains, and CLI workers share this
-    # database; without a busy timeout, concurrent BEGIN IMMEDIATE claims
-    # raise "database is locked" instead of briefly waiting their turn.
-    conn.execute("PRAGMA busy_timeout = 5000")
-    return conn
 
 
 def _now() -> datetime:
@@ -145,17 +139,8 @@ def _normalize_timestamp(value: Any) -> str | None:
         return text
 
 
-def _json_dumps(value: Any) -> str:
-    return json.dumps(value, indent=2, ensure_ascii=True, sort_keys=True)
 
 
-def _json_loads(value: str | None) -> Any:
-    if value in (None, ""):
-        return None
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return value
 
 
 def _row_to_job(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -1135,17 +1120,6 @@ def _running_duration_minutes(job: dict[str, Any]) -> float:
     return (_now() - started).total_seconds() / 60.0
 
 
-def _parse_timestamp(value: str) -> datetime | None:
-    text = value.strip()
-    if not text:
-        return None
-    if text.endswith("Z"):
-        text = text[:-1] + "+00:00"
-    try:
-        dt = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 def _last_success(job_type: str, db_path: Path | None = None) -> dict[str, Any] | None:

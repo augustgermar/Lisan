@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
-from datetime import datetime, date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -80,3 +81,43 @@ def hash_embedding(text: str, dimensions: int = 32) -> list[float]:
     norm = math.sqrt(sum(v * v for v in vector)) or 1.0
     return [round(v / norm, 6) for v in vector]
 
+
+
+def utc_now_iso() -> str:
+    """Current UTC time as a second-precision ISO string with a Z suffix —
+    the canonical timestamp format for every stored record and job row."""
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def parse_utc_timestamp(value: str) -> datetime | None:
+    """Parse an ISO timestamp (Z or offset form) into an aware UTC datetime;
+    naive inputs are assumed UTC. Returns None rather than raising."""
+    text = (value or "").strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def json_dumps_stable(value: Any) -> str:
+    """Deterministic JSON for stored payloads: sorted keys, indented, ASCII."""
+    return json.dumps(value, indent=2, ensure_ascii=True, sort_keys=True)
+
+
+def json_loads_forgiving(value: Any) -> Any:
+    """Best-effort JSON load for values coming back out of storage: None and
+    empty become None, already-parsed containers pass through, and text that
+    isn't valid JSON is returned as-is rather than raising."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return value

@@ -34,6 +34,8 @@ from .document_chunker import Chunk, chunk_document
 from .entity_kind import assign_kind
 from .record_factory import new_artifact, new_claim, new_evidence, new_entity, new_knowledge
 from .ingest_batches import create_batch, update_batch_status, summarize_batch, list_batches, get_batch, artifacts_for_batch, jobs_for_batch, manifest_rows_for_batch, quarantine_batch
+from ..utils import json_loads_forgiving as _json_loads, utc_now_iso as _iso_now
+from .db import connect as _connect
 
 
 INGESTION_MANIFEST_SCHEMA_SQL = """
@@ -1893,19 +1895,8 @@ def _update_artifact_record(vault: Path, artifact_id: str, updates: dict[str, An
     write_markdown(artifact_path, frontmatter, doc.body)
 
 
-def _json_loads(value: Any) -> Any:
-    if isinstance(value, str):
-        try:
-            return json.loads(value)
-        except json.JSONDecodeError:
-            return value
-    return value
 
 
-def _connect(db_path: Path | None = None) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path or sqlite_path())
-    conn.row_factory = sqlite3.Row
-    return conn
 
 
 def _hash_file(path: Path) -> str:
@@ -1916,8 +1907,6 @@ def _hash_file(path: Path) -> str:
     return f"sha256:{hasher.hexdigest()}"
 
 
-def _iso_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 
