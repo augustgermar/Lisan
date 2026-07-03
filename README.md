@@ -299,7 +299,7 @@ It does all of the following:
 
 ### Embeddings
 
-The vector leg of retrieval uses real semantic embeddings, configured under `retrieval.embeddings` in `config.yaml`. There are three tiers:
+The vector leg of retrieval uses real semantic embeddings, configured under `retrieval.embeddings` in `config.json`. There are three tiers:
 
 1. **Hash floor (no dependencies).** A deterministic, non-semantic `hash_embedding` baseline that never touches the network. This is the reproducible-CI / byte-stable fallback and the A/B control. Force it with `mode: "hash"`.
 2. **FastEmbed in-process (recommended).** Qdrant's [FastEmbed](https://github.com/qdrant/fastembed) — a lightweight ONNX embedder, CPU-only, no PyTorch. It runs *inside* the Lisan process (no server to manage). This is the default `provider`.
@@ -544,7 +544,7 @@ This lets you keep mechanical agents like Listener, Router, and Assembler on a
 cheap local model while reserving a frontier model for agents that need stronger
 reasoning or better language quality, like Writer, Skeptic, and Interlocutor.
 
-Configure tiering in `config.yaml` under `routing`. Each agent has three slots
+Configure tiering in `config.json` under `routing`. Each agent has three slots
 (`low`, `medium`, `high`) that point at provider names defined under
 `providers`. The default routes everything to `local`; customize it to match
 your available models and budget.
@@ -574,12 +574,12 @@ python3 -m lisan chat --provider openai
 python3 -m lisan agent writer --provider local
 ```
 
-To change the default provider settings, edit `config.yaml` in the repo root. The provider settings live under the `providers` key, and routing lives under `routing`.
+To change the default provider settings, edit `config.json` in the repo root. The provider settings live under the `providers` key, and routing lives under `routing`.
 
-`config.yaml` is gitignored so your local routing and endpoints stay private; the app falls back to the built-in defaults when it is absent. Copy the tracked template to create your own:
+`config.json` is gitignored so your local routing and endpoints stay private; the app falls back to the built-in defaults when it is absent. Copy the tracked template to create your own:
 
 ```bash
-cp config.example.yaml config.yaml
+cp config.example.json config.json
 ```
 
 The local provider defaults are:
@@ -607,7 +607,7 @@ The easiest path is the interactive wizard:
 lisan telegram setup
 ```
 
-It walks you through creating a bot with [@BotFather](https://t.me/BotFather), validates the token live, then **auto-detects your user id** — just message your new bot once and it captures your id (no @userinfobot needed). It saves the token and allowlist to a `telegram:` block in `config.yaml` (gitignored, so your token stays local). Then:
+It walks you through creating a bot with [@BotFather](https://t.me/BotFather), validates the token live, then **auto-detects your user id** — just message your new bot once and it captures your id (no @userinfobot needed). It saves the token and allowlist to a `telegram:` block in `config.json` (gitignored, so your token stays local). Then:
 
 ```bash
 lisan telegram run
@@ -623,7 +623,7 @@ export LISAN_TELEGRAM_ALLOWED="<your-user-id>"   # comma-separated for multiple 
 lisan telegram run
 ```
 
-Only ids in the allowlist are answered; everyone else is refused. Environment variables take precedence over the `config.yaml` `telegram:` block.
+Only ids in the allowlist are answered; everyone else is refused. Environment variables take precedence over the `config.json` `telegram:` block.
 
 ### Always-on (auto-start)
 
@@ -718,7 +718,7 @@ python3 -m lisan backup create
 python3 -m lisan backup test
 ```
 
-`purge` deletes the active vault, backups, and indices, then recreates the fresh-start seed files. It prints a warning, then asks whether to preserve `config.yaml`, then asks whether to create a backup before deletion. Pass `--yes` to bypass all prompts for automated testing. Use `--preserve-config`, `--backup-before`, and `--backup-destination` with `--yes` to control the non-interactive behavior.
+`purge` deletes the active vault, backups, and indices, then recreates the fresh-start seed files. It prints a warning, then asks whether to preserve `config.json`, then asks whether to create a backup before deletion. Pass `--yes` to bypass all prompts for automated testing. Use `--preserve-config`, `--backup-before`, and `--backup-destination` with `--yes` to control the non-interactive behavior.
 
 Manual record creation:
 

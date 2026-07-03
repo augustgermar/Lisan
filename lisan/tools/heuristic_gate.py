@@ -459,7 +459,7 @@ def _get_high_stakes_terms(
 
     These are personal — what topics matter to THIS user. Not hardcoded in
     source. Vault-local primer/high-stakes.yaml takes priority; config fallback
-    exists for callers who prefer to keep the list in config.yaml.
+    exists for callers who prefer to keep the list in config.json.
     """
     if vault:
         hs_path = vault / "primer" / "high-stakes.yaml"

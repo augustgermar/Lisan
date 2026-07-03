@@ -156,12 +156,12 @@ def _write_tarball(path: Path, vault: Path) -> None:
         stage_root = Path(tmpdir)
         if vault.exists():
             shutil.copytree(vault, stage_root / "lisan-vault", dirs_exist_ok=True)
-        for rel in ["lisan.sqlite", "embeddings.bin", "config.yaml"]:
+        for rel in ["lisan.sqlite", "embeddings.bin", "config.json", "config.yaml"]:
             source = repo_root() / rel
             if source.exists():
                 shutil.copy2(source, stage_root / rel)
         with tarfile.open(path, "w:gz") as tar:
-            for rel in ["lisan-vault", "lisan.sqlite", "embeddings.bin", "config.yaml"]:
+            for rel in ["lisan-vault", "lisan.sqlite", "embeddings.bin", "config.json", "config.yaml"]:
                 source = stage_root / rel
                 if source.exists():
                     tar.add(source, arcname=rel)

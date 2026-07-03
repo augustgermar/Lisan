@@ -169,7 +169,7 @@ class ResolveSettingsTests(unittest.TestCase):
 
 
 class ServiceInstallGuardTests(unittest.TestCase):
-    """install-service must validate against config.yaml alone: the detached
+    """install-service must validate against config.json alone: the detached
     service never inherits the installing shell's env, so env-only settings
     would produce a crash-looping service."""
 
@@ -231,7 +231,7 @@ class WizardTests(unittest.TestCase):
 
     def test_save_settings_roundtrips_and_resolves(self):
         with tempfile.TemporaryDirectory() as d:
-            cfg_path = Path(d) / "config.yaml"
+            cfg_path = Path(d) / "config.json"
             save_telegram_settings("123:tok", [1, 2], path=cfg_path)
             import json
             saved = json.loads(cfg_path.read_text())

@@ -922,7 +922,7 @@ Before any LLM call, a scoring heuristic runs:
 |/remember|Always full triage|
 |/forget|Always skip|
 
-Thresholds are tunable via `config.yaml`.
+Thresholds are tunable via `config.json`.
 
 The Listener also classifies input as **seed** or **narrative** to determine memory formation mode. This classification runs independently of significance scoring. See Section 7.9 for Memory Formation Modes.
 
@@ -1456,7 +1456,7 @@ lisan/
 │   ├── decision.schema.json
 │   └── open_loop.schema.json
 │
-├── config.yaml
+├── config.json
 ├── lisan.sqlite              # Derived, rebuildable
 ├── embeddings.bin            # Derived, rebuildable
 └── requirements.txt
@@ -1464,7 +1464,7 @@ lisan/
 
 ## 9.2 LLM Selection by Function
 
-Lisan routes all LLM calls through the provider abstraction layer in `providers/base.py`. Model selection is configured in `config.yaml` and is not hardcoded into any agent. The system does not depend on any single provider or model tier — quality is ensured by prompt design, assembled context, and the deterministic validation and adversarial review layers.
+Lisan routes all LLM calls through the provider abstraction layer in `providers/base.py`. Model selection is configured in `config.json` and is not hardcoded into any agent. The system does not depend on any single provider or model tier — quality is ensured by prompt design, assembled context, and the deterministic validation and adversarial review layers.
 
 |Function|Recommended Tier|Rationale|
 |---|---|---|
@@ -1708,7 +1708,7 @@ manifest_gen.py
 rebuild_index.py (SQLite + vector + FTS5)
 heuristic_gate.py (including seed/narrative classification)
 providers/base.py
-config.yaml
+config.json
 llm_call_log table (log from the first call, not retroactively)
 ```
 

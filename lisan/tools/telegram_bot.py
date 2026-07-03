@@ -12,7 +12,7 @@ Configuration is read from the environment (never committed):
                              to talk to the bot. Empty/unset means refuse
                              everyone (safe default) — set it to your own id.
 
-A ``telegram`` block in ``config.yaml`` may supply the same values
+A ``telegram`` block in ``config.json`` may supply the same values
 (``token`` / ``allowed_user_ids``); the environment takes precedence.
 """
 from __future__ import annotations
@@ -448,7 +448,7 @@ def detect_owner_id(
 
 
 def save_telegram_settings(token: str, allowed_ids: list[int], *, path: Path | None = None) -> Path:
-    """Persist token + allowlist into the (gitignored) config.yaml telegram block."""
+    """Persist token + allowlist into the (gitignored) config.json telegram block."""
     from ..paths import config_path
 
     path = path or config_path()
@@ -614,7 +614,7 @@ def install_service(*, vault: Path | None = None) -> int:
     """Install + start the Telegram bot as an always-on OS service."""
     vault = vault or vault_root()
     config = load_config()
-    # The service runs detached from this shell, so it only sees config.yaml —
+    # The service runs detached from this shell, so it only sees config.json —
     # env-only settings would pass a naive check here and then crash-loop under
     # launchd/systemd. Validate against what the service will actually see.
     token, allowed = _resolve_settings(config, include_env=False)
@@ -623,7 +623,7 @@ def install_service(*, vault: Path | None = None) -> int:
         if env_token and env_allowed:
             print("✗ Your Telegram settings are only in shell environment variables, which")
             print("  the always-on service won't inherit. Run `lisan telegram setup` to")
-            print("  save them to config.yaml, then re-run install-service.")
+            print("  save them to config.json, then re-run install-service.")
         else:
             print("✗ Configure the bot first: run `lisan telegram setup`.")
         return 1

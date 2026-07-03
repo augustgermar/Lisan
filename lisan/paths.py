@@ -22,7 +22,18 @@ def vault_root(base: Path | None = None) -> Path:
 
 
 def config_path(base: Path | None = None) -> Path:
-    return (base or repo_root()) / "config.yaml"
+    """The live config file: config.json (the content has always been JSON).
+
+    Installs predating the rename keep working: when config.json does not
+    exist but a legacy config.yaml does, the legacy path is used — reads and
+    writes stay on the file the install actually has until it is renamed.
+    """
+    root = base or repo_root()
+    primary = root / "config.json"
+    legacy = root / "config.yaml"
+    if not primary.exists() and legacy.exists():
+        return legacy
+    return primary
 
 
 def sqlite_path(base: Path | None = None) -> Path:

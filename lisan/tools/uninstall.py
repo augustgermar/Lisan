@@ -70,6 +70,7 @@ def _paths_to_remove(
     paths = [
         install_root / "repo",
         install_root / "venv",
+        install_root / "config.json",
         install_root / "config.yaml",
         install_root / "lisan.sqlite",
         install_root / "embeddings.bin",

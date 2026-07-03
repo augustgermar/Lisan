@@ -19,7 +19,7 @@ class CliBootstrapTests(unittest.TestCase):
         self.vault = self.root / "fresh-vault"
         self.db_path = self.root / "lisan.sqlite"
         self.embeddings_path = self.root / "embeddings.bin"
-        save_default_config(self.root / "config.yaml")
+        save_default_config(self.root / "config.json")
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

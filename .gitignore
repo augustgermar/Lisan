@@ -1,8 +1,10 @@
 __pycache__/
 *.pyc
 *.egg-info/
-# config.yaml is committed as the shipped default (codex backend).
-# Override locally by editing it — git will show it as modified.
+# The live config holds local settings and secrets (telegram token) and is
+# never tracked; config.example.json is the shipped template.
+config.json
+config.yaml
 lisan.sqlite
 embeddings.bin
 .DS_Store

@@ -30,7 +30,7 @@ class PurgeTests(unittest.TestCase):
         (self.root / "backups" / "archive.tar.gz").write_text("backup", encoding="utf-8")
         (self.root / "lisan.sqlite").write_text("sqlite", encoding="utf-8")
         (self.root / "embeddings.bin").write_text("embeddings", encoding="utf-8")
-        (self.root / "config.yaml").write_text(
+        (self.root / "config.json").write_text(
             json.dumps(
                 {
                     "providers": {
@@ -66,7 +66,7 @@ class PurgeTests(unittest.TestCase):
         ]:
             self.assertTrue((self.vault / rel).exists(), rel)
 
-        config = load_config(self.root / "config.yaml")
+        config = load_config(self.root / "config.json")
         self.assertEqual(config["providers"]["local"]["base_url"], "http://127.0.0.1:8080/v1/chat/completions")
         self.assertIsNone(config["providers"]["local"]["default_model"])
         self.assertTrue(result.config_reset)
@@ -80,8 +80,8 @@ class PurgeTests(unittest.TestCase):
         self.assertTrue(backup.called)
         self.assertTrue(result.backup_created)
         self.assertEqual(result.backup_archive_path, str(backup_path))
-        self.assertTrue((self.root / "config.yaml").exists())
-        self.assertIn('"llama3.1"', (self.root / "config.yaml").read_text(encoding="utf-8"))
+        self.assertTrue((self.root / "config.json").exists())
+        self.assertIn('"llama3.1"', (self.root / "config.json").read_text(encoding="utf-8"))
         self.assertFalse(result.config_reset)
 
     def test_purge_installation_uses_explicit_backup_destination(self) -> None:

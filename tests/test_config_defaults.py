@@ -17,7 +17,7 @@ class ConfigDefaultsTests(unittest.TestCase):
 
     def test_legacy_ollama_base_url_is_upgraded(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "config.yaml"
+            path = Path(tmp) / "config.json"
             path.write_text(
                 json.dumps(
                     {
@@ -38,3 +38,27 @@ class ConfigDefaultsTests(unittest.TestCase):
         self.assertEqual(local["base_url"], "http://127.0.0.1:8080/v1/chat/completions")
         self.assertEqual(local["default_model"], "llama3.1")
 
+
+
+class ConfigPathLegacyFallbackTests(unittest.TestCase):
+    def test_prefers_config_json(self):
+        import tempfile
+
+        from lisan.paths import config_path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertEqual(config_path(root).name, "config.json")
+
+    def test_falls_back_to_legacy_yaml_when_present(self):
+        import tempfile
+
+        from lisan.paths import config_path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "config.yaml").write_text("{}", encoding="utf-8")
+            self.assertEqual(config_path(root).name, "config.yaml")
+            # once config.json exists it wins
+            (root / "config.json").write_text("{}", encoding="utf-8")
+            self.assertEqual(config_path(root).name, "config.json")

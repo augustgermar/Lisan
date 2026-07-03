@@ -69,7 +69,7 @@ def _split_csv_values(value: str | None) -> list[str]:
 def _bootstrap_runtime(vault: Path, *, ensure_schema: bool = False) -> None:
     ensure_root_layout(repo_root())
     ensure_vault_layout(vault)
-    if not (repo_root() / "config.yaml").exists():
+    if not (repo_root() / "config.json").exists():
         save_default_config()
     write_seed_files(vault)
     if ensure_schema:
@@ -86,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("init", help="Create the default vault layout and config")
     purge = subparsers.add_parser("purge", help="Delete personal vault data and reset to a fresh start")
     purge.add_argument("--yes", action="store_true", help="Skip the confirmation prompt")
-    purge.add_argument("--preserve-config", action="store_const", const=True, default=None, help="Keep config.yaml instead of resetting it")
+    purge.add_argument("--preserve-config", action="store_const", const=True, default=None, help="Keep config.json instead of resetting it")
     purge.add_argument("--backup-before", action="store_const", const=True, default=None, help="Create a backup before deleting anything")
     purge.add_argument("--backup-destination", type=Path, default=None, help="Write the optional pre-purge backup to this directory")
 
@@ -1458,7 +1458,7 @@ def _resolve_purge_options(args: argparse.Namespace) -> tuple[bool, bool] | None
     if not _confirm_purge():
         return None
 
-    preserve_config = _prompt_yes_no("Preserve config.yaml?", default=False)
+    preserve_config = _prompt_yes_no("Preserve config.json?", default=False)
     backup_before = _prompt_yes_no("Create a backup before deletion?", default=True)
     return preserve_config, backup_before
 

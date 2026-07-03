@@ -38,7 +38,7 @@ def purge_installation(
         result.backup_archive_path = str(backup.archive_path)
 
     for path in _paths_to_remove(base=base, vault=vault):
-        if preserve_config and path == base / "config.yaml":
+        if preserve_config and path.name in ("config.json", "config.yaml"):
             continue
         if path.exists():
             _remove_path(path)
@@ -47,7 +47,7 @@ def purge_installation(
     ensure_repo_layout(base)
     result.seeded_files = write_seed_files(vault)
     if not preserve_config:
-        save_default_config(base / "config.yaml")
+        save_default_config(base / "config.json")
         result.config_reset = True
     return result
 
@@ -58,6 +58,7 @@ def _paths_to_remove(*, base: Path, vault: Path) -> list[Path]:
         base / "backups",
         sqlite_path(base),
         embeddings_path(base),
+        base / "config.json",
         base / "config.yaml",
     ]
 

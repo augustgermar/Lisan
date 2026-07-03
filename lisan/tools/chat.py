@@ -49,7 +49,7 @@ def startup_check(vault: Path, config: dict[str, Any]) -> bool:
             for fix in diagnostic.suggested_fixes:
                 print(f"    fix: {fix}")
         else:
-            print("    Set CODEX_BIN or add an API key, then update routing in config.yaml")
+            print("    Set CODEX_BIN or add an API key, then update routing in config.json")
 
     print()
     return vault_ok and index_ok and provider_ok
@@ -152,7 +152,7 @@ def run_chat(
 
     if not ready:
         print(
-            color("  No provider is reachable. Configure one in config.yaml before chatting.\n", YELLOW)
+            color("  No provider is reachable. Configure one in config.json before chatting.\n", YELLOW)
         )
         # Don't hard-exit — let the user at least see the interface.
 
