@@ -287,7 +287,7 @@ def _process_chat_turn(
 
     advice_history = advice_history if advice_history is not None else []
 
-    classification = classify_turn(text, vault=vault)
+    classification = classify_turn(text, vault=vault, conversation_id=conversation_id)
     lowered = text.lower().strip()
     content_text = text
     if lowered.startswith("/remember "):
@@ -313,6 +313,16 @@ def _process_chat_turn(
             record_inline_step("fast_path_response")
             result["response"] = classification.deterministic_response
             result["route"] = "advice"
+            # Even a canned exchange is part of the conversation: without the
+            # transcript, later turns can't see it and the thread breaks.
+            try:
+                append_transcript(vault=vault, conversation_id=conversation_id, speaker="USER", text=text)
+                append_transcript(
+                    vault=vault, conversation_id=conversation_id, speaker="LISAN",
+                    text=classification.deterministic_response,
+                )
+            except Exception:
+                pass
             return result
 
         if classification.route == "advice":

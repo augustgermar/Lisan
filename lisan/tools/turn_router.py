@@ -47,7 +47,7 @@ def decide_turn_route(
     if stripped.startswith("/") and not stripped.lower().startswith("/remember") and not stripped.lower().startswith("/forget"):
         return _skip("command input")
 
-    fast_path = classify_turn(text)
+    fast_path = classify_turn(text, vault=vault, conversation_id=conversation_id)
     if fast_path.fast_path_used:
         route = fast_path.route if fast_path.route in {"advice", "memory", "skip"} else "advice"
         return TurnRouteDecision(

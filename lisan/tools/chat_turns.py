@@ -62,9 +62,19 @@ class TurnClassification:
         }
 
 
-def classify_turn(text: str, vault: Path | None = None) -> TurnClassification:
+def classify_turn(
+    text: str,
+    vault: Path | None = None,
+    conversation_id: str | None = None,
+) -> TurnClassification:
     stripped = text.strip()
     lowered = _normalize(stripped)
+    # Mid-conversation, short turns are the MOST context-dependent ("you
+    # pick", "go ahead", "the first one") — a canned reply there drops the
+    # thread on the floor. Canned fast paths are for fresh conversations
+    # only; once a conversation is underway, everything goes to the
+    # context-bearing pipeline.
+    in_conversation = _conversation_underway(vault, conversation_id)
 
     if not stripped:
         return TurnClassification(
@@ -119,7 +129,7 @@ def classify_turn(text: str, vault: Path | None = None) -> TurnClassification:
             reason="help request",
         )
 
-    if _matches_any(lowered, _STATUS_PATTERNS):
+    if _matches_any(lowered, _STATUS_PATTERNS) and not in_conversation:
         return TurnClassification(
             label="status",
             route="advice",
@@ -128,7 +138,7 @@ def classify_turn(text: str, vault: Path | None = None) -> TurnClassification:
             reason="casual status check",
         )
 
-    if _matches_any(lowered, _GREETING_PATTERNS) or _is_short_acknowledgment(lowered):
+    if (_matches_any(lowered, _GREETING_PATTERNS) or _is_short_acknowledgment(lowered)) and not in_conversation:
         return TurnClassification(
             label="ack",
             route="advice",
@@ -155,7 +165,7 @@ def classify_turn(text: str, vault: Path | None = None) -> TurnClassification:
             reason="practical question",
         )
 
-    if len(stripped.split()) <= 6:
+    if len(stripped.split()) <= 6 and not in_conversation:
         return TurnClassification(
             label="smalltalk",
             route="advice",
@@ -171,6 +181,19 @@ def classify_turn(text: str, vault: Path | None = None) -> TurnClassification:
         deterministic_response=None,
         reason="default to memory for substantive turn",
     )
+
+
+def _conversation_underway(vault: Path | None, conversation_id: str | None) -> bool:
+    """True once this conversation has any prior USER turn in today's
+    transcript. Non-fatal: an unreadable transcript means fresh."""
+    if not conversation_id or vault is None:
+        return False
+    try:
+        from .memory_pipeline import _conversation_turn_count
+
+        return _conversation_turn_count(vault, conversation_id) > 0
+    except Exception:
+        return False
 
 
 def _normalize(text: str) -> str:
