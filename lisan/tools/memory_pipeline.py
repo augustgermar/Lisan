@@ -545,6 +545,9 @@ def _answer_recall_from_records(
                 "Quote the specifics they asked for — names, dates, numbers — when the records contain them. "
                 "If the records do not contain the answer, say plainly that you don't have it stored; "
                 "do NOT guess, infer, or invent any fact that is not in the records. "
+                "Exception: if the question is really about what you CAN DO (\"can you import/ingest/schedule...\"), "
+                "answer from the CAPABILITIES block instead — including what is not built yet — and offer "
+                "the available alternative. "
                 "Speak directly to the user as 'you'. Put your answer in the 'response' field."
             ),
         },
@@ -557,6 +560,7 @@ def _answer_recall_from_records(
             recall_input,
             significance="medium",
             provider_error_mode="raise",
+            capabilities=cached_capability_index(),
             conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
         )
         response = str(out.get("response") or "").strip()

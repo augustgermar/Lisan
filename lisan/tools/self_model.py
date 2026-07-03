@@ -270,12 +270,19 @@ def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) 
             for row in conn.execute("SELECT status, job_type, COUNT(*) AS n FROM jobs GROUP BY status, job_type"):
                 jobs_by_status.setdefault(str(row["status"]), {})[str(row["job_type"])] = int(row["n"])
             row = conn.execute(
-                """SELECT id, job_type, scheduled_for, recurrence FROM jobs
+                """SELECT id, job_type, scheduled_for, recurrence, payload_json FROM jobs
                    WHERE status = 'queued' AND scheduled_for IS NOT NULL
                    ORDER BY scheduled_for ASC LIMIT 1"""
             ).fetchone()
             if row:
                 next_task = {k: row[k] for k in ("id", "job_type", "scheduled_for", "recurrence")}
+                try:
+                    payload = json.loads(row["payload_json"] or "{}")
+                    body = str(payload.get("message") or payload.get("prompt") or payload.get("task") or "").strip()
+                    if body:
+                        next_task["about"] = body if len(body) <= 80 else body[:77] + "..."
+                except Exception:
+                    pass
             index_records = int(conn.execute("SELECT COUNT(*) FROM files").fetchone()[0])
         finally:
             conn.close()
@@ -360,7 +367,8 @@ def render_self_state(state: dict[str, Any]) -> str:
     nxt = state.get("next_scheduled_task")
     if nxt:
         recur = f" (recurring {nxt['recurrence']})" if nxt.get("recurrence") else ""
-        lines.append(f"Next scheduled: {nxt['job_type']} at {nxt['scheduled_for']}{recur}")
+        about = f' — "{nxt["about"]}"' if nxt.get("about") else ""
+        lines.append(f"Next scheduled: {nxt['job_type']} at {nxt['scheduled_for']}{recur}{about}")
     for key in ("last_dreamer_success", "last_analyst_success"):
         label = key.replace("last_", "").replace("_success", "")
         lines.append(f"Last {label} success: {state.get(key) or 'never'}")
