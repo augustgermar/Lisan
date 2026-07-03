@@ -169,7 +169,7 @@ def run_memory_pipeline(
         "provider": provider,
         "model": model,
         "provider_error_mode": "raise",
-        "context": context,
+        "retrieved_context": context,
         "transcript": str(transcript_path.relative_to(vault)),
         "conversation_policy": json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     }
@@ -211,7 +211,6 @@ def run_memory_pipeline(
             task=writer_task,
             interlocutor_response=json.dumps(interlocutor, indent=2, ensure_ascii=True),
             tool_calls=json.dumps(tool_calls, indent=2, ensure_ascii=True),
-            retrieved_context=context,
             **common_kwargs,
         )
         writer = dict(writer_core)
@@ -221,7 +220,6 @@ def run_memory_pipeline(
             task=writer_task,
             interlocutor_response=json.dumps(interlocutor, indent=2, ensure_ascii=True),
             tool_calls=json.dumps(tool_calls, indent=2, ensure_ascii=True),
-            retrieved_context=context,
             **common_kwargs,
         )
         writer_core = writer

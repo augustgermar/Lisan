@@ -53,11 +53,16 @@ class PromptAgent:
             return None
         return get_schema(self.output_schema_name)
 
+    # Plumbing kwargs that agents consume programmatically. Rendering them
+    # would put database paths and routing keys into the model's context —
+    # tokens that can only distract.
+    _INTERNAL_KWARGS = frozenset({"db_path", "conversation_id", "task"})
+
     def render_input(self, user_input: str, **kwargs: Any) -> str:
         rendered = self.prompt()
         extras: list[str] = [f"ASSISTANT_IDENTITY:\n{assistant_identity_block(self.vault)}"]
         for key, value in kwargs.items():
-            if value is None:
+            if value is None or key in self._INTERNAL_KWARGS:
                 continue
             extras.append(f"{key.upper()}:\n{value}")
         if extras:
