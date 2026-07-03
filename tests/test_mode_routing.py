@@ -178,6 +178,26 @@ class ActionRequestOverrideTests(unittest.TestCase):
             result = self._route(Path(tmp), "I would like you to ingest my obsidian notes")
             self.assertEqual(result.mode, "extraction")
 
+    def test_skip_classified_action_request_still_acts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = route_turn(
+                _ctx(
+                    Path(tmp),
+                    text="look at the files in this folder and absorb whatever is useful: /Users/me/notes",
+                    listener={
+                        "action": "skip",
+                        "mode": "skip",
+                        "memory_type": "skip",
+                        "seed_score": 0,
+                        "narrative_score": 0,
+                        "reason": [],
+                    },
+                )
+            )
+            self.assertEqual(result.action, "lightweight")
+            self.assertEqual(result.mode, "extraction")
+            self.assertIn("action_request_never_skip", result.applied_overrides)
+
     def test_narrative_turns_stay_with_the_elicitor(self):
         with tempfile.TemporaryDirectory() as tmp:
             for text in (

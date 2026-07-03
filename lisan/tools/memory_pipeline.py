@@ -366,12 +366,17 @@ def route_turn(ctx: RoutingContext) -> RoutingDecision:
         mode = "extraction"
         applied_overrides.append("narratively_complete_extraction")
 
-    # An explicit action request must reach the tool-bearing interlocutor;
-    # the elicitor can only converse, so routing it there produces capability
-    # dodges ("what should the ingestion produce?") instead of action.
-    if action != "skip" and mode == "elicitor" and _is_action_request(ctx.text):
-        mode = "extraction"
-        applied_overrides.append("action_request_extraction")
+    # An explicit action request must reach the tool-bearing interlocutor.
+    # The elicitor can only converse, and the skip path can only acknowledge —
+    # either destination turns "ingest this folder" into words instead of
+    # action.
+    if _is_action_request(ctx.text):
+        if action == "skip":
+            action = "lightweight"
+            applied_overrides.append("action_request_never_skip")
+        if mode != "extraction":
+            mode = "extraction"
+            applied_overrides.append("action_request_extraction")
 
     return RoutingDecision(
         listener=listener,
