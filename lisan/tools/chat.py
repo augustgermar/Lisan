@@ -23,7 +23,7 @@ from .transcripts import append_transcript
 from .tracing import finalize_turn_trace, record_inline_step, record_jobs_queued, reset_current_turn_trace, start_turn_trace
 from ..providers.base import ProviderError
 from .provider_diagnostics import ProviderDiagnosticResult, diagnose_provider
-from .term import color, BOLD, DIM, CYAN, GREEN, YELLOW, RED
+from .term import color, BOLD, DIM, ITALIC, CYAN, GREEN, YELLOW, RED, BLUE, BLUE_DEEP, SKY, GREY, GREY_DIM, GREY_FAINT
 
 
 
@@ -32,14 +32,14 @@ from .term import color, BOLD, DIM, CYAN, GREEN, YELLOW, RED
 
 def startup_check(vault: Path, config: dict[str, Any]) -> bool:
     """Verify vault, index, and provider. Auto-fix what can be fixed. Returns True if ready."""
-    print(color("Checking system…", DIM))
+    print(color("  ⣿ checking system", GREY_DIM))
 
     vault_ok = _check_vault(vault)
     index_ok = _check_index(vault)
     provider_name, provider_ok, provider_diagnostic = _check_provider(config)
 
     if provider_ok:
-        print(f"  {color('✓', GREEN)} Provider: {provider_name}")
+        print(color('  ✓ ', GREEN) + color(f'provider  {provider_name}', GREY))
     else:
         print(f"  {color('!', YELLOW)} Provider: {provider_name} not reachable")
         if provider_diagnostic is not None:
@@ -57,7 +57,7 @@ def startup_check(vault: Path, config: dict[str, Any]) -> bool:
 
 def _check_vault(vault: Path) -> bool:
     if vault.exists():
-        print(f"  {color('✓', GREEN)} Vault: {vault}")
+        print(color('  ✓ ', GREEN) + color(f'vault  {vault}', GREY))
         return True
     print(f"  {color('!', YELLOW)} Vault not found — initializing {vault}")
     try:
@@ -81,7 +81,7 @@ def _check_index(vault: Path) -> bool:
             if count == 0:
                 needs_rebuild = True
             else:
-                print(f"  {color('✓', GREEN)} Index: {count} record{'s' if count != 1 else ''}")
+                print(color('  ✓ ', GREEN) + color(f'index  {count} record' + ('s' if count != 1 else ''), GREY))
                 return True
         except Exception:
             needs_rebuild = True
@@ -168,7 +168,7 @@ def run_chat(
 
     while True:
         try:
-            raw = input(color("You: ", BOLD)).strip()
+            raw = input(color("  › ", SKY, BOLD)).strip()
         except (EOFError, KeyboardInterrupt):
             print()
             _farewell()
@@ -186,7 +186,7 @@ def run_chat(
         if lowered in ("/new", "/reset"):
             reset_narrative_state(vault, conv_id)
             conv_id = f"{today_iso()}-{int(time.time())}"
-            print(color(f"  New conversation: {conv_id}", DIM))
+            print(color(f"  ✦ new conversation  {conv_id}", SKY))
             print()
             continue
 
@@ -199,7 +199,7 @@ def run_chat(
             continue
 
         if lowered == "/id":
-            print(color(f"  conversation_id: {conv_id}", DIM))
+            print(color(f"  conversation_id  {conv_id}", GREY))
             print()
             continue
 
@@ -243,7 +243,7 @@ def run_chat(
         if response:
             if turn_result.get("provider_failure"):
                 print()
-                print(color(f"{agent_name}: ", CYAN) + response)
+                print(color(f"  ● {agent_name}", BLUE, BOLD) + color("  ", DIM) + response)
                 print()
             elif turn_result.get("route") == "advice":
                 advice_context_active = True
@@ -256,7 +256,7 @@ def run_chat(
                 if turn_result.get("route") != "advice":
                     advice_topic = None
             print()
-            print(color(f"{agent_name}: ", CYAN) + response)
+            print(color(f"  ● {agent_name}", BLUE, BOLD) + color("  ", DIM) + response)
             print()
         else:
             advice_context_active = False
@@ -486,7 +486,7 @@ def _render_response(result: dict[str, Any], vault: Path | None = None, conversa
             append_transcript(vault=vault, conversation_id=conversation_id, speaker="LISAN", text=response_text)
         agent_name = _assistant_name(vault) if vault else "Lisan"
         print()
-        print(color(f"{agent_name}: ", CYAN) + response_text)
+        print(color(f"  ● {agent_name}", BLUE, BOLD) + color("  ", DIM) + response_text)
         print()
     elif result.get("mode", "skip") not in ("skip",):
         # Fallback dot for extraction when interlocutor produced nothing.
@@ -496,36 +496,63 @@ def _render_response(result: dict[str, Any], vault: Path | None = None, conversa
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+_WORDMARK = (
+    "  ██╗     ██╗███████╗ █████╗ ███╗   ██╗",
+    "  ██║     ██║██╔════╝██╔══██╗████╗  ██║",
+    "  ██║     ██║███████╗███████║██╔██╗ ██║",
+    "  ██║     ██║╚════██║██╔══██║██║╚██╗██║",
+    "  ███████╗██║███████║██║  ██║██║ ╚████║",
+    "  ╚══════╝╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝",
+)
+
+
 def _print_header(version: str, conv_id: str, agent_name: str = "Lisan") -> None:
-    bar = color("─" * 44, DIM)
-    print(bar)
-    print(color(f"  {agent_name}  ·  v{version}  ·  {conv_id}", BOLD))
-    print(bar)
-    print(color("  /new      start a new conversation", DIM))
-    print(color("  /status   system health check", DIM))
-    print(color("  /help     all commands", DIM))
-    print(color("  /logs     show recent log entries (/logs N for last N lines)", DIM))
-    print(color("  /quit     exit", DIM))
-    print(bar)
+    print()
+    for i, line in enumerate(_WORDMARK):
+        # gradient: deeper blue at the top, brighter azure toward the bottom
+        print(color(line, BLUE_DEEP if i < 3 else BLUE))
+    print()
+    print(color(f"  {agent_name}", SKY, BOLD)
+          + color("  ·  ", GREY_FAINT)
+          + color(f"v{version}", GREY)
+          + color("  ·  ", GREY_FAINT)
+          + color(conv_id, GREY))
+    print()
+    rule = color("  " + "─" * 46, GREY_FAINT)
+    print(rule)
+    for cmd, desc in (
+        ("/new", "start a new conversation"),
+        ("/status", "system health check"),
+        ("/help", "all commands"),
+        ("/quit", "exit"),
+    ):
+        print(color(f"  {cmd:<9}", SKY) + color(desc, GREY_DIM))
+    print(rule)
     print()
 
 
 def _print_help() -> None:
     print()
-    print(color("  Commands:", BOLD))
-    print(color("  /new        start a new conversation (clears narrative state)", DIM))
-    print(color("  /status     re-run system health check", DIM))
-    print(color("  /id         show the current conversation ID", DIM))
-    print(color("  /logs [N]   show last N log lines (default 20)", DIM))
-    print(color("  /domain [name] override retrieval domain (legacy /arena)", DIM))
-    print(color("  /help       show this message", DIM))
-    print(color("  /quit       exit", DIM))
+    print(color("  Commands", SKY, BOLD))
+    for cmd, desc in (
+        ("/new", "start a new conversation (clears narrative state)"),
+        ("/status", "re-run system health check"),
+        ("/id", "show the current conversation ID"),
+        ("/logs [N]", "show last N log lines (default 20)"),
+        ("/domain [name]", "override retrieval domain (legacy /arena)"),
+        ("/help", "show this message"),
+        ("/quit", "exit"),
+    ):
+        print(color(f"  {cmd:<15}", SKY) + color(desc, GREY_DIM))
     print()
-    print(color("  Prefixes:", BOLD))
-    print(color("  /remember   force capture regardless of score", DIM))
-    print(color("  /forget     suppress capture for this turn", DIM))
+    print(color("  Prefixes", SKY, BOLD))
+    for cmd, desc in (
+        ("/remember", "force capture regardless of score"),
+        ("/forget", "suppress capture for this turn"),
+    ):
+        print(color(f"  {cmd:<15}", SKY) + color(desc, GREY_DIM))
     print()
-    print(color("  Advice questions are answered directly and are not stored in the vault.", DIM))
+    print(color("  Advice questions are answered directly and are not stored in the vault.", GREY_DIM, ITALIC))
     print()
 
 
@@ -609,7 +636,7 @@ class _ProgressRenderer:
         if not self._header_shown:
             self._header_shown = True
             self.out("")
-            self.out(color(f"{self.agent_name}: ", CYAN) + color("thinking…", DIM))
+            self.out(color(f"  ● {self.agent_name}", BLUE, BOLD) + color("  thinking…", GREY_DIM, ITALIC))
 
     def __call__(self, event: dict) -> None:
         line = self._format(event)
@@ -721,7 +748,9 @@ def _format_advice_history(history: list[dict[str, str]]) -> str:
 
 
 def _farewell() -> None:
-    print(color("  Goodbye.", DIM))
+    print()
+    print(color("  ● till next time.", BLUE, DIM))
+    print()
 
 
 def _enable_readline() -> None:

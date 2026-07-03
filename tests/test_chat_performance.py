@@ -207,7 +207,7 @@ class ChatPerformanceTests(unittest.TestCase):
             with redirect_stdout(buffer):
                 startup_check(self.vault, config)
         output = buffer.getvalue()
-        self.assertIn("Provider: openrouter", output)
+        self.assertIn("provider  openrouter", output)
         self.assertNotIn("openrouter not reachable", output)
 
     def test_thanks_schedules_no_background_jobs(self) -> None:
