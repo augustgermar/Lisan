@@ -347,6 +347,12 @@ def _service_status() -> dict[str, bool]:
                 services[key] = result.stdout.strip() == "active"
     except Exception:
         pass
+    # The Telegram service hosts the scheduler loop as a thread — when it is
+    # up, scheduling is up. Reporting "scheduler down" because the *standalone*
+    # service isn't installed would tell the user their reminders are broken
+    # when they aren't.
+    if services["telegram"] and not services["scheduler"]:
+        services["scheduler"] = True
     return services
 
 
