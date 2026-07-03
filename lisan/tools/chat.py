@@ -378,6 +378,15 @@ def _process_chat_turn(
         result["queued_jobs"] = response_bundle.get("queued_jobs") or []
         record_jobs_queued(len(result["queued_jobs"]))
         result["response"] = _extract_capture_response(response_bundle)
+        if not result["response"]:
+            # Silence after a multi-minute pipeline run reads as a hang. Say
+            # what happened; the trace has the details.
+            log_error(vault, "chat.process_chat_turn.empty_response",
+                      ValueError(f"empty response for turn: {text[:120]!r}"))
+            result["response"] = (
+                "I processed that but failed to produce a reply — the failure is logged. "
+                "Ask me again and I'll take another run at it."
+            )
         result["trace_summary"] = trace.summary()
         return result
     except ProviderError as exc:

@@ -236,5 +236,45 @@ class SelfStateQueryTests(unittest.TestCase):
             self.assertFalse(_is_self_state_query(text), text)
 
 
+class RecallQuestionRoutingTests(unittest.TestCase):
+    """"Tell me something interesting about Dana" spent 235s writing an
+    episode about the question and answered nothing. Pure recall questions
+    take the answer path; turns carrying new story still get captured."""
+
+    def _route(self, vault: Path, text: str, action="full", mode="extraction"):
+        return route_turn(_ctx(vault, text=text, listener={
+            "action": action, "mode": mode, "memory_type": "episode",
+            "seed_score": 1, "narrative_score": 2, "reason": [],
+        }))
+
+    def test_recall_questions_take_the_answer_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for text in (
+                "tell me something interesting about Dana",
+                "what do you know about Project Daylight?",
+                "who is Ruth?",
+                "remind me when Maya's dentist appointment is",
+                "how many cats do I have?",
+            ):
+                result = self._route(Path(tmp), text)
+                self.assertEqual(result.action, "skip", text)
+                self.assertIn("recall_question_answer_path", result.applied_overrides)
+
+    def test_new_information_still_captures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for text in (
+                "I met Dana for coffee and she told me about her new job",
+                "what a day - I finished the fence and had a beer with Frank",
+                "Maya got an A on her astronomy project",
+            ):
+                result = self._route(Path(tmp), text)
+                self.assertNotEqual(result.action, "skip", text)
+
+    def test_recall_plus_action_still_gets_tools(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._route(Path(tmp), "tell me what is in the folder /tmp/notes and ingest the useful files")
+            self.assertEqual(result.mode, "extraction")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -366,6 +366,16 @@ def route_turn(ctx: RoutingContext) -> RoutingDecision:
         mode = "extraction"
         applied_overrides.append("narratively_complete_extraction")
 
+    # A pure recall question ("tell me something interesting about Dana")
+    # is a lookup, not a life event: capturing it spends minutes writing an
+    # episode about the question itself and answers nothing. Route it to the
+    # recall answerer. Runs before the action-request override so a request
+    # that both recalls and acts still gets tools.
+    if _is_pure_recall_question(ctx.text):
+        action = "skip"
+        mode = "skip"
+        applied_overrides.append("recall_question_answer_path")
+
     # An explicit action request must reach the tool-bearing interlocutor.
     # The elicitor can only converse, and the skip path can only acknowledge —
     # either destination turns "ingest this folder" into words instead of
@@ -392,6 +402,31 @@ _ACTION_VERB_RE = re.compile(
 _FS_PATH_RE = re.compile(r"(?:^|[\s'\"(])~?/[^\s'\"]+")
 _FILE_OBJECT_RE = re.compile(r"\b(?:file|files|folder|directory|directories|path|ingest|ingestion|absorb|import)\b")
 _FILE_ACTION_VERB_RE = re.compile(r"\b(?:ingest|absorb|import|scan|read|list|show|display|check(?:\s+out)?)\b")
+
+
+_RECALL_STEM_RE = re.compile(
+    r"^(?:tell me|what do you (?:know|remember)|do you (?:know|remember|have)"
+    r"|what(?:'s| is| was| are| were)\b|who(?:'s| is| was)\b|when (?:is|was|did)\b"
+    r"|where (?:is|was|did)\b|remind me|how (?:many|much|old)\b)"
+)
+_FIRST_PERSON_STORY_RE = re.compile(
+    r"\bi (?:went|did|met|saw|had|got|took|made|finished|started|talked|spoke|feel|felt|am|was|will|just)\b"
+)
+
+
+def _is_pure_recall_question(text: str) -> bool:
+    """A question asking the memory for something it holds, carrying no new
+    story of its own: recall-stem opening or question mark, short, and free
+    of first-person narrative."""
+    stripped = text.strip()
+    lowered = stripped.lower()
+    if len(stripped.split()) > 18:
+        return False
+    if _FIRST_PERSON_STORY_RE.search(lowered):
+        return False
+    if _RECALL_STEM_RE.match(lowered):
+        return True
+    return stripped.endswith("?") and bool(_RECALL_STEM_RE.search(lowered))
 
 
 def _is_action_request(text: str) -> bool:
