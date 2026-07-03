@@ -220,7 +220,7 @@ def _execute_step(
 
         turn = _process_chat_turn(
             vault=vault,
-            conversation_id=str(payload.get("conversation_id") or f"plan-{payload['plan_id']}"),
+            conversation_id=f"plan-{payload['plan_id']}",
             text=f"{description}\n\n{context}",
             provider=provider,
             model=model,

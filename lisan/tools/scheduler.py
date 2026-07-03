@@ -311,7 +311,7 @@ def run_task_job(
         prompt = str(payload.get("prompt") or "").strip()
         if not prompt:
             raise ValueError("task.prompt requires a prompt")
-        conversation_id = str(payload.get("conversation_id") or f"scheduled-{job.get('id')}")
+        conversation_id = f"scheduled-{job.get('id')}"
         result = _process_chat_turn(
             vault=vault,
             conversation_id=conversation_id,

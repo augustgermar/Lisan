@@ -123,5 +123,43 @@ class TelegramApprovalTests(unittest.TestCase):
         self.assertIn(other, self.bot._pending_updates)
 
 
+    def test_button_tap_approves(self):
+        callback = {"update_id": 9, "callback_query": {"id": "cb1", "from": {"id": 1}, "data": "approve:PLACEHOLDER"}}
+        # nonce is generated inside approve(); capture it from the sent keyboard
+        sent_markup = {}
+
+        def call_api(method, params, *, timeout=0):
+            if method == "sendMessage" and "reply_markup" in params:
+                data = params["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
+                callback["callback_query"]["data"] = data
+                sent_markup["keyboard"] = params["reply_markup"]
+                return {"ok": True, "result": []}
+            if method == "sendMessage":
+                self.sent.append(params["text"])
+                return {"ok": True, "result": []}
+            if method == "getUpdates":
+                return {"ok": True, "result": [callback]}
+            return {"ok": True, "result": []}
+
+        self.bot._call_api = call_api
+        approve = self.bot._approval_fn_for(7)
+        self.assertTrue(approve("run_codex", {"task": "x"}))
+        self.assertIn("inline_keyboard", sent_markup["keyboard"])
+
+    def test_foreign_button_tap_is_ignored(self):
+        stale = {"update_id": 9, "callback_query": {"id": "cb1", "from": {"id": 999}, "data": "approve:whatever"}}
+        yes = self._reply("yes", update_id=10)
+        self.replies = [stale, yes]
+        approve = self.bot._approval_fn_for(7)
+        self.assertTrue(approve("run_codex", {"task": "x"}))
+
+    def test_ordinary_message_declines_but_survives(self):
+        msg = self._reply("actually tell me about the weather", update_id=11)
+        self.replies = [msg]
+        approve = self.bot._approval_fn_for(7)
+        self.assertFalse(approve("run_codex", {"task": "x"}))
+        self.assertIn(msg, self.bot._pending_updates)
+
+
 if __name__ == "__main__":
     unittest.main()

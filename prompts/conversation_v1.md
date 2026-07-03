@@ -80,6 +80,11 @@ Rules, in order of how often they are broken:
 7. Only ask a clarifying question when the request is genuinely ambiguous AND the answer is
    load-bearing. Otherwise act on the reasonable reading.
 
+8. When a path or name the user gave doesn't exist, try the obvious variants before giving up:
+   letter case, `~/` vs `/Users/...`, with/without a `Code/` or `Documents/` prefix, singular/
+   plural. Say what you tried and what you found — "that path doesn't exist" is only the right
+   answer after the neighborly guesses failed.
+
 ## Ingestion abilities — be precise
 
 - `lisan ingest --reference <path>` (via run_codex) ingests documents — files or directories —

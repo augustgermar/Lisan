@@ -255,17 +255,34 @@ class TelegramBot:
         yes, and every other message is buffered as normal conversation."""
 
         def approve(tool_name: str, args: dict[str, Any]) -> bool:
+            import uuid
+
+            nonce = uuid.uuid4().hex[:10]
             description = str(args.get("task") or json.dumps(args, ensure_ascii=True)[:400])
-            self._send_message(
-                chat_id,
-                f"⚙️ I need your approval to run this:\n\n{description}\n\n"
-                "Reply 'yes' to approve — anything else and I'll skip it.",
-            )
-            reply = self._await_owner_reply(chat_id, timeout=180.0)
-            if reply is None:
+            keyboard = {
+                "inline_keyboard": [[
+                    {"text": "✅ Approve", "callback_data": f"approve:{nonce}"},
+                    {"text": "❌ Deny", "callback_data": f"deny:{nonce}"},
+                ]]
+            }
+            try:
+                self._call_api(
+                    "sendMessage",
+                    {
+                        "chat_id": chat_id,
+                        "text": f"⚙️ I need your approval to run this:\n\n{description}",
+                        "reply_markup": keyboard,
+                    },
+                    timeout=30,
+                )
+            except Exception as exc:
+                log_error(self.vault, "telegram approval prompt failed", exc)
+                return False
+            verdict = self._await_approval(chat_id, nonce, timeout=180.0)
+            if verdict is None:
                 self._send_message(chat_id, "No reply in time — skipping it. Ask again when you're ready.")
                 return False
-            if reply.strip().lower().rstrip(".!") in self._APPROVE_WORDS:
+            if verdict:
                 self._send_message(chat_id, "Approved — on it.")
                 return True
             self._send_message(chat_id, "Okay — not running it.")
@@ -273,7 +290,10 @@ class TelegramBot:
 
         return approve
 
-    def _await_owner_reply(self, chat_id: int, timeout: float) -> str | None:
+    def _await_approval(self, chat_id: int, nonce: str, timeout: float) -> bool | None:
+        """Wait for a button tap (callback query carrying our nonce) or a
+        typed yes/no from the owner. Everything else buffers as conversation.
+        Returns True/False on a verdict, None on timeout."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             params: dict[str, Any] = {"timeout": 10}
@@ -285,12 +305,32 @@ class TelegramBot:
                 continue
             for update in payload.get("result") or []:
                 self._offset = int(update["update_id"]) + 1
+
+                callback = update.get("callback_query") or {}
+                if callback:
+                    sender = (callback.get("from") or {}).get("id")
+                    data = str(callback.get("data") or "")
+                    if sender is not None and self._is_allowed(int(sender)) and data.endswith(f":{nonce}"):
+                        try:
+                            self._call_api("answerCallbackQuery", {"callback_query_id": callback.get("id")}, timeout=10)
+                        except Exception:
+                            pass
+                        return data.startswith("approve:")
+                    continue  # stale/foreign button tap: drop
+
                 message = update.get("message") or {}
                 sender = (message.get("from") or {}).get("id")
                 chat = (message.get("chat") or {}).get("id")
                 text = message.get("text")
                 if chat == chat_id and sender is not None and self._is_allowed(int(sender)) and isinstance(text, str):
-                    return text
+                    lowered = text.strip().lower().rstrip(".!")
+                    if lowered in self._APPROVE_WORDS:
+                        return True
+                    # Anything else from the owner is a decline — and still a
+                    # real message: buffer it so the conversation carries on
+                    # instead of stalling behind the approval timeout.
+                    self._pending_updates.append(update)
+                    return False
                 self._pending_updates.append(update)
         return None
 
