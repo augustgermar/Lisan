@@ -138,5 +138,58 @@ class RoutingCascadeTests(unittest.TestCase):
             )
 
 
+class ActionRequestOverrideTests(unittest.TestCase):
+    """Explicit action requests must leave the elicitor (which cannot act)
+    for the tool-bearing extraction path — the production Obsidian-ingestion
+    dodge came from this gap."""
+
+    def _route(self, vault: Path, text: str):
+        return route_turn(
+            _ctx(
+                vault,
+                text=text,
+                listener={
+                    "action": "lightweight",
+                    "mode": "elicitor",
+                    "memory_type": "episode",
+                    "seed_score": 1,
+                    "narrative_score": 0,
+                    "reason": [],
+                },
+            )
+        )
+
+    def test_path_plus_verb_forces_extraction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._route(
+                Path(tmp),
+                "check out the files at /Users/august/Documents/Vault01/ and see if you can absorb data from them. include subdirectories",
+            )
+            self.assertEqual(result.mode, "extraction")
+            self.assertIn("action_request_extraction", result.applied_overrides)
+
+    def test_file_object_plus_file_verb_forces_extraction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._route(Path(tmp), "can you show me the files on my desktop")
+            self.assertEqual(result.mode, "extraction")
+
+    def test_ingestion_request_forces_extraction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._route(Path(tmp), "I would like you to ingest my obsidian notes")
+            self.assertEqual(result.mode, "extraction")
+
+    def test_narrative_turns_stay_with_the_elicitor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for text in (
+                "I went for a run this morning and felt great",
+                "I read a wonderful book about lighthouses",
+                "Maya showed me her drawing of Saturn",
+                "we had to move my mom into the new place this weekend",
+            ):
+                result = self._route(Path(tmp), text)
+                self.assertEqual(result.mode, "elicitor", f"misrouted narrative turn: {text!r}")
+                self.assertNotIn("action_request_extraction", result.applied_overrides)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -367,12 +367,41 @@ def route_turn(ctx: RoutingContext) -> RoutingDecision:
         mode = "extraction"
         applied_overrides.append("narratively_complete_extraction")
 
+    # An explicit action request must reach the tool-bearing interlocutor;
+    # the elicitor can only converse, so routing it there produces capability
+    # dodges ("what should the ingestion produce?") instead of action.
+    if action != "skip" and mode == "elicitor" and _is_action_request(ctx.text):
+        mode = "extraction"
+        applied_overrides.append("action_request_extraction")
+
     return RoutingDecision(
         listener=listener,
         action=action,
         mode=mode,
         applied_overrides=tuple(applied_overrides),
     )
+
+
+_ACTION_VERB_RE = re.compile(
+    r"\b(?:show|read|list|display|open|check(?:\s+out)?|ingest|absorb|import|scan|run|execute|install|fix|delete|move|copy|rename|schedule)\b"
+)
+_FS_PATH_RE = re.compile(r"(?:^|[\s'\"(])~?/[^\s'\"]+")
+_FILE_OBJECT_RE = re.compile(r"\b(?:file|files|folder|directory|directories|path|ingest|ingestion|absorb|import)\b")
+_FILE_ACTION_VERB_RE = re.compile(r"\b(?:ingest|absorb|import|scan|read|list|show|display|check(?:\s+out)?)\b")
+
+
+def _is_action_request(text: str) -> bool:
+    """Structural detection (no keyword lists over life content): an action
+    verb aimed at a filesystem path, or a file/ingestion object paired with a
+    file-action verb. Asymmetry is deliberate — a narrative turn misrouted to
+    extraction still gets the normal capture pipeline, while an action request
+    misrouted to the elicitor cannot act at all."""
+    lowered = text.lower()
+    if not _ACTION_VERB_RE.search(lowered):
+        return False
+    if _FS_PATH_RE.search(text):
+        return True
+    return bool(_FILE_OBJECT_RE.search(lowered) and _FILE_ACTION_VERB_RE.search(lowered))
 
 
 def _choose_task(text: str, listener: dict[str, Any]) -> str:
@@ -608,6 +637,12 @@ def _interlocutor_input(
 
     writer = writer or {}
     payload: dict[str, Any] = {
+        # The current turn, verbatim (raw first-person user text, like
+        # user_correction). The interlocutor runs before the writer since the
+        # tool loop landed, so writer_summary is empty on the live path — and
+        # an agent told to "respond to what the user just said" must actually
+        # be shown what the user just said, not just retrieval echoes of it.
+        "user_message": user_text,
         "writer_summary": _i(writer.get("summary") or ""),
         "writer_questions": writer.get("questions") or [],
         "memory_type": memory_type,
