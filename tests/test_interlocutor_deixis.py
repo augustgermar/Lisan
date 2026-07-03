@@ -50,6 +50,23 @@ def _state(**kw) -> SimpleNamespace:
     return SimpleNamespace(**base)
 
 
+def test_user_message_always_present_verbatim() -> None:
+    """The interlocutor runs before the writer (tool-loop order), so
+    writer_summary is empty on the live path — the current turn itself must be
+    in the payload or the conversational agent literally never sees what the
+    user just said (production ingestion-dodge root cause)."""
+    text = "please ingest the data in the folder /tmp/notes"
+    payload = _interlocutor_input(None, {"memory_type": "episode"}, _state(), user_text=text)
+    assert payload["user_message"] == text
+
+
+def test_correction_turns_keep_user_correction_and_user_message() -> None:
+    text = "actually her name is Boots, not Luna"
+    payload = _interlocutor_input(None, {"memory_type": "correction"}, _state(), user_text=text)
+    assert payload["user_correction"] == text
+    assert payload["user_message"] == text
+
+
 def test_writer_summary_rendered_to_second_person() -> None:
     payload = _interlocutor_input(
         _writer(summary="{{principal}} captured a lovely moment at the park"),
