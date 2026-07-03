@@ -45,8 +45,14 @@ def turn(conversation_id: str, text: str) -> str:
 
 
 def find_entity(slug_hint: str) -> Path | None:
-    for p in (VAULT / "entities").rglob("*.md"):
-        if slug_hint.lower() in p.stem.lower():
+    # exact stem preferred; fall back to prefix so we never grab a different
+    # entity that merely contains the hint ("silas-s-kelp-nonprofit").
+    candidates = list((VAULT / "entities").rglob("*.md"))
+    for p in candidates:
+        if p.stem.lower() == slug_hint.lower():
+            return p
+    for p in candidates:
+        if p.stem.lower().startswith(slug_hint.lower()):
             return p
     return None
 

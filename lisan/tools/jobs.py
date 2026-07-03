@@ -943,11 +943,19 @@ def dispatch_job(
             observed_response=str(payload.get("response") or ""),
             observed_tool_calls=payload.get("tool_calls") if isinstance(payload.get("tool_calls"), list) else [],
         )
+        # Living entity stories: every entity that received new material gets
+        # its narrative re-told. This ran inside capture_text on the legacy
+        # path; the observer bypasses that, so enqueue the rewrites here — or
+        # entity stories never grow past their first stub.
+        rewrites = _enqueue_entity_rewrites(
+            result, vault=vault, conversation_id=payload.get("conversation_id"), db_path=db_path,
+        )
         return {
             "action": result.action,
             "mode": result.mode,
             "draft": str(result.draft_path) if result.draft_path else None,
             "skeptic_approved": result.skeptic_approved,
+            "entity_rewrites_queued": rewrites,
         }
 
     if job_type == "plan.run":
@@ -996,6 +1004,35 @@ def dispatch_job(
         )
 
     raise ValueError(f"Unsupported job_type: {job_type}")
+
+
+def _enqueue_entity_rewrites(result, *, vault: Path, conversation_id, db_path) -> int:
+    """Queue an entity.rewrite_story job for each entity touched this turn."""
+    from ..frontmatter import load_markdown
+    from .job_policy import priority_for_job_type
+
+    count = 0
+    for entity_path in (getattr(result, "entities_touched", None) or []):
+        try:
+            entity_id = str(load_markdown(entity_path).frontmatter.get("id") or "").strip()
+        except Exception:
+            entity_id = ""
+        payload = {
+            "vault": str(vault),
+            "entity_path": str(entity_path),
+            "entity_id": entity_id or str(entity_path),
+            "draft_path": str(result.draft_path or ""),
+            "transcript_path": str(result.transcript_path or ""),
+            "conversation_id": conversation_id,
+        }
+        payload = {k: v for k, v in payload.items() if v not in (None, "")}
+        try:
+            enqueue_job("entity.rewrite_story", payload, priority=priority_for_job_type("entity.rewrite_story"), db_path=db_path)
+            count += 1
+        except Exception:
+            continue
+    return count
+
 
 
 def run_jobs_worker(
