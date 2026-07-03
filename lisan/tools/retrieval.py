@@ -17,6 +17,59 @@ from ..tools.tracing import record_retrieval_result
 from ..tools.vector_store import VectorScorer, build_query_scorer
 from .primer_index import assistant_display_name, principal_name
 from ..utils import approx_word_count, today_iso
+from .retrieval_layers import RetrievalItem, RetrievalResult, _LayerCandidate
+from .retrieval_layers import (
+    _retrieval_fusion_settings,
+    _collect_rejected_items,
+    _sql_ranked_candidates,
+    _fts_ranked_candidates,
+    _vector_ranked_candidates,
+    _fuse_ranked_candidates,
+    _demote_graph_neighbors,
+    _item_from_row,
+    _truncate_layer_candidates,
+    _row_by_id,
+    _term_count_score,
+    _sql_metadata_score,
+    _infer_domain,
+    _active_contexts,
+    _score_row,
+    _unique_items,
+    _is_blocked_visibility_reason,
+    _quarantine_sets,
+    _visibility_block_reason,
+)
+from .retrieval_graph import (
+    _GraphEdge,
+    _expand_graph,
+    _build_graph_edges,
+    _graph_relation_fields,
+    _graph_candidates,
+    _sort_graph_candidates,
+    _is_allowed_graph_edge,
+    _target_type,
+    _graph_expansion_reason,
+    _graph_score_reason,
+    _graph_relation_bonus,
+    _render_expansion_path,
+    _cross_domain_expansion_allowed,
+    _path_contains_bridge_pattern,
+    _dreamer_coupled_pairs,
+    _explicit_query_domains,
+    _type_boost,
+    _metadata_haystack,
+    _format_item_detail,
+    _expansion_detail_lines,
+    _fts_candidate_ids,
+    _fts_escape,
+    _json_list,
+    _log_retrieval,
+    _ensure_retrieval_log_columns,
+    _load_relevant_contradictions,
+    _recent_conversation_turns,
+    _is_fresh_conversation,
+    _recent_activity_block,
+)
 
 
 DOMAIN_KEYWORDS: dict[str, set[str]] = {
@@ -65,42 +118,10 @@ SENSITIVE_COMPARTMENTS = {
 }
 
 
-@dataclass(slots=True)
-class RetrievalItem:
-    id: str
-    type: str
-    path: str
-    summary: str
-    score: float
-    reason: str
-    expanded: bool = False
-    hop: int = 0
-    expansion_source: str = ""
-    expansion_path: str = ""
-    expansion_reason: str = ""
 
 
-@dataclass(slots=True)
-class RetrievalResult:
-    domain: str
-    confidence: float
-    loaded: list[RetrievalItem]
-    direct_loaded: list[RetrievalItem]
-    expanded_loaded: list[RetrievalItem]
-    rejected: list[RetrievalItem]
-    graph_blocked: list[RetrievalItem]
-    prompt: str
-
-    @property
-    def arena(self) -> str:
-        return self.domain
 
 
-@dataclass(slots=True)
-class _LayerCandidate:
-    id: str
-    score: float
-    source: str
 
 
 def assemble_context(
@@ -472,55 +493,3 @@ def retrieve_context(
     finally:
         conn.close()
 
-from .retrieval_parts import (
-    _retrieval_fusion_settings,
-    _collect_rejected_items,
-    _sql_ranked_candidates,
-    _fts_ranked_candidates,
-    _vector_ranked_candidates,
-    _fuse_ranked_candidates,
-    _demote_graph_neighbors,
-    _item_from_row,
-    _truncate_layer_candidates,
-    _row_by_id,
-    _term_count_score,
-    _sql_metadata_score,
-    _infer_domain,
-    _active_contexts,
-    _score_row,
-    _unique_items,
-    _is_blocked_visibility_reason,
-    _quarantine_sets,
-    _visibility_block_reason,
-)
-from .retrieval_graph import (
-    _GraphEdge,
-    _expand_graph,
-    _build_graph_edges,
-    _graph_relation_fields,
-    _graph_candidates,
-    _sort_graph_candidates,
-    _is_allowed_graph_edge,
-    _target_type,
-    _graph_expansion_reason,
-    _graph_score_reason,
-    _graph_relation_bonus,
-    _render_expansion_path,
-    _cross_domain_expansion_allowed,
-    _path_contains_bridge_pattern,
-    _dreamer_coupled_pairs,
-    _explicit_query_domains,
-    _type_boost,
-    _metadata_haystack,
-    _format_item_detail,
-    _expansion_detail_lines,
-    _fts_candidate_ids,
-    _fts_escape,
-    _json_list,
-    _log_retrieval,
-    _ensure_retrieval_log_columns,
-    _load_relevant_contradictions,
-    _recent_conversation_turns,
-    _is_fresh_conversation,
-    _recent_activity_block,
-)

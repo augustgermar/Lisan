@@ -11,7 +11,7 @@ from typing import Any
 
 from ..frontmatter import load_markdown
 from ..utils import approx_word_count, today_iso
-from .retrieval_parts import (
+from .retrieval_layers import (
     RetrievalItem,
     RetrievalResult,
     _LayerCandidate,
