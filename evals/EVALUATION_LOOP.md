@@ -23,6 +23,13 @@ fine), reviews everything the system did, and fixes code in the same cycle.
 
 ## Hard constraints
 
+- NOTHING personal about the owner in committed files — no real names of
+  children, pets, family, friends, no addresses, no place names tied to home.
+  Findings, tests, prompts, and commit messages use the invented cast (Maya,
+  Josie, Ruth, Dana, Momo, Boots, the Homestead...) or role labels ("the
+  younger daughter"). The vault holds real data; the repo never does.
+
+
 - NEVER modify files outside the Lisan install (repo, vault, database).
   The owner's Obsidian vault and personal documents are read-only sources.
   (Enforced in code: executor sandbox + workspace + briefing — but verify
