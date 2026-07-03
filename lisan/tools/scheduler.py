@@ -67,14 +67,28 @@ def parse_when(value: str, *, now: datetime | None = None) -> datetime:
     Accepted forms (naive datetimes are read as system local time):
     - ISO datetime: ``2026-07-09T15:00``, ``2026-07-09 15:00[:SS][+TZ]``
     - Bare time ``HH:MM`` — today at that time, or tomorrow if already past.
+    - ``tomorrow HH:MM``
+    - Relative offset ``+<N><s|m|h|d|w>``, e.g. ``+2h``, ``+30m``.
 
-    Relative phrases ("next Thursday") are deliberately rejected — the
-    caller (model or human) resolves those to an absolute timestamp.
+    Fuzzy phrases ("next Thursday") are deliberately rejected — the caller
+    (model or human) resolves those to one of the deterministic forms.
     """
     now = now or _now_utc()
-    text = str(value or "").strip()
+    text = str(value or "").strip().lower()
     if not text:
         raise ValueError(f"empty 'when'; current local time is {_local_display(now)}")
+
+    offset = re.match(r"^\+(\d+)([smhdw])$", text)
+    if offset:
+        return now + timedelta(seconds=int(offset.group(1)) * _UNIT_SECONDS[offset.group(2)])
+
+    tomorrow = re.match(r"^tomorrow\s+([01]?\d|2[0-3]):([0-5]\d)$", text)
+    if tomorrow:
+        local_now = now.astimezone(_local_tz())
+        candidate = (local_now + timedelta(days=1)).replace(
+            hour=int(tomorrow.group(1)), minute=int(tomorrow.group(2)), second=0, microsecond=0
+        )
+        return candidate.astimezone(timezone.utc)
 
     bare_time = re.match(r"^([01]?\d|2[0-3]):([0-5]\d)$", text)
     if bare_time:

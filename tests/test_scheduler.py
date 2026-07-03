@@ -48,6 +48,19 @@ class ParseWhenTests(unittest.TestCase):
             parse_when("next thursday")
         self.assertIn("Current local time", str(ctx.exception))
 
+    def test_relative_offset(self):
+        now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+        self.assertEqual(parse_when("+2h", now=now), now + timedelta(hours=2))
+        self.assertEqual(parse_when("+30m", now=now), now + timedelta(minutes=30))
+
+    def test_tomorrow_form(self):
+        now = datetime.now(timezone.utc)
+        parsed = parse_when("tomorrow 09:00", now=now)
+        self.assertGreater(parsed, now)
+        self.assertLess(parsed - now, timedelta(days=2))
+        local = parsed.astimezone(datetime.now().astimezone().tzinfo)
+        self.assertEqual((local.hour, local.minute), (9, 0))
+
 
 class RecurrenceTests(unittest.TestCase):
     def test_every_forms_normalize(self):
@@ -195,6 +208,56 @@ class TaskExecutionTests(unittest.TestCase):
         with patch.object(scheduler, "_deliver_owner_message"):
             run_jobs_worker(vault=self.vault, db_path=self.db)
         self.assertEqual(list_jobs(status="queued", db_path=self.db), [])
+
+
+class ScheduleTaskToolTests(unittest.TestCase):
+    """The interlocutor-facing schedule_task tool."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        ensure_repo_layout(self.root)
+        self.vault = vault_root(self.root)
+        self.db = self.root / "jobs.sqlite"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _handlers(self, conversation_id: str | None = None, approval_fn=None):
+        from lisan.tools.execution_tools import build_tool_handlers
+
+        return build_tool_handlers(
+            vault=self.vault,
+            db_path=self.db,
+            config={},
+            conversation_id=conversation_id,
+            approval_fn=approval_fn,
+        )
+
+    def test_reminder_schedules_without_approval(self):
+        handlers = self._handlers(approval_fn=lambda name, args: False)
+        out = handlers["schedule_task"](text="call mom", when="+2h")
+        self.assertIn("Scheduled reminder", out)
+        self.assertEqual(len(list_tasks(db_path=self.db)), 1)
+
+    def test_codex_kind_requires_approval(self):
+        handlers = self._handlers(approval_fn=lambda name, args: False)
+        out = handlers["schedule_task"](text="rotate backups", when="+1d", kind="codex")
+        self.assertIn("denied", out)
+        self.assertEqual(list_tasks(db_path=self.db), [])
+
+    def test_telegram_conversation_id_binds_chat(self):
+        handlers = self._handlers(conversation_id="telegram-4242-2026-07-02")
+        handlers["schedule_task"](text="hydrate", when="+1h")
+        job = list_tasks(db_path=self.db)[0]
+        self.assertEqual(job["payload"]["chat_id"], 4242)
+
+    def test_bad_when_returns_error_with_current_time(self):
+        handlers = self._handlers()
+        out = handlers["schedule_task"](text="x", when="whenever")
+        self.assertTrue(out.startswith("Error:"))
+        self.assertIn("Current local time", out)
+        self.assertEqual(list_tasks(db_path=self.db), [])
 
 
 class SchedulerLoopTests(unittest.TestCase):

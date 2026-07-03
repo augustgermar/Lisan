@@ -53,6 +53,31 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["task"],
         },
     },
+    {
+        "name": "schedule_task",
+        "description": (
+            "Schedule something to happen at a future time. Kinds: 'reminder' sends the user a "
+            "message at that time; 'prompt' runs a prompt through your own pipeline at that time "
+            "and sends the user the result; 'codex' runs a codex task at that time (the user "
+            "approves it now, at scheduling time). 'when' must be deterministic: 'YYYY-MM-DD HH:MM' "
+            "(user's local time), 'HH:MM' (next such time), 'tomorrow HH:MM', or a relative offset "
+            "like '+30m', '+2h', '+3d'. Never pass fuzzy phrases like 'next thursday' — resolve them "
+            "to a date first; if you are unsure of today's date, prefer a relative offset (error "
+            "messages include the current local time, so you can correct yourself). Optional "
+            "'recurrence': 'every:30m', 'every:2h', 'every:1d', or 'daily@HH:MM'. Omit 'when' on "
+            "recurring tasks to start at the next occurrence."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "The reminder message, prompt, or codex task"},
+                "when": {"type": "string", "description": "When to fire (deterministic forms only)"},
+                "kind": {"type": "string", "enum": ["reminder", "prompt", "codex"], "default": "reminder"},
+                "recurrence": {"type": "string", "description": "Optional recurrence rule"},
+            },
+            "required": ["text"],
+        },
+    },
 ]
 
 
@@ -80,6 +105,15 @@ def build_tool_handlers(
             vault=vault,
             config=config,
             db_path=db_path,
+            approval_fn=approval_fn,
+        ),
+        "schedule_task": lambda text, when=None, kind="reminder", recurrence=None: schedule_task_tool(
+            text=text,
+            when=when,
+            kind=kind,
+            recurrence=recurrence,
+            db_path=db_path,
+            conversation_id=conversation_id,
             approval_fn=approval_fn,
         ),
     }
@@ -158,6 +192,55 @@ def run_codex(
         return response.text.strip()
     except Exception as exc:
         return str(exc)
+
+
+_TELEGRAM_CONVERSATION_RE = re.compile(r"^telegram-(\d+)\b")
+
+
+def schedule_task_tool(
+    *,
+    text: str,
+    when: str | None = None,
+    kind: str = "reminder",
+    recurrence: str | None = None,
+    db_path: Path | None = None,
+    conversation_id: str | None = None,
+    approval_fn: Callable[[str, dict[str, Any]], bool] | None = None,
+) -> str:
+    """Conversational entry point for scheduling. Codex tasks get the approval
+    gate *now* — the future firing runs unattended, so scheduling is the only
+    moment the owner can say no."""
+    from .scheduler import schedule_task
+
+    if str(kind).strip().lower() == "codex":
+        approved = (approval_fn or _approve_action)(
+            "schedule_task", {"task": text, "when": str(when or recurrence or "")}
+        )
+        if not approved:
+            return "User denied scheduling the task"
+
+    chat_id: int | None = None
+    match = _TELEGRAM_CONVERSATION_RE.match(str(conversation_id or ""))
+    if match:
+        chat_id = int(match.group(1))
+
+    try:
+        summary = schedule_task(
+            kind=kind,
+            text=text,
+            when=when,
+            recurrence=recurrence,
+            chat_id=chat_id,
+            conversation_id=conversation_id,
+            db_path=db_path,
+        )
+    except ValueError as exc:
+        return f"Error: {exc}"
+    recur_note = f", recurring {summary['recurrence']}" if summary.get("recurrence") else ""
+    return (
+        f"Scheduled {summary['kind']} for {summary['scheduled_for_local']}{recur_note} "
+        f"(task id {summary['job_id']})"
+    )
 
 
 def _codex_default_model(config: dict[str, Any], provider: str | None = None) -> str | None:
