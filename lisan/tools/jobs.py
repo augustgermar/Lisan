@@ -42,6 +42,9 @@ JOB_TYPES = {
     "skeptic.review_pattern",
     "writer.extract_turn",
     "entity.rewrite_story",
+    "task.reminder",
+    "task.prompt",
+    "task.run_codex",
 }
 
 # Indexing/embedding jobs are deterministic and cheap (no LLM call). These are
@@ -77,6 +80,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     max_attempts INTEGER NOT NULL DEFAULT 3,
     created_at TEXT NOT NULL,
     scheduled_for TEXT,
+    recurrence TEXT,
     started_at TEXT,
     finished_at TEXT,
     error TEXT,
@@ -173,6 +177,7 @@ def _ensure_jobs_columns(conn: sqlite3.Connection) -> None:
         "unique_group": "ALTER TABLE jobs ADD COLUMN unique_group TEXT",
         "replaces_job_id": "ALTER TABLE jobs ADD COLUMN replaces_job_id TEXT",
         "coalesced_count": "ALTER TABLE jobs ADD COLUMN coalesced_count INTEGER NOT NULL DEFAULT 0",
+        "recurrence": "ALTER TABLE jobs ADD COLUMN recurrence TEXT",
     }
     for column, sql in additions.items():
         if column not in existing:
@@ -211,6 +216,7 @@ def _coalesce_or_insert(
     unique_group: str | None,
     replaces_job_id: str | None,
     coalesced_count: int | None,
+    recurrence: str | None = None,
 ) -> str | None:
     if not coalesce_key:
         conn.execute(
@@ -218,8 +224,8 @@ def _coalesce_or_insert(
             INSERT INTO jobs (
                 id, job_type, status, priority, batch_id, coalesce_key, unique_group, replaces_job_id,
                 coalesced_count, payload_json, result_json, result_ref, attempts, max_attempts,
-                created_at, scheduled_for, started_at, finished_at, error, worker_id
-            ) VALUES (?, ?, 'queued', ?, ?, NULL, ?, ?, ?, ?, NULL, NULL, 0, ?, ?, ?, NULL, NULL, NULL, NULL)
+                created_at, scheduled_for, recurrence, started_at, finished_at, error, worker_id
+            ) VALUES (?, ?, 'queued', ?, ?, NULL, ?, ?, ?, ?, NULL, NULL, 0, ?, ?, ?, ?, NULL, NULL, NULL, NULL)
             """,
             (
                 job_id,
@@ -233,6 +239,7 @@ def _coalesce_or_insert(
                 max_attempts,
                 created_at,
                 scheduled_for,
+                recurrence,
             ),
         )
         return None
@@ -270,6 +277,7 @@ def _coalesce_or_insert(
                 batch_id = COALESCE(?, batch_id),
                 unique_group = COALESCE(?, unique_group),
                 replaces_job_id = COALESCE(?, replaces_job_id),
+                recurrence = COALESCE(?, recurrence),
                 coalesced_count = coalesced_count + 1
             WHERE id = ?
             """,
@@ -281,6 +289,7 @@ def _coalesce_or_insert(
                 batch_id,
                 unique_group,
                 replaces_job_id,
+                recurrence,
                 queued_row["id"],
             ),
         )
@@ -331,8 +340,8 @@ def _coalesce_or_insert(
             INSERT INTO jobs (
                 id, job_type, status, priority, batch_id, coalesce_key, unique_group, replaces_job_id,
                 coalesced_count, payload_json, result_json, result_ref, attempts, max_attempts,
-                created_at, scheduled_for, started_at, finished_at, error, worker_id
-            ) VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, ?, ?, ?, NULL, NULL, NULL, NULL)
+                created_at, scheduled_for, recurrence, started_at, finished_at, error, worker_id
+            ) VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, ?, ?, ?, ?, NULL, NULL, NULL, NULL)
             """,
             (
                 job_id,
@@ -347,6 +356,7 @@ def _coalesce_or_insert(
                 max_attempts,
                 created_at,
                 scheduled_for,
+                recurrence,
             ),
         )
         return None
@@ -356,8 +366,8 @@ def _coalesce_or_insert(
         INSERT INTO jobs (
             id, job_type, status, priority, batch_id, coalesce_key, unique_group, replaces_job_id,
             coalesced_count, payload_json, result_json, result_ref, attempts, max_attempts,
-            created_at, scheduled_for, started_at, finished_at, error, worker_id
-        ) VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, ?, ?, ?, NULL, NULL, NULL, NULL)
+            created_at, scheduled_for, recurrence, started_at, finished_at, error, worker_id
+        ) VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, ?, ?, ?, ?, NULL, NULL, NULL, NULL)
         """,
         (
             job_id,
@@ -372,6 +382,7 @@ def _coalesce_or_insert(
             max_attempts,
             created_at,
             scheduled_for,
+            recurrence,
         ),
     )
     return None
@@ -428,6 +439,7 @@ def enqueue_job(
     unique_group: str | None = None,
     replaces_job_id: str | None = None,
     coalesced_count: int | None = None,
+    recurrence: str | None = None,
     db_path: Path | None = None,
 ) -> str:
     if job_type not in JOB_TYPES:
@@ -463,6 +475,7 @@ def enqueue_job(
             unique_group=unique_group,
             replaces_job_id=replaces_job_id,
             coalesced_count=coalesced_count,
+            recurrence=recurrence,
         )
         if coalesced is not None:
             conn.commit()
@@ -923,6 +936,18 @@ def dispatch_job(
             db_path=db_path,
         )
 
+    if job_type in {"task.reminder", "task.prompt", "task.run_codex"}:
+        from .scheduler import current_send_fn, run_task_job
+
+        return run_task_job(
+            job,
+            vault=vault,
+            db_path=db_path,
+            provider=provider,
+            model=model,
+            send_fn=current_send_fn(),
+        )
+
     if job_type == "entity.rewrite_story":
         from .entity_story import rewrite_entity_story
 
@@ -976,10 +1001,15 @@ def run_jobs_worker(
             updated = mark_job_succeeded(job["id"], result=result_data, result_ref=result_ref, db_path=db_path)
             successes.append(updated or job)
             processed.append(updated or job)
+            _requeue_recurring(job, db_path=db_path)
         except Exception as exc:
             updated = mark_job_failed(job["id"], str(exc), retry=True, db_path=db_path)
             failures.append(updated or job)
             processed.append(updated or job)
+            # Only reschedule once the failure is terminal — retry_wait means
+            # this occurrence is still in flight and will be retried.
+            if updated is not None and str(updated.get("status")) == "failed":
+                _requeue_recurring(job, db_path=db_path)
         if max_jobs is not None and len(processed) >= max_jobs:
             break
 
@@ -992,6 +1022,38 @@ def run_jobs_worker(
         "successes": successes,
         "failures": failures,
     }
+
+
+def _requeue_recurring(job: dict[str, Any], *, db_path: Path | None = None) -> str | None:
+    """After a recurring job completes (or fails terminally), enqueue its next
+    occurrence. Computed from *now*, so downtime never produces a pile of
+    missed instances — the schedule just resumes. Non-fatal by design: a bad
+    recurrence rule stops the series rather than the worker."""
+    recurrence = str(job.get("recurrence") or "").strip()
+    if not recurrence:
+        return None
+    from .log import log_error
+    from .scheduler import _to_iso, next_occurrence
+
+    try:
+        fire_at = next_occurrence(recurrence)
+        payload = dict(job.get("payload") or {}) if isinstance(job.get("payload"), dict) else {}
+        payload["due"] = _to_iso(fire_at)
+        return enqueue_job(
+            str(job.get("job_type")),
+            payload,
+            priority=int(job.get("priority") or 100),
+            scheduled_for=fire_at,
+            max_attempts=int(job.get("max_attempts") or 3),
+            recurrence=recurrence,
+            db_path=db_path,
+        )
+    except Exception as exc:
+        try:
+            log_error(vault_root(), f"requeue_recurring failed for {job.get('id')}", exc)
+        except Exception:
+            pass
+        return None
 
 
 def _promote_ready_retry_wait_jobs(db_path: Path | None = None) -> int:

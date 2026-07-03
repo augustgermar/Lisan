@@ -24,6 +24,11 @@ DEFAULT_JOB_PRIORITIES = {
     "analyst.scan": 70,
     "dreamer.maintenance": 80,
     "entity.rewrite_story": 85,
+    # User-scheduled tasks outrank maintenance: when a reminder and a dreamer
+    # pass are both due, the reminder fires first.
+    "task.reminder": 10,
+    "task.prompt": 12,
+    "task.run_codex": 12,
 }
 
 COALESCE_AGGRESSIVE = {
@@ -44,6 +49,11 @@ NO_COALESCE = {
     "writer.extract_turn",
     "ingest.file.parse",
     "ingest.artifact.extract",
+    # Every scheduled task is a distinct commitment; two reminders must never
+    # merge into one.
+    "task.reminder",
+    "task.prompt",
+    "task.run_codex",
 }
 
 DEFAULT_STUCK_TIMEOUT_MINUTES = 15
