@@ -436,6 +436,32 @@ def _normalize_skip_text(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip().lower())
 
 
+_SELF_STATE_RE = re.compile(
+    r"\b(?:status\s+report|(?:your|overall|system)\s+status|health\s*check|system\s+check"
+    r"|how\s+are\s+you(?:\s+doing|\s+holding\s+up)?"
+    r"|are\s+you\s+(?:ok|okay|alright|up|running|alive|there)"
+    r"|(?:your|any)\s+(?:queue|queued\s+jobs|jobs\s+queued|schedule[d]?\s+tasks?))\b"
+)
+
+
+def _is_self_state_query(text: str) -> bool:
+    """Structural detection of questions about the agent's own operational
+    state. Scoped tight: 'status' alone qualifies, but life content never
+    mentions the agent's queue or asks whether it is running."""
+    return bool(_SELF_STATE_RE.search(text.lower()))
+
+
+def _self_state_response(vault: Path, db_path: Path | None) -> str:
+    from .self_model import render_self_state, snapshot_self_state
+
+    try:
+        return "Here's where I stand:\n" + render_self_state(
+            snapshot_self_state(vault=vault, db_path=db_path)
+        )
+    except Exception:
+        return "I couldn't read my own state just now — that failure is logged."
+
+
 def _is_recall_query(text: str) -> bool:
     lowered = _normalize_skip_text(text)
     if not lowered:
@@ -474,6 +500,13 @@ def _build_skip_response(
             conversation_policy.get("domain_override")
             or conversation_policy.get("arena_override")
         )
+
+    # A question about the agent's own state ("status report", "how are you
+    # doing", "anything queued?") is answered directly from the live snapshot —
+    # deterministic, instant, and always true. No model call needed to report
+    # facts the system can simply read about itself.
+    if _is_self_state_query(text):
+        return _self_state_response(vault, db_path)
 
     # Only route to the recall answerer when the turn is plausibly a
     # request to retrieve something. A trivial farewell/acknowledgment ("ok

@@ -211,5 +211,30 @@ class ActionRequestOverrideTests(unittest.TestCase):
                 self.assertNotIn("action_request_extraction", result.applied_overrides)
 
 
+class SelfStateQueryTests(unittest.TestCase):
+    def test_detects_state_questions(self):
+        from lisan.tools.memory_pipeline import _is_self_state_query
+
+        for text in (
+            "give me a quick status report",
+            "how are you doing?",
+            "are you ok?",
+            "do you have any queued jobs right now?",
+            "whats your queue looking like",
+        ):
+            self.assertTrue(_is_self_state_query(text), text)
+
+    def test_life_content_is_not_state(self):
+        from lisan.tools.memory_pipeline import _is_self_state_query
+
+        for text in (
+            "Maya asked how her project status looked to the teacher",
+            "I waited in the queue at the DMV for two hours",
+            "Frank fixed the fence today",
+            "my job interview went well",
+        ):
+            self.assertFalse(_is_self_state_query(text), text)
+
+
 if __name__ == "__main__":
     unittest.main()
