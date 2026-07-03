@@ -295,6 +295,16 @@ def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) 
     for job_type in ("dreamer.maintenance", "analyst.scan"):
         state[f"last_{job_type.split('.')[0]}_success"] = _last_success_time(job_type, db)
 
+    try:
+        from .plans import active_plans
+
+        state["active_plans"] = [
+            {"goal": pl["goal"], "progress": f"{pl['steps_done']}/{pl['steps_total']}"}
+            for pl in active_plans(db_path=db)
+        ]
+    except Exception:
+        state["active_plans"] = []
+
     state["services"] = _service_status()
 
     try:
@@ -378,6 +388,9 @@ def render_self_state(state: dict[str, Any]) -> str:
     for key in ("last_dreamer_success", "last_analyst_success"):
         label = key.replace("last_", "").replace("_success", "")
         lines.append(f"Last {label} success: {state.get(key) or 'never'}")
+    plans = state.get("active_plans") or []
+    for pl in plans:
+        lines.append(f"Active plan ({pl['progress']} steps): {pl['goal']}")
     services = state.get("services") or {}
     lines.append(
         "Services: " + ", ".join(f"{name} {'up' if up else 'down'}" for name, up in sorted(services.items()))

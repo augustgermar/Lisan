@@ -64,6 +64,36 @@ TOOLS: list[dict[str, Any]] = [
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
+        "name": "create_plan",
+        "description": (
+            "Turn a multi-step goal into a durable background plan that executes step by step "
+            "and reports back when done — use this when a request needs several actions that "
+            "take time (inspect, then process, then verify), not for a single immediate action. "
+            "Each step has a kind: 'codex' (run a shell/CLI/file task — the workhorse), 'prompt' "
+            "(run a prompt through your own pipeline), or 'note' (record an observation). Steps "
+            "run in order; each sees the goal and the results of earlier steps. The user approves "
+            "the plan now, at creation. Keep plans to a few concrete steps."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "goal": {"type": "string", "description": "What the plan achieves, in one sentence"},
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"type": "string", "enum": ["codex", "prompt", "note"]},
+                            "description": {"type": "string"},
+                        },
+                        "required": ["kind", "description"],
+                    },
+                },
+            },
+            "required": ["goal", "steps"],
+        },
+    },
+    {
         "name": "schedule_task",
         "description": (
             "Schedule something to happen at a future time. Kinds: 'reminder' sends the user a "
@@ -118,6 +148,13 @@ def build_tool_handlers(
             approval_fn=approval_fn,
         ),
         "self_state": lambda: self_state(vault=vault, db_path=db_path),
+        "create_plan": lambda goal, steps: create_plan_tool(
+            goal=goal,
+            steps=steps,
+            db_path=db_path,
+            conversation_id=conversation_id,
+            approval_fn=approval_fn,
+        ),
         "schedule_task": lambda text, when=None, kind="reminder", recurrence=None: schedule_task_tool(
             text=text,
             when=when,
@@ -215,6 +252,46 @@ def run_codex(
 
 
 _TELEGRAM_CONVERSATION_RE = re.compile(r"^telegram-(\d+)\b")
+
+
+def create_plan_tool(
+    *,
+    goal: str,
+    steps: list[dict[str, str]],
+    db_path: Path | None = None,
+    conversation_id: str | None = None,
+    approval_fn: Callable[[str, dict[str, Any]], bool] | None = None,
+) -> str:
+    """Conversational plan creation. The approval here covers every codex
+    step — the plan runs unattended, so creation is the only veto point."""
+    from .plans import create_plan
+
+    if not isinstance(steps, list):
+        return "Error: steps must be a list of {kind, description} objects"
+    if any(str(s.get("kind") or "codex").lower() == "codex" for s in steps if isinstance(s, dict)):
+        rendered = "; ".join(str(s.get("description") or "") for s in steps if isinstance(s, dict))
+        approved = (approval_fn or _approve_action)("create_plan", {"task": f"{goal} — steps: {rendered}"})
+        if not approved:
+            return "User denied the plan"
+
+    chat_id: int | None = None
+    match = _TELEGRAM_CONVERSATION_RE.match(str(conversation_id or ""))
+    if match:
+        chat_id = int(match.group(1))
+    try:
+        summary = create_plan(
+            goal=goal,
+            steps=steps,
+            chat_id=chat_id,
+            conversation_id=conversation_id,
+            db_path=db_path,
+        )
+    except ValueError as exc:
+        return f"Error: {exc}"
+    return (
+        f"Plan created ({summary['plan_id']}): {summary['goal']} — {summary['steps']} step(s). "
+        "It runs in the background; I'll report when it finishes."
+    )
 
 
 def schedule_task_tool(

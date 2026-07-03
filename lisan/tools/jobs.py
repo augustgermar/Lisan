@@ -47,6 +47,7 @@ JOB_TYPES = {
     "task.reminder",
     "task.prompt",
     "task.run_codex",
+    "plan.run",
 }
 
 # Indexing/embedding jobs are deterministic and cheap (no LLM call). These are
@@ -923,6 +924,19 @@ def dispatch_job(
             conversation_policy=payload.get("conversation_policy") if isinstance(payload.get("conversation_policy"), dict) else None,
             queue_background=False,
             db_path=db_path,
+        )
+
+    if job_type == "plan.run":
+        from .plans import run_plan_step
+        from .scheduler import current_send_fn
+
+        return run_plan_step(
+            job,
+            vault=vault,
+            db_path=db_path,
+            provider=provider,
+            model=model,
+            send_fn=current_send_fn(),
         )
 
     if job_type in {"task.reminder", "task.prompt", "task.run_codex"}:

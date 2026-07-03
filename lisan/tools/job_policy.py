@@ -30,6 +30,7 @@ DEFAULT_JOB_PRIORITIES = {
     "task.reminder": 10,
     "task.prompt": 12,
     "task.run_codex": 12,
+    "plan.run": 15,
 }
 
 COALESCE_AGGRESSIVE = {
@@ -55,6 +56,7 @@ NO_COALESCE = {
     "task.reminder",
     "task.prompt",
     "task.run_codex",
+    "plan.run",
 }
 
 DEFAULT_STUCK_TIMEOUT_MINUTES = 15

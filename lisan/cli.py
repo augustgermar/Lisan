@@ -605,6 +605,20 @@ def build_parser() -> argparse.ArgumentParser:
     task_cancel.add_argument("job_id")
     task_cancel.add_argument("--db-path", type=Path, default=None)
 
+    plan_cmd = subparsers.add_parser("plan", help="Durable multi-step background plans")
+    plan_subparsers = plan_cmd.add_subparsers(dest="plan_command", required=True)
+    plan_add = plan_subparsers.add_parser("add", help="Create a plan")
+    plan_add.add_argument("goal", help="What the plan achieves")
+    plan_add.add_argument("--step", action="append", required=True, dest="steps",
+                          help="A step as 'kind: description' (kind: codex|prompt|note); repeatable, runs in order")
+    plan_add.add_argument("--dir", dest="working_directory", default=None)
+    plan_add.add_argument("--db-path", type=Path, default=None)
+    plan_list = plan_subparsers.add_parser("list", help="List plans")
+    plan_list.add_argument("--db-path", type=Path, default=None)
+    plan_cancel = plan_subparsers.add_parser("cancel", help="Cancel an active plan")
+    plan_cancel.add_argument("plan_id")
+    plan_cancel.add_argument("--db-path", type=Path, default=None)
+
     self_cmd = subparsers.add_parser("self", help="The agent's generated self-model and live state")
     self_subparsers = self_cmd.add_subparsers(dest="self_command", required=True)
     self_manifest = self_subparsers.add_parser("manifest", help="Show the generated capability manifest")
@@ -1111,6 +1125,37 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             print(f"✓ Canceled {args.job_id} (status: {job.get('status')})")
             return 0
+
+    if args.command == "plan":
+        from .tools.plans import cancel_plan, create_plan, format_plans, list_plans
+
+        if args.plan_command == "add":
+            steps = []
+            for raw_step in args.steps:
+                kind, _, description = raw_step.partition(":")
+                if not description.strip():
+                    kind, description = "codex", raw_step
+                steps.append({"kind": kind.strip().lower(), "description": description.strip()})
+            try:
+                summary = create_plan(
+                    goal=args.goal, steps=steps,
+                    working_directory=args.working_directory, db_path=args.db_path,
+                )
+            except ValueError as exc:
+                print(f"✗ {exc}")
+                return 1
+            print(f"✓ Plan {summary['plan_id']} created: {summary['goal']} ({summary['steps']} steps)")
+            print("  It runs in the background; progress via `lisan plan list` or `lisan self state`.")
+            return 0
+        if args.plan_command == "list":
+            print(format_plans(list_plans(db_path=args.db_path)))
+            return 0
+        if args.plan_command == "cancel":
+            if cancel_plan(args.plan_id, db_path=args.db_path):
+                print(f"✓ Canceled {args.plan_id}")
+                return 0
+            print(f"✗ No active plan {args.plan_id}")
+            return 1
 
     if args.command == "self":
         from .tools.self_model import (
