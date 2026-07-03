@@ -48,6 +48,7 @@ JOB_TYPES = {
     "task.prompt",
     "task.run_codex",
     "plan.run",
+    "capture.observe",
 }
 
 # Indexing/embedding jobs are deterministic and cheap (no LLM call). These are
@@ -925,6 +926,29 @@ def dispatch_job(
             queue_background=False,
             db_path=db_path,
         )
+
+    if job_type == "capture.observe":
+        from .memory_pipeline import run_memory_pipeline
+
+        text = str(payload.get("text") or "")
+        if not text:
+            raise ValueError("capture.observe requires text")
+        result = run_memory_pipeline(
+            vault=vault,
+            text=text,
+            conversation_id=payload.get("conversation_id"),
+            provider=provider or payload.get("provider"),
+            model=model or payload.get("model"),
+            db_path=db_path,
+            observed_response=str(payload.get("response") or ""),
+            observed_tool_calls=payload.get("tool_calls") if isinstance(payload.get("tool_calls"), list) else [],
+        )
+        return {
+            "action": result.action,
+            "mode": result.mode,
+            "draft": str(result.draft_path) if result.draft_path else None,
+            "skeptic_approved": result.skeptic_approved,
+        }
 
     if job_type == "plan.run":
         from .plans import run_plan_step

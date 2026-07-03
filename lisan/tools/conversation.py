@@ -1,0 +1,173 @@
+"""The conversational agent: one tool-bearing call per turn, full history.
+
+This is the conversation layer's spine. Every non-trivial turn — question,
+story, request, aside — goes to a single agent that sees the rolling
+conversation verbatim, retrieved memory context, and its own capability
+index, with every tool available. It answers in one model call; the memory
+pipeline runs afterwards, in the background, as an observer of the finished
+exchange (the `capture.observe` job).
+
+The design lesson behind it: a router in front of the model misroutes, and
+an agent that never sees the conversation cannot hold a thread. The model
+routes implicitly, with context; memory capture never again stands between
+the user and the reply.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Callable
+
+from ..paths import vault_root
+from .log import log_error
+from .narrative_state import conversation_history
+from .self_model import cached_capability_index
+from .tracing import record_inline_step, record_jobs_queued
+from .transcripts import append_transcript
+
+_HISTORY_TURNS = 30
+_HISTORY_CHARS = 9000
+
+
+def run_conversation_turn(
+    *,
+    vault: Path | None = None,
+    text: str,
+    conversation_id: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    db_path: Path | None = None,
+    approval_fn: Callable[[str, dict[str, Any]], bool] | None = None,
+    queue_capture: bool = True,
+) -> dict[str, Any]:
+    """One conversational turn: transcript in, one agent call, transcript out,
+    capture observed in the background."""
+    from ..agents.conversation import ConversationAgent
+
+    vault = vault or vault_root()
+    record_inline_step("conversation.turn")
+    append_transcript(vault=vault, conversation_id=conversation_id, speaker="USER", text=text)
+
+    history = _rolling_history(vault, conversation_id)
+    context = _retrieval_context(vault=vault, text=text, conversation_id=conversation_id, db_path=db_path)
+
+    agent = ConversationAgent(vault=vault)
+    record_inline_step("conversation.agent")
+    out = agent.run_json(
+        json.dumps({"user_message": text}, indent=2, ensure_ascii=True),
+        significance="medium",
+        provider=provider,
+        model=model,
+        provider_error_mode="raise",
+        conversation=history or None,
+        retrieved_context=context or None,
+        capabilities=cached_capability_index(),
+        db_path=db_path,
+        conversation_id=conversation_id,
+        approval_fn=approval_fn,
+    )
+    response = str(out.get("response") or "").strip()
+    tool_calls = list(getattr(agent, "last_tool_calls", []) or [])
+    if not response:
+        log_error(vault, "conversation.empty_response", ValueError(f"empty response for: {text[:120]!r}"))
+        response = (
+            "I processed that but failed to produce a reply — the failure is logged. "
+            "Ask me again and I'll take another run at it."
+        )
+
+    append_transcript(vault=vault, conversation_id=conversation_id, speaker="LISAN", text=response)
+
+    queued: list[dict[str, Any]] = []
+    if queue_capture:
+        queued_job = _queue_observation(
+            vault=vault,
+            text=text,
+            response=response,
+            tool_calls=tool_calls,
+            conversation_id=conversation_id,
+            db_path=db_path,
+        )
+        if queued_job:
+            queued.append(queued_job)
+            record_jobs_queued(1)
+
+    return {
+        "response": response,
+        "route": "conversation",
+        "tool_calls": tool_calls,
+        "queued_jobs": queued,
+    }
+
+
+def _rolling_history(vault: Path, conversation_id: str | None) -> str:
+    """The last stretch of this conversation, verbatim. The agent must see
+    the actual back-and-forth — summaries alone cannot hold a thread."""
+    try:
+        turns = conversation_history(vault, conversation_id)
+    except Exception:
+        return ""
+    if not turns:
+        return ""
+    turns = turns[-_HISTORY_TURNS:]
+    lines = []
+    for turn in turns:
+        speaker = str(turn.get("speaker") or "").strip() or "USER"
+        lines.append(f"{speaker}: {turn.get('text', '')}")
+    history = "\n".join(lines)
+    if len(history) > _HISTORY_CHARS:
+        history = history[-_HISTORY_CHARS:]
+        cut = history.find("\n")
+        if cut > 0:
+            history = history[cut + 1:]
+    return history
+
+
+def _retrieval_context(*, vault: Path, text: str, conversation_id: str | None, db_path: Path | None) -> str:
+    try:
+        from .retrieval import assemble_context
+
+        record_inline_step("conversation.retrieval")
+        return assemble_context(text, vault=vault, conversation_id=conversation_id, db_path=db_path)
+    except Exception as exc:
+        log_error(vault, "conversation.retrieval", exc)
+        return ""
+
+
+def _queue_observation(
+    *,
+    vault: Path,
+    text: str,
+    response: str,
+    tool_calls: list[dict[str, Any]],
+    conversation_id: str | None,
+    db_path: Path | None,
+) -> dict[str, Any] | None:
+    """Memory capture as an observer: the exchange is finished; the pipeline
+    extracts what to remember without the user waiting on it."""
+    try:
+        from .jobs import enqueue_job
+
+        payload = {
+            "vault": str(vault),
+            "text": text,
+            "response": response,
+            "tool_calls": _compact_tool_calls(tool_calls),
+            "conversation_id": conversation_id,
+        }
+        job_id = enqueue_job("capture.observe", payload, db_path=db_path)
+        return {"job_type": "capture.observe", "job_id": job_id}
+    except Exception as exc:
+        log_error(vault, "conversation.queue_observation", exc)
+        return None
+
+
+def _compact_tool_calls(tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    compact = []
+    for call in tool_calls[:10]:
+        result = str(call.get("result") or "")
+        compact.append({
+            "tool": call.get("tool"),
+            "args": call.get("args"),
+            "result": result if len(result) <= 1500 else result[:1497] + "...",
+        })
+    return compact

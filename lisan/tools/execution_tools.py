@@ -234,7 +234,11 @@ def run_codex(
 
     approved = approval_fn("run_codex", {"task": task, "working_directory": str(wd)})
     if not approved:
-        return "User denied the task"
+        return (
+            "Approval was not granted, so I did not run this. On Telegram I ask for approval "
+            "with a message you answer 'yes' to; in the CLI I prompt interactively. This is the "
+            "approval gate — not a permissions or system error."
+        )
 
     prompt = _build_codex_prompt(task=task, working_directory=wd, vault=vault, db_path=db_path)
     try:

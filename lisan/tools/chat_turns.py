@@ -120,7 +120,7 @@ def classify_turn(
             reason="assistant identity question",
         )
 
-    if _matches_any(lowered, _HELP_PATTERNS):
+    if _matches_any(lowered, _HELP_PATTERNS) and not in_conversation:
         return TurnClassification(
             label="help",
             route="advice",

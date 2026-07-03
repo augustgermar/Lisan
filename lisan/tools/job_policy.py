@@ -31,6 +31,7 @@ DEFAULT_JOB_PRIORITIES = {
     "task.prompt": 12,
     "task.run_codex": 12,
     "plan.run": 15,
+    "capture.observe": 22,
 }
 
 COALESCE_AGGRESSIVE = {
@@ -57,6 +58,7 @@ NO_COALESCE = {
     "task.prompt",
     "task.run_codex",
     "plan.run",
+    "capture.observe",
 }
 
 DEFAULT_STUCK_TIMEOUT_MINUTES = 15

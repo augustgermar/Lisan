@@ -282,8 +282,8 @@ def _process_chat_turn(
     advice_topic: str | None = None,
     domain_override: str | None = None,
     db_path: Path | None = None,
+    approval_fn=None,
 ) -> dict[str, Any]:
-    from .capture import capture_text
 
     advice_history = advice_history if advice_history is not None else []
 
@@ -325,68 +325,28 @@ def _process_chat_turn(
                 pass
             return result
 
-        if classification.route == "advice":
-            policy = assess_conversation_turn(
-                content_text,
-                state=_load_current_state(vault, conversation_id),
-                listener={},
-                advice_context_active=advice_context_active,
-                advice_topic=advice_topic,
-                route_hint={"route": "advice"},
-            )
-            record_inline_step("advice_response")
-            response = _run_with_thinking_indicator(
-                lambda: _run_advice_response(
-                    vault=vault,
-                    text=content_text,
-                    provider=provider,
-                    model=model,
-                    history=advice_history,
-                    conversation_policy=policy,
-                ),
-                agent_name=_assistant_name(vault),
-            )
-            result["response"] = response
-            result["topic"] = policy.topic
-            return result
+        # Every non-trivial turn goes to the one conversational agent: full
+        # rolling history, retrieved context, capabilities, every tool. Memory
+        # capture observes the finished exchange in the background — it never
+        # again stands between the user and the reply.
+        from .conversation import run_conversation_turn
 
-        record_inline_step("memory_capture")
-        effective_policy = assess_conversation_turn(
-            content_text,
-            state=_load_current_state(vault, conversation_id),
-            listener={},
-            advice_context_active=advice_context_active,
-            advice_topic=advice_topic,
-            route_hint={"route": "memory"},
-        ).as_dict()
-        if domain_override:
-            effective_policy["domain_override"] = domain_override
-            effective_policy["arena_override"] = domain_override
-        response_bundle = _run_with_thinking_indicator(
-            lambda: capture_text(
+        turn_result = _run_with_thinking_indicator(
+            lambda: run_conversation_turn(
                 vault=vault,
                 text=content_text,
                 conversation_id=conversation_id,
-                speaker="USER",
                 provider=provider,
                 model=model,
-                conversation_policy=effective_policy,
                 db_path=db_path,
+                approval_fn=approval_fn,
             ),
             agent_name=_assistant_name(vault),
         )
-        result["queued_jobs"] = response_bundle.get("queued_jobs") or []
-        record_jobs_queued(len(result["queued_jobs"]))
-        result["response"] = _extract_capture_response(response_bundle)
-        if not result["response"]:
-            # Silence after a multi-minute pipeline run reads as a hang. Say
-            # what happened; the trace has the details.
-            log_error(vault, "chat.process_chat_turn.empty_response",
-                      ValueError(f"empty response for turn: {text[:120]!r}"))
-            result["response"] = (
-                "I processed that but failed to produce a reply — the failure is logged. "
-                "Ask me again and I'll take another run at it."
-            )
+        result["route"] = "conversation"
+        result["response"] = turn_result.get("response") or ""
+        result["queued_jobs"] = turn_result.get("queued_jobs") or []
+        result["tool_calls"] = turn_result.get("tool_calls") or []
         result["trace_summary"] = trace.summary()
         return result
     except ProviderError as exc:

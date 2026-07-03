@@ -110,6 +110,7 @@ class TelegramBot:
         self.config = config if config is not None else load_config()
         self._chats: dict[int, _ChatState] = {}
         self._offset: int | None = None
+        self._pending_updates: list[dict[str, Any]] = []
 
     # ── Telegram transport (mockable in tests) ──────────────────────────────
     def _call_api(self, method: str, params: dict[str, Any], *, timeout: float) -> dict[str, Any]:
@@ -211,6 +212,7 @@ class TelegramBot:
                 advice_topic=state.advice_topic,
                 domain_override=state.domain_override,
                 db_path=self.db_path,
+                approval_fn=self._approval_fn_for(chat_id),
             )
         except Exception as exc:
             log_error(self.vault, "telegram turn failed", exc)
@@ -244,9 +246,65 @@ class TelegramBot:
             if result.get("route") != "advice":
                 state.advice_topic = None
 
+    # ── Interactive approval over chat ──────────────────────────────────────
+    _APPROVE_WORDS = {"yes", "y", "approve", "approved", "go", "go ahead", "do it", "ok", "okay", "sure", "yep"}
+
+    def _approval_fn_for(self, chat_id: int):
+        """Ask the owner in-chat and wait for their reply. This is the
+        approval gate, live on Telegram: the action runs only on an explicit
+        yes, and every other message is buffered as normal conversation."""
+
+        def approve(tool_name: str, args: dict[str, Any]) -> bool:
+            description = str(args.get("task") or json.dumps(args, ensure_ascii=True)[:400])
+            self._send_message(
+                chat_id,
+                f"⚙️ I need your approval to run this:\n\n{description}\n\n"
+                "Reply 'yes' to approve — anything else and I'll skip it.",
+            )
+            reply = self._await_owner_reply(chat_id, timeout=180.0)
+            if reply is None:
+                self._send_message(chat_id, "No reply in time — skipping it. Ask again when you're ready.")
+                return False
+            if reply.strip().lower().rstrip(".!") in self._APPROVE_WORDS:
+                self._send_message(chat_id, "Approved — on it.")
+                return True
+            self._send_message(chat_id, "Okay — not running it.")
+            return False
+
+        return approve
+
+    def _await_owner_reply(self, chat_id: int, timeout: float) -> str | None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            params: dict[str, Any] = {"timeout": 10}
+            if self._offset is not None:
+                params["offset"] = self._offset
+            try:
+                payload = self._call_api("getUpdates", params, timeout=10 + _HTTP_MARGIN)
+            except Exception:
+                continue
+            for update in payload.get("result") or []:
+                self._offset = int(update["update_id"]) + 1
+                message = update.get("message") or {}
+                sender = (message.get("from") or {}).get("id")
+                chat = (message.get("chat") or {}).get("id")
+                text = message.get("text")
+                if chat == chat_id and sender is not None and self._is_allowed(int(sender)) and isinstance(text, str):
+                    return text
+                self._pending_updates.append(update)
+        return None
+
     # ── Long-poll loop ──────────────────────────────────────────────────────
     def poll_once(self) -> int:
         """Fetch and dispatch one batch of updates. Returns the count handled."""
+        # Messages that arrived while we were waiting on an approval reply
+        # were buffered; they are part of the conversation and go first.
+        while self._pending_updates:
+            update = self._pending_updates.pop(0)
+            try:
+                self.handle_update(update)
+            except Exception as exc:
+                log_error(self.vault, "telegram pending update error", exc)
         params: dict[str, Any] = {"timeout": _POLL_TIMEOUT}
         if self._offset is not None:
             params["offset"] = self._offset

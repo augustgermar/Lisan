@@ -60,7 +60,7 @@ def test_run_codex_respects_approval_gate(tmp_path: Path, monkeypatch) -> None:
         vault=tmp_path,
         approval_fn=lambda *_: False,
     )
-    assert denied == "User denied the task"
+    assert "Approval was not granted" in denied
     assert called["complete"] == 0
 
     approved = run_codex(

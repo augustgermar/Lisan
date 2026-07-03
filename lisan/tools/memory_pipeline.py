@@ -87,7 +87,15 @@ def run_memory_pipeline(
     model: str | None = None,
     conversation_policy: dict[str, Any] | None = None,
     db_path: Path | None = None,
+    observed_response: str | None = None,
+    observed_tool_calls: list[dict[str, Any]] | None = None,
 ) -> MemoryPipelineResult:
+    # Observe mode (observed_response is not None): the conversation already
+    # happened — the conversational agent answered and this pipeline runs in
+    # the background as a pure memory observer. No elicitor, no skip
+    # acknowledgments, no second interlocutor call: listener classifies,
+    # writer extracts from the full exchange, skeptic reviews, fanout writes.
+    observe = observed_response is not None
     record_inline_step("memory_pipeline.start")
     transcript_path = append_transcript(vault=vault, conversation_id=conversation_id, speaker=speaker, text=text)
     record_inline_step("memory_pipeline.transcript")
@@ -109,6 +117,19 @@ def run_memory_pipeline(
     action = routing.action
     mode = routing.mode
 
+    if observe and action == "skip":
+        # nothing memorable in this exchange — the observer writes nothing.
+        return MemoryPipelineResult(
+            transcript_path=transcript_path,
+            draft_path=None,
+            listener=listener,
+            writer=None,
+            skeptic=None,
+            interlocutor={"response": observed_response},
+            action=action,
+            mode=mode,
+        )
+
     if action == "skip":
         response_text = _build_skip_response(
             vault=vault,
@@ -127,6 +148,9 @@ def run_memory_pipeline(
             action=action,
             mode=mode,
         )
+
+    if observe:
+        mode = "extraction"
 
     if mode == "elicitor":
         record_inline_step("memory_pipeline.elicitor")
@@ -174,34 +198,22 @@ def run_memory_pipeline(
         "transcript": str(transcript_path.relative_to(vault)),
         "conversation_policy": json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
     }
-    record_inline_step("memory_pipeline.interlocutor")
-    # Never forward skeptic flags to the interlocutor: skeptic uncertainty about a memory record bleeds into the user-facing
-    # response ("this family member" instead of the named person). The
-    # interlocutor speaks to the user; it must not see internal review notes.
-    interlocutor_agent = InterlocutorAgent(vault=vault)
-    interlocutor = interlocutor_agent.run_json(
-        json.dumps(
-            _interlocutor_input(
-                writer=None,
-                listener=listener,
-                prior_state=prior_state,
-                user_text=text,
-                vault=vault,
-                retrieved_context=context,
-            ),
-            indent=2,
-            ensure_ascii=True,
-        ),
-        significance="medium",
-        provider=provider,
-        model=model,
-        provider_error_mode="raise",
-        conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
-        capabilities=cached_capability_index(),
-        db_path=db_path,
-        conversation_id=conversation_id,
-    )
-    tool_calls = list(getattr(interlocutor_agent, "last_tool_calls", []) or [])
+    if observe:
+        interlocutor = {"response": observed_response, "questions": []}
+        tool_calls = list(observed_tool_calls or [])
+    else:
+        interlocutor, tool_calls = _run_interlocutor_stage(
+            vault=vault,
+            text=text,
+            listener=listener,
+            prior_state=prior_state,
+            context=context,
+            conversation_policy=conversation_policy,
+            provider=provider,
+            model=model,
+            db_path=db_path,
+            conversation_id=conversation_id,
+        )
     record_inline_step("memory_pipeline.writer")
     # The episode path is split across two writer calls. The core call returns body + claims;
     # the artifact call returns entities / decisions / open loops / state /
@@ -297,8 +309,54 @@ def run_memory_pipeline(
         mode=mode,
         skeptic_approved=skeptic_approved,
         entities_touched=entities_touched,
-        tool_calls=getattr(interlocutor_agent, "last_tool_calls", []),
+        tool_calls=tool_calls,
     )
+
+
+def _run_interlocutor_stage(
+    *,
+    vault: Path,
+    text: str,
+    listener: dict[str, Any],
+    prior_state: Any,
+    context: str,
+    conversation_policy: dict[str, Any] | None,
+    provider: str | None,
+    model: str | None,
+    db_path: Path | None,
+    conversation_id: str | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """The in-pipeline conversational reply (legacy path). Never forward
+    skeptic flags here: internal uncertainty about a memory record bleeds
+    into the user-facing response ("this family member" instead of the named
+    person). The interlocutor speaks to the user; it must not see internal
+    review notes."""
+    record_inline_step("memory_pipeline.interlocutor")
+    interlocutor_agent = InterlocutorAgent(vault=vault)
+    interlocutor = interlocutor_agent.run_json(
+        json.dumps(
+            _interlocutor_input(
+                writer=None,
+                listener=listener,
+                prior_state=prior_state,
+                user_text=text,
+                vault=vault,
+                retrieved_context=context,
+            ),
+            indent=2,
+            ensure_ascii=True,
+        ),
+        significance="medium",
+        provider=provider,
+        model=model,
+        provider_error_mode="raise",
+        conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
+        capabilities=cached_capability_index(),
+        db_path=db_path,
+        conversation_id=conversation_id,
+    )
+    tool_calls = list(getattr(interlocutor_agent, "last_tool_calls", []) or [])
+    return interlocutor, tool_calls
 
 
 def _merge_writer_outputs(core: dict[str, Any], artifacts: dict[str, Any]) -> dict[str, Any]:

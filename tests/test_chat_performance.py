@@ -353,19 +353,23 @@ class ChatPerformanceTests(unittest.TestCase):
             db_path=self.db_path,
         )
 
+        # capture observes in the background: drain it before asserting
+        from lisan.tools.jobs import run_jobs_worker
+
+        run_jobs_worker(vault=self.vault, db_path=self.db_path, job_types={"capture.observe"})
+
         trace = result["trace"]
         self.assertFalse(trace["fast_path_used"])
-        self.assertGreaterEqual(len(trace["llm_calls"]), 3)
+        self.assertGreaterEqual(len(trace["llm_calls"]), 1)
         self.assertTrue(all("elapsed_ms" in call for call in trace["llm_calls"]))
         self.assertTrue(all("error_type" in call for call in trace["llm_calls"]))
-        self.assertTrue(any(step.startswith("memory_pipeline.") for step in trace["inline_steps"]))
+        self.assertTrue(any(step.startswith("conversation.") for step in trace["inline_steps"]))
 
         recent = list_recent_turn_traces(limit=5, db_path=self.db_path)
         self.assertTrue(recent)
         self.assertEqual(recent[0]["turn_id"], trace["turn_id"])
         loaded = load_turn_trace(trace["turn_id"], db_path=self.db_path)
         self.assertIsNotNone(loaded)
-        self.assertEqual(len(loaded["llm_calls"]), len(trace["llm_calls"]))
 
     def test_memory_turn_can_queue_background_jobs(self) -> None:
         memory_text = "/remember my name is Person A and I have two pets named Pet One and Pet Two."
@@ -485,6 +489,11 @@ class ChatPerformanceTests(unittest.TestCase):
             domain_override=None,
             db_path=self.db_path,
         )
+
+        # capture is a background observer now — drain it, then count
+        from lisan.tools.jobs import run_jobs_worker
+
+        run_jobs_worker(vault=self.vault, db_path=self.db_path, job_types={"capture.observe"})
 
         writer_calls = [
             call for call in self.client.complete.call_args_list
