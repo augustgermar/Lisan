@@ -70,6 +70,9 @@
     "identity_env": "LISAN_BACKUP_IDENTITY",
     "age_binary_env": "AGE_BIN"
   },
+  "scheduler": {
+    "poll_seconds": 30
+  },
   "retrieval": {
     "fusion": {
       "enabled": true,

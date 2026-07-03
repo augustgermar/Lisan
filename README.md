@@ -643,6 +643,38 @@ The service runs `lisan telegram run` against your configured vault, restarts au
 - `/logs [N]` — show recent log lines
 - `/help` — list commands
 
+## Scheduled Tasks
+
+Lisan can perform tasks at a future time — one-shot or recurring. The schedule lives in the jobs database (a row per task, surviving reboots and upgrades); a small scheduler loop notices due rows within seconds and executes them. Nothing is held in cron or in memory.
+
+Three kinds of task:
+
+- **reminder** — sends you a Telegram message at the time (owner-only: delivery can never leave the allowlist)
+- **prompt** — runs a prompt through the normal pipeline at the time and sends you the result
+- **codex** — runs a codex task at the time; you approve it once, when scheduling
+
+Schedule from conversation ("remind me tomorrow at 9 to call the dentist" — the `schedule_task` tool handles it) or from the shell:
+
+```bash
+lisan task add "call the dentist" --at "2026-07-09 15:00"   # local time
+lisan task add "stand up and stretch" --every 2h            # recurring interval
+lisan task add "summarize my open loops" --kind prompt --daily 09:00
+lisan task list
+lisan task cancel <task-id>
+```
+
+`--at` accepts `YYYY-MM-DD HH:MM` (local), ISO 8601, `HH:MM` (next such time), `tomorrow HH:MM`, or relative offsets like `+30m` / `+2h`. Recurring tasks re-schedule from completion time, so downtime never produces a pile of missed runs — the series just resumes.
+
+The scheduler runs automatically inside the Telegram service. If you don't use Telegram, run it standalone:
+
+```bash
+lisan scheduler run                 # foreground loop (Ctrl-C to stop)
+lisan scheduler install-service     # always-on: launchd on macOS, systemd --user on Linux
+lisan scheduler uninstall-service
+```
+
+On WSL, enable systemd (`/etc/wsl.conf`: `[boot]` `systemd=true`) and use `install-service`, or run `lisan scheduler run` from Windows Task Scheduler via `wsl.exe`. Missed work (machine asleep, WSL suspended) is caught up on the next start — reminders that fire late say so.
+
 ## Important Commands
 
 Core checks:
