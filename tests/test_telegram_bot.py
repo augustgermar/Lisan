@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -244,6 +245,70 @@ class WizardTests(unittest.TestCase):
                 token, allowed = _resolve_settings(saved)
             self.assertEqual(token, "123:tok")
             self.assertEqual(allowed, {1, 2})
+
+
+class SchedulerThreadTests(unittest.TestCase):
+    """The bot process hosts the scheduler loop; due tasks must deliver
+    through the bot's own session, owner-only."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        ensure_repo_layout(self.root)
+        self.vault = vault_root(self.root)
+        self.db = self.root / "jobs.sqlite"
+        self.calls: list[tuple[str, dict]] = []
+        self.bot = TelegramBot(token="TEST", allowed_user_ids={1}, vault=self.vault, config={})
+        self.bot._call_api = lambda method, params, *, timeout=0: (
+            self.calls.append((method, params)) or {"ok": True, "result": []}
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _run_until_delivered(self, timeout: float = 5.0) -> list[dict]:
+        thread, stop = telegram_bot._start_scheduler_thread(
+            self.bot, vault=self.vault, db_path=self.db, provider=None, model=None,
+            allowed={1}, config={"scheduler": {"poll_seconds": 0.05}},
+        )
+        deadline = time.monotonic() + timeout
+        try:
+            while time.monotonic() < deadline:
+                if any(m == "sendMessage" for m, _ in self.calls):
+                    break
+                time.sleep(0.02)
+        finally:
+            stop.set()
+            thread.join(timeout=2)
+        return [p for m, p in self.calls if m == "sendMessage"]
+
+    def test_due_reminder_delivers_through_bot_session(self):
+        from lisan.tools.jobs import enqueue_job, get_job, list_jobs
+
+        job_id = enqueue_job(
+            "task.reminder",
+            {"message": "thread check", "due": "2020-01-01T00:00:00Z", "chat_id": 1},
+            scheduled_for="2020-01-01T00:00:00Z",
+            db_path=self.db,
+        )
+        sends = self._run_until_delivered()
+        self.assertEqual(len(sends), 1)
+        self.assertIn("thread check", sends[0]["text"])
+        self.assertEqual(sends[0]["chat_id"], 1)
+        self.assertEqual(get_job(job_id, db_path=self.db)["status"], "succeeded")
+
+    def test_non_allowlisted_chat_falls_back_to_owner(self):
+        from lisan.tools.jobs import enqueue_job
+
+        enqueue_job(
+            "task.reminder",
+            {"message": "for the owner", "due": "2020-01-01T00:00:00Z", "chat_id": 999},
+            scheduled_for="2020-01-01T00:00:00Z",
+            db_path=self.db,
+        )
+        sends = self._run_until_delivered()
+        self.assertEqual(len(sends), 1)
+        self.assertEqual(sends[0]["chat_id"], 1)
 
 
 class ServiceRenderTests(unittest.TestCase):

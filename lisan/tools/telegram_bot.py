@@ -22,6 +22,7 @@ import os
 import platform
 import re
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -340,8 +341,55 @@ def run_telegram_bot(
         db_path=db_path,
         config=config,
     )
+    scheduler_thread, stop_scheduler = _start_scheduler_thread(
+        bot, vault=vault, db_path=db_path, provider=provider, model=model, allowed=allowed, config=config
+    )
     print(f"⚕ Lisan Telegram bot running — {len(allowed)} allowed user(s). Ctrl-C to stop.")
-    return bot.run()
+    print("⚕ Scheduler thread running — scheduled tasks fire on time while the bot is up.")
+    try:
+        return bot.run()
+    finally:
+        stop_scheduler.set()
+
+
+def _start_scheduler_thread(
+    bot: "TelegramBot",
+    *,
+    vault: Path,
+    db_path: Path | None,
+    provider: str | None,
+    model: str | None,
+    allowed: set[int],
+    config: dict[str, Any],
+) -> tuple[threading.Thread, threading.Event]:
+    """Host the scheduler loop inside the bot process, delivering scheduled
+    messages through the bot's own session. Targets outside the allowlist
+    fall back to the first allowlisted id — scheduled delivery is owner-only
+    by construction."""
+    from .scheduler import run_scheduler_loop
+
+    def _send(text: str, chat_id: int | None) -> None:
+        target = int(chat_id) if chat_id is not None and int(chat_id) in allowed else sorted(allowed)[0]
+        bot._send_message(target, text)
+
+    poll_seconds = float((config.get("scheduler") or {}).get("poll_seconds") or 30.0)
+    stop_event = threading.Event()
+    thread = threading.Thread(
+        target=run_scheduler_loop,
+        kwargs={
+            "vault": vault,
+            "db_path": db_path,
+            "provider": provider,
+            "model": model,
+            "poll_seconds": poll_seconds,
+            "stop_event": stop_event,
+            "send_fn": _send,
+        },
+        name="lisan-scheduler",
+        daemon=True,
+    )
+    thread.start()
+    return thread, stop_event
 
 
 # ── Setup wizard ────────────────────────────────────────────────────────────

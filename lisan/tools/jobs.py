@@ -104,6 +104,10 @@ CREATE INDEX IF NOT EXISTS idx_jobs_batch
 def _connect(db_path: Path | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path or sqlite_path())
     conn.row_factory = sqlite3.Row
+    # The scheduler thread, capture-time drains, and CLI workers share this
+    # database; without a busy timeout, concurrent BEGIN IMMEDIATE claims
+    # raise "database is locked" instead of briefly waiting their turn.
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 
