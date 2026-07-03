@@ -61,6 +61,7 @@ def run_conversation_turn(
         model=model,
         provider_error_mode="raise",
         conversation=history or None,
+        today=_today_line(),
         owner_profile=profile or None,
         retrieved_context=context or None,
         capabilities=cached_capability_index(),
@@ -99,6 +100,13 @@ def run_conversation_turn(
         "tool_calls": tool_calls,
         "queued_jobs": queued,
     }
+
+
+def _today_line() -> str:
+    from datetime import datetime
+
+    now = datetime.now().astimezone()
+    return now.strftime("%A, %B %d, %Y, %H:%M %Z")
 
 
 def _owner_profile(vault: Path) -> str:

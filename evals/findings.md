@@ -44,3 +44,9 @@ Open items for cycle 5:
 - Past-tense awareness: a dated past event should be phrased "was", not "is".
 - Phrase replication across records (one fact echoed into place entities + state) — capture dedup/normalization worth a look.
 - Dreamer primer maintenance (carried).
+
+## Cycle 5 — 2026-07-03
+
+| # | Scenario | Finding | Fix | Status |
+|---|----------|---------|-----|--------|
+| 11 | Same probe as #10 | The agent didn't know today's date, so a past event read "is on July 2" instead of "was". | TODAY (local date+time) injected into every conversation turn, with a tense-anchoring rule. | fixed, retested ✓ ("was yesterday, July 2nd") |
