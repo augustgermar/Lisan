@@ -219,7 +219,17 @@ class TelegramBot:
 
         response = str(result.get("response") or "").strip()
         self._update_state_after_turn(state, result, text, response)
-        self._send_message(chat_id, response or "(no response)")
+        if not response:
+            # An empty response means the pipeline swallowed an error (it only
+            # sets result["error"] on the generic-exception path). Silence reads
+            # as the bot ignoring the user — always say what happened instead.
+            err = str(result.get("error") or "").strip()
+            response = (
+                f"Something went wrong handling that (it's logged): {err}"
+                if err else
+                "I couldn't produce a response to that one — the failure is logged."
+            )
+        self._send_message(chat_id, response)
 
     def _update_state_after_turn(self, state: _ChatState, result: dict[str, Any], text: str, response: str) -> None:
         """Mirror run_chat's advice-context bookkeeping so multi-turn advice works."""
@@ -503,7 +513,17 @@ def _systemd_unit_path() -> Path:
     return Path.home() / ".config" / "systemd" / "user" / _SYSTEMD_UNIT
 
 
-def _render_launchd_plist(*, label: str, python: str, vault: Path, repo_dir: Path, out_log: Path, err_log: Path) -> str:
+_FALLBACK_PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+
+def _service_path_env(path_env: str | None) -> str:
+    """PATH for the detached service. launchd/systemd give services a minimal
+    PATH that misses Homebrew/npm dirs, so provider binaries (codex) vanish;
+    embed the installing shell's PATH, which demonstrably resolves them."""
+    return path_env or os.environ.get("PATH") or _FALLBACK_PATH
+
+
+def _render_launchd_plist(*, label: str, python: str, vault: Path, repo_dir: Path, out_log: Path, err_log: Path, path_env: str | None = None) -> str:
     args = [python, "-m", "lisan", "telegram", "run", "--vault", str(vault)]
     args_xml = "\n".join(f"      <string>{_xml_escape(a)}</string>" for a in args)
     return f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -520,6 +540,8 @@ def _render_launchd_plist(*, label: str, python: str, vault: Path, repo_dir: Pat
     <dict>
       <key>LISAN_VAULT</key>
       <string>{_xml_escape(str(vault))}</string>
+      <key>PATH</key>
+      <string>{_xml_escape(_service_path_env(path_env))}</string>
     </dict>
     <key>WorkingDirectory</key>
     <string>{_xml_escape(str(repo_dir))}</string>
@@ -536,7 +558,7 @@ def _render_launchd_plist(*, label: str, python: str, vault: Path, repo_dir: Pat
 """
 
 
-def _render_systemd_unit(*, python: str, vault: Path) -> str:
+def _render_systemd_unit(*, python: str, vault: Path, path_env: str | None = None) -> str:
     return f"""[Unit]
 Description=Lisan Telegram bot
 After=network-online.target
@@ -544,6 +566,7 @@ After=network-online.target
 [Service]
 ExecStart={python} -m lisan telegram run --vault {vault}
 Environment=LISAN_VAULT={vault}
+Environment="PATH={_service_path_env(path_env)}"
 Restart=always
 RestartSec=5
 

@@ -40,3 +40,20 @@ class ProviderRetryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CodexBinaryErrorTests(unittest.TestCase):
+    def test_missing_binary_raises_provider_error(self) -> None:
+        """A missing codex binary must surface as ProviderError, not a raw
+        FileNotFoundError — the raw OSError bypasses the provider-failure
+        path and the user gets silence instead of an honest error."""
+        import os
+
+        from lisan.providers.codex import CodexClient
+
+        config = {"providers": {"codex": {"binary_env": "LISAN_TEST_CODEX_BIN"}}}
+        with patch.dict("os.environ", {"LISAN_TEST_CODEX_BIN": "/nonexistent/codex-test-binary"}, clear=False):
+            client = CodexClient(config=config)
+            with self.assertRaises(ProviderError) as ctx:
+                client.complete("hello")
+        self.assertIn("could not be launched", str(ctx.exception))

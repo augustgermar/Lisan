@@ -87,7 +87,13 @@ class CodexClient(ProviderClient):
             args.extend(["--output-last-message", str(output_path)])
             args.append("-")
 
-            proc = subprocess.run(args, input=full_prompt, capture_output=True, text=True, env=env)
+            try:
+                proc = subprocess.run(args, input=full_prompt, capture_output=True, text=True, env=env)
+            except OSError as exc:
+                # A missing/unlaunchable binary must surface as ProviderError so
+                # callers deliver an honest failure message instead of silence
+                # (raw FileNotFoundError bypasses the provider-failure path).
+                raise ProviderError(f"coding agent binary {binary!r} could not be launched: {exc}") from exc
             if proc.returncode != 0:
                 raise ProviderError(
                     "coding agent exec failed with exit code "

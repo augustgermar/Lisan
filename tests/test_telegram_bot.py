@@ -114,6 +114,29 @@ class BotDispatchTests(unittest.TestCase):
         self.assertEqual(len(sends), 3)
         self.assertTrue(all(len(s) <= telegram_bot._MSG_LIMIT for s in sends))
 
+    def test_swallowed_pipeline_error_is_reported_not_silent(self):
+        # _process_chat_turn catches generic exceptions internally, returning an
+        # empty response with result["error"] set — the bot must surface it.
+        with patch.object(
+            telegram_bot, "_process_chat_turn",
+            return_value={"response": "", "error": "codex binary not found", "route": "memory"},
+        ):
+            self.bot.handle_update(_update("hello"))
+        sends = self._sent()
+        self.assertEqual(len(sends), 1)
+        self.assertIn("codex binary not found", sends[0])
+        self.assertNotIn("(no response)", sends[0])
+
+    def test_empty_response_without_error_still_says_something(self):
+        with patch.object(
+            telegram_bot, "_process_chat_turn",
+            return_value={"response": "", "route": "memory"},
+        ):
+            self.bot.handle_update(_update("hello"))
+        sends = self._sent()
+        self.assertEqual(len(sends), 1)
+        self.assertIn("logged", sends[0])
+
     def test_non_text_update_ignored(self):
         with patch.object(telegram_bot, "_process_chat_turn") as proc:
             self.bot.handle_update({"update_id": 5, "message": {"chat": {"id": 99}, "from": {"id": 1}}})
@@ -246,6 +269,25 @@ class ServiceRenderTests(unittest.TestCase):
         self.assertIn("Environment=LISAN_VAULT=/home/me/.lisan/vault", unit)
         self.assertIn("Restart=always", unit)
         self.assertIn("WantedBy=default.target", unit)
+
+    def test_launchd_plist_carries_path_env(self):
+        # Detached services get a minimal PATH; without the installing shell's
+        # PATH embedded, provider binaries like codex are unreachable.
+        plist = _render_launchd_plist(
+            label="com.lisan.telegram",
+            python="/venv/bin/python",
+            vault=Path("/v"),
+            repo_dir=Path("/r"),
+            out_log=Path("/x/out.log"),
+            err_log=Path("/x/err.log"),
+            path_env="/usr/local/bin:/usr/bin",
+        )
+        self.assertIn("<key>PATH</key>", plist)
+        self.assertIn("<string>/usr/local/bin:/usr/bin</string>", plist)
+
+    def test_systemd_unit_carries_path_env(self):
+        unit = _render_systemd_unit(python="/venv/bin/python", vault=Path("/v"), path_env="/usr/local/bin:/usr/bin")
+        self.assertIn('Environment="PATH=/usr/local/bin:/usr/bin"', unit)
 
 
 if __name__ == "__main__":
