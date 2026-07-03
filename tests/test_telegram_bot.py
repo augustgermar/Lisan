@@ -137,6 +137,49 @@ class ResolveSettingsTests(unittest.TestCase):
         self.assertEqual(token, "cfgtok")
         self.assertEqual(allowed, {7, 8})
 
+    def test_include_env_false_ignores_env(self):
+        with patch.dict("os.environ", {"LISAN_TELEGRAM_TOKEN": "envtok", "LISAN_TELEGRAM_ALLOWED": "5"}, clear=False):
+            token, allowed = _resolve_settings({"telegram": {}}, include_env=False)
+        self.assertEqual(token, "")
+        self.assertEqual(allowed, set())
+
+
+class ServiceInstallGuardTests(unittest.TestCase):
+    """install-service must validate against config.yaml alone: the detached
+    service never inherits the installing shell's env, so env-only settings
+    would produce a crash-looping service."""
+
+    def test_env_only_settings_refuse_install(self):
+        env = {"LISAN_TELEGRAM_TOKEN": "123:tok", "LISAN_TELEGRAM_ALLOWED": "1"}
+        with patch.dict("os.environ", env, clear=False), \
+                patch.object(telegram_bot, "load_config", return_value={}), \
+                patch.object(telegram_bot, "_install_launchd") as launchd, \
+                patch.object(telegram_bot, "_install_systemd") as systemd:
+            rc = telegram_bot.install_service(vault=Path("/tmp/nowhere"))
+        self.assertEqual(rc, 1)
+        launchd.assert_not_called()
+        systemd.assert_not_called()
+
+    def test_unconfigured_refuses_install(self):
+        import os
+        with patch.dict("os.environ", {}, clear=False), \
+                patch.object(telegram_bot, "load_config", return_value={}), \
+                patch.object(telegram_bot, "_install_launchd") as launchd:
+            os.environ.pop("LISAN_TELEGRAM_TOKEN", None)
+            os.environ.pop("LISAN_TELEGRAM_ALLOWED", None)
+            rc = telegram_bot.install_service(vault=Path("/tmp/nowhere"))
+        self.assertEqual(rc, 1)
+        launchd.assert_not_called()
+
+    def test_config_persisted_settings_install(self):
+        cfg = {"telegram": {"token": "123:tok", "allowed_user_ids": [1]}}
+        with patch.object(telegram_bot, "load_config", return_value=cfg), \
+                patch.object(telegram_bot.platform, "system", return_value="Darwin"), \
+                patch.object(telegram_bot, "_install_launchd", return_value=0) as launchd:
+            rc = telegram_bot.install_service(vault=Path("/tmp/nowhere"))
+        self.assertEqual(rc, 0)
+        launchd.assert_called_once()
+
 
 class WizardTests(unittest.TestCase):
     def test_token_format_validation(self):

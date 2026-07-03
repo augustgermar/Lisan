@@ -272,13 +272,18 @@ class TelegramBot:
                 return 0
 
 
-def _resolve_settings(config: dict[str, Any]) -> tuple[str, set[int]]:
-    """Token + allowlist from env (preferred) or the config telegram block."""
+def _resolve_settings(config: dict[str, Any], *, include_env: bool = True) -> tuple[str, set[int]]:
+    """Token + allowlist from env (preferred) or the config telegram block.
+
+    ``include_env=False`` resolves from config alone — used to check what a
+    detached service (which never inherits this shell's env) will actually see.
+    """
     tg_cfg = config.get("telegram", {}) if isinstance(config.get("telegram"), dict) else {}
 
-    token = (os.environ.get("LISAN_TELEGRAM_TOKEN") or str(tg_cfg.get("token") or "")).strip()
+    env_token = os.environ.get("LISAN_TELEGRAM_TOKEN") if include_env else None
+    token = (env_token or str(tg_cfg.get("token") or "")).strip()
 
-    raw_allowed = os.environ.get("LISAN_TELEGRAM_ALLOWED")
+    raw_allowed = os.environ.get("LISAN_TELEGRAM_ALLOWED") if include_env else None
     if raw_allowed is None:
         raw_allowed = tg_cfg.get("allowed_user_ids") or ""
     if isinstance(raw_allowed, (list, tuple)):
@@ -600,9 +605,18 @@ def install_service(*, vault: Path | None = None) -> int:
     """Install + start the Telegram bot as an always-on OS service."""
     vault = vault or vault_root()
     config = load_config()
-    token, allowed = _resolve_settings(config)
+    # The service runs detached from this shell, so it only sees config.yaml —
+    # env-only settings would pass a naive check here and then crash-loop under
+    # launchd/systemd. Validate against what the service will actually see.
+    token, allowed = _resolve_settings(config, include_env=False)
     if not token or not allowed:
-        print("✗ Configure the bot first: run `lisan telegram setup`.")
+        env_token, env_allowed = _resolve_settings(config)
+        if env_token and env_allowed:
+            print("✗ Your Telegram settings are only in shell environment variables, which")
+            print("  the always-on service won't inherit. Run `lisan telegram setup` to")
+            print("  save them to config.yaml, then re-run install-service.")
+        else:
+            print("✗ Configure the bot first: run `lisan telegram setup`.")
         return 1
 
     system = platform.system()
