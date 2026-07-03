@@ -4,7 +4,7 @@ from pathlib import Path
 
 from ..frontmatter import load_markdown, write_markdown
 from .domain_fields import normalize_domain_fields, with_domain_fields
-from ..tools.record_factory import new_decision, new_entity, new_episode, new_knowledge, new_open_loop, new_state
+from .record_factory import new_decision, new_entity, new_episode, new_knowledge, new_open_loop, new_state
 from ..utils import slugify, today_iso
 
 

@@ -9,8 +9,8 @@ from typing import Any, Callable
 from ..config import load_config
 from ..paths import repo_root, skills_root
 from ..providers.codex import CodexClient
-from ..tools.assembler import assemble_context
-from ..tools.skill_loader import load_skill_handlers
+from .assembler import assemble_context
+from .skill_loader import load_skill_handlers
 from .structured import extract_json
 
 

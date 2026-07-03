@@ -14,7 +14,7 @@ from typing import Any
 
 from ..config import load_config
 from ..paths import sqlite_path, vault_root
-from ..tools.primer_index import assistant_name as _assistant_name
+from .primer_index import assistant_name as _assistant_name
 from ..utils import today_iso
 from .chat_turns import classify_turn
 from .conversation_policy import assess_conversation_turn
@@ -88,7 +88,7 @@ def _check_index(vault: Path) -> bool:
 
     print(f"  {color('!', YELLOW)} Index missing or empty — rebuilding…")
     try:
-        from ..tools.rebuild_index import rebuild_index
+        from .rebuild_index import rebuild_index
         counts = rebuild_index(vault)
         print(f"  {color('✓', GREEN)} Index built: {counts['files']} records")
         return True
@@ -158,7 +158,7 @@ def run_chat(
 
     _enable_readline()
 
-    from ..tools.narrative_state import reset_narrative_state
+    from .narrative_state import reset_narrative_state
 
     advice_history: list[dict[str, str]] = []
     advice_context_active = False

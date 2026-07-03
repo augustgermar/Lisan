@@ -13,7 +13,7 @@ from ..frontmatter import FrontmatterError, load_markdown
 from ..paths import vault_root, schemas_dir, repo_root
 from ..schemas import load_schemas
 from .domain_fields import normalize_domain_fields
-from ..tools.common import iter_markdown_files, parse_date
+from .common import iter_markdown_files, parse_date
 
 
 @dataclass(slots=True)

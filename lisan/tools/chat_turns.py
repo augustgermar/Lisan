@@ -245,7 +245,7 @@ def _looks_like_practical_question(text: str, lowered: str) -> bool:
 
 
 def _identity_response(vault: Path | None = None) -> str:
-    from ..tools.primer_index import assistant_name as _asst_name
+    from .primer_index import assistant_name as _asst_name
     name = _asst_name(vault) if vault else "Lisan"
     return f"My name is {name}. I am your local personal assistant and memory system."
 

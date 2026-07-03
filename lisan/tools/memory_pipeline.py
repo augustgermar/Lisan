@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ..agents import AssemblerAgent, InterlocutorAgent, ListenerAgent, SkepticAgent, WriterAgent
-from ..tools.heuristic_gate import is_correction_turn
+from .heuristic_gate import is_correction_turn
 from ..frontmatter import load_markdown, write_markdown
 from ..utils import slugify, today_iso
 from .elicitor_session import run_elicitor_session

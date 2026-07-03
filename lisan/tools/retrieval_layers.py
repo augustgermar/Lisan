@@ -22,9 +22,9 @@ from typing import Any
 from ..config import load_config
 from ..frontmatter import load_markdown
 from ..paths import sqlite_path, vault_root
-from ..tools.common import iter_markdown_files
-from ..tools.tracing import record_retrieval_result
-from ..tools.vector_store import VectorScorer, build_query_scorer
+from .common import iter_markdown_files
+from .tracing import record_retrieval_result
+from .vector_store import VectorScorer, build_query_scorer
 from .primer_index import assistant_display_name, principal_name
 from ..utils import approx_word_count, today_iso
 

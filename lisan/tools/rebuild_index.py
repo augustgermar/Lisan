@@ -21,7 +21,7 @@ from .epistemic import (
 from .ingest import ensure_ingestion_manifest_table
 from .ingest_batches import ensure_ingestion_batches_table
 from .jobs import ensure_jobs_table
-from ..tools.common import iter_markdown_files, parse_date
+from .common import iter_markdown_files, parse_date
 from .vector_store import clear_index_cache, load_index, write_embeddings
 
 
