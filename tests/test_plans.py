@@ -196,5 +196,48 @@ class TerminalFailureTests(_Env):
         self.assertFalse(plan["active"])
 
 
+class FolderIngestionPlanTests(_Env):
+    def _folder(self, count: int) -> Path:
+        folder = self.root / "notes"
+        folder.mkdir()
+        for i in range(count):
+            (folder / f"note-{i:02d}.md").write_text(f"# Note {i}\ncontent {i}\n")
+        return folder
+
+    def test_batches_and_final_summary_step(self):
+        from lisan.tools.plans import build_folder_ingestion_plan
+
+        folder = self._folder(13)
+        summary = build_folder_ingestion_plan(folder, batch_size=5, db_path=self.db)
+        job = get_job(summary["job_id"], db_path=self.db)
+        steps = job["payload"]["steps"]
+        self.assertEqual(len(steps), 4)  # 5+5+3 files, then the summary prompt
+        self.assertEqual([s["kind"] for s in steps], ["codex", "codex", "codex", "prompt"])
+        self.assertIn("note-00.md", steps[0]["description"])
+        self.assertIn("note-12.md", steps[2]["description"])
+        self.assertIn("lisan ingest --reference", steps[0]["description"])
+        self.assertIn("QUESTIONS", steps[0]["description"])
+
+    def test_limit_takes_first_files_only(self):
+        from lisan.tools.plans import build_folder_ingestion_plan
+
+        folder = self._folder(9)
+        summary = build_folder_ingestion_plan(folder, batch_size=4, limit=4, db_path=self.db)
+        job = get_job(summary["job_id"], db_path=self.db)
+        steps = job["payload"]["steps"]
+        self.assertEqual(len(steps), 2)
+        self.assertNotIn("note-04.md", steps[0]["description"])
+
+    def test_rejects_empty_or_missing_folder(self):
+        from lisan.tools.plans import build_folder_ingestion_plan
+
+        with self.assertRaises(ValueError):
+            build_folder_ingestion_plan(self.root / "nope", db_path=self.db)
+        empty = self.root / "empty"
+        empty.mkdir()
+        with self.assertRaises(ValueError):
+            build_folder_ingestion_plan(empty, db_path=self.db)
+
+
 if __name__ == "__main__":
     unittest.main()

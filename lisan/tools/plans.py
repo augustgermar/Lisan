@@ -377,3 +377,65 @@ def cancel_plan(plan_id: str, *, db_path: Path | None = None) -> bool:
             cancel_job(str(job.get("id")), db_path=db_path)
             return True
     return False
+# ── Folder ingestion autopilot ───────────────────────────────────────────────
+
+def build_folder_ingestion_plan(
+    path: str | Path,
+    *,
+    batch_size: int = 6,
+    limit: int | None = None,
+    chat_id: int | None = None,
+    conversation_id: str | None = None,
+    db_path: Path | None = None,
+) -> dict[str, Any]:
+    """Turn "work through this folder" into a durable plan: batched codex
+    steps that read and reference-ingest the notes, notice recurring people
+    and projects, and collect questions only the owner can answer; a closing
+    step reports it all back conversationally. This is the agent doing what a
+    briefed codex session would do — because each step IS a briefed codex
+    session, with the plan carrying the thread between them."""
+    folder = Path(path).expanduser()
+    if not folder.is_dir():
+        raise ValueError(f"not a directory: {folder}")
+    files = sorted(f for f in folder.rglob("*.md") if f.is_file())
+    if not files:
+        raise ValueError(f"no markdown files under {folder}")
+    if limit:
+        files = files[: int(limit)]
+
+    batch_size = max(1, int(batch_size))
+    batches = [files[i: i + batch_size] for i in range(0, len(files), batch_size)]
+    steps: list[dict[str, str]] = []
+    for number, batch in enumerate(batches, start=1):
+        file_list = "\n".join(f"- {f}" for f in batch)
+        steps.append({
+            "kind": "codex",
+            "description": (
+                f"Ingest batch {number}/{len(batches)} of the owner's notes into Lisan memory. "
+                "For EACH file below, run: lisan ingest --reference '<file path>' "
+                "(quote the path; it may contain spaces). Then read the ingested notes and report, compactly: "
+                "(1) per file, the chunk count or any ingest warning; "
+                "(2) people, places, and projects that appear repeatedly across this batch; "
+                "(3) QUESTIONS: anything ambiguous only the owner can resolve — unclear references, "
+                "possible duplicate people, notes that look stale or contradictory. "
+                "STRICT LIMITS: run only `lisan ingest` commands and read files; never modify, move, or "
+                "delete anything in the source folder.\n\nFiles:\n" + file_list
+            ),
+        })
+    steps.append({
+        "kind": "prompt",
+        "description": (
+            f"You just finished ingesting {len(files)} notes from {folder} into your memory "
+            "(batch results are in the context below). Tell the owner, conversationally and briefly: "
+            "what body of knowledge you now hold from this folder, the recurring people/projects you "
+            "noticed, and then list the QUESTIONS the batches surfaced that only the owner can answer, "
+            "as a numbered list they can reply to one by one."
+        ),
+    })
+    return create_plan(
+        goal=f"Autonomously ingest {len(files)} notes from {folder.name}/ into memory, surfacing questions as I go",
+        steps=steps,
+        chat_id=chat_id,
+        conversation_id=conversation_id,
+        db_path=db_path,
+    )

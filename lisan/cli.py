@@ -618,6 +618,11 @@ def build_parser() -> argparse.ArgumentParser:
     plan_cancel = plan_subparsers.add_parser("cancel", help="Cancel an active plan")
     plan_cancel.add_argument("plan_id")
     plan_cancel.add_argument("--db-path", type=Path, default=None)
+    plan_ingest = plan_subparsers.add_parser("ingest-folder", help="Autonomously ingest a folder of notes, in batches, surfacing questions")
+    plan_ingest.add_argument("path", type=Path)
+    plan_ingest.add_argument("--batch", type=int, default=6, help="Files per codex step")
+    plan_ingest.add_argument("--limit", type=int, default=None, help="Only the first N files (for a trial run)")
+    plan_ingest.add_argument("--db-path", type=Path, default=None)
 
     self_cmd = subparsers.add_parser("self", help="The agent's generated self-model and live state")
     self_subparsers = self_cmd.add_subparsers(dest="self_command", required=True)
@@ -1156,6 +1161,19 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             print(f"✗ No active plan {args.plan_id}")
             return 1
+        if args.plan_command == "ingest-folder":
+            from .tools.plans import build_folder_ingestion_plan
+
+            try:
+                summary = build_folder_ingestion_plan(
+                    args.path, batch_size=args.batch, limit=args.limit, db_path=args.db_path
+                )
+            except ValueError as exc:
+                print(f"✗ {exc}")
+                return 1
+            print(f"✓ Plan {summary['plan_id']}: {summary['goal']} ({summary['steps']} steps)")
+            print("  Running in the background; results and questions arrive via Telegram.")
+            return 0
 
     if args.command == "self":
         from .tools.self_model import (
