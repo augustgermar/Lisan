@@ -1,5 +1,31 @@
 # Changelog
 
+## 26.7.3
+
+- **Conversation became an agent; memory capture became an observer.** Every
+  non-trivial turn now goes to one tool-bearing agent with the rolling
+  conversation verbatim, retrieved memory, an owner profile, capabilities, and
+  the current date/time; the listener/writer/skeptic pipeline runs afterward as
+  a background `capture.observe` job. Turn latency dropped from 60–235s to
+  ~7–25s.
+- **Reasoning agents run on hosted Gemini via the rotato proxy**; codex remains
+  the delegated executor, sandboxed to the install with a hard write boundary
+  (it never touches files outside Lisan).
+- **New capabilities**: generated self-model (`lisan self`, `self_state` tool,
+  auto-regenerated `primer/capabilities.md`); durable multi-step plans on the
+  job queue (`lisan plan`, `create_plan`, `plan ingest-folder`); real-time
+  scheduler and tasks (`lisan task`, `lisan scheduler`); Telegram approval
+  buttons and an interactive approval flow.
+- **Temporal cognition**: writers absolutize relative dates, retrieval renders
+  record dates, and the agent knows what day it is and answers in correct tense.
+- **CLI restyle**: codex-style blue/grey palette with a LISAN wordmark; the
+  redundant "You:" prompt is now a "›" caret.
+- **Fixes surfaced by the automated evaluation loop**: kinship-shorthand
+  grounding, capability honesty (no phantom email sending), action requests
+  never skipped, recall questions answered instead of captured, silence never
+  returned as a reply, config.json rename, and a repo-wide personal-data scrub.
+- Bumped version to 26.7.3.
+
 ## 26.6.19.1
 
 - Hardened the fresh-repo plumbing and evaluation readiness: `lisan health` and `lisan sync` now bootstrap the vault layout, seed files, and SQLite schema instead of failing on a blank checkout; skip/retrieval turns now always return a user-facing answer; successful fanout no longer leaves drafts stuck in the queued backlog; transient provider failures retry with backoff; and the job-drain, bootstrap, retry, skip-response, and embedding behaviors are covered by new regression tests. The shipped defaults and example config now point at the local Gemini/Rotato endpoint on `127.0.0.1:8990`, with local routing as the tracked default.
