@@ -972,7 +972,7 @@ def _render_draft_body(
 
 # ── Fanout: entities (extraction-only) ───────────────────────────────────────
 
-from .memory_pipeline_entities import (
+from .entity_resolution import (
     _create_entity_stubs,
     _create_relationship_edges,
     _normalize_entity_subtype,
