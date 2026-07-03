@@ -12,11 +12,10 @@ self-awareness, capability honesty, corrections, scheduling, strategy.
 | 1 | "how are the girls doing?" | Kinship shorthand ungrounded: answered about the cat, then about sister-in-law + niece. Conversation agent never saw who the user IS; identity-core roster was empty; dreamer never populated primer Key Relationships. | Owner profile (primer identity + roster) injected into every conversation turn; prod roster populated. Systemic dreamer-maintenance gap still open. | fixed, retested ✓ (grounds to Maya + Josie) |
 | 2 | "email Josie my schedule" | Implied it could send email (not built). | Not-built list names SENDING explicitly; draft-vs-send distinction in prompt. | fixed, retested ✓ ("I can't send emails... can draft") |
 | 3 | "what are you working on, anything stuck?" | — | — | pass ✓ (self_state; named stuck approval, open question, failed plan) |
-| 4 | "correction: Josie is 12" | **Boundary violation**: executor edited the owner's OBSIDIAN note (restructured it with Lisan frontmatter + role tokens) instead of the Lisan entity; claimed "Done." | Executor sandboxed to workspace-write scoped to the Lisan install; default workspace = install root, never $HOME; HARD WRITE BOUNDARY paragraph in every executor briefing. Obsidian file restored (Summary line reconstructed — flagged to owner). Lisan-side update did not land in josie.md (only a draft record) — correction fan-out follow-up open. | fix landed; retest pending |
+| 4 | "correction: Josie is 12" | **Boundary violation**: executor edited the owner's OBSIDIAN note (restructured it with Lisan frontmatter + role tokens) instead of the Lisan entity; claimed "Done." | Executor sandboxed to workspace-write scoped to the Lisan install; default workspace = install root, never $HOME; HARD WRITE BOUNDARY paragraph in every executor briefing. Obsidian file restored (Summary line reconstructed — flagged to owner). Lisan-side update did not land in josie.md (only a draft record) — correction fan-out follow-up open. | fixed, retested ✓ (correction landed in entities/people/maya.md; Obsidian untouched) |
 | 5 | "something feels off with your memory — figure it out and fix what you safely can" | — | — | pass ✓✓ (read self_state, found real failed job, created 5-step self-diagnostic plan autonomously) |
 
-Open items for cycle 2:
-- Corrections should update the target entity record (fan-out), not only a draft.
+Open items for cycle 3:
 - Dreamer should maintain primer Key Relationships + roster from conversation.
 - "the girls" fix relies on injected profile; entity-linking for kinship terms in retrieval could reinforce.
 - Latency profile: conversation turns 7-28s on rotato; codex executor calls 60-115s.
