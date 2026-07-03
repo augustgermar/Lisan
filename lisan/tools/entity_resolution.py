@@ -73,6 +73,10 @@ def _create_entity_stubs(
         # Drop any candidate whose name carries a role token or bare role slug.
         if has_unresolved_token(name) or name.strip().lower() in {"principal", "self", "user"}:
             continue
+        # The principal's own name is the same role wearing its literal form:
+        # the user is represented by the primer, never as a third-party entity.
+        if name.strip().lower() in _principal_alias_set(vault):
+            continue
         normalized = name.lower()
         if normalized in seen_in_pass:
             continue
@@ -430,6 +434,15 @@ def _has_person_role_context(name: str, source_text: str) -> bool:
         or re.search(i_act_name, lowered)
         or re.search(social_with, lowered)
     )
+
+def _principal_alias_set(vault: Path) -> frozenset[str]:
+    try:
+        from .primer_index import principal_aliases
+
+        return frozenset(a.lower() for a in principal_aliases(vault))
+    except Exception:
+        return frozenset()
+
 
 def _appears_only_inside_paths(name: str, source_text: str) -> bool:
     """True when every occurrence of *name* is embedded in filesystem-path

@@ -149,3 +149,26 @@ class PathSegmentGateTests(unittest.TestCase):
 
         self.assertTrue(_looks_like_entity("Maya", "person", frozenset(),
                                            "my daughter Maya: see /notes/Maya/file.md"))
+
+
+class PrincipalNeverAnEntityTests(unittest.TestCase):
+    def test_principal_name_never_materializes(self):
+        import tempfile
+        from pathlib import Path
+
+        from lisan.tools.entity_resolution import _create_entity_stubs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            (vault / "primer").mkdir(parents=True)
+            (vault / "primer" / "identity-core.md").write_text(
+                '---\n{"principal": {"name": "August Morgan", "aliases": ["August"]},'
+                ' "assistant": {"name": "Vega"}}\n---\n', encoding="utf-8")
+            (vault / "entities" / "people").mkdir(parents=True)
+            created = _create_entity_stubs(
+                vault,
+                {"entities_to_create": [{"name": "August", "kind": "person", "summary": "tell August which folders"}]},
+                "drafts/x.md",
+                "tell August which folders look most valuable",
+            )
+            self.assertEqual(created, [])
