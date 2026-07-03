@@ -16,6 +16,7 @@ class AssemblerAgent(PromptAgent):
         conversation_id: str | None = None,
         domain: str | None = None,
         arena: str | None = None,
+        db_path=None,
     ) -> AgentResult:
         # Forward conversation_id so the cross-conversation
         # "Recent Activity" preamble fires on the extraction path. The
@@ -28,4 +29,5 @@ class AssemblerAgent(PromptAgent):
             conversation_id=conversation_id,
             domain=domain,
             arena=arena,
+            db_path=db_path,
         ))

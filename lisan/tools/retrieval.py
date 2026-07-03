@@ -299,8 +299,22 @@ def retrieve_context(
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        file_rows = conn.execute("SELECT * FROM files").fetchall()
-        link_rows = conn.execute("SELECT source_id, target_id, relationship_type FROM links").fetchall()
+        try:
+            file_rows = conn.execute("SELECT * FROM files").fetchall()
+            link_rows = conn.execute("SELECT source_id, target_id, relationship_type FROM links").fetchall()
+        except sqlite3.OperationalError:
+            # An uninitialized index (fresh install, first turn before any
+            # rebuild) means "nothing stored yet", not a crash.
+            return RetrievalResult(
+                domain=domain or "",
+                confidence=0.0,
+                loaded=[],
+                direct_loaded=[],
+                expanded_loaded=[],
+                rejected=[],
+                graph_blocked=[],
+                prompt=effective_query,
+            )
         quarantined_artifact_ids, quarantined_batch_ids = _quarantine_sets(conn)
         rows_by_id = {str(row["id"]): row for row in file_rows}
         rejected = _collect_rejected_items(

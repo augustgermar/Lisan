@@ -158,7 +158,7 @@ def run_memory_pipeline(
     record_inline_step("memory_pipeline.assembler")
     # conversation_id makes the cross-conversation preamble fire on the
     # extraction path as well as the elicitor path.
-    context = AssemblerAgent(vault=vault).run(text, conversation_id=conversation_id).text
+    context = AssemblerAgent(vault=vault).run(text, conversation_id=conversation_id, db_path=db_path).text
     task = _choose_task(text=text, listener=listener)
     if str(listener.get("memory_type") or "").lower() == "correction":
         correction_ctx = _build_correction_context(text, db_path=db_path)
