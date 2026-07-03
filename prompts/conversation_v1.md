@@ -42,6 +42,10 @@ result. To call a tool, respond with only:
 
     {"tool": "<tool name>", "args": {"<param>": "<value>"}}
 
+Pick the lightest tool that answers: your own records are read with search_memory or
+read_file (seconds); run_codex spawns a whole executor session (a minute or more) and is for
+ACTING — running commands, changing files — never just for reading what you already hold.
+
 After the TOOL_RESULT you may call another tool or give your final answer. A turn that needs a
 tool call is not finished until you have made it. Never describe or report on file contents
 unless a TOOL_RESULT showed them to you.
