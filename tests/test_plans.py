@@ -159,5 +159,42 @@ class PlanToolTests(_Env):
         self.assertEqual(list_plans(db_path=self.db), [])
 
 
+class PromptStepSignatureTests(_Env):
+    def test_prompt_step_matches_chat_turn_signature(self):
+        """autospec catches signature drift — the live plan run failed on
+        exactly this (required kwargs added to _process_chat_turn)."""
+        create_plan(goal="ask", steps=[{"kind": "prompt", "description": "say hi"}], db_path=self.db)
+        with patch("lisan.tools.chat._process_chat_turn", autospec=True,
+                   return_value={"response": "hi"}), \
+                patch("lisan.tools.scheduler._deliver_owner_message"):
+            summary = run_jobs_worker(vault=self.vault, db_path=self.db)
+        self.assertEqual(summary["failure_count"], 0)
+        self.assertEqual(list_plans(db_path=self.db)[0]["steps_done"], 1)
+
+    def test_scheduled_prompt_task_matches_signature_too(self):
+        from lisan.tools.jobs import enqueue_job
+
+        enqueue_job("task.prompt", {"prompt": "say hi", "due": "2020-01-01T00:00:00Z"},
+                    scheduled_for="2020-01-01T00:00:00Z", db_path=self.db)
+        with patch("lisan.tools.chat._process_chat_turn", autospec=True,
+                   return_value={"response": "hi"}), \
+                patch("lisan.tools.scheduler._deliver_owner_message"):
+            summary = run_jobs_worker(vault=self.vault, db_path=self.db)
+        self.assertEqual(summary["failure_count"], 0)
+
+
+class TerminalFailureTests(_Env):
+    def test_infra_death_still_delivers_failure_report(self):
+        create_plan(goal="fragile", steps=[{"kind": "prompt", "description": "x"}], db_path=self.db)
+        with patch("lisan.tools.chat._process_chat_turn", side_effect=OSError("infra down")), \
+                patch("lisan.tools.scheduler._deliver_owner_message") as deliver:
+            run_jobs_worker(vault=self.vault, db_path=self.db)
+        self.assertTrue(deliver.called)
+        message = deliver.call_args.args[0]
+        self.assertIn("Plan failed", message)
+        plan = list_plans(db_path=self.db)[0]
+        self.assertFalse(plan["active"])
+
+
 if __name__ == "__main__":
     unittest.main()

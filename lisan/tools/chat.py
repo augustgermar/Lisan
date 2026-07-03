@@ -277,13 +277,15 @@ def _process_chat_turn(
     text: str,
     provider: str | None,
     model: str | None,
-    advice_history: list[dict[str, str]],
-    advice_context_active: bool,
-    advice_topic: str | None,
-    domain_override: str | None,
+    advice_history: list[dict[str, str]] | None = None,
+    advice_context_active: bool = False,
+    advice_topic: str | None = None,
+    domain_override: str | None = None,
     db_path: Path | None = None,
 ) -> dict[str, Any]:
     from .capture import capture_text
+
+    advice_history = advice_history if advice_history is not None else []
 
     classification = classify_turn(text, vault=vault)
     lowered = text.lower().strip()

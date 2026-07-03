@@ -142,6 +142,26 @@ def run_plan_step(
     }
 
 
+def handle_terminal_failure(job: dict[str, Any], *, vault: Path | None = None, db_path: Path | None = None) -> None:
+    """A plan.run job that exhausted its retries died on infrastructure, not
+    on a step outcome — the plan must still end honestly: steps marked,
+    owner notified, report written."""
+    vault = vault or vault_root()
+    payload = dict(job.get("payload") or {})
+    steps = [dict(s) for s in payload.get("steps") or []]
+    index = int(payload.get("current_step") or 0)
+    if not payload.get("plan_id") or not steps:
+        return
+    if index < len(steps):
+        steps[index]["status"] = "failed"
+        steps[index]["result"] = f"job error: {str(job.get('error') or 'unknown')[:300]}"
+        for later in steps[index + 1:]:
+            later["status"] = "skipped"
+    payload["steps"] = steps
+    _persist_payload(job, payload, db_path=db_path)
+    _finish_plan(payload, vault=vault, status="failed", send_fn=None, config=None)
+
+
 def _persist_payload(job: dict[str, Any], payload: dict[str, Any], *, db_path: Path | None) -> None:
     from ..utils import json_dumps_stable
     from .db import connect

@@ -1013,6 +1013,13 @@ def run_jobs_worker(
             # this occurrence is still in flight and will be retried.
             if updated is not None and str(updated.get("status")) == "failed":
                 _requeue_recurring(job, db_path=db_path)
+                if str(job.get("job_type")) == "plan.run":
+                    from .plans import handle_terminal_failure
+
+                    try:
+                        handle_terminal_failure(job, vault=vault, db_path=db_path)
+                    except Exception:
+                        pass
         if max_jobs is not None and len(processed) >= max_jobs:
             break
 
