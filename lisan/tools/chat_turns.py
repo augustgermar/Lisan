@@ -111,6 +111,9 @@ def classify_turn(
             reason="explicit memory request",
         )
 
+    # Identity questions keep a fast, fixed answer — it is both a latency win
+    # and a safety guarantee against identity bleed (the agent reading a
+    # retrieved person as itself).
     if _matches_any(lowered, _IDENTITY_PATTERNS):
         return TurnClassification(
             label="identity",
@@ -120,31 +123,18 @@ def classify_turn(
             reason="assistant identity question",
         )
 
-    if _matches_any(lowered, _HELP_PATTERNS) and not in_conversation:
-        return TurnClassification(
-            label="help",
-            route="advice",
-            fast_path_used=True,
-            deterministic_response=_help_response(),
-            reason="help request",
-        )
-
-    if _matches_any(lowered, _STATUS_PATTERNS) and not in_conversation:
-        return TurnClassification(
-            label="status",
-            route="advice",
-            fast_path_used=True,
-            deterministic_response=_status_response(),
-            reason="casual status check",
-        )
-
-    if (_matches_any(lowered, _GREETING_PATTERNS) or _is_short_acknowledgment(lowered)) and not in_conversation:
+    # Bare acknowledgments ("ok", "thanks", "hi") carry no content the agent
+    # needs to reason about — a warm one-liner is right and instant. Capability,
+    # status, and small-talk questions do NOT fast-path: they go to the
+    # conversation agent, which answers from the capability model and full
+    # context. Canned boilerplate for "what can you do?" was strictly worse.
+    if _is_bare_acknowledgment(lowered) and not in_conversation:
         return TurnClassification(
             label="ack",
             route="advice",
             fast_path_used=True,
             deterministic_response=_ack_response(lowered),
-            reason="short acknowledgment",
+            reason="bare acknowledgment",
         )
 
     if _looks_like_memory_story(stripped, lowered):
@@ -165,13 +155,16 @@ def classify_turn(
             reason="practical question",
         )
 
-    if len(stripped.split()) <= 6 and not in_conversation:
+    # Short non-ack turns ("what's your name?", "how's it going") are still
+    # conversation — route them to the agent, which replies with real context
+    # rather than a canned line.
+    if len(stripped.split()) <= 6:
         return TurnClassification(
-            label="smalltalk",
+            label="advice",
             route="advice",
-            fast_path_used=True,
-            deterministic_response=_smalltalk_response(lowered),
-            reason="casual small talk",
+            fast_path_used=False,
+            deterministic_response=None,
+            reason="short conversational turn",
         )
 
     return TurnClassification(
@@ -265,6 +258,21 @@ def _looks_like_practical_question(text: str, lowered: str) -> bool:
         "how do i",
     ]
     return any(marker in lowered for marker in practical_markers) or lowered.endswith("?")
+
+
+def _is_bare_acknowledgment(lowered: str) -> bool:
+    """True only for contentless greetings and acknowledgments — never for a
+    question ("what's up?" wants a real reply) or anything with a request verb."""
+    stripped = lowered.strip().rstrip("!.")
+    if "?" in lowered:
+        return False
+    bare = {
+        "hi", "hey", "hello", "yo", "hiya", "sup", "howdy",
+        "ok", "okay", "cool", "nice", "great", "good", "yep", "yup", "sure",
+        "alright", "thanks", "thank you", "thx", "ty", "got it", "sounds good",
+        "bye", "goodbye", "later", "see ya", "night", "good night",
+    }
+    return stripped in bare
 
 
 def _identity_response(vault: Path | None = None) -> str:

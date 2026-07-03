@@ -271,7 +271,7 @@ class ChatPerformanceTests(unittest.TestCase):
         result = _process_chat_turn(
             vault=self.vault,
             conversation_id="demo",
-            text="cool. what are you up to?",
+            text="thanks",
             provider=None,
             model=None,
             advice_history=[],

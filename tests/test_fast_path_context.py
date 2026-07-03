@@ -28,10 +28,17 @@ class FastPathContextTests(unittest.TestCase):
         append_transcript(vault=self.vault, conversation_id=conversation_id, speaker="USER",
                           text="lets go through my obsidian files and ingest them")
 
-    def test_fresh_conversation_keeps_cheap_smalltalk(self):
-        out = classify_turn("hey there", vault=self.vault, conversation_id="fresh-1")
+    def test_fresh_conversation_keeps_cheap_bare_acks(self):
+        # bare acknowledgments still fast-path; substantive questions do not.
+        out = classify_turn("thanks", vault=self.vault, conversation_id="fresh-1")
         self.assertTrue(out.fast_path_used)
         self.assertIsNotNone(out.deterministic_response)
+
+    def test_capability_question_reaches_agent_even_when_fresh(self):
+        # "what can you do?" must use the capability model, never canned help.
+        out = classify_turn("what can you do?", vault=self.vault, conversation_id="fresh-2")
+        self.assertFalse(out.fast_path_used)
+        self.assertIsNone(out.deterministic_response)
 
     def test_you_pick_mid_conversation_reaches_pipeline(self):
         self._start_conversation("conv-1")

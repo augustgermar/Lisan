@@ -50,3 +50,31 @@ Open items for cycle 5:
 | # | Scenario | Finding | Fix | Status |
 |---|----------|---------|-----|--------|
 | 11 | Same probe as #10 | The agent didn't know today's date, so a past event read "is on July 2" instead of "was". | TODAY (local date+time) injected into every conversation turn, with a tense-anchoring rule. | fixed, retested ✓ ("was yesterday, July 2nd") |
+
+## Cycle 6 — 2026-07-03 (Hermes external examiner + my direct review)
+
+Hermes ran 10 scenarios (30 turns) as an independent examiner; I reviewed the
+transcripts and vault artifacts directly and used its report as a second
+opinion. Both examiners independently found the same two defects; my artifact
+review was stricter on the fast-path and traced the correction bug to the
+record level.
+
+| # | Scenario | Finding | Fix | Status |
+|---|----------|---------|-----|--------|
+| 12 | Fresh-turn "what can you do?", "what's up?", "help me get organized" | Canned fast-path (help/status/smalltalk) fired 0.0s boilerplate, bypassing the capability model — obsolete now that the agent answers in ~7s. | Fast-path shrunk to bare acknowledgments + identity (kept for latency + identity-bleed safety); everything else routes to the agent. | fixed, verified (classification) ✓ |
+| 13 | Correction: state favorite band, correct it, re-ask | **Trust-critical**: correction half-persisted (state updated, old claim + entity summaries left active), and at recall the agent picked a stale value and FABRICATED "you confirmed X was still your favorite" — a history that never happened. Root causes: async capture lag (the correction hadn't been written yet), entity summaries each asserting "their favorite" as durable standalone facts, and confabulation under contradiction. | Conversation-precedence rule: for facts stated in THIS conversation, the verbatim history outranks lagging memory. Contradiction-resolution order (conversation > state.* > record_date) + a hard no-invented-history rule. | fixed, retested ✓ ("Based on what you just told me, your favorite band is David Bowie") |
+| 14 | Provider-failure message (Hermes rec 3) | "I hit a provider failure" was opaque. | Now names the cause ("my language model didn't respond — transient, not your message") so the user knows to retry. | fixed ✓ |
+
+Hermes scenarios that PASSED (my review concurs): recall-with-conflict-detection
+(caught 15/12 vs stored 7/11 and asked), thread continuity through an
+interruption + provider failure, temporal ("next Tuesday" → "July 7th", "4
+days"), file read + neighborly path guessing, self-awareness/not-built honesty,
+emotional register without mood leakage, voice ("break a leg").
+
+Open items for cycle 7:
+- Entity summaries assert time-varying facts ("their favorite") as durable —
+  writer should scope such assertions or defer them to state. (deeper fix)
+- Correction should retire/supersede the old claim, not just add a new state.
+- Memory-update writes still spawn a full ~60-170s codex executor session;
+  a direct record edit would be far cheaper.
+- Dreamer primer maintenance (carried).

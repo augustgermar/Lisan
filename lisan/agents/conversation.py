@@ -70,7 +70,7 @@ class ConversationAgent(PromptAgent):
             message = str(payload.get("user_message") or "").strip()
         except Exception:
             message = ""
-        note = "I hit a provider failure composing a reply — it's logged."
-        if message:
-            note += " Say that again and I'll retry."
+        # Name what failed: "provider failure" is opaque; "my language model
+        # timed out" tells the user it's transient and worth retrying.
+        note = "My language model didn't respond just now — that's a transient hiccup, not your message. Say that again and I'll take another run at it."
         return json.dumps({"response": note})

@@ -74,8 +74,8 @@ def run_conversation_turn(
     if not response:
         log_error(vault, "conversation.empty_response", ValueError(f"empty response for: {text[:120]!r}"))
         response = (
-            "I processed that but failed to produce a reply — the failure is logged. "
-            "Ask me again and I'll take another run at it."
+            "My language model came back empty on that one — a transient hiccup, not your "
+            "message. Ask me again and I'll take another run at it."
         )
 
     append_transcript(vault=vault, conversation_id=conversation_id, speaker="LISAN", text=response)

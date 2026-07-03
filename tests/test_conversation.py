@@ -67,7 +67,7 @@ class ConversationTurnTests(unittest.TestCase):
 
     def test_empty_reply_is_replaced_with_honest_note(self):
         result = self._turn("say nothing", reply="")
-        self.assertIn("failed to produce a reply", result["response"])
+        self.assertIn("came back empty", result["response"])
 
     def test_capabilities_present_every_turn(self):
         self._turn("what can you do?")
