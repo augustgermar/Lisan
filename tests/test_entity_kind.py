@@ -117,3 +117,35 @@ class EntityRecordTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class KindContextLeakTests(unittest.TestCase):
+    """Kind describes what the entity IS, never what the turn was about: a
+    person mentioned near the word 'birthday' must not become an event."""
+
+    def test_event_words_in_context_do_not_leak(self):
+        from lisan.tools.entity_kind import classify_structural
+
+        self.assertIsNone(classify_structural("Maya", context="Birthdays roster: Maya turns 8"))
+        self.assertIsNone(classify_structural("Ruth", context="dentist appointment for the kids"))
+
+    def test_event_words_in_the_name_still_classify(self):
+        from lisan.tools.entity_kind import classify_structural
+
+        self.assertEqual(classify_structural("Maya's Birthday Party"), "event")
+        self.assertEqual(classify_structural("graduation"), "event")
+
+
+class PathSegmentGateTests(unittest.TestCase):
+    def test_path_segments_are_not_entities(self):
+        from lisan.tools.entity_resolution import _looks_like_entity
+
+        text = "look at /Users/august/Library/Mobile Documents/iCloud~md~obsidian/Documents/Vault01/"
+        self.assertFalse(_looks_like_entity("Mobile Documents", "person", frozenset(), text))
+        self.assertFalse(_looks_like_entity("Vault01", "organization", frozenset(), text))
+
+    def test_prose_mentions_survive_even_with_paths_present(self):
+        from lisan.tools.entity_resolution import _looks_like_entity
+
+        self.assertTrue(_looks_like_entity("Maya", "person", frozenset(),
+                                           "my daughter Maya: see /notes/Maya/file.md"))

@@ -29,7 +29,7 @@ from ..utils import utc_now_iso
 
 STEP_KINDS = {"codex", "prompt", "note"}
 _MAX_STEPS = 12
-_RESULT_PREVIEW = 600
+_RESULT_PREVIEW = 2400
 
 
 def create_plan(
@@ -273,10 +273,20 @@ def _summary_message(payload: dict[str, Any], *, status: str) -> str:
     steps = payload.get("steps") or []
     done = sum(1 for s in steps if s.get("status") == "done")
     icon = "✅" if status == "completed" else "⚠️"
-    lines = [f"{icon} Plan {status}: {payload['goal']}", f"{done}/{len(steps)} steps done."]
+    header = f"{icon} Plan {status}: {payload['goal']}"
+
+    # When a completed plan closes with a prompt step, that step's output IS
+    # the report the owner should read — a conversational summary written for
+    # them — not a mechanical step checklist.
+    if status == "completed" and steps and steps[-1].get("kind") == "prompt":
+        closing = str(steps[-1].get("result") or "").strip()
+        if closing:
+            return f"{header}\n\n{closing}"
+
+    lines = [header, f"{done}/{len(steps)} steps done."]
     for i, s in enumerate(steps, start=1):
         mark = {"done": "✓", "failed": "✗", "skipped": "–", "pending": "…"}.get(s.get("status"), "?")
-        lines.append(f"{mark} {i}. {s['description']}")
+        lines.append(f"{mark} {i}. {s['description'][:120]}")
         if s.get("status") == "failed" and s.get("result"):
             lines.append(f"   failure: {s['result'][:200]}")
     return "\n".join(lines)

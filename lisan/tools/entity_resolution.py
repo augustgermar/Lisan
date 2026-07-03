@@ -431,6 +431,28 @@ def _has_person_role_context(name: str, source_text: str) -> bool:
         or re.search(social_with, lowered)
     )
 
+def _appears_only_inside_paths(name: str, source_text: str) -> bool:
+    """True when every occurrence of *name* is embedded in filesystem-path
+    tokens — "Mobile Documents" inside an iCloud path is a path segment, not
+    somebody the user mentioned. Shape rule: an occurrence is path-embedded
+    when every whitespace-delimited token it overlaps contains a slash
+    (macOS paths carry single spaces, so a two-word segment straddles two
+    slash-bearing tokens)."""
+    if not source_text or not name:
+        return False
+    hits = [m.span() for m in re.finditer(re.escape(name), source_text)]
+    if not hits:
+        return False
+    tokens = [(m.start(), m.end(), ("/" in m.group() or "\\" in m.group()))
+              for m in re.finditer(r"\S+", source_text)]
+
+    def in_path(h0: int, h1: int) -> bool:
+        overlapping = [slashy for s, e, slashy in tokens if s < h1 and e > h0]
+        return bool(overlapping) and all(overlapping)
+
+    return all(in_path(h0, h1) for h0, h1 in hits)
+
+
 def _looks_like_entity(name: str, subtype: str, primer_cast: frozenset[str], source_text: str = "") -> bool:
     """Validate that *name* is plausibly an entity of *subtype*.
 
@@ -448,6 +470,9 @@ def _looks_like_entity(name: str, subtype: str, primer_cast: frozenset[str], sou
        are allowed as name components ("Tuesday Smith", "August Chen").
     5. Non-person subtypes: light-touch validation only.
     """
+    if name.strip().lower() not in primer_cast and _appears_only_inside_paths(name, source_text):
+        return False
+
     from .stopwords import SENTENCE_INITIAL_OR_TOOL_STOPWORDS
 
     if not name:

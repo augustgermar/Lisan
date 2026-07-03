@@ -239,5 +239,34 @@ class FolderIngestionPlanTests(_Env):
             build_folder_ingestion_plan(empty, db_path=self.db)
 
 
+class SummaryMessageTests(_Env):
+    def test_closing_prompt_result_is_the_delivered_message(self):
+        create_plan(
+            goal="summarize things",
+            steps=[{"kind": "note", "description": "gather"}, {"kind": "prompt", "description": "summarize"}],
+            db_path=self.db,
+        )
+        with patch("lisan.tools.chat._process_chat_turn", autospec=True,
+                   return_value={"response": "Here is what I learned, conversationally."}), \
+                patch("lisan.tools.scheduler._deliver_owner_message") as deliver:
+            run_jobs_worker(vault=self.vault, db_path=self.db)
+        message = deliver.call_args.args[0]
+        self.assertIn("Here is what I learned", message)
+        self.assertNotIn("2/2 steps done", message)
+
+    def test_failed_plan_still_gets_the_checklist(self):
+        create_plan(
+            goal="doomed",
+            steps=[{"kind": "prompt", "description": "will fail"}],
+            db_path=self.db,
+        )
+        with patch("lisan.tools.chat._process_chat_turn", autospec=True,
+                   return_value={"response": "", "error": "nope"}), \
+                patch("lisan.tools.scheduler._deliver_owner_message") as deliver:
+            run_jobs_worker(vault=self.vault, db_path=self.db)
+        message = deliver.call_args.args[0]
+        self.assertIn("Plan failed", message)
+
+
 if __name__ == "__main__":
     unittest.main()

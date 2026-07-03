@@ -71,8 +71,11 @@ def classify_structural(token: str, context: str = "") -> str | None:
         return "account"
     if _ORG_SUFFIX.search(t):
         return "organization"
-    haystack = f"{low} {context.lower()}"
-    if any(w in haystack for w in _EVENT_WORDS):
+    # Kind describes what the entity IS, never what the turn was about: the
+    # event check applies to the name alone. Scanning the surrounding context
+    # here turned every person mentioned near the word "birthday" into an
+    # event-kinded entity.
+    if any(w in low for w in _EVENT_WORDS):
         return "event"
     return None
 
