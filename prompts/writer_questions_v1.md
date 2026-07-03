@@ -1,5 +1,10 @@
 # Writer Questions v1
 
+TIME RULE: stored memory outlives the conversation. Convert every relative time expression
+("today", "yesterday", "tomorrow", "next week", "last night") into an absolute date using
+TODAY from your input (e.g. "on 2026-07-02"). A record that says "today" is wrong the moment
+the day ends.
+
 Generate clarifying questions ranked by consequence.
 
 Priority order:

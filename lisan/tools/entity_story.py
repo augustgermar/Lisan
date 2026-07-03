@@ -74,6 +74,7 @@ def rewrite_entity_story(
         model=model,
         entity_frontmatter=entity_meta,
         prior_story=prior_story or "(no prior story — first narrative write)",
+        today=today_iso(),
     )
 
     narrative = str(result.get("narrative") or "").strip()

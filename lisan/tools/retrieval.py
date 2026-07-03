@@ -124,6 +124,16 @@ SENSITIVE_COMPARTMENTS = {
 
 
 
+def _record_date(path: Path) -> str:
+    try:
+        from ..frontmatter import load_markdown
+
+        fm = load_markdown(path).frontmatter
+        return str(fm.get("updated") or fm.get("created") or "")
+    except Exception:
+        return ""
+
+
 def assemble_context(
     query: str,
     domain: str | None = None,
@@ -221,6 +231,12 @@ def assemble_context(
         for item in items:
             path = vault / item.path
             details = _format_item_detail(item, path)
+            # Every record carries its date: stored text may say "today" or
+            # "tomorrow" frozen at write time, and the reader can only
+            # resolve those against the record's own date.
+            stamp = _record_date(path)
+            if stamp:
+                details = details.rstrip() + f"\n- record_date: {stamp}"
             sections.append(details)
         sections.append("")
 

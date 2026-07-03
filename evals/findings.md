@@ -33,3 +33,14 @@ Open items for cycle 4:
 - Dreamer should maintain primer Key Relationships + roster from conversation (systemic; roster was hand-populated this round).
 - Retrieval ranking: knowledge records vs recent conversational records for "what do my notes say about X" questions.
 - Latency: conversational turns 9-28s; knowledge-chase turns up to 99s pre-guidance.
+
+## Cycle 4 — 2026-07-03
+
+| # | Scenario | Finding | Fix | Status |
+|---|----------|---------|-----|--------|
+| 10 | "when is the younger daughter's appointment?" (event captured the previous day as "today") | **Temporal staleness, three layers deep**: writers froze relative words at write time; the frozen phrase replicated into entity summaries (including two *place* entities), the state record, and the entity story; retrieval rendered no record dates so the reader couldn't resolve them. | TIME RULE in every writer prompt (all 11 variants) + writers receive TODAY; retrieval renders record_date on every item; conversation prompt treats stored relative words as frozen-at-write-time; live records swept and absolutized. | fixed, retested ✓ ("appointment is on July 2, 2026") |
+
+Open items for cycle 5:
+- Past-tense awareness: a dated past event should be phrased "was", not "is".
+- Phrase replication across records (one fact echoed into place entities + state) — capture dedup/normalization worth a look.
+- Dreamer primer maintenance (carried).

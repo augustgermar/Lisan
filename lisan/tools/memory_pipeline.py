@@ -197,6 +197,7 @@ def run_memory_pipeline(
         "retrieved_context": context,
         "transcript": str(transcript_path.relative_to(vault)),
         "conversation_policy": json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
+        "today": today_iso(),
     }
     if observe:
         interlocutor = {"response": observed_response, "questions": []}
