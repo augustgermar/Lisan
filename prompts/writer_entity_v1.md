@@ -10,7 +10,12 @@ Entity files are the vault's cast of characters: people, places, things, project
 
 Requirements:
 - Third person throughout. This entity's own name is literal — write people, places, things, projects, and organizations by their real names (never a token). The one exception is a self-entity for the principal, whose name is `{{principal}}`. Wherever the summary refers to the principal, use `{{principal}}`, and to the assistant use `{{self}}` — never their real names.
-- Write a clear identity summary: who/what this entity is, their relationship to `{{principal}}`, and any distinguishing details.
+- Write a clear identity summary that LEADS with what the entity durably IS (e.g. "An English
+  rock band formed in 1968"), then its relationship to `{{principal}}` and distinguishing
+  details. A changeable relationship — "favorite", "current", "new", "former" — is not part of
+  the entity's identity: date-stamp it ("as of 2026-07-03, {{principal}}'s favorite") or leave
+  it to a state/claim record, so the summary doesn't go stale the moment the user's taste
+  changes. The summary should still read true a year from now.
 - Use the disambiguation field to distinguish this entity from others with similar names or roles.
 - Record any known aliases or nicknames in the aliases list.
   When the introduction pattern includes a stated alternate name (for
