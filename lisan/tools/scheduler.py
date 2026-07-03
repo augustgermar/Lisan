@@ -453,6 +453,40 @@ def run_scheduler_loop(
     return ticks
 
 
+# ── Always-on service install ────────────────────────────────────────────────
+
+_SCHEDULER_LABEL = "com.lisan.scheduler"
+_SCHEDULER_UNIT = "lisan-scheduler.service"
+
+
+def install_scheduler_service(*, vault: Path) -> int:
+    """Install `lisan scheduler run` as an always-on OS service. Only needed
+    when the Telegram service isn't running (it hosts the same loop)."""
+    import sys
+
+    from ..paths import repo_root
+    from .service_install import ServiceSpec, install_service, service_path_env
+
+    logs = vault / "logs"
+    spec = ServiceSpec(
+        label=_SCHEDULER_LABEL,
+        unit_name=_SCHEDULER_UNIT,
+        description="Lisan task scheduler",
+        program_args=[sys.executable, "-m", "lisan", "scheduler", "run", "--vault", str(vault)],
+        environment={"LISAN_VAULT": str(vault), "PATH": service_path_env()},
+        working_directory=repo_root(),
+        out_log=logs / "scheduler-service.out.log",
+        err_log=logs / "scheduler-service.err.log",
+    )
+    return install_service(spec)
+
+
+def uninstall_scheduler_service() -> int:
+    from .service_install import uninstall_service
+
+    return uninstall_service(label=_SCHEDULER_LABEL, unit_name=_SCHEDULER_UNIT)
+
+
 _send_fn_local = threading.local()
 
 

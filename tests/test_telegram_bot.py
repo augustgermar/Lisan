@@ -266,7 +266,7 @@ class ServiceRenderTests(unittest.TestCase):
     def test_systemd_unit_has_execstart_and_restart(self):
         unit = _render_systemd_unit(python="/venv/bin/python", vault=Path("/home/me/.lisan/vault"))
         self.assertIn("ExecStart=/venv/bin/python -m lisan telegram run --vault /home/me/.lisan/vault", unit)
-        self.assertIn("Environment=LISAN_VAULT=/home/me/.lisan/vault", unit)
+        self.assertIn('Environment="LISAN_VAULT=/home/me/.lisan/vault"', unit)
         self.assertIn("Restart=always", unit)
         self.assertIn("WantedBy=default.target", unit)
 

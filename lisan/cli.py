@@ -577,6 +577,34 @@ def build_parser() -> argparse.ArgumentParser:
     telegram_install.add_argument("--vault", type=Path, default=vault_root())
     telegram_subparsers.add_parser("uninstall-service", help="Stop + remove the always-on service")
 
+    scheduler_cmd = subparsers.add_parser("scheduler", help="Run tasks at their scheduled times")
+    scheduler_subparsers = scheduler_cmd.add_subparsers(dest="scheduler_command", required=True)
+    scheduler_run = scheduler_subparsers.add_parser("run", help="Run the scheduler loop in the foreground (Ctrl-C to stop)")
+    scheduler_run.add_argument("--vault", type=Path, default=vault_root())
+    scheduler_run.add_argument("--db-path", type=Path, default=None)
+    scheduler_run.add_argument("--provider", default=None)
+    scheduler_run.add_argument("--model", default=None)
+    scheduler_run.add_argument("--poll", type=float, default=30.0, help="Max seconds between due-work checks")
+    scheduler_install = scheduler_subparsers.add_parser("install-service", help="Install + start the always-on scheduler (launchd/systemd)")
+    scheduler_install.add_argument("--vault", type=Path, default=vault_root())
+    scheduler_subparsers.add_parser("uninstall-service", help="Stop + remove the always-on scheduler")
+
+    task_cmd = subparsers.add_parser("task", help="Schedule tasks to run at a future time")
+    task_subparsers = task_cmd.add_subparsers(dest="task_command", required=True)
+    task_add = task_subparsers.add_parser("add", help="Schedule a task")
+    task_add.add_argument("text", help="What to do: the reminder message, prompt, or codex task")
+    task_add.add_argument("--kind", choices=["reminder", "prompt", "codex"], default="reminder")
+    task_add.add_argument("--at", default=None, help="When to fire: 'YYYY-MM-DD HH:MM' (local), ISO 8601, or 'HH:MM'")
+    task_add.add_argument("--every", default=None, help="Recur every interval, e.g. 30m, 2h, 1d, 1w")
+    task_add.add_argument("--daily", default=None, help="Recur daily at HH:MM local time")
+    task_add.add_argument("--dir", dest="working_directory", default=None, help="Working directory (codex tasks)")
+    task_add.add_argument("--db-path", type=Path, default=None)
+    task_list = task_subparsers.add_parser("list", help="List scheduled tasks")
+    task_list.add_argument("--db-path", type=Path, default=None)
+    task_cancel = task_subparsers.add_parser("cancel", help="Cancel a scheduled task")
+    task_cancel.add_argument("job_id")
+    task_cancel.add_argument("--db-path", type=Path, default=None)
+
     return parser
 
 
@@ -1005,6 +1033,72 @@ def main(argv: list[str] | None = None) -> int:
             from .tools.telegram_bot import uninstall_service
 
             return uninstall_service()
+
+    if args.command == "scheduler":
+        if args.scheduler_command == "run":
+            from .tools.scheduler import run_scheduler_loop
+
+            print(f"⚕ Lisan scheduler running (poll ceiling {args.poll:g}s). Ctrl-C to stop.")
+            try:
+                run_scheduler_loop(
+                    vault=args.vault,
+                    db_path=args.db_path,
+                    provider=args.provider,
+                    model=args.model,
+                    poll_seconds=args.poll,
+                    on_tick=lambda summary: print(
+                        f"processed {summary.get('processed_count')} job(s) "
+                        f"({summary.get('success_count')} ok, {summary.get('failure_count')} failed)"
+                    ),
+                )
+            except KeyboardInterrupt:
+                print("\nStopped.")
+            return 0
+        if args.scheduler_command == "install-service":
+            from .tools.scheduler import install_scheduler_service
+
+            return install_scheduler_service(vault=args.vault)
+        if args.scheduler_command == "uninstall-service":
+            from .tools.scheduler import uninstall_scheduler_service
+
+            return uninstall_scheduler_service()
+
+    if args.command == "task":
+        from .tools.scheduler import cancel_task, format_task_list, list_tasks, schedule_task
+
+        if args.task_command == "add":
+            if args.every and args.daily:
+                print("✗ Use either --every or --daily, not both.")
+                return 1
+            every = args.every.removeprefix("every:") if args.every else None
+            daily = args.daily.removeprefix("daily@") if args.daily else None
+            recurrence = f"every:{every}" if every else (f"daily@{daily}" if daily else None)
+            try:
+                summary = schedule_task(
+                    kind=args.kind,
+                    text=args.text,
+                    when=args.at,
+                    recurrence=recurrence,
+                    working_directory=args.working_directory,
+                    db_path=args.db_path,
+                )
+            except ValueError as exc:
+                print(f"✗ {exc}")
+                return 1
+            recur_note = f" (recurring {summary['recurrence']})" if summary.get("recurrence") else ""
+            print(f"✓ Scheduled {summary['kind']} for {summary['scheduled_for_local']}{recur_note}")
+            print(f"  id: {summary['job_id']}")
+            return 0
+        if args.task_command == "list":
+            print(format_task_list(list_tasks(db_path=args.db_path)))
+            return 0
+        if args.task_command == "cancel":
+            job = cancel_task(args.job_id, db_path=args.db_path)
+            if job is None:
+                print(f"✗ No such task: {args.job_id}")
+                return 1
+            print(f"✓ Canceled {args.job_id} (status: {job.get('status')})")
+            return 0
 
     if args.command == "sync":
         _bootstrap_runtime(args.vault, ensure_schema=True)
