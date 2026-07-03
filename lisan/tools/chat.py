@@ -586,6 +586,7 @@ def _run_advice_response(
         conversation_policy=conversation_policy.as_dict() if conversation_policy is not None else {},
         vault_context=vault_context,
         capabilities=_capability_index_safe(),
+        self_state=_self_state_safe(vault),
     )
     return str(result.text).strip()
 
@@ -675,6 +676,17 @@ def _refresh_capabilities_primer(vault: Path) -> None:
         ensure_capabilities_primer(vault)
     except Exception:
         pass
+
+
+def _self_state_safe(vault: Path) -> str | None:
+    """Live operational snapshot for the advice route, which has no tools —
+    state questions must be answerable from injected data, never guessed."""
+    try:
+        from .self_model import render_self_state, snapshot_self_state
+
+        return render_self_state(snapshot_self_state(vault=vault))
+    except Exception:
+        return None
 
 
 def _capability_index_safe() -> str | None:
