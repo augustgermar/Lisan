@@ -604,24 +604,107 @@ def _run_advice_response(
     return str(result.text).strip()
 
 
+# Pipeline step names → what the user sees in the live activity feed.
+# None = internal bookkeeping, not worth a line.
+_STEP_LABELS: dict[str, str | None] = {
+    "memory_pipeline.start": None,
+    "memory_pipeline.transcript": None,
+    "memory_capture": None,
+    "advice_response": None,
+    "memory_pipeline.listener": "listening — classifying this turn",
+    "memory_pipeline.elicitor": "drafting clarifying questions",
+    "memory_pipeline.assembler": "recalling related memories",
+    "memory_pipeline.interlocutor": "composing response",
+    "memory_pipeline.writer": "writer — extracting what to remember",
+    "memory_pipeline.skeptic": "skeptic — checking the records",
+    "memory_pipeline.writer.artifacts": "writer — artifact pass",
+    "memory_pipeline.fanout": "writing records to the vault",
+    "memory_pipeline.fanout.skeptic_blocked": "skeptic blocked a record",
+}
+
+
+class _ProgressRenderer:
+    """Claude-Code-style live narration of a turn: one dim line per pipeline
+    stage, tool call, and finished model call, printed as events arrive."""
+
+    def __init__(self, agent_name: str, out=print):
+        self.agent_name = agent_name
+        self.out = out
+        self._lock = threading.Lock()
+        self._header_shown = False
+
+    def ensure_header(self) -> None:
+        with self._lock:
+            self._ensure_header_locked()
+
+    def _ensure_header_locked(self) -> None:
+        if not self._header_shown:
+            self._header_shown = True
+            self.out("")
+            self.out(_c(f"{self.agent_name}: ", CYAN) + _c("thinking…", DIM))
+
+    def __call__(self, event: dict) -> None:
+        line = self._format(event)
+        if line is None:
+            return
+        with self._lock:
+            self._ensure_header_locked()
+            self.out(_c(f"  ▸ {line}", DIM))
+
+    def _format(self, event: dict) -> str | None:
+        kind = event.get("kind")
+        if kind == "step":
+            step = str(event.get("step") or "")
+            if step in _STEP_LABELS:
+                return _STEP_LABELS[step]
+            return step
+        if kind == "tool":
+            preview = str(event.get("args_preview") or "")
+            return f"tool: {event.get('tool')} {preview}".rstrip()
+        if kind == "llm_call":
+            model = str(event.get("model") or "")
+            if model in ("None", "null"):
+                model = ""
+            backend = f"{event.get('provider')}{'/' + model if model else ''}"
+            seconds = float(event.get("elapsed_ms") or 0) / 1000.0
+            if event.get("success"):
+                return f"{event.get('call_name')} done ({backend}, {seconds:.1f}s)"
+            error_type = str(event.get("error_type") or "error")
+            return f"✗ {event.get('call_name')} failed ({backend}, {seconds:.1f}s, {error_type})"
+        if kind == "retrieval":
+            records = int(event.get("records") or 0)
+            graph = int(event.get("graph") or 0)
+            graph_note = f" (+{graph} via graph)" if graph else ""
+            return f"recalled {records} record(s){graph_note}"
+        if kind == "jobs_queued":
+            return f"queued {event.get('count')} background job(s)"
+        return None
+
+
 def _run_with_thinking_indicator(callable_obj, agent_name: str = "Lisan"):
+    from .tracing import reset_progress_listener, set_progress_listener
+
     done = threading.Event()
     started = time.time()
+    renderer = _ProgressRenderer(agent_name)
 
     def _show_waiting() -> None:
+        # If nothing has narrated within 0.7s, show the header so the user
+        # knows work started; events add their own lines under it.
         if not done.wait(0.7):
-            print()
-            print(_c(f"{agent_name}: ", CYAN) + _c("thinking…", DIM))
+            renderer.ensure_header()
 
     watcher = threading.Thread(target=_show_waiting, daemon=True)
     watcher.start()
+    token = set_progress_listener(renderer)
     try:
         return callable_obj()
     finally:
+        reset_progress_listener(token)
         done.set()
         elapsed_ms = int((time.time() - started) * 1000)
         if elapsed_ms >= 700:
-            print(_c(f"  [took {elapsed_ms} ms]", DIM))
+            print(_c(f"  [took {elapsed_ms / 1000:.1f}s]", DIM))
 
 
 def _load_current_state(vault: Path, conversation_id: str) -> Any:

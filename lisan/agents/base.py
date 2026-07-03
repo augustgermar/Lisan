@@ -126,6 +126,9 @@ class PromptAgent:
             for call in tool_calls:
                 tool_name = str(call.get("tool") or "")
                 args = dict(call.get("args") or {})
+                from ..tools.tracing import record_tool_use
+
+                record_tool_use(tool_name, args)
                 handler = tool_handlers.get(tool_name)
                 if handler is None:
                     result = f"Error: unknown tool {tool_name}"

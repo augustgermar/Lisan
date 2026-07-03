@@ -8,13 +8,40 @@ from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from ..paths import sqlite_path, vault_root
 from ..utils import approx_token_count
 
 
 _CURRENT_TRACE: ContextVar["TurnTrace | None"] = ContextVar("lisan_current_turn_trace", default=None)
+
+# Live progress: an optional listener that receives each trace event as it is
+# recorded, so an interactive frontend (CLI chat) can narrate the turn while
+# it runs instead of only summarizing afterwards. Listener failures are
+# swallowed — observability must never break the pipeline.
+_PROGRESS_LISTENER: ContextVar["Callable[[dict[str, Any]], None] | None"] = ContextVar(
+    "lisan_progress_listener", default=None
+)
+
+
+def set_progress_listener(listener: "Callable[[dict[str, Any]], None] | None") -> Token:
+    return _PROGRESS_LISTENER.set(listener)
+
+
+def reset_progress_listener(token: Token | None) -> None:
+    if token is not None:
+        _PROGRESS_LISTENER.reset(token)
+
+
+def _notify_progress(event: dict[str, Any]) -> None:
+    listener = _PROGRESS_LISTENER.get()
+    if listener is None:
+        return
+    try:
+        listener(event)
+    except Exception:
+        pass
 
 
 @dataclass(slots=True)
@@ -131,6 +158,24 @@ def record_inline_step(step: str) -> None:
     trace = get_current_turn_trace()
     if trace is not None:
         trace.add_step(step)
+    _notify_progress({"kind": "step", "step": step})
+
+
+def record_tool_use(tool_name: str, args: dict[str, Any] | None = None) -> None:
+    """A tool call made mid-response (search_memory, read_file, run_codex,
+    schedule_task, skills)."""
+    trace = get_current_turn_trace()
+    if trace is not None:
+        trace.add_step(f"tool.{tool_name}")
+    preview = ""
+    if args:
+        try:
+            preview = json.dumps(args, ensure_ascii=True, sort_keys=True)
+        except Exception:
+            preview = str(args)
+        if len(preview) > 120:
+            preview = preview[:117] + "..."
+    _notify_progress({"kind": "tool", "tool": tool_name, "args_preview": preview})
 
 
 def record_llm_call(
@@ -158,18 +203,32 @@ def record_llm_call(
             error=error,
             error_type=error_type,
         )
+    _notify_progress(
+        {
+            "kind": "llm_call",
+            "call_name": call_name,
+            "provider": provider,
+            "model": model or "",
+            "elapsed_ms": elapsed_ms,
+            "success": success,
+            "error_type": error_type or "",
+        }
+    )
 
 
 def record_retrieval_result(record_count: int, graph_count: int) -> None:
     trace = get_current_turn_trace()
     if trace is not None:
         trace.mark_retrieval(record_count, graph_count)
+    _notify_progress({"kind": "retrieval", "records": record_count, "graph": graph_count})
 
 
 def record_jobs_queued(count: int) -> None:
     trace = get_current_turn_trace()
     if trace is not None:
         trace.mark_jobs_queued(count)
+    if count:
+        _notify_progress({"kind": "jobs_queued", "count": count})
 
 
 def finalize_turn_trace(
