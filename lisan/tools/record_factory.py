@@ -8,7 +8,7 @@ from typing import Any
 from ..frontmatter import load_markdown, write_markdown
 from ..utils import slugify, today_iso
 from .domain_fields import with_domain_fields
-from .epistemic import listify
+from ..utils import listify
 from .reference_resolution import resolve_reference
 
 

@@ -41,6 +41,15 @@ def parse_date(value: Any) -> date | None:
     return None
 
 
+def listify(value: Any) -> list[str]:
+    """Coerce a value into a list of non-empty strings."""
+    if value in (None, "", []):
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item)]
+    return [str(value)]
+
+
 def ensure_list(value: Any) -> list[Any]:
     if value is None:
         return []

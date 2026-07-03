@@ -7,7 +7,7 @@ from typing import Any
 
 from ..frontmatter import load_markdown, write_markdown
 from ..utils import slugify, today_iso
-from .epistemic import listify
+from ..utils import listify
 from .log import get_logger, log_error
 from .reference_resolution import normalize_text, resolve_reference
 from .record_factory import (

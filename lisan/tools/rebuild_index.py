@@ -12,11 +12,11 @@ from ..frontmatter import FrontmatterError, load_markdown
 from ..paths import embeddings_path, repo_root, sqlite_path, vault_root
 from ..providers.embeddings import EmbeddingProvider
 from .domain_fields import normalize_domain_fields
+from ..utils import listify
 from .epistemic import (
     normalize_claim_frontmatter,
     normalize_evidence_frontmatter,
     normalize_skeptical_review_frontmatter,
-    listify,
 )
 from .ingest import ensure_ingestion_manifest_table
 from .ingest_batches import ensure_ingestion_batches_table

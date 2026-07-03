@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 from ..frontmatter import load_markdown, write_markdown
 from ..utils import slugify, today_iso
-from .epistemic import listify
+from ..utils import listify
 from .deixis import has_unresolved_token
 from .record_fanout import basis_or_default, index_created_record
 from .record_factory import CreatedRecord, new_entity

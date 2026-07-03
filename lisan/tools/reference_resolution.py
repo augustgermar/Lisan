@@ -7,7 +7,7 @@ from typing import Any
 from ..providers.embeddings import EmbeddingProvider
 from .vector_store import cosine_similarity
 from ..utils import hash_embedding
-from .epistemic import listify
+from ..utils import listify
 from ..config import load_config
 
 

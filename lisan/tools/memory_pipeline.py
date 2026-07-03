@@ -16,7 +16,7 @@ from .elicitor_session import run_elicitor_session
 from .domain_fields import with_domain_fields
 from .firewall import scan_text
 from .log import log_error
-from .epistemic import listify
+from ..utils import listify
 from .narrative_state import load_narrative_state
 from .retrieval import retrieve_context
 from .deixis import has_unresolved_token, render_deixis, tokenize_principal, tokenize_principal_obj

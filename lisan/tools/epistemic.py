@@ -4,6 +4,7 @@ from datetime import date, timedelta
 import re
 from pathlib import Path
 from typing import Any
+from ..utils import listify
 
 
 SOURCE_TYPES = {
@@ -157,12 +158,6 @@ REASONING_ERROR_TAXONOMY = {
 }
 
 
-def listify(value: Any) -> list[str]:
-    if value in (None, "", []):
-        return []
-    if isinstance(value, list):
-        return [str(item) for item in value if str(item)]
-    return [str(value)]
 
 
 def normalize_evidence_frontmatter(frontmatter: dict[str, Any]) -> dict[str, Any]:
