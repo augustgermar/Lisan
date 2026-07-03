@@ -20,6 +20,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "base_url": _LOCAL_DEFAULT_BASE_URL,
             "default_model": None,
         },
+        "rotato": {
+            "base_url": "http://localhost:8990/gemflash/chat/completions",
+            "default_model": "gemini-2.5-pro",
+            "timeout_seconds": 120,
+        },
         "codex": {
             "enabled": True,
             "binary_env": "CODEX_BIN",

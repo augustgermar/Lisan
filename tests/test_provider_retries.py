@@ -93,3 +93,30 @@ class CodexBinaryErrorTests(unittest.TestCase):
             with self.assertRaises(ProviderError) as ctx:
                 client.complete("hello")
         self.assertIn("could not be launched", str(ctx.exception))
+
+
+class RotatoClientTests(unittest.TestCase):
+    def _client(self, body: dict):
+        from unittest.mock import MagicMock, patch as _patch
+
+        from lisan.providers.rotato import RotatoClient
+
+        client = RotatoClient({"providers": {"rotato": {"default_model": "gemini-2.5-pro"}}})
+        response = MagicMock()
+        response.read.return_value = __import__("json").dumps(body).encode()
+        response.__enter__ = lambda s: response
+        response.__exit__ = lambda s, *a: False
+        return client, _patch("urllib.request.urlopen", return_value=response)
+
+    def test_parses_openai_shape(self):
+        client, ctx = self._client({"choices": [{"message": {"content": '{"response": "hi"}'}}]})
+        with ctx:
+            out = client.complete("x", schema={"type": "object"})
+        self.assertIn("hi", out.text)
+        self.assertEqual(out.provider, "rotato")
+
+    def test_empty_message_raises_provider_error(self):
+        client, ctx = self._client({"choices": [{"message": {"content": ""}}]})
+        with ctx:
+            with self.assertRaises(ProviderError):
+                client.complete("x")

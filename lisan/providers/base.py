@@ -391,6 +391,10 @@ def _client_for(provider: str, config: dict[str, Any]) -> "ProviderClient":
         from .openrouter import OpenRouterClient
 
         return OpenRouterClient(config)
+    if provider == "rotato":
+        from .rotato import RotatoClient
+
+        return RotatoClient(config)
     raise ProviderError(f"Unknown provider: {provider}")
 
 
