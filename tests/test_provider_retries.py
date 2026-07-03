@@ -42,6 +42,42 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class CodexSandboxTests(unittest.TestCase):
+    """Non-executor agents run codex read-only: the codex CLI is agentic and
+    will sometimes act inline despite instructions, which would bypass the
+    run_codex approval gate. The boundary must be structural."""
+
+    def _capture_args(self, agent: str) -> list[str]:
+        from unittest.mock import MagicMock
+
+        from lisan.providers.codex import CodexClient
+
+        client = CodexClient({"providers": {"codex": {}}})
+        captured: list[list[str]] = []
+
+        def fake_run(args, **kwargs):
+            captured.append(list(args))
+            proc = MagicMock()
+            proc.returncode = 0
+            proc.stdout = "ok"
+            proc.stderr = ""
+            return proc
+
+        with patch("lisan.providers.codex.subprocess.run", side_effect=fake_run):
+            client.complete("hello", agent=agent)
+        return captured[0]
+
+    def test_decision_agents_run_read_only(self) -> None:
+        for agent in ("interlocutor", "listener", "writer", "skeptic"):
+            args = self._capture_args(agent)
+            self.assertIn("--sandbox", args, f"{agent} must run sandboxed")
+            self.assertIn("read-only", args)
+
+    def test_executor_agent_keeps_write_access(self) -> None:
+        args = self._capture_args("codex")
+        self.assertNotIn("--sandbox", args)
+
+
 class CodexBinaryErrorTests(unittest.TestCase):
     def test_missing_binary_raises_provider_error(self) -> None:
         """A missing codex binary must surface as ProviderError, not a raw

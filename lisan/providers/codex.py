@@ -79,6 +79,15 @@ class CodexClient(ProviderClient):
         output_path: Path | None = None
         try:
             args = [binary, "exec", "--skip-git-repo-check", "--cd", str(working_directory or repo_root())]
+            if agent != "codex":
+                # Decision/extraction agents (listener, interlocutor, writer,
+                # skeptic, ...) must never act on the system themselves — all
+                # action flows through the run_codex tool and its approval
+                # gate. The codex CLI is itself agentic and will sometimes run
+                # commands inline despite prompt instructions, so the boundary
+                # is enforced structurally: read-only sandbox for everyone but
+                # the executor agent.
+                args.extend(["--sandbox", "read-only"])
             if chosen_model:
                 args.extend(["--model", chosen_model])
 
