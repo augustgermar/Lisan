@@ -83,6 +83,28 @@ def rewrite_entity_story(
     if not narrative:
         return {"updated": False, "reason": "empty_narrative", "entity_path": str(entity_path)}
 
+    # No-shrink guardrail (deterministic-first): a rewrite that folds in new
+    # material must not come back materially shorter than the story it
+    # replaces — that is silent content loss, the "act three deleted" failure.
+    # The model handles prose; this code guarantees the arc is never
+    # compressed away. When the rewrite shrinks meaningfully, keep the fuller
+    # prior story and append the new developments rather than overwrite.
+    prior_words = len(prior_story.split())
+    new_words = len(narrative.split())
+    if prior_words >= 60 and new_words < prior_words * 0.85:
+        appended = _append_developments(prior_story, new_material, canonical_name)
+        if appended:
+            narrative = appended
+            arc_note = (arc_note + " [guardrail: rewrite shrank the story; kept prior and appended new developments]").strip()
+        else:
+            return {
+                "updated": False,
+                "reason": "rewrite_shrank_story",
+                "prior_words": prior_words,
+                "new_words": new_words,
+                "entity_path": str(entity_path),
+            }
+
     # Tokenize: no real principal name must reach the vault file.
     narrative = tokenize_principal(narrative, vault)
 
@@ -102,6 +124,25 @@ def rewrite_entity_story(
         "arc_note": arc_note,
         "entity_path": str(entity_path),
     }
+
+
+def _append_developments(prior_story: str, new_material: str, canonical_name: str) -> str:
+    """Fallback when a rewrite would shrink the story: keep the established
+    narrative verbatim and add the new material as a continuation paragraph,
+    so nothing established is ever lost. Returns "" if there is no prior body
+    to preserve."""
+    import re
+
+    body = re.sub(r"^#\s+.*$", "", prior_story, count=1, flags=re.M).strip()
+    if not body:
+        return ""
+    addition = new_material.strip()
+    if not addition:
+        return body
+    # keep the addition compact — a single continuation paragraph
+    addition = re.sub(r"\s+", " ", addition)[:800].strip()
+    return f"{body}\n\n{addition}"
+
 
 
 def _read_draft_body(draft_path: Path | None) -> str:

@@ -325,3 +325,60 @@ class EntitesTouchedTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NoShrinkGuardrailTests(unittest.TestCase):
+    """A rewrite that folds in new material must never come back materially
+    shorter than the story it replaces — that is silent content loss (the
+    'act three deleted' failure the growth experiment found)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.vault = Path(self.tmp.name)
+        (self.vault / "entities" / "people").mkdir(parents=True)
+        (self.vault / "primer").mkdir(parents=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _entity(self, body: str) -> Path:
+        path = self.vault / "entities" / "people" / "ada-lore.md"
+        fm = {"id": "entity.person.ada-lore", "canonical_name": "Ada Lore", "kind": "person",
+              "summary": "A colleague.", "updated": "2026-07-01"}
+        path.write_text("---\n" + json.dumps(fm) + "\n---\n\n# Ada Lore\n\n" + body, encoding="utf-8")
+        return path
+
+    def test_shrinking_rewrite_is_rejected_and_appended(self):
+        from unittest.mock import patch
+
+        long_prior = " ".join(f"Ada did notable thing number {i} that mattered a great deal." for i in range(20))
+        path = self._entity(long_prior)
+        draft = self.vault / "drafts" / "d.md"
+        draft.parent.mkdir(exist_ok=True)
+        draft.write_text("---\n{}\n---\n\nAda just adopted a rescue greyhound named Pilot.", encoding="utf-8")
+
+        # writer returns a drastically shorter narrative (content loss)
+        with patch("lisan.agents.writer.WriterAgent.run_json",
+                   return_value={"narrative": "Ada is a colleague with a dog.", "arc_note": "shrank"}):
+            from lisan.tools.entity_story import rewrite_entity_story
+            result = rewrite_entity_story(self.vault, path, draft_path=draft, db_path=self.vault / "x.sqlite")
+
+        body = path.read_text(encoding="utf-8")
+        self.assertIn("notable thing number 19", body)   # the established arc survived
+        self.assertIn("greyhound named Pilot", body)      # new material was appended
+        self.assertNotIn("a colleague with a dog", body)  # the lossy rewrite was rejected
+
+    def test_healthy_growth_is_accepted(self):
+        from unittest.mock import patch
+
+        path = self._entity("Ada is a data engineer the user met in 2019.")
+        draft = self.vault / "drafts" / "d.md"
+        draft.parent.mkdir(exist_ok=True)
+        draft.write_text("---\n{}\n---\n\nAda was promoted to lead the platform team.", encoding="utf-8")
+        grown = ("Ada is a data engineer the user met in 2019. She has since been promoted to "
+                 "lead the platform team, a role that suits her rigor and calm under pressure.")
+        with patch("lisan.agents.writer.WriterAgent.run_json",
+                   return_value={"narrative": grown, "arc_note": "grew"}):
+            from lisan.tools.entity_story import rewrite_entity_story
+            rewrite_entity_story(self.vault, path, draft_path=draft, db_path=self.vault / "x.sqlite")
+        self.assertIn("lead the platform team", path.read_text(encoding="utf-8"))
