@@ -52,6 +52,20 @@ def run_conversation_turn(
     context = _retrieval_context(vault=vault, text=text, conversation_id=conversation_id, db_path=db_path)
     profile = _owner_profile(vault)
 
+    # Session open is the drive system's single delivery seam (v1 action
+    # budget): a fresh conversation may carry at most one question-phrased
+    # callback. The user's turn is already in the transcript by now, so
+    # "open" means this conversation holds exactly that one turn. The drive
+    # must never break a conversation turn.
+    unresolved_thread = None
+    try:
+        if len(conversation_history(vault, conversation_id)) <= 1:
+            from .drive import session_open_callback
+
+            unresolved_thread = session_open_callback(vault, conversation_id)
+    except Exception as exc:
+        log_error(vault, "conversation.drive_callback", exc)
+
     agent = ConversationAgent(vault=vault)
     record_inline_step("conversation.agent")
     out = agent.run_json(
@@ -64,6 +78,7 @@ def run_conversation_turn(
         today=_today_line(),
         owner_profile=profile or None,
         retrieved_context=context or None,
+        unresolved_thread=unresolved_thread,
         capabilities=cached_capability_index(),
         db_path=db_path,
         conversation_id=conversation_id,

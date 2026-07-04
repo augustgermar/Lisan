@@ -10,7 +10,7 @@ order; update state transitions with date + completing commit.
 | 2 | Voice extraction pass + ratification ceremony | done | 2026-07-04 | (this) |
 | 3 | Consistency rubric, instrumentation, baseline | done | 2026-07-04 | (this) |
 | 4 | Layer B: self-episodes + capability beliefs | done | 2026-07-04 | (this) |
-| 5 | Deficit scorer + session-open callbacks | pending | — | — |
+| 5 | Deficit scorer + session-open callbacks | done | 2026-07-04 | (this) |
 | 6 | Self-belief reconciliation dreamer job | pending | — | — |
 | 7 | Graduated action policy | pending | — | — |
 | 8 | Wipe Test (clone-only) | pending | — | — |
@@ -70,3 +70,14 @@ order; update state transitions with date + completing commit.
 - CARRY for WO-9: pre-existing alias ambiguities in live vault (bogus
   'Vee' thing-entity ×3, Wisteria Hollows dup, address/chateau dup) —
   now surfaced by the validator's alias audit.
+- 2026-07-04: WO-5 done. drive.py (deficit scorer: salience + stake +
+  age, linear decay to zero; cooldown stamp last_callback; one per
+  session open; interrogative by construction; drive.callback.* log
+  markers) + session-open seam in conversation.py (session open = the
+  conversation holds exactly the current turn — found and fixed the
+  append-before-read bug) + UNRESOLVED_THREAD prompt section. LIVE
+  DEMO: staked loop from the agent's real failed plan run → fresh
+  session opened with a question-phrased callback, score 4.0, marker
+  logged. Fleet loops score 1.0-1.12 (below 2.0 threshold — young
+  low-sig loops earn callbacks after ~2 weeks by design). 9 new tests;
+  suite 540 green.
