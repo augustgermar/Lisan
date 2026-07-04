@@ -170,3 +170,41 @@ Open for cycle 10:
   organization entity, not only a gig event.
 - Content granularity in very long rewrites (carried).
 - Dreamer primer maintenance (carried).
+
+## Cycle 10 — 2026-07-04 (SCALE stress test — the untested frontier)
+
+Loaded a coherent 150-turn simulated life (large interconnected cast) into the
+vault to ~2x scale and audited what breaks at volume. Baseline 64 entities /
+437 records -> 123 entities / 845 records / 550 indexed.
+
+STRONG PASSES (the core architecture holds at scale):
+- RETRIEVAL QUALITY: self-record present in 8/8 sampled cast members. The right
+  record still surfaces among 123 entities.
+- LATENCY: median 0.06s at scale (baseline 0.05-0.5s) — NO degradation. RRF +
+  index scale cleanly at this size.
+- KIND FRAGMENTATION: the kind-stickiness fix HOLDS. 59 new entities added ZERO
+  new cross-kind duplicates (only the pre-fix Wisteria place/person remains).
+
+NEW FINDING (the scale bug worth fixing):
+- QUALIFIER/DATE-SUFFIX FRAGMENTATION. Entities fork into base + qualified
+  variants that don't dedup: "Monterey" / "Monterey Aquarium" / "Monterey Bay
+  Aquarium" (3 for one place); "deck rebuild" / "deck rebuild project (summer
+  2026)"; "community radio station" / "...work day (2026-07-11)"; "mike" /
+  "dinner with mike on 2026-07-10". Root: the writer mints date/qualifier-
+  stamped entities (often event-kinded) that duplicate a base project/place;
+  cross-kind + suffix differences dodge the token-overlap matcher. Same class
+  as the Wisteria name-variant, surfaced sharply at scale.
+- Minor: 5 stub narratives (up from 1); the stale "The" article entity
+  archived this cycle.
+
+ASYMMETRY NOTE (architectural): conversations are cheap (~8-11s, flat at scale)
+but memory formation is expensive and lags — draining 150 captures took the
+bulk of the run. At a real life's volume the background writer is the
+bottleneck; strongest argument yet for append-not-full-rewrite for rich
+entities.
+
+Open for cycle 11:
+- Qualifier/date-suffix entity dedup (normalize trailing "(...)" and date
+  stamps; don't mint entities for what are episodes of a project).
+- Content granularity in long rewrites (carried).
+- Dreamer maintenance / primer roster (carried).
