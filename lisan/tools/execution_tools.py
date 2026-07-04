@@ -217,15 +217,22 @@ def read_file(path: str, *, max_bytes: int = 50 * 1024) -> str:
 def codex_workspace() -> str:
     """The executor's default workspace: the smallest directory containing
     both the repo and the vault. Everything outside it is read-only to the
-    executor by sandbox policy."""
+    executor by sandbox policy — so when repo and vault share no ancestor
+    deeper than the user's home (disjoint trees give a common path of
+    home, /Users, or /), the boundary must collapse tighter, not wider:
+    the workspace falls back to the repo alone."""
     import os
 
     from ..paths import vault_root
 
     try:
-        return os.path.commonpath([str(repo_root()), str(vault_root())])
+        common = Path(os.path.commonpath([str(repo_root()), str(vault_root())]))
     except ValueError:
         return str(repo_root())
+    home = Path.home()
+    if common == home or common in home.parents or common == Path(common.anchor):
+        return str(repo_root())
+    return str(common)
 
 
 def run_codex(

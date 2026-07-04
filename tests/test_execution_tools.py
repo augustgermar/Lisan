@@ -135,7 +135,21 @@ def test_codex_workspace_is_the_install_not_home():
 
     workspace = Path(codex_workspace())
     assert workspace != Path.home()
+    assert workspace not in Path.home().parents
+    assert workspace != Path(workspace.anchor)
     assert "Lisan" in str(workspace) or ".lisan" in str(workspace) or "lisan" in str(workspace).lower()
+
+
+def test_codex_workspace_collapses_to_repo_when_vault_is_disjoint(monkeypatch):
+    from pathlib import Path
+
+    from lisan.tools.execution_tools import codex_workspace, repo_root
+
+    monkeypatch.setattr(
+        "lisan.paths.vault_root",
+        lambda *args, **kwargs: Path("/private/tmp/nowhere/disjoint-vault"),
+    )
+    assert Path(codex_workspace()) == Path(repo_root())
 
 
 def test_codex_briefing_declares_write_boundary():
