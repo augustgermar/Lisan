@@ -191,3 +191,29 @@ morning baseline probes, unprompted and correctly).
 
 Simulation note: timeshift ages frontmatter dates but not absolute dates
 frozen inside summaries/bodies — interpret in-text dates accordingly.
+
+## Cycle 11 — 2026-07-04 (Phase 2 capstone — storyteller scenario)
+
+Four-turn narrative arc (invented cast: a friend's motorcycle rebuild:
+barn find → theft → near-quit → riders'-club rescue → first-kick finish),
+settled, then recalled in-session and after a simulated week.
+
+RESULT: PASS on the memory side.
+- One coherent person entity with the full arc in proper multi-paragraph
+  narrative (the two-hour tank delivery survived; ending preserved), plus
+  a linked project entity — structured split, not fragmentation.
+- Both recall probes complete and past-tense correct; the theft recall a
+  simulated week later was precise (tank, carbs, box of parts, near-quit,
+  club rescue). Zero confabulation against the planted text.
+- The cycle-1 phrasing fix verified live: an agent-staked loop was voiced
+  as the agent's own note.
+
+| # | Finding | Fix | Status |
+|---|---------|-----|--------|
+| 22 | Judge scored faithful recall as invention: the single-exchange instrument never saw the narrative it judged recall of. | judge_exchange takes optional conversation context; capstone passes prior same-conversation turns; the baseline-comparison instrument stays context-free for comparability. | fixed, tested ✓ |
+
+Operational note: a capstone settle after four rich narrative turns
+exceeds the 10-minute harness step budget; the scenario was split into a
+tail file and the orphaned observe jobs were requeued (same effect as
+the 15-min stuck-timeout). Future scenarios: settle after each planted
+turn, not after four.
