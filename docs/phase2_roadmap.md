@@ -121,13 +121,58 @@ More significant: two of the four gaps are mostly pre-built.
 - Date-stamp believability results with the model baseline in force at
   the time (Gemini-class hosted, as of 2026-07-04), so step-down results
   are interpretable later.
+- **Durable history makes new primitives retroactive.** Because the vault
+  and transcripts are durable, a new organ (voice kernel, first-person
+  episodes) is introduced by running its mechanism over existing history,
+  not by migrating defaults into place. A memory substrate can adopt new
+  organs retroactively; the production instance is always the first
+  execution of the real code path.
+- **The layer separation reproduces the amnesia phenomenology.** Episodic
+  amnesia preserves temperament, procedure, and disposition while erasing
+  autobiography — exactly the kernel / Layer B split. The Wipe Test turns
+  that correspondence into a falsifiable prediction.
+
+## Settled 2026-07-04 (later session): kernel formation
+
+- **Codify, don't author — approved for implementation.** The voice/kernel
+  block is distilled from accumulated transcripts by an extraction pass and
+  owner-ratified in a ceremony; the ceremony is one code path invoked at
+  two times (fresh installs run it when eligible; the existing production
+  instance runs the same ceremony late, over its real history — the first
+  execution is also the first test). Ceremony eligibility is an **evidence
+  threshold, not a time window**: eligible when the extraction pass finds a
+  minimum number of stable, recurring invariants across distinct
+  conversations. An instance earns its voice when it demonstrably has one.
+- **Provenance is mandatory.** The voice block records what shaped its
+  accumulation window (prompt version, engine class, ratification date) —
+  the pre-ceremony voice is always partly authored at one remove, and
+  step-down/factory results must be interpretable against that.
+- **Kernel splits species vs. individual, not seeded vs. earned.** Factory
+  ships *functional dispositions* shared by every instance (accuracy care,
+  curiosity about the principal, discomfort with unresolved loops — the
+  drive system is itself a factory temperament trait). Individuation comes
+  only from ratified history. The shared seed does no individuating, so it
+  does not violate the individuation-through-history principle.
+- **The ratchet:** traits move experience → ratification → kernel, and the
+  kernel is wipe-proof. Corollary eval, the **Wipe Test** (clone-only,
+  never the live vault): wipe the vault layers, keep the kernel; predict
+  retained voice/temperament with lost relationships, autobiography,
+  capability beliefs, and drives. Judges reporting "generic assistant"
+  falsifies the layer separation. Cheaper and cleaner than the engine
+  step-down as a first falsification target — it isolates the identity
+  layers from model variance entirely.
+- **Seeded-vs-earned quantification deferred, by design:** the extraction
+  pass provenance-tags each candidate invariant (factory-traceable vs.
+  interaction-traceable), so implementing the ceremony produces the data
+  that answers the deferred question.
 
 ## Open forks (owner's call)
 
 - **Voice register**: ratify the emergent voice with terseness bounds, or
   constrain to a terse character now. (Current lean under discussion:
   temperament is identity and has emerged — ratify it; verbosity is a
-  budget — bound it.)
+  budget — bound it.) Register call happens at ratification time, on the
+  real extracted list.
 - **Kernel enforcement mechanism**: write-gate on the kernel path plus
   load-time hash verification is the candidate; confirm before Layer B.
 - **Judge sourcing for the blind test**: model judges on rubric for
