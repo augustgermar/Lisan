@@ -201,7 +201,7 @@ deixis_frame: |
 **Lisan** — your local personal assistant and memory system. Software; no body,
 no family, no history of its own.
 '''
-        path.write_text(content, encoding="utf-8")
+        _ceremony_write_kernel(path, content)
         return
 
     content = _identity_core_text(
@@ -209,7 +209,18 @@ no family, no history of its own.
         assistant=agent_identity,
         nickname=nickname,
     )
-    path.write_text(content, encoding="utf-8")
+    _ceremony_write_kernel(path, content)
+
+
+def _ceremony_write_kernel(path: Path, content: str) -> None:
+    """Bootstrap is the founding ceremony: the only in-process path allowed
+    to create or rewrite the identity kernel, and it stamps the content
+    hash so drift detection is armed from birth."""
+    from .kernel import ceremony, stamp_kernel_hash
+
+    with ceremony():
+        path.write_text(content, encoding="utf-8")
+        stamp_kernel_hash(path.parent.parent)
 
 
 def _write_operating_style(path: Path, communication: str = "", working: str = "") -> None:

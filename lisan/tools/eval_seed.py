@@ -56,7 +56,9 @@ def _augment_identity_core(
     roster_block = _roster_block(roster_entries)
     if roster_block:
         text = text.replace("deixis_frame: |", roster_block + "\ndeixis_frame: |", 1)
-    path.write_text(text, encoding="utf-8")
+    from .onboarding import _ceremony_write_kernel
+
+    _ceremony_write_kernel(path, text)
 
 
 def _roster_block(entries: list[dict[str, Any]]) -> str:

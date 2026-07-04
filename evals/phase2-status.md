@@ -6,7 +6,7 @@ order; update state transitions with date + completing commit.
 | WO | Title | State | Date | Commit |
 |----|-------|-------|------|--------|
 | 0 | Preconditions and pre-work | done | 2026-07-04 | (this) |
-| 1 | Kernel mechanics (gate, hash, voice injection) | pending | — | — |
+| 1 | Kernel mechanics (gate, hash, voice injection) | done | 2026-07-04 | (this) |
 | 2 | Voice extraction pass + ratification ceremony | pending | — | — |
 | 3 | Consistency rubric, instrumentation, baseline | pending | — | — |
 | 4 | Layer B: self-episodes + capability beliefs | pending | — | — |
@@ -29,3 +29,11 @@ order; update state transitions with date + completing commit.
   (gate entity lookup, high-stakes terms, known-names index, owner
   profile ×2, validator alias audit); see docs/exception_triage.md.
   Suite: 482 passed in both vault configurations.
+- 2026-07-04: WO-1 done. lisan/tools/kernel.py: write-gate (ceremony
+  contextvar) enforced at write_markdown + edit_record; content hash
+  (kernel_hash) with stamp/verify + drift events to reports/
+  kernel-drift.md; voice splice with authored-voice fallback wired into
+  ConversationAgent.prompt(). Bootstrap (onboarding, eval_seed) is the
+  founding ceremony and stamps from birth. Codex briefing names the
+  kernel read-only. Live vault verified: unstamped, no voice block, no
+  behavior change. 18 new tests; suite 500 green.

@@ -19,6 +19,21 @@ class ConversationAgent(PromptAgent):
     prompt_file = "conversation_v1"
     output_schema_name = "conversation_output"
 
+    def prompt(self) -> str:
+        # Identity is carried by the vault, not the prompt file: a ratified
+        # kernel voice supersedes the authored ## Voice section, so an engine
+        # swap carries the voice by construction. No kernel voice → the
+        # authored voice stands, unchanged.
+        from ..prompts import load_prompt
+        from ..tools.deixis import render_deixis
+        from ..tools.kernel import kernel_voice_block, splice_voice
+
+        prompt = load_prompt(self.prompt_file)
+        voice = kernel_voice_block(self.vault)
+        if voice:
+            prompt = splice_voice(prompt, voice)
+        return render_deixis(prompt, self.prompt_audience, self.vault)
+
     def run_json(
         self,
         user_input: str,

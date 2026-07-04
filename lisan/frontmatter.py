@@ -60,6 +60,9 @@ def dump_markdown(frontmatter: dict[str, Any], body: str) -> str:
 
 
 def write_markdown(path: Path, frontmatter: dict[str, Any], body: str) -> None:
+    from .tools.kernel import guard_kernel_write
+
+    guard_kernel_write(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(dump_markdown(frontmatter, body), encoding="utf-8")
 

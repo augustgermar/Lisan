@@ -29,6 +29,9 @@ def edit_record(
     add_fields: list[str] | None = None,
     append_body: str | None = None,
 ) -> Path:
+    from .kernel import guard_kernel_write
+
+    guard_kernel_write(path)
     doc = load_markdown(path)
     frontmatter = dict(doc.frontmatter)
     file_type = str(frontmatter.get("type", ""))
