@@ -135,6 +135,8 @@ TYPE_FIELDS = {
     "open_loop": {"priority", "owner", "next_action", "blocked_by", "review_after"},
     "report": set(),
     "contradiction_log": set(),
+    "self_episode": {"event_kind", "source_refs", "outcome"},
+    "self_belief": {"belief_confidence", "evidence_refs", "revisions"},
 }
 
 ENUMS = {
@@ -153,6 +155,8 @@ ENUMS = {
         "open_loop",
         "report",
         "contradiction_log",
+        "self_episode",
+        "self_belief",
     },
     "status": {
         "active",
@@ -649,7 +653,7 @@ def _is_structured_record(path: Path, vault: Path) -> bool:
         return False
     if rel.name == "backup.md":
         return False
-    return rel.parts[0] in {"entities", "episodes", "knowledge", "evidence", "state", "decisions", "open_loops", "claims", "patterns", "reviews", "reports", "contradictions", "archive"}
+    return rel.parts[0] in {"entities", "episodes", "knowledge", "evidence", "state", "decisions", "open_loops", "claims", "patterns", "reviews", "reports", "contradictions", "archive", "self"}
 
 
 def format_report(report: ValidationReport) -> str:

@@ -1113,6 +1113,7 @@ def run_jobs_worker(
             successes.append(updated or job)
             processed.append(updated or job)
             _requeue_recurring(job, db_path=db_path)
+            _record_self_episode(vault, updated or job, db_path=db_path)
         except Exception as exc:
             updated = mark_job_failed(job["id"], str(exc), retry=True, db_path=db_path)
             failures.append(updated or job)
@@ -1120,6 +1121,7 @@ def run_jobs_worker(
             # Only reschedule once the failure is terminal — retry_wait means
             # this occurrence is still in flight and will be retried.
             if updated is not None and str(updated.get("status")) == "failed":
+                _record_self_episode(vault, updated, db_path=db_path)
                 _requeue_recurring(job, db_path=db_path)
                 if str(job.get("job_type")) == "plan.run":
                     from .plans import handle_terminal_failure
@@ -1140,6 +1142,18 @@ def run_jobs_worker(
         "successes": successes,
         "failures": failures,
     }
+
+
+def _record_self_episode(vault: Path | None, job: dict[str, Any], db_path: Path | None = None) -> None:
+    """A finished biography-grade job becomes a first-person episode (WO-4).
+    Best-effort by design: autobiography must never break job processing."""
+    try:
+        from ..paths import vault_root
+        from .self_episodes import record_job_episode
+
+        record_job_episode(vault or vault_root(), job, db_path=db_path)
+    except Exception:
+        pass
 
 
 def _requeue_recurring(job: dict[str, Any], *, db_path: Path | None = None) -> str | None:

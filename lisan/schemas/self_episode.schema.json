@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "self_episode",
+  "type": "object",
+  "required": [
+    "id", "type", "created", "updated", "status", "significance",
+    "domain_primary", "domain_secondary", "privacy", "summary", "links",
+    "confidence", "confidence_basis", "last_confirmed", "review_after",
+    "event_kind", "source_refs", "outcome"
+  ],
+  "properties": {
+    "id": {"type": "string"},
+    "type": {"type": "string", "enum": ["self_episode"]},
+    "created": {"type": "string"},
+    "updated": {"type": "string"},
+    "status": {"type": "string"},
+    "significance": {"type": "string"},
+    "domain_primary": {"type": "string"},
+    "domain_secondary": {"type": "array", "items": {"type": "string"}},
+    "arena_primary": {"type": "string"},
+    "arena_secondary": {"type": "array", "items": {"type": "string"}},
+    "privacy": {"type": "string"},
+    "disclosure": {"type": "string", "enum": ["private", "personal", "public"]},
+    "summary": {"type": "string"},
+    "links": {"type": "array", "items": {"type": "string"}},
+    "confidence": {"type": "string"},
+    "confidence_basis": {"type": "string"},
+    "last_confirmed": {"type": "string"},
+    "review_after": {"type": "string"},
+    "event_kind": {"type": "string", "enum": ["task", "plan", "ceremony", "drift", "failure"]},
+    "source_refs": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "outcome": {"type": "string", "enum": ["succeeded", "failed", "ratified", "drifted"]}
+  }
+}

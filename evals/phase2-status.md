@@ -8,8 +8,8 @@ order; update state transitions with date + completing commit.
 | 0 | Preconditions and pre-work | done | 2026-07-04 | (this) |
 | 1 | Kernel mechanics (gate, hash, voice injection) | done | 2026-07-04 | (this) |
 | 2 | Voice extraction pass + ratification ceremony | done | 2026-07-04 | (this) |
-| 3 | Consistency rubric, instrumentation, baseline | pending | — | — |
-| 4 | Layer B: self-episodes + capability beliefs | pending | — | — |
+| 3 | Consistency rubric, instrumentation, baseline | done | 2026-07-04 | (this) |
+| 4 | Layer B: self-episodes + capability beliefs | done | 2026-07-04 | (this) |
 | 5 | Deficit scorer + session-open callbacks | pending | — | — |
 | 6 | Self-belief reconciliation dreamer job | pending | — | — |
 | 7 | Graduated action policy | pending | — | — |
@@ -53,3 +53,20 @@ order; update state transitions with date + completing commit.
   OWNER REVIEW PENDING: the ratification artifact is
   vault/reports/voice-extraction-20260704111100.md — edit + re-ratify
   without --provisional to make it owner-ratified.
+- 2026-07-04: WO-3 done. evals/rubric.py (11 dims: 7 kernel-derived 1:1
+  + 4 global), evals/judge.py (openrouter gpt-4o — examiner≠examinee),
+  evals/metrics.py (zero-defaults for unbuilt organs), fixed probe set
+  baseline_v1 (13 probes, invented cast). BASELINE CAPTURED
+  20260704-111608 (committed summary is numbers-only; full artifacts in
+  vault/reports/baselines/): 13/13 probes, 0 errors, non-confab 4.85,
+  continuity 4.5, no-exclamation 5.0, verbosity 5.0; callbacks 0,
+  closure 0.2, revisions 0. The longitudinal clock starts here.
+- 2026-07-04: WO-4 done. self_episodes.py (deterministic template
+  assembly from jobs/plans/ceremony/drift; idempotent; source_refs
+  mandatory) + self_beliefs.py (manifest/beliefs kept separate;
+  revisions chained, evidence-refs required) + 2 schemas + validator
+  types + jobs-worker completion hook + `lisan self backfill-episodes`.
+  Live backfill: 21 self-episodes, validate clean. Suite 531 green.
+- CARRY for WO-9: pre-existing alias ambiguities in live vault (bogus
+  'Vee' thing-entity ×3, Wisteria Hollows dup, address/chateau dup) —
+  now surfaced by the validator's alias audit.

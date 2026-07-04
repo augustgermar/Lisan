@@ -652,6 +652,11 @@ def build_parser() -> argparse.ArgumentParser:
     self_ratify.add_argument("--from", dest="artifact", type=Path, required=True)
     self_ratify.add_argument("--provisional", action="store_true",
                              help="Agent-ratified pending owner review (provenance-marked)")
+    self_backfill = self_subparsers.add_parser(
+        "backfill-episodes", help="Assemble first-person episodes from existing system records"
+    )
+    self_backfill.add_argument("--vault", type=Path, default=vault_root())
+    self_backfill.add_argument("--db-path", type=Path, default=None)
 
     return parser
 
@@ -1236,6 +1241,12 @@ def main(argv: list[str] | None = None) -> int:
 
             path = ratify_voice(args.vault, artifact_path=args.artifact, provisional=args.provisional)
             print(f"✓ Ratified voice into {path}" + (" (provisional — pending owner review)" if args.provisional else ""))
+            return 0
+        if args.self_command == "backfill-episodes":
+            from .tools.self_episodes import assemble_self_episodes
+
+            result = assemble_self_episodes(args.vault, args.db_path)
+            print(f"✓ Wrote {result['written']} self-episode(s).")
             return 0
 
     if args.command == "sync":
