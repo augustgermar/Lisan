@@ -141,5 +141,18 @@
       "unreachable_policy": "skip",
       "hash_dimensions": 32
     }
+  },
+  "identity": {
+    "ceremony": {
+      "min_invariants": 5,
+      "min_conversations": 3
+    }
+  },
+  "drive": {
+    "enabled": true,
+    "action_tier": 0,
+    "cooldown_days": 7,
+    "min_score": 2.0,
+    "max_age_days": 45
   }
 }

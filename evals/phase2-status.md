@@ -12,7 +12,7 @@ order; update state transitions with date + completing commit.
 | 4 | Layer B: self-episodes + capability beliefs | done | 2026-07-04 | (this) |
 | 5 | Deficit scorer + session-open callbacks | done | 2026-07-04 | (this) |
 | 6 | Self-belief reconciliation dreamer job | done | 2026-07-04 | (this) |
-| 7 | Graduated action policy | pending | — | — |
+| 7 | Graduated action policy | done | 2026-07-04 | (this) |
 | 8 | Wipe Test (clone-only) | pending | — | — |
 | 9 | Capstone autonomous eval loop | pending | — | — |
 
@@ -89,6 +89,17 @@ order; update state transitions with date + completing commit.
   chained, never silent). End-to-end revision demonstrated on fixture;
   live run correct no-op (no beliefs exist yet) + report written.
   5 new tests; suite 545 green.
+- 2026-07-04: WO-7 done. action_policy.py — tiers 0/1/2 with tier 0
+  (queue-for-next-session) the shipped default; enforcement at one
+  dispatch seam in code, unknown action kinds denied at every tier,
+  tier 2 provably inert below tier 2 (tested); session callback flows
+  through the gate; drive/identity blocks documented in
+  config.example.json. 6 new tests; suite 551 green.
+- FOR THE OWNER — what raising the tier would do: tier 1 lets the drive
+  schedule messages through the existing owner-only Telegram channel
+  (allowlist-locked; e.g. "that loop aged out — ping me tomorrow");
+  tier 2 lets it run read-only checks (health, verify-a-fix) with no
+  session. Both stay off until you set drive.action_tier in config.json.
 - OPEN (ledgered): belief FORMATION has no mechanism yet — reconcile
   revises, nothing creates beliefs in production. Candidates: a dreamer
   formation pass over accumulated episodes (codify-don't-author applied

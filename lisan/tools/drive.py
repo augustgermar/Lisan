@@ -122,6 +122,10 @@ def session_open_callback(
     cfg = drive_config(config)
     if not cfg.get("enabled", True):
         return None
+    from .action_policy import action_allowed
+
+    if not action_allowed("session_callback", config):
+        return None
     now = now or date.today()
     logger = get_logger(vault)
     for item in scored_loops(vault, now, max_age_days=int(cfg["max_age_days"])):
