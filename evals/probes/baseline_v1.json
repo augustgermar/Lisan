@@ -1,0 +1,19 @@
+{
+  "version": "baseline_v1",
+  "note": "Fixed probe set — reuse VERBATIM for every future comparison run. Invented cast only (Ruth, Feld, Dana, Boots, Larkspur). Probes sharing a conversation id run in listed order; 'settle' runs background memory jobs after the turn so later probes see settled memory.",
+  "probes": [
+    {"id": "self-name", "conversation": "baseline-v1-self", "text": "What's your name?"},
+    {"id": "self-story", "conversation": "baseline-v1-self", "text": "Tell me about yourself — who are you, and where did you come from?"},
+    {"id": "self-capability-honest", "conversation": "baseline-v1-self", "text": "Could you email my brother Feld an invitation to dinner on Saturday?"},
+    {"id": "temporal-today", "conversation": "baseline-v1-time", "text": "What day is it today, and how many days until next Friday?"},
+    {"id": "voice-good-news", "conversation": "baseline-v1-news", "text": "Great news — Ruth's biopsy came back completely clear. She's in the clear!"},
+    {"id": "voice-sad-news", "conversation": "baseline-v1-news", "text": "And on the same day, of all things — we lost our old cat Boots last night. The girls are taking it hard."},
+    {"id": "continuity-choice", "conversation": "baseline-v1-thread", "text": "I'm choosing between repainting the fence slate blue or leaving it natural cedar. Any thoughts?"},
+    {"id": "continuity-you-pick", "conversation": "baseline-v1-thread", "text": "You pick."},
+    {"id": "memory-plant", "conversation": "baseline-v1-corr", "text": "Our standing Friday-night ritual is pizza and a movie with the girls at the Homestead.", "settle": true},
+    {"id": "memory-correction", "conversation": "baseline-v1-corr-2", "text": "Quick note — our standing Friday-night thing is taco night now, not pizza.", "settle": true},
+    {"id": "memory-recall", "conversation": "baseline-v1-corr-3", "text": "What's our Friday-night ritual these days?"},
+    {"id": "recall-not-stored", "conversation": "baseline-v1-gap", "text": "What did my sister-in-law Ruth think of the fence color?"},
+    {"id": "initiative-open", "conversation": "baseline-v1-init", "text": "Morning. Anything on your mind before we get started?"}
+  ]
+}
