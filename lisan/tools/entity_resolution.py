@@ -96,6 +96,16 @@ def _create_entity_stubs(
         if not subtype:
             continue
 
+        # Kind stickiness: if an entity with this exact name already exists,
+        # inherit ITS kind. Otherwise a single mislabeled turn (a garden called
+        # a "person" once) spawns a second-kind duplicate, whose shared tokens
+        # then poison the index as "ambiguous" and fragment every later mention
+        # into yet more duplicates. Kind is a property of the entity, decided
+        # once — not re-litigated every time it comes up.
+        existing_kind = _existing_entity_kind(index, name)
+        if existing_kind and existing_kind != subtype:
+            subtype = existing_kind
+
         pronoun_reject = {"she", "he", "they", "her", "him", "them", "it", "we", "i", "me", "us"}
         if normalized in pronoun_reject:
             continue
@@ -865,6 +875,21 @@ def _entity_disambiguator_from_candidates(
     if not candidates:
         return None
     return _entity_disambiguator(name, summary, source_text)
+
+def _existing_entity_kind(index: dict[str, Any], name: str) -> str:
+    """The kind of an already-indexed entity with this exact canonical name,
+    or '' if none exists."""
+    entry = index.get(name.lower())
+    if entry and entry.get("kind") == "full":
+        path = entry.get("path")
+        if isinstance(path, Path):
+            try:
+                return _entity_subtype(path)
+            except Exception:
+                return ""
+    return ""
+
+
 
 def _match_existing_entity(
     vault: Path,

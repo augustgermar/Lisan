@@ -97,3 +97,36 @@ Open for cycle 8:
 - Verify the revised prompt produces graduated structure + preserved resolution (A/B running).
 - Entity-story growth adds latency to capture (background, so not user-facing) — watch coalescing keeps rewrite volume sane on busy conversations.
 - Dreamer primer maintenance (carried).
+
+## Cycle 8 — 2026-07-04 (clean narrative structure A/B + guardrail)
+
+Clean 16-turn growth run (community garden, novel entity, no vault collision)
+testing the prompt revision + no-shrink guardrail together.
+
+RESULT: split verdict.
+- ✓ STRUCTURE FIXED. A complex arc now becomes a proper 3-paragraph narrative
+  following the shape (origins → struggle/resilience → present meaning),
+  versus the old single dense paragraph. The prompt revision works.
+- ✗ NEW BUG — entity fragmentation. The same garden became THREE entities:
+  two `place` records with name variants ("Wisteria Hollows" vs "Wisteria
+  Hollows community garden") + one bogus `person` record. The story split
+  across them, so no single narrative is complete. Root cause: unstable kind
+  (place on most turns, person on one) → shared tokens marked "ambiguous" in
+  the dedup index → token-merging disabled → every later name variant spawns
+  a new duplicate.
+- ~ Content granularity: even the fuller records summarize away specific human
+  detail (a beloved gardener reduced from "taught kids to graft roses, ashes
+  under the apple tree per his wish" to "a person named Bertram whose ashes
+  are in the soil"). The single-pass full-rewrite can't hold unbounded detail.
+
+| # | Finding | Fix | Status |
+|---|---------|-----|--------|
+| 18 | Entity kind unstable across mentions → duplicate records of different kinds → ambiguous-token cascade → name-variant fragmentation. | Kind stickiness: once an entity exists under a name, later mentions inherit its kind rather than re-deciding. | fixed, tested ✓ (place never duplicated as person) |
+
+Open for cycle 9:
+- Name-variant merge within a kind ("X" vs "X community garden") — kind
+  stickiness removes the ambiguous-token poison that blocked it; verify it now
+  merges in a clean run.
+- Content granularity in long rewrites — the single-pass summarize limit.
+  Candidate: stable-core + recent-tail accretion for very rich entities.
+- Dreamer primer maintenance (carried).

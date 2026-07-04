@@ -172,3 +172,45 @@ class PrincipalNeverAnEntityTests(unittest.TestCase):
                 "tell August which folders look most valuable",
             )
             self.assertEqual(created, [])
+
+
+class KindStickinessTests(unittest.TestCase):
+    """A single mislabeled turn must not spawn a second-kind duplicate: once
+    an entity exists under a name, later mentions inherit its kind. This is
+    the garden-fragmentation failure from the growth experiment (one place
+    became a place AND a person AND a name-variant, splitting its story)."""
+
+    def _vault(self, tmp):
+        from pathlib import Path
+        v = Path(tmp)
+        (v / "entities" / "places").mkdir(parents=True)
+        (v / "entities" / "people").mkdir(parents=True)
+        (v / "primer").mkdir(parents=True)
+        (v / "primer" / "identity-core.md").write_text(
+            '---\n{"principal": {"name": "A", "aliases": ["A"]}, "assistant": {"name": "J"}}\n---\n',
+            encoding="utf-8")
+        return v
+
+    def test_existing_place_is_not_duplicated_as_person(self):
+        import tempfile
+        from lisan.tools.entity_resolution import _create_entity_stubs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = self._vault(tmp)
+            # first mention: a place
+            _create_entity_stubs(
+                vault,
+                {"entities_to_create": [{"name": "Riverside Depot", "kind": "place",
+                                         "summary": "A community space downtown."}]},
+                "drafts/a.md", "we cleared out Riverside Depot this spring")
+            # second mention, mislabeled as a person
+            _create_entity_stubs(
+                vault,
+                {"entities_to_create": [{"name": "Riverside Depot", "kind": "person",
+                                         "summary": "Riverside Depot again."}]},
+                "drafts/b.md", "Riverside Depot got a new roof")
+
+            people = list((vault / "entities" / "people").glob("*.md"))
+            places = list((vault / "entities" / "places").glob("*.md"))
+            self.assertEqual(len(people), 0, "no person duplicate of the place")
+            self.assertEqual(len(places), 1, "the place stays a single record")
