@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "required": ["candidates"],
+  "properties": {
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["statement", "category", "evidence"],
+        "properties": {
+          "statement": {"type": "string"},
+          "category": {"type": "string", "enum": ["register", "move", "prohibition", "temperament"]},
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["quote"],
+              "properties": {"quote": {"type": "string"}}
+            }
+          }
+        }
+      }
+    }
+  }
+}

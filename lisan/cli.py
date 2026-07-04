@@ -635,6 +635,23 @@ def build_parser() -> argparse.ArgumentParser:
     self_primer = self_subparsers.add_parser("primer", help="Regenerate primer/capabilities.md")
     self_primer.add_argument("--vault", type=Path, default=vault_root())
     self_primer.add_argument("--force", action="store_true")
+    self_extract = self_subparsers.add_parser(
+        "extract-voice", help="Distill candidate voice invariants from transcript history"
+    )
+    self_extract.add_argument("--vault", type=Path, default=vault_root())
+    self_extract.add_argument("--provider", default=None)
+    self_extract.add_argument("--model", default=None)
+    self_extract.add_argument("--out", type=Path, default=None)
+    self_extract.add_argument("--min-invariants", type=int, default=None)
+    self_extract.add_argument("--min-conversations", type=int, default=None)
+    self_extract.add_argument("--max-turns", type=int, default=150)
+    self_ratify = self_subparsers.add_parser(
+        "ratify", help="Ratify an extraction artifact into the kernel voice (ceremony)"
+    )
+    self_ratify.add_argument("--vault", type=Path, default=vault_root())
+    self_ratify.add_argument("--from", dest="artifact", type=Path, required=True)
+    self_ratify.add_argument("--provisional", action="store_true",
+                             help="Agent-ratified pending owner review (provenance-marked)")
 
     return parser
 
@@ -1195,6 +1212,30 @@ def main(argv: list[str] | None = None) -> int:
         if args.self_command == "primer":
             path = ensure_capabilities_primer(args.vault, force=args.force)
             print(f"✓ Wrote {path}" if path else "Already current.")
+            return 0
+        if args.self_command == "extract-voice":
+            from .tools.voice_extract import run_extraction
+
+            result = run_extraction(
+                args.vault,
+                provider=args.provider,
+                model=args.model,
+                out=args.out,
+                min_invariants=args.min_invariants,
+                min_conversations=args.min_conversations,
+                max_turns=args.max_turns,
+            )
+            stats = result["stats"]
+            print(f"Scanned {stats.get('turns', 0)} agent turns across {stats.get('conversations', 0)} conversations.")
+            print(f"Candidates: {len(result['candidates'])} valid, {len(result['rejected'])} rejected by the evidence gate.")
+            print(f"Ceremony eligible: {'yes' if result['eligible'] else 'no'}")
+            print(f"Artifact: {result['artifact']}")
+            return 0
+        if args.self_command == "ratify":
+            from .tools.voice_extract import ratify_voice
+
+            path = ratify_voice(args.vault, artifact_path=args.artifact, provisional=args.provisional)
+            print(f"✓ Ratified voice into {path}" + (" (provisional — pending owner review)" if args.provisional else ""))
             return 0
 
     if args.command == "sync":
