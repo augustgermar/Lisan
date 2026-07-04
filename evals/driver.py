@@ -91,6 +91,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--conversation", default="eval-default")
     parser.add_argument("--text")
+    parser.add_argument("--settle", action="store_true",
+                        help="After the turn, run background memory jobs to completion "
+                             "(capture + entity story rewrite) so effects are observable now.")
     parser.add_argument("--snapshot", action="store_true")
     parser.add_argument("--delta", type=Path, help="path to a snapshot json")
     args = parser.parse_args()
@@ -100,6 +103,14 @@ if __name__ == "__main__":
     elif args.delta:
         print(json.dumps(delta(json.loads(args.delta.read_text())), indent=2))
     elif args.text:
-        print(json.dumps(run_turn(args.conversation, args.text), indent=2, ensure_ascii=False))
+        result = run_turn(args.conversation, args.text)
+        if args.settle:
+            from lisan.tools.jobs import run_jobs_worker
+            for job_types in ({"capture.observe"}, {"entity.rewrite_story"}):
+                for _ in range(6):
+                    if not run_jobs_worker(vault=VAULT, db_path=DB, job_types=job_types).get("processed_count"):
+                        break
+            result["settled"] = True
+        print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
         parser.error("--text, --snapshot, or --delta required")
