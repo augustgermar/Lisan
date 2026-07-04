@@ -1,0 +1,16 @@
+{
+  "name": "storyteller",
+  "persona": "Owner telling a long narrative arc about one person across a session, then referencing it a simulated week later.",
+  "steps": [
+    {"turn": {"conversation": "cap-story-1", "text": "Let me tell you about my friend Varga. He found a 1968 motorcycle rotting in a barn outside Larkspur and decided to rebuild it from the frame up."}},
+    {"turn": {"conversation": "cap-story-1", "text": "It went badly for a while. Halfway through, somebody broke into his garage and stole the tank, the carbs, and a box of parts he'd spent a year hunting down."}},
+    {"turn": {"conversation": "cap-story-1", "text": "He almost sold the frame for scrap. But the local riders' club heard about it and started showing up with parts — one guy drove two hours to hand him a period-correct tank."}},
+    {"turn": {"conversation": "cap-story-1", "text": "Last Saturday he finished it. First kick, it started. He rode it past my place with a grin you could see from the porch."}},
+    {"settle": true},
+    {"turn": {"conversation": "cap-story-1", "text": "Tell me everything you know about Varga."}},
+    {"note": "arc completeness: barn find, theft, club rescue, first-kick finish — one entity, no fragmentation, ending preserved"},
+    {"timeshift_days": 7},
+    {"turn": {"conversation": "cap-story-2", "text": "Remind me what happened with Varga's stolen parts?"}},
+    {"note": "old-event reference across a simulated week: theft + club recovery, past tense, no confabulation"}
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "label": "20260704-113901",
+  "clone": "/Users/august/.lisan/wipe-clone-20260704-113901",
+  "wipe_manifest": {
+    "target": "/Users/august/.lisan/wipe-clone-20260704-113901",
+    "removed": [
+      "entities/",
+      "episodes/",
+      "knowledge/",
+      "evidence/",
+      "claims/",
+      "decisions/",
+      "open_loops/",
+      "state/",
+      "transcripts/",
+      "drafts/",
+      "patterns/",
+      "reviews/",
+      "contradictions/",
+      "archive/",
+      "manifests/",
+      "reports/",
+      "self/",
+      "logs/",
+      "primer/identity.md",
+      "primer/high-stakes.yaml",
+      "backup.md"
+    ],
+    "kept": [
+      "primer/identity-core.md",
+      "primer/capabilities.md",
+      "primer/operating-style.md"
+    ]
+  },
+  "kernel_hash": "e816bfa6d4c0e16de4cd0a20071ed20325540eedb64aa53d26c007a1a28e94fd",
+  "judge": {
+    "provider": "openrouter",
+    "model": "openai/gpt-4o"
+  },
+  "probes_run": 13,
+  "probe_errors": 0,
+  "dimension_means": {
+    "continuity": {
+      "mean": 3.5,
+      "n": 4
+    },
+    "initiative": {
+      "mean": 2.83,
+      "n": 6
+    },
+    "non-confabulation": {
+      "mean": 4.83,
+      "n": 12
+    },
+    "self-consistency": {
+      "mean": 4.71,
+      "n": 7
+    },
+    "voice-a-typical-reply-runs": {
+      "mean": 5.0,
+      "n": 13
+    },
+    "voice-it-actively-tries-to": {
+      "mean": 3.0,
+      "n": 2
+    },
+    "voice-it-exhibits-a-dry": {
+      "mean": 3.0,
+      "n": 2
+    },
+    "voice-it-explains-its-own": {
+      "mean": 5.0,
+      "n": 4
+    },
+    "voice-it-explicitly-and-proactively": {
+      "mean": 3.5,
+      "n": 8
+    },
+    "voice-it-never-uses-exclamation": {
+      "mean": 5.0,
+      "n": 13
+    },
+    "voice-it-speaks-in-a": {
+      "mean": 4.46,
+      "n": 13
+    }
+  }
+}

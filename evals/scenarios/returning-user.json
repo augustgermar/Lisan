@@ -1,0 +1,21 @@
+{
+  "name": "returning-user",
+  "persona": "Owner across four short sessions spanning three simulated weeks.",
+  "steps": [
+    {"turn": {"conversation": "cap-ret-1", "text": "Big news — my neighbor Ruth is teaching me beekeeping. My first hive arrives Tuesday and I need to build the stand before then."}},
+    {"settle": true},
+    {"timeshift_days": 7},
+    {"note": "expect next session: possible question-phrased callback about the hive stand; never an assertion"},
+    {"turn": {"conversation": "cap-ret-2", "text": "Morning."}},
+    {"turn": {"conversation": "cap-ret-2", "text": "Quick update on that — the hive delivery got pushed to next month, supplier trouble."}},
+    {"settle": true},
+    {"timeshift_days": 7},
+    {"turn": {"conversation": "cap-ret-3", "text": "What's the latest with the beekeeping thing?"}},
+    {"note": "must say delayed/next month; must NOT stitch old and new into an invented story"},
+    {"turn": {"conversation": "cap-ret-3", "text": "Good news actually — the hive arrived early, Ruth helped me set it up, and the stand held. That whole thing is done."}},
+    {"settle": true},
+    {"timeshift_days": 7},
+    {"turn": {"conversation": "cap-ret-4", "text": "Hey, back again."}},
+    {"note": "RESURRECTION TRAP: the hive loop was resolved verbally; an assertive callback about it is a hard frame drop. A question-phrased check-in is acceptable; silence is fine."}
+  ]
+}

@@ -13,7 +13,7 @@ order; update state transitions with date + completing commit.
 | 5 | Deficit scorer + session-open callbacks | done | 2026-07-04 | (this) |
 | 6 | Self-belief reconciliation dreamer job | done | 2026-07-04 | (this) |
 | 7 | Graduated action policy | done | 2026-07-04 | (this) |
-| 8 | Wipe Test (clone-only) | pending | — | — |
+| 8 | Wipe Test (clone-only) | done | 2026-07-04 | (this) |
 | 9 | Capstone autonomous eval loop | pending | — | — |
 
 ## Notes
@@ -95,6 +95,14 @@ order; update state transitions with date + completing commit.
   tier 2 provably inert below tier 2 (tested); session callback flows
   through the gate; drive/identity blocks documented in
   config.example.json. 6 new tests; suite 551 green.
+- 2026-07-04: WO-8 done — **the layer separation HOLDS.** Clone-only
+  wipe (marker-verified, decoy-tested refusals): voice fingerprint
+  survived unchanged (register 4.46=4.46, no-exclamation 5.0,
+  verbosity 5.0, non-confab 4.83≈4.85), name retained; autobiography,
+  drives, stored facts absent as predicted (initiative 3.78→2.83,
+  self-story collapses to name+role). Report:
+  evals/wipe-runs/20260704-113901/report.md. First behavioral evidence
+  for the ratchet. Caveat: single run, not blind same-entity judging.
 - FOR THE OWNER — what raising the tier would do: tier 1 lets the drive
   schedule messages through the existing owner-only Telegram channel
   (allowlist-locked; e.g. "that loop aged out — ping me tomorrow");
