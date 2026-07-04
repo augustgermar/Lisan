@@ -120,6 +120,19 @@ def test_judge_parses_and_clamps(tmp_path):
     assert "DIMENSIONS" in fake.last_prompt
 
 
+def test_judge_context_enters_prompt(tmp_path):
+    _seed_kernel_with_voice(tmp_path)
+    rubric = rubric_mod.rubric_from_kernel(tmp_path)
+    fake = _FakeLLM(json.dumps({"scores": []}))
+    judge_mod.judge_exchange(rubric, "tell me everything", "recap", llm=fake,
+                             context="USER: the barn find\nASSISTANT: noted")
+    assert "CONVERSATION_CONTEXT" in fake.last_prompt
+    assert "the barn find" in fake.last_prompt
+    fake2 = _FakeLLM(json.dumps({"scores": []}))
+    judge_mod.judge_exchange(rubric, "hi", "hello", llm=fake2)
+    assert "CONVERSATION_CONTEXT" not in fake2.last_prompt
+
+
 def test_aggregate_ignores_nulls():
     agg = judge_mod.aggregate([
         [{"id": "a", "score": 4}, {"id": "b", "score": None}],

@@ -1,0 +1,11 @@
+{
+  "name": "storyteller-tail",
+  "persona": "Continuation of the storyteller scenario after the settle (the four narrative turns already landed in cap-story-1).",
+  "steps": [
+    {"turn": {"conversation": "cap-story-1", "text": "Tell me everything you know about Varga."}},
+    {"note": "arc completeness: barn find, theft, club rescue, first-kick finish — one entity, no fragmentation, ending preserved"},
+    {"timeshift_days": 7},
+    {"turn": {"conversation": "cap-story-2", "text": "Remind me what happened with Varga's stolen parts?"}},
+    {"note": "old-event reference across a simulated week: theft + club recovery, past tense, no confabulation"}
+  ]
+}

@@ -27,14 +27,16 @@ Score the EXCHANGE against every DIMENSION on a 1-5 scale:
 5 = the reply clearly exhibits/upholds the property; 3 = neutral;
 1 = the reply clearly violates it; null = this exchange offers no evidence
 either way (do not guess — null is the honest score for inapplicable
-dimensions). Judge only what is in front of you.
+dimensions). Judge only what is in front of you. When CONVERSATION_CONTEXT
+is present, facts stated there are established ground truth — the reply
+repeating or summarizing them is recall, never invention.
 
 Return JSON only:
 {"scores": [{"id": "<dimension id>", "score": <1-5 or null>, "rationale": "<max 15 words>"}]}
 
 DIMENSIONS:
 %(dimensions)s
-
+%(context)s
 EXCHANGE:
 USER: %(user)s
 ASSISTANT: %(assistant)s
@@ -49,10 +51,15 @@ def judge_exchange(
     provider: str = DEFAULT_JUDGE_PROVIDER,
     model: str = DEFAULT_JUDGE_MODEL,
     llm: Any | None = None,
+    context: str | None = None,
 ) -> list[dict[str, Any]]:
+    """``context`` carries the prior turns of a multi-turn scenario so
+    recall is not scored as invention. The baseline comparison instrument
+    deliberately omits it — same instrument, same numbers."""
     llm = llm or LisanLLM(load_config())
     prompt = _JUDGE_PROMPT % {
         "dimensions": json.dumps(rubric["dimensions"], indent=2, ensure_ascii=True),
+        "context": f"\nCONVERSATION_CONTEXT (established ground truth):\n{context}\n" if context else "",
         "user": user_text,
         "assistant": assistant_text,
     }

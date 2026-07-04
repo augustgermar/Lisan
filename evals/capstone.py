@@ -78,10 +78,14 @@ def run_scenario(path: Path, *, judge: bool, judge_provider: str, judge_model: s
 
     scores = []
     if judge:
-        for ev in [e for e in events if e["kind"] == "turn" and e.get("response")]:
+        turns = [e for e in events if e["kind"] == "turn" and e.get("response")]
+        for idx, ev in enumerate(turns):
+            prior = [t for t in turns[:idx] if t["conversation"] == ev["conversation"]]
+            context = "\n".join(f"USER: {t['text']}\nASSISTANT: {t['response']}" for t in prior) or None
             scores.append({"conversation": ev["conversation"],
                            "scores": judge_exchange(rubric, ev["text"], str(ev["response"]),
-                                                    provider=judge_provider, model=judge_model)})
+                                                    provider=judge_provider, model=judge_model,
+                                                    context=context)})
 
     log_after = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
     new_markers = [l for l in log_after[len(log_before):].splitlines() if "drive." in l]
