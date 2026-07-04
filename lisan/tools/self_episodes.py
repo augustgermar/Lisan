@@ -183,7 +183,7 @@ def episode_path(vault: Path, event: SelfEvent) -> Path:
     return vault / "self" / "episodes" / f"{event.date}-{_safe_slug(event.event_id)}.md"
 
 
-def write_self_episode(vault: Path, event: SelfEvent) -> Path | None:
+def write_self_episode(vault: Path, event: SelfEvent, db_path: Path | None = None) -> Path | None:
     """Write one first-person episode; returns None if it already exists."""
     path = episode_path(vault, event)
     if path.exists():
@@ -215,6 +215,10 @@ def write_self_episode(vault: Path, event: SelfEvent) -> Path | None:
         "## Sources\n\n" + "\n".join(f"- `{ref}`" for ref in event.source_refs) + "\n"
     )
     write_markdown(path, with_domain_fields(frontmatter), body)
+    # An unindexed autobiography is invisible to retrieval — index now.
+    from .rebuild_index import index_record_best_effort
+
+    index_record_best_effort(vault, path, db_path)
     return path
 
 
@@ -224,7 +228,7 @@ def assemble_self_episodes(vault: Path | None = None, db_path: Path | None = Non
     written: list[str] = []
     for event in collect_events(vault, db_path):
         try:
-            path = write_self_episode(vault, event)
+            path = write_self_episode(vault, event, db_path)
         except Exception as exc:
             log_error(vault, f"self_episodes.write failed for {event.event_id}", exc)
             continue
@@ -241,7 +245,7 @@ def record_job_episode(vault: Path, job: dict[str, Any], db_path: Path | None = 
             return
         for event in job_events(db_path):
             if event.event_id == f"job-{job.get('id')}":
-                write_self_episode(vault, event)
+                write_self_episode(vault, event, db_path)
                 return
     except Exception as exc:
         try:

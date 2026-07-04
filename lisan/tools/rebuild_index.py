@@ -304,6 +304,34 @@ def ensure_index_schema(conn: sqlite3.Connection) -> None:
     _maybe_create_fts(conn)
 
 
+def index_record_best_effort(vault: Path, path: Path, db_path: Path | None = None) -> bool:
+    """Index one record into the default (or given) database, opening and
+    closing the connection, never raising — for writers that create records
+    outside the capture pipeline (Layer B, backfills). A record retrieval
+    cannot see does not exist to the agent."""
+    from ..paths import sqlite_path
+
+    db = Path(db_path) if db_path else sqlite_path()
+    if not db.exists():
+        return False
+    try:
+        conn = sqlite3.connect(db)
+        try:
+            indexed = index_single_record(Path(path), vault, conn)
+            conn.commit()
+            return indexed
+        finally:
+            conn.close()
+    except Exception as exc:
+        try:
+            from .log import log_error
+
+            log_error(vault, f"index_record_best_effort failed for {path}", exc)
+        except Exception:
+            pass
+        return False
+
+
 def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bool:
     """Index one markdown record into files + files_fts (+ side tables).
 
