@@ -11,7 +11,7 @@ order; update state transitions with date + completing commit.
 | 3 | Consistency rubric, instrumentation, baseline | done | 2026-07-04 | (this) |
 | 4 | Layer B: self-episodes + capability beliefs | done | 2026-07-04 | (this) |
 | 5 | Deficit scorer + session-open callbacks | done | 2026-07-04 | (this) |
-| 6 | Self-belief reconciliation dreamer job | pending | — | — |
+| 6 | Self-belief reconciliation dreamer job | done | 2026-07-04 | (this) |
 | 7 | Graduated action policy | pending | — | — |
 | 8 | Wipe Test (clone-only) | pending | — | — |
 | 9 | Capstone autonomous eval loop | pending | — | — |
@@ -81,3 +81,16 @@ order; update state transitions with date + completing commit.
   logged. Fleet loops score 1.0-1.12 (below 2.0 threshold — young
   low-sig loops earn callbacks after ~2 weeks by design). 9 new tests;
   suite 540 green.
+- 2026-07-04: WO-6 done. Dreamer task 'reconcile'
+  (dreamer_reconcile_v1 prompt; bundle = beliefs + first-person episode
+  evidence pool; deterministic gate: belief must exist, evidence refs
+  must resolve to real self_episodes, partial evidence survives,
+  fabricated refs rejected; revisions applied via revise_self_belief —
+  chained, never silent). End-to-end revision demonstrated on fixture;
+  live run correct no-op (no beliefs exist yet) + report written.
+  5 new tests; suite 545 green.
+- OPEN (ledgered): belief FORMATION has no mechanism yet — reconcile
+  revises, nothing creates beliefs in production. Candidates: a dreamer
+  formation pass over accumulated episodes (codify-don't-author applied
+  to competence), or conversational self-assessments captured as
+  beliefs. Owner-visible design choice; deferred past WO-9.

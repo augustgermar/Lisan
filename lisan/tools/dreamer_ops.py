@@ -42,6 +42,7 @@ def _prompt_for_task(task: str) -> str:
         "confidence": "dreamer_confidence_v1",
         "overfitting": "dreamer_overfitting_v1",
         "identity_anchor": "dreamer_identity_anchor_v1",
+        "reconcile": "dreamer_reconcile_v1",
     }
     return mapping.get(task, "dreamer_compress_v1")
 
@@ -59,6 +60,8 @@ def _bundle_for_task(vault: Path, task: str) -> str:
         return _bundle_overfitting(vault) + _bundle_approved_patterns(vault)
     if task == "identity_anchor":
         return _bundle_identity(vault) + _bundle_approved_patterns(vault)
+    if task == "reconcile":
+        return _bundle_self_reconciliation(vault)
     return _bundle_recent_episodes(vault, days=365, include_states=True, include_entities=True) + _bundle_approved_patterns(vault)
 
 
@@ -395,7 +398,79 @@ def _output_path(vault: Path, task: str) -> Path:
 def _apply_task_side_effect(vault: Path, task: str, bundle: str, response: dict[str, Any]) -> Path | None:
     if task == "contradict":
         return _write_contradiction_log(vault, bundle, response)
+    if task == "reconcile":
+        return _apply_belief_revisions(vault, response)
     return None
+
+
+def _bundle_self_reconciliation(vault: Path) -> str:
+    """Beliefs plus the recent first-person record, for contradiction hunting."""
+    from .self_beliefs import list_self_beliefs
+
+    lines = ["## Capability beliefs", ""]
+    for belief in list_self_beliefs(vault):
+        lines.append(
+            f"- id: {belief.get('id')} | confidence: {belief.get('belief_confidence')} | "
+            f"revisions: {len(belief.get('revisions') or [])}\n  statement: {belief.get('summary')}"
+        )
+    lines.append("")
+    lines.append("## First-person episodes (evidence pool)")
+    lines.append("")
+    episodes_dir = vault / "self" / "episodes"
+    if episodes_dir.exists():
+        for path in sorted(episodes_dir.glob("*.md"))[-60:]:
+            try:
+                doc = load_markdown(path)
+            except Exception:
+                continue
+            fm = doc.frontmatter
+            lines.append(
+                f"- id: {fm.get('id')} | date: {fm.get('created')} | outcome: {fm.get('outcome')} | "
+                f"{fm.get('summary')}"
+            )
+    return "\n".join(lines) + "\n"
+
+
+def _apply_belief_revisions(vault: Path, response: dict[str, Any]) -> Path | None:
+    """Deterministic gate over model-proposed revisions: the belief must
+    exist, every evidence ref must resolve to a real first-person episode,
+    and the revision itself goes through revise_self_belief — chained,
+    never a silent overwrite. No evidence, no revision."""
+    from .self_beliefs import list_self_beliefs, revise_self_belief
+
+    proposals = response.get("revisions") if isinstance(response, dict) else None
+    if not proposals:
+        return None
+    beliefs = {str(b.get("id")): Path(str(b.get("path"))) for b in list_self_beliefs(vault)}
+    episode_ids: set[str] = set()
+    episodes_dir = vault / "self" / "episodes"
+    if episodes_dir.exists():
+        for path in episodes_dir.glob("*.md"):
+            try:
+                episode_ids.add(str(load_markdown(path).frontmatter.get("id")))
+            except Exception:
+                continue
+    applied: Path | None = None
+    for prop in proposals:
+        if not isinstance(prop, dict):
+            continue
+        belief_path = beliefs.get(str(prop.get("belief_id") or ""))
+        refs = [str(r) for r in (prop.get("evidence_refs") or []) if str(r) in episode_ids]
+        if belief_path is None or not refs:
+            continue  # unresolvable belief or zero real evidence: rejected
+        try:
+            applied = revise_self_belief(
+                belief_path,
+                new_statement=str(prop.get("new_statement") or ""),
+                new_confidence=str(prop.get("new_confidence") or "low"),
+                reason=str(prop.get("reason") or ""),
+                evidence_refs=refs,
+            )
+        except (ValueError, OSError) as exc:
+            from .log import log_error
+
+            log_error(vault, f"dreamer.reconcile revision failed for {prop.get('belief_id')}", exc)
+    return applied
 
 
 def _write_contradiction_log(vault: Path, bundle: str, response: dict[str, Any]) -> Path:
