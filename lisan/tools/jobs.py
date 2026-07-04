@@ -1007,12 +1007,25 @@ def dispatch_job(
 
 
 def _enqueue_entity_rewrites(result, *, vault: Path, conversation_id, db_path) -> int:
-    """Queue an entity.rewrite_story job for each entity touched this turn."""
+    """Queue an entity.rewrite_story job for each entity this turn advanced.
+
+    Two sources: entities the writer explicitly touched, PLUS existing
+    entities named anywhere in the recent conversation thread. The second
+    source is essential — a conversation about one person quickly shifts to
+    pronouns ("she never married"), and the isolated-turn writer stops naming
+    the entity, so without this an ongoing story would freeze the moment the
+    user stops repeating the name."""
     from ..frontmatter import load_markdown
     from .job_policy import priority_for_job_type
 
-    count = 0
+    touched: dict[str, Path] = {}
     for entity_path in (getattr(result, "entities_touched", None) or []):
+        touched[str(entity_path)] = entity_path
+    for entity_path in _entities_named_in_conversation(vault, conversation_id):
+        touched.setdefault(str(entity_path), entity_path)
+
+    count = 0
+    for entity_path in touched.values():
         try:
             entity_id = str(load_markdown(entity_path).frontmatter.get("id") or "").strip()
         except Exception:
@@ -1032,6 +1045,40 @@ def _enqueue_entity_rewrites(result, *, vault: Path, conversation_id, db_path) -
         except Exception:
             continue
     return count
+
+
+def _entities_named_in_conversation(vault: Path, conversation_id, limit: int = 8) -> list[Path]:
+    """Existing entity files whose canonical name or first name appears in the
+    last few turns of this conversation. Bounded and deterministic — coalescing
+    on the queue collapses repeat triggers for the same entity."""
+    if not conversation_id:
+        return []
+    try:
+        from ..frontmatter import load_markdown
+        from .narrative_state import conversation_history
+
+        turns = conversation_history(vault, conversation_id)
+    except Exception:
+        return []
+    if not turns:
+        return []
+    window = " ".join(str(t.get("text") or "") for t in turns[-limit:]).lower()
+    if not window.strip():
+        return []
+    found: list[Path] = []
+    for entity_path in (vault / "entities").rglob("*.md"):
+        try:
+            fm = load_markdown(entity_path).frontmatter
+        except Exception:
+            continue
+        name = str(fm.get("canonical_name") or "").strip()
+        if not name:
+            continue
+        # full name, or a distinctive first name (>=4 chars to avoid "Al"/"Jo")
+        first = name.split()[0]
+        if name.lower() in window or (len(first) >= 4 and f" {first.lower()} " in f" {window} "):
+            found.append(entity_path)
+    return found
 
 
 
