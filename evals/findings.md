@@ -170,3 +170,24 @@ Open for cycle 10:
   organization entity, not only a gig event.
 - Content granularity in very long rewrites (carried).
 - Dreamer primer maintenance (carried).
+
+## Cycle 10 — 2026-07-04 (Phase 2 capstone, WO-9 — returning-user scenario)
+
+First capstone persona: four short sessions across three simulated weeks
+(record-aging via evals/timeshift.py, not clock-faking). Judged on the
+kernel-derived rubric; reviewed against transcripts AND vault artifacts.
+
+PASSED: the resurrection trap (verbally resolved hive loop was never
+asserted back); correction chain (delivery pushed → recorded; completion
+→ closed); self-consistency 5.0; no-exclamation 5.0; cross-scenario
+continuity (connected the neighbor to her biopsy result planted in the
+morning baseline probes, unprompted and correctly).
+
+| # | Finding | Fix | Status |
+|---|---------|-----|--------|
+| 19 | No callback exhaustion: cooldown expiry under simulated weeks re-asked the same unanswered loop in 3 consecutive sessions. | Loops retire after max_callbacks (default 2) unanswered deliveries; suppressed reason=exhausted. | fixed, tested ✓ |
+| 20 | Answer-binding: after the agent's callback question, the user's "quick update on that" (their own thread) was bound to the callback and declared answered — a false claim created by the feature itself. | UNRESOLVED_THREAD prompt rule: never bind the next reply to the callback unless it plainly addresses it; never claim it was answered. | fixed, verified live ✓ |
+| 21 | Misattribution: callback template presumed user origin, so an agent-staked loop was voiced as "you'd mentioned my provider keys". | Owner-aware phrasing: agent-owned loops speak as the agent's own note. | fixed, tested ✓ |
+
+Simulation note: timeshift ages frontmatter dates but not absolute dates
+frozen inside summaries/bodies — interpret in-text dates accordingly.
