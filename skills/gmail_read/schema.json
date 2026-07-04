@@ -1,0 +1,18 @@
+{
+  "description": "Read one Gmail message in full by its message id (get ids from gmail_search). Returns headers and the plain-text body.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "message_id": {
+        "type": "string",
+        "description": "Gmail message id from gmail_search results"
+      },
+      "max_chars": {
+        "type": "integer",
+        "description": "Truncate the body beyond this many characters (default 8000)"
+      }
+    },
+    "required": ["message_id"]
+  },
+  "shared": ["_google_common"]
+}

@@ -1,0 +1,14 @@
+{
+  "description": "List the user's recent iMessage/SMS conversations (most recent first). Returns chat_id, participants, name, service, and last-message time. Use chat_id with imessage_history to read a conversation.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "limit": {
+        "type": "integer",
+        "description": "Number of conversations to list (default 10, max 50)"
+      }
+    },
+    "required": []
+  },
+  "shared": ["_imsg_common"]
+}

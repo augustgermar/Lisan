@@ -1,0 +1,23 @@
+{
+  "description": "Send an iMessage/SMS from the user's Messages account. This sends a real message to a real person — always confirm the recipient and text with the user before calling, and never invent phone numbers or addresses.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "to": {
+        "type": "string",
+        "description": "Recipient phone number (e.g. +14155551212) or email. Use this OR chat_id."
+      },
+      "chat_id": {
+        "type": "integer",
+        "description": "Existing chat id from imessage_recent (required for group chats)"
+      },
+      "text": {
+        "type": "string",
+        "description": "Message text to send"
+      }
+    },
+    "required": ["text"]
+  },
+  "requires_approval": true,
+  "shared": ["_imsg_common"]
+}

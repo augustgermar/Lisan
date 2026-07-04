@@ -566,6 +566,22 @@ def build_parser() -> argparse.ArgumentParser:
     provider_check.add_argument("--provider", default=None)
     provider_check.add_argument("--model", default=None)
 
+    skills_cmd = subparsers.add_parser("skills", help="List, install, or set up conversation skills (tools)")
+    skills_subparsers = skills_cmd.add_subparsers(dest="skills_command", required=True)
+    skills_subparsers.add_parser("list", help="Show bundled and installed skills")
+    skills_install = skills_subparsers.add_parser("install", help="Install a bundled skill into the active skills directory")
+    skills_install.add_argument("name", nargs="?", default=None, help="Skill name (omit with --all)")
+    skills_install.add_argument("--all", action="store_true", help="Install every bundled skill")
+    skills_install.add_argument("--force", action="store_true", help="Overwrite an existing installed copy")
+    skills_uninstall = skills_subparsers.add_parser("uninstall", help="Remove an installed skill")
+    skills_uninstall.add_argument("name")
+    skills_setup = skills_subparsers.add_parser(
+        "setup",
+        help="Run a skill's credential/setup script (e.g. lisan skills setup gmail_search -- --check)",
+    )
+    skills_setup.add_argument("name")
+    skills_setup.add_argument("setup_args", nargs=argparse.REMAINDER, help="Arguments forwarded to the setup script")
+
     telegram_cmd = subparsers.add_parser("telegram", help="Talk to Lisan over a Telegram bot")
     telegram_subparsers = telegram_cmd.add_subparsers(dest="telegram_command", required=True)
     telegram_setup = telegram_subparsers.add_parser("setup", help="Interactive wizard: token + allowlist")
@@ -1068,6 +1084,62 @@ def main(argv: list[str] | None = None) -> int:
             result = diagnose_provider(provider=args.provider, model=args.model, config=config)
             print(json.dumps(result.to_dict(), indent=2, ensure_ascii=True))
             return 0 if result.status in {"ok", "warning"} else 1
+
+    if args.command == "skills":
+        from .tools.skills_cli import (
+            install_all,
+            install_skill,
+            setup_skill,
+            skills_status,
+            uninstall_skill,
+        )
+        from .paths import skills_root
+
+        if args.skills_command == "list":
+            rows = skills_status()
+            if not rows:
+                print("No skills found (bundled or installed).")
+                return 0
+            print(f"Skills directory: {skills_root()}\n")
+            for row in rows:
+                state = "installed" if row["installed"] else "bundled (not installed)"
+                gate = " [requires approval]" if row["requires_approval"] else ""
+                print(f"  {row['name']:<22} {state}{gate}")
+                if row["description"]:
+                    print(f"      {row['description']}")
+            print("\nInstall with: lisan skills install <name>   (or --all)")
+            return 0
+        if args.skills_command == "install":
+            try:
+                if args.all:
+                    written = install_all(force=args.force)
+                elif args.name:
+                    written = install_skill(args.name, force=args.force)
+                else:
+                    print("Pass a skill name or --all")
+                    return 1
+            except (ValueError, FileExistsError) as exc:
+                print(f"Error: {exc}")
+                return 1
+            for path in written:
+                print(f"Installed {path}")
+            print("Installed skills are available in chat immediately (next `lisan chat` turn).")
+            return 0
+        if args.skills_command == "uninstall":
+            try:
+                removed = uninstall_skill(args.name)
+            except ValueError as exc:
+                print(f"Error: {exc}")
+                return 1
+            print(f"Removed {removed}")
+            return 0
+        if args.skills_command == "setup":
+            forwarded = [a for a in args.setup_args if a != "--"]
+            try:
+                return setup_skill(args.name, forwarded)
+            except ValueError as exc:
+                print(f"Error: {exc}")
+                return 1
 
     if args.command == "telegram":
         if args.telegram_command == "setup":

@@ -14,7 +14,7 @@ order; update state transitions with date + completing commit.
 | 6 | Self-belief reconciliation dreamer job | done | 2026-07-04 | (this) |
 | 7 | Graduated action policy | done | 2026-07-04 | (this) |
 | 8 | Wipe Test (clone-only) | done | 2026-07-04 | (this) |
-| 9 | Capstone autonomous eval loop | pending | — | — |
+| 9 | Capstone autonomous eval loop | done | 2026-07-04 | (this) |
 
 ## Notes
 
@@ -108,6 +108,22 @@ order; update state transitions with date + completing commit.
   (allowlist-locked; e.g. "that loop aged out — ping me tomorrow");
   tier 2 lets it run read-only checks (health, verify-a-fix) with no
   session. Both stay off until you set drive.action_tier in config.json.
+- 2026-07-04: WO-9 cycles 1-3 (findings.md cycles 10-12): three persona
+  scenarios run against the live instance with simulated weeks
+  (timeshift). Six findings, all fixed same-cycle and verified: callback
+  exhaustion (max_callbacks), answer-binding, agent-owned attribution,
+  judge context-blindness, Layer B index-at-write (autobiography was
+  invisible to retrieval), plus the test-pipe exit-code lesson.
+  Resurrection trap, contradiction-across-weeks, agent-past honesty,
+  never-told gap, and narrative arc all PASSED. Final comparison pass
+  running.
+- 2026-07-04: WO-9 done — ALL WORK ORDERS COMPLETE. Final pass: 13/13
+  probes, 0 errors; 10/11 dimensions ≥ baseline (initiative 3.78→4.33,
+  self-consistency 4.5→4.71, register 4.46→4.69, prohibitions 5.0); the
+  one flagged dip was the context-free judge scoring faithful recall of
+  the morning run's own planted fact as invention — instrument fixed
+  (run-scoped conversation ids), zero true confabulation events.
+  Closing report: evals/phase2-closing-report.md. Suite 563 green.
 - OPEN (ledgered): belief FORMATION has no mechanism yet — reconcile
   revises, nothing creates beliefs in production. Candidates: a dreamer
   formation pass over accumulated episodes (codify-don't-author applied

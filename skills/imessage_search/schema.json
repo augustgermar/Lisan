@@ -1,0 +1,18 @@
+{
+  "description": "Search the user's local iMessage/SMS history for messages containing a text query. Returns matching messages with sender, chat, text, and timestamp.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Text to search for (case-insensitive substring match)"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum results (default 20, max 100)"
+      }
+    },
+    "required": ["query"]
+  },
+  "shared": ["_imsg_common"]
+}

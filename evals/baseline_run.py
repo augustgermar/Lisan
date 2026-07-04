@@ -56,7 +56,11 @@ def run_baseline(*, judge_provider: str, judge_model: str, skip_judge: bool, lab
     exchanges: list[dict] = []
     for probe in probe_spec["probes"]:
         print(f"probe {probe['id']} …", file=sys.stderr)
-        result = driver.run_turn(probe["conversation"], probe["text"])
+        # Conversation ids are scoped per run: a stateful system replayed
+        # into last run's conversations measures recall of the last run,
+        # not the probe (final-20260704 lesson — the judge scored faithful
+        # recall of a prior run's planted fact as invention).
+        result = driver.run_turn(f"{probe['conversation']}-{date}", probe["text"])
         if probe.get("settle"):
             _settle()
         exchanges.append(

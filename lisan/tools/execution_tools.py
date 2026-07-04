@@ -165,7 +165,14 @@ def build_tool_handlers(
             approval_fn=approval_fn,
         ),
     }
-    handlers.update(load_skill_handlers(skills_root(), vault=vault, config=config or load_config()))
+    handlers.update(
+        load_skill_handlers(
+            skills_root(),
+            vault=vault,
+            config=config or load_config(),
+            approval_fn=approval_fn or _approve_action,
+        )
+    )
     return handlers
 
 
@@ -399,8 +406,9 @@ def _build_codex_prompt(*, task: str, working_directory: Path, vault: Path, db_p
 def _approve_action(tool_name: str, args: dict[str, Any]) -> bool:
     if not sys.stdin.isatty():
         return False
-    print(f"[self] I'd like to run codex to: {args.get('task', '')}")
-    print(f"Working directory: {args.get('working_directory', '')}")
+    print(f"[self] I'd like to run {tool_name}: {args.get('task', '')}")
+    if args.get("working_directory"):
+        print(f"Working directory: {args.get('working_directory', '')}")
     while True:
         answer = input("[approve / deny / modify]: ").strip().lower()
         if answer in {"approve", "yes", "y"}:

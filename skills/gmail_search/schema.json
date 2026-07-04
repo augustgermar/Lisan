@@ -1,0 +1,18 @@
+{
+  "description": "Search the user's Gmail inbox with a Gmail query string (e.g. 'is:unread', 'from:jane@example.com subject:invoice', 'newer_than:7d'). Returns message metadata: id, thread, from, to, subject, date, snippet, labels. Use gmail_read with a message id to read a full message.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Gmail search query (same syntax as the Gmail search box)"
+      },
+      "max_results": {
+        "type": "integer",
+        "description": "Maximum messages to return (default 10, max 25)"
+      }
+    },
+    "required": ["query"]
+  },
+  "shared": ["_google_common"]
+}

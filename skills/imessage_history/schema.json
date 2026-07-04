@@ -1,0 +1,18 @@
+{
+  "description": "Read recent messages from one iMessage/SMS conversation. Pass the chat_id from imessage_recent. Returns sender, text, and timestamps, newest first.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "chat_id": {
+        "type": "integer",
+        "description": "Chat id from imessage_recent"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Number of messages to return (default 20, max 100)"
+      }
+    },
+    "required": ["chat_id"]
+  },
+  "shared": ["_imsg_common"]
+}

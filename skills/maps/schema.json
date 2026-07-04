@@ -1,0 +1,37 @@
+{
+  "description": "Maps and places via OpenStreetMap (no API key): geocode a place name (action=search), reverse-geocode coordinates (reverse), find nearby points of interest like cafes/pharmacies/parks (nearby), road distance and travel time (distance), turn-by-turn directions (directions), timezone for coordinates (timezone), or bounding-box info for a named area (area).",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["search", "reverse", "nearby", "distance", "directions", "timezone", "area"],
+        "description": "Which lookup to perform"
+      },
+      "query": {
+        "type": "string",
+        "description": "Place name/address (for search and area)"
+      },
+      "lat": {"type": "number", "description": "Latitude (for reverse, timezone, or nearby)"},
+      "lon": {"type": "number", "description": "Longitude (for reverse, timezone, or nearby)"},
+      "near": {
+        "type": "string",
+        "description": "Address/city/landmark to search around (for nearby, instead of lat/lon)"
+      },
+      "category": {
+        "type": "string",
+        "description": "POI category for nearby: restaurant, cafe, bar, bakery, supermarket, pharmacy, hospital, hotel, gas_station, parking, park, gym, library, museum, cinema, atm, bank, school, police, post_office, church, and similar OSM categories"
+      },
+      "radius": {"type": "integer", "description": "Search radius in metres for nearby (default 500)"},
+      "origin": {"type": "string", "description": "Origin place (for distance/directions)"},
+      "destination": {"type": "string", "description": "Destination place (for distance/directions)"},
+      "mode": {
+        "type": "string",
+        "enum": ["driving", "walking", "cycling"],
+        "description": "Travel mode for distance/directions (default driving)"
+      },
+      "limit": {"type": "integer", "description": "Maximum results (default 10)"}
+    },
+    "required": ["action"]
+  }
+}

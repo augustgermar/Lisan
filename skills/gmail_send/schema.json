@@ -1,0 +1,31 @@
+{
+  "description": "Send an email from the user's Gmail account, or reply to an existing message. This sends real email to real recipients — always confirm the recipient, subject, and body with the user before calling, and never invent recipient addresses.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "to": {
+        "type": "string",
+        "description": "Recipient email address (comma-separated for several). Omit when replying — the original sender is used."
+      },
+      "subject": {
+        "type": "string",
+        "description": "Subject line. Omit when replying — 'Re:' is added automatically."
+      },
+      "body": {
+        "type": "string",
+        "description": "Plain-text message body"
+      },
+      "cc": {
+        "type": "string",
+        "description": "Optional CC addresses, comma-separated"
+      },
+      "reply_to_message_id": {
+        "type": "string",
+        "description": "Gmail message id to reply to (from gmail_search). Sets threading headers and keeps the conversation together."
+      }
+    },
+    "required": ["body"]
+  },
+  "requires_approval": true,
+  "shared": ["_google_common"]
+}
