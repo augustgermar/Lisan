@@ -85,6 +85,13 @@ def test_question_phrasing_is_interrogative(tmp_path):
     assert "fastembed failure" in q
 
 
+def test_agent_owned_loops_are_attributed_to_the_agent(tmp_path):
+    q = phrase_question({"summary": "my provider keys were rotating oddly", "owner": "agent"})
+    assert q.endswith("?")
+    assert "note of my own" in q
+    assert "you mentioned" not in q
+
+
 def test_one_callback_per_session_and_cooldown_stamp(tmp_path):
     path = _loop(tmp_path, "alpha", links=["self_episode.job-1"])
     _loop(tmp_path, "beta")
@@ -105,6 +112,22 @@ def test_cooldown_expires(tmp_path):
     _loop(tmp_path, "gamma", last_callback="2026-07-01")
     q = session_open_callback(tmp_path, "c1", now=NOW)  # 9 days later > 7
     assert q is not None and "gamma" in q
+
+
+def test_exhausted_loops_retire_for_good(tmp_path):
+    """Asked twice without resolution → never asked again, whatever the
+    cooldown says (capstone cycle 1: three consecutive sessions of the same
+    question is nagging)."""
+    _loop(tmp_path, "epsilon", last_callback="2026-06-01", callback_count=2)
+    assert session_open_callback(tmp_path, "c1", now=NOW) is None
+    log = (tmp_path / "logs" / "lisan.log").read_text(encoding="utf-8")
+    assert "reason=exhausted" in log
+
+
+def test_callback_count_increments_on_delivery(tmp_path):
+    path = _loop(tmp_path, "zeta", links=["self_episode.job-1"])
+    session_open_callback(tmp_path, "c1", now=NOW)
+    assert load_markdown(path).frontmatter["callback_count"] == 1
 
 
 def test_below_threshold_stays_silent(tmp_path):

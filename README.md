@@ -49,6 +49,12 @@ The repository is in an MVP-ready state. It is designed so a future maintainer c
 - `/remember` and `/forget` prefix stripping before transcript and agent calls
 - `/logs [N]` command in interactive chat
 - `/domain [name]` command to override retrieval domain for the current session (legacy `/arena` still works)
+- Identity kernel enforcement: `primer/identity-core.md` is write-gated (ceremony-only), content-hashed, with drift events recorded — never silently changed
+- Voice ceremony: `lisan self extract-voice` distills evidence-gated voice invariants from the agent's own transcript history; `lisan self ratify` writes them into the kernel, and the conversation prompt carries the vault voice from then on
+- First-person memory (Layer B): deterministic self-episodes assembled from job/plan/ceremony records (`lisan self backfill-episodes`), plus capability-belief records with chained, evidence-required revisions
+- Drive system v1: open loops are scored (salience + stake + age, decaying to zero), and a fresh session may open with at most one question-phrased callback about an unresolved thread — cooldown-stamped, never nagging
+- Graduated autonomy policy: `drive.action_tier` in config (0 = queue-for-next-session, the default; higher tiers stay inert until the owner raises them), enforced in code at one dispatch seam
+- Self-belief reconciliation: `lisan dreamer reconcile` compares capability beliefs against the first-person episodic record and applies evidence-gated revisions ("I believed X; events Y and Z suggest otherwise")
 
 The repo is usable as a local memory vault CLI now. Most remaining work is refinement, prompt calibration, and optional automation, not core plumbing.
 
@@ -444,6 +450,51 @@ Skeptic reviews drafts for:
 
 Interlocutor handles clarification and review questions. It is used in draft review and in the capture pipeline after Writer/Skeptic.
 
+## Identity Kernel And Self-Model
+
+`primer/identity-core.md` is the identity kernel — the invariant layer of
+the agent's self-model. It is enforced, not advisory:
+
+- In-process writes are refused outside a ceremony code path (bootstrap and
+  ratification are ceremonies; the editor, fan-out, and agent tool calls are
+  not).
+- The kernel carries a `kernel_hash` covering its own content; a hand-edit
+  (the owner's legitimate v1 change path) or any out-of-band change becomes
+  a recorded drift event in `reports/kernel-drift.md`, never a silent change.
+- A ratified `## Voice` section in the kernel supersedes the authored voice
+  in the conversation prompt, so identity is carried by the vault and an
+  engine swap carries the voice by construction.
+
+The voice is codified, never authored:
+
+```bash
+lisan self extract-voice        # distill candidate invariants from transcript history
+lisan self ratify --from <artifact> --provisional
+lisan self backfill-episodes    # assemble first-person episodes from system records
+```
+
+Extraction is evidence-gated: every candidate invariant needs 3+ verbatim
+quotes resolving to real agent turns across 2+ conversations, with
+factory/earned provenance tags. Fresh installs become ceremony-eligible at
+an evidence threshold (config `identity.ceremony`), not a time window.
+
+First-person memory lives under `self/`: `self_episode` records are
+assembled deterministically from job outcomes, plans, and ceremony events
+(the model never writes the agent's history), and `self_belief` records
+hold revisable competence claims whose revisions are chained and
+evidence-required.
+
+## Drive
+
+Open loops are the motivation source. Each active loop gets a deficit
+score — salience plus stake (loops linked to a first-person episode outrank
+pure reminders) plus age, decaying linearly to zero unless refreshed — and
+a fresh session may open with at most one callback about the top-scoring
+loop, phrased as a question by construction, with a per-loop cooldown.
+Config under `drive`; the autonomy surface is `drive.action_tier` (0 =
+session callbacks only, the shipped default) enforced at a single dispatch
+seam in code.
+
 ## Dreamer And Maintenance
 
 Dreamer is the long-horizon maintenance agent.
@@ -457,6 +508,7 @@ Tasks supported:
 - `epoch`
 - `overfitting`
 - `identity-anchor`
+- `reconcile` (self-belief reconciliation against the first-person record)
 
 The Dreamer output path writes reports and, for contradictions, a `contradiction_log`.
 

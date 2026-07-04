@@ -38,6 +38,10 @@ DEFAULTS: dict[str, Any] = {
     "cooldown_days": 7,
     "min_score": 2.0,
     "max_age_days": 45,
+    # A loop asked about this many times without being resolved retires from
+    # callbacks for good — asking a third time is nagging, whatever the
+    # cooldown says. (Capstone cycle 1 finding.)
+    "max_callbacks": 2,
 }
 
 _SALIENCE = {"low": 1.0, "medium": 2.0, "high": 3.0}
@@ -77,9 +81,14 @@ def loop_score(fm: dict[str, Any], now: date | None = None, *, max_age_days: int
 
 
 def phrase_question(fm: dict[str, Any]) -> str:
-    """Interrogative by construction — never an assertion."""
+    """Interrogative by construction — never an assertion — and attributed
+    to whoever actually owns the thread: an agent-owned loop is the agent's
+    own note, not something the user said (capstone cycle 1 finding)."""
     subject = str(fm.get("summary") or fm.get("title") or "that open thread").strip().rstrip(".!")
-    question = f'Earlier you mentioned "{subject}" — did that ever get anywhere?'
+    if str(fm.get("owner") or "") == "agent":
+        question = f'I have an open note of my own — "{subject}" — did that ever get sorted?'
+    else:
+        question = f'Earlier you mentioned "{subject}" — did that ever get anywhere?'
     assert question.endswith("?")
     return question
 
@@ -133,6 +142,9 @@ def session_open_callback(
         loop_id = str(fm.get("id") or path.stem)
         if score < float(cfg["min_score"]):
             break  # sorted: nothing below threshold can follow
+        if int(fm.get("callback_count") or 0) >= int(cfg["max_callbacks"]):
+            logger.info(f"drive.callback.suppressed loop={loop_id} reason=exhausted")
+            continue
         if _in_cooldown(fm, now, int(cfg["cooldown_days"])):
             logger.info(f"drive.callback.suppressed loop={loop_id} reason=cooldown")
             continue
@@ -140,7 +152,15 @@ def session_open_callback(
         try:
             fm["last_callback"] = today_iso()
             doc = load_markdown(path)
-            write_markdown(path, {**dict(doc.frontmatter), "last_callback": fm["last_callback"]}, doc.body)
+            write_markdown(
+                path,
+                {
+                    **dict(doc.frontmatter),
+                    "last_callback": fm["last_callback"],
+                    "callback_count": int(fm.get("callback_count") or 0) + 1,
+                },
+                doc.body,
+            )
         except Exception as exc:
             log_error(vault, f"drive.callback stamp failed for {loop_id}", exc)
             return None  # never deliver what we could not stamp — that way lies nagging

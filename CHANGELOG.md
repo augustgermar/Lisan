@@ -1,5 +1,36 @@
 # Changelog
 
+## 26.7.4
+
+Phase 2: functional self-awareness architecture (docs/phase2_roadmap.md).
+
+- **The identity kernel is enforced.** `primer/identity-core.md` is
+  write-gated (ceremony-only), content-hashed with recorded drift events,
+  and its ratified `## Voice` section supersedes the authored prompt voice —
+  identity is carried by the vault, so an engine swap carries the voice.
+- **The voice ceremony.** `lisan self extract-voice` distills voice
+  invariants from the agent's own transcript history behind a hard evidence
+  gate (3+ verbatim quotes across 2+ conversations, factory/earned
+  provenance); `lisan self ratify` writes them into the kernel. Run live:
+  349 turns across 56 conversations produced 6 evidence-gated invariants.
+- **Layer B: first-person memory.** `self_episode` records assembled
+  deterministically from job/plan/ceremony records (confabulating one's own
+  history is structurally impossible); `self_belief` records with chained,
+  evidence-required revisions, reconciled against the episodic record by
+  the new `lisan dreamer reconcile` task.
+- **Drive v1.** Deficit-scored open loops (salience + stake + age, decaying
+  to zero) can open a fresh session with one question-phrased callback,
+  cooldown-stamped; graduated autonomy via `drive.action_tier`, enforced in
+  code, shipped at tier 0.
+- **Eval instrumentation.** Kernel-derived consistency rubric, a
+  different-family model judge, behavioral metrics, a fixed 13-probe
+  baseline (captured), and the Wipe Test — which the layer separation
+  passed: voice fingerprint unchanged on a memory-wiped clone while the
+  autobiography vanished.
+- **Hardening.** Executor workspace can no longer widen past home on a
+  disjoint vault; five silent-degrade exception sites in the capture gate,
+  primer index, owner profile, and validator now log or report.
+
 ## 26.7.3
 
 - **Conversation became an agent; memory capture became an observer.** Every
