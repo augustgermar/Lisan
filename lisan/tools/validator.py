@@ -630,8 +630,12 @@ def _validate_alias_uniqueness(vault: Path, report: ValidationReport) -> None:
                 )
         finally:
             conn.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        report.add(
+            vault / "entities",
+            f"Alias ambiguity audit skipped — index unreadable: {exc}",
+            severity="warning",
+        )
 
 
 def _is_structured_record(path: Path, vault: Path) -> bool:

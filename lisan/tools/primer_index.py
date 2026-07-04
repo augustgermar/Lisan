@@ -33,7 +33,13 @@ def _known_names_cached(vault: Path, mtime: float) -> frozenset[str]:
         return frozenset()
     try:
         text = path.read_text(encoding="utf-8")
-    except Exception:
+    except Exception as exc:
+        try:
+            from .log import log_error
+
+            log_error(vault, "primer_index.known_names unreadable — entity scoring degraded", exc)
+        except Exception:
+            pass
         return frozenset()
     names: set[str] = set()
     for match in _NAME_RE.finditer(text):

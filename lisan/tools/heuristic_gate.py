@@ -360,7 +360,14 @@ def _count_vault_entity_hits(text: str, db_path: Path | None) -> int:
             return hits
         finally:
             conn.close()
-    except Exception:
+    except Exception as exc:
+        try:
+            from ..paths import vault_root
+            from .log import log_error
+
+            log_error(vault_root(), "heuristic_gate.entity_lookup failed — entity scoring degraded to 0", exc)
+        except Exception:
+            pass
         return 0
 
 
@@ -466,7 +473,13 @@ def _get_high_stakes_terms(
         if hs_path.exists():
             try:
                 return _parse_yaml_terms_list(hs_path.read_text(encoding="utf-8"))
-            except Exception:
+            except Exception as exc:
+                try:
+                    from .log import log_error
+
+                    log_error(vault, "heuristic_gate.high_stakes_terms unreadable — high-stakes scoring disabled", exc)
+                except Exception:
+                    pass
                 return []
 
     if config:

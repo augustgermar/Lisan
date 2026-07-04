@@ -120,8 +120,8 @@ def _owner_profile(vault: Path) -> str:
         if identity:
             body = identity.split("---")[-1].strip()
             parts.append(body[:1500])
-    except Exception:
-        pass
+    except Exception as exc:
+        log_error(vault, "conversation.owner_profile identity load failed", exc)
     try:
         from .primer_index import _identity_core
 
@@ -133,8 +133,8 @@ def _owner_profile(vault: Path) -> str:
                 for r in roster
             )
             parts.append(f"Household cast: {people}")
-    except Exception:
-        pass
+    except Exception as exc:
+        log_error(vault, "conversation.owner_profile roster load failed", exc)
     return "\n\n".join(parts)
 
 
