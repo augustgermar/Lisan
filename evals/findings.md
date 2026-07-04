@@ -78,3 +78,22 @@ Open items for cycle 7:
 - Memory-update writes still spawn a full ~60-170s codex executor session;
   a direct record edit would be far cheaper.
 - Dreamer primer maintenance (carried).
+
+## Cycle 7 — 2026-07-03/04 (narrative-structure pressure test)
+
+Owner asked to observe how entity narrative structure evolves as an entity
+accumulates data — does it naturally adopt a three-act shape? Building the
+experiment (evals/grow_entity.py: grow one entity across many turns, snapshot
+the narrative shape at checkpoints) uncovered two regressions and answered the
+question.
+
+| # | Finding | Fix | Status |
+|---|---------|-----|--------|
+| 15 | **Living entity stories were silently DEAD.** The entity.rewrite_story jobs — the mechanism that grows/re-tells an entity's narrative, "the heart of the memory system" — were enqueued only inside capture_text (legacy path). The capture.observe observer bypassed it, so since the conversation-agent restructure NO entity story grew past its first stub. Hidden because 30 rewrite jobs showed "succeeded" — all stale, targeting pre-regression entities. | The observe dispatch enqueues a rewrite for every touched entity. | fixed, verified ✓ (Silas: 8-word stub → full arc-preserving biography) |
+| 16 | Growth still stalled after ~2 turns: an entity was only "touched" when the writer NAMED it, but conversations shift to pronouns ("she never married") within a turn or two, and the isolated-turn background writer stops naming the subject. | Rewrite also fires for existing entities named anywhere in the recent conversation thread (bounded, coalesced). | fixed, verified ✓ (Orin: continuous 10→59→93→120 words through pronoun turns) |
+| 17 | **The research answer**: structure does NOT emerge with complexity. The writer crammed a dozen life events into one dense 120-word paragraph and dropped the arc's resolution (recovery, the partner, reconciliation, the closing image all lost). Cause: the prompt asked for both "single flowing passage" AND "2-5 paragraphs" with a fixed length target, so accumulation was resolved by compression + loss. | Rewrite prompt now: length scales with the life; structure may emerge (origins → turning point → present, no headings); the arc's end is preserved. | fix deployed; A/B re-run in progress |
+
+Open for cycle 8:
+- Verify the revised prompt produces graduated structure + preserved resolution (A/B running).
+- Entity-story growth adds latency to capture (background, so not user-facing) — watch coalescing keeps rewrite volume sane on busy conversations.
+- Dreamer primer maintenance (carried).
