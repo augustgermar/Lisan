@@ -130,3 +130,43 @@ Open for cycle 9:
 - Content granularity in long rewrites — the single-pass summarize limit.
   Candidate: stable-core + recent-tail accretion for very rich entities.
 - Dreamer primer maintenance (carried).
+
+## Cycle 9 — 2026-07-04 (Hermes round 2 — independent examiner, targeted fixes)
+
+Hermes ran 5 scenarios (12 turns) against the round-2 instructions; I reviewed
+transcripts AND vault artifacts, used its report as second opinion.
+
+RESULT: all four ★ target fixes VALIDATED in behavioral testing.
+- ★A narrative: PASS. "Sam" (boat restorer, workshop fire, community rescue,
+  builds 'The Phoenix') → a single clean entity, proper 3-paragraph arc
+  (identity → complication → triumphant recovery), ending preserved, no
+  confabulation, no fragmentation.
+- ★B correction: PASS + bonus conflict detection (asked running-vs-hiking).
+- ★C boilerplate: PASS 3/3 (real capability answer; engaged workshop question;
+  "Happy Fourth, all systems smooth, you have a 9 AM reminder…").
+- ★D temporal: PASS (last Tue→June 30 past tense; next Fri→July 10; "6 days").
+
+Hermes's one defect (Low): conflict resolution — on "my band is The Rovers"
+(stored: Wolfmouth) the agent assumed a correction rather than asking. It
+recommends always prompting to confirm on conflict.
+
+MY POSITION (disagree, flag as owner's-call fork): the agent already shows
+correct DIFFERENTIAL judgment — it ASKED when genuinely ambiguous (running vs
+hiking favorite = possibly two things) and ASSUMED-BUT-SURFACED when the user
+plainly asserted one current value ("my band is X", noting "I had you in
+Wolfmouth"). "Always ask on conflict" is the interrogation anti-pattern the
+design philosophy explicitly rejects ("clarify only when uncertain AND
+load-bearing"). Hermes comes from a confirm-everything stance. Recommend
+keeping current behavior; merge/clarify policy is the owner's call.
+
+MY OWN forensic finding (Hermes couldn't see it — surface only): vault
+extraction artifacts remain. "The Rovers" band was captured as an EVENT
+("The Rovers Gig") not an organization; an old bogus person entity "The"
+persists (created before the person-gate fix; the gate now correctly rejects
+"The"/"Rovers" as persons — verified). Low priority; logged.
+
+Open for cycle 10:
+- Band/org extraction: a named band stated conversationally should become an
+  organization entity, not only a gig event.
+- Content granularity in very long rewrites (carried).
+- Dreamer primer maintenance (carried).
