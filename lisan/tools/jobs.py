@@ -1008,6 +1008,7 @@ def dispatch_job(
             provider=provider or payload.get("provider"),
             model=model or payload.get("model"),
             db_path=db_path,
+            force_compact=bool(payload.get("force_compact")),
         )
 
     raise ValueError(f"Unsupported job_type: {job_type}")

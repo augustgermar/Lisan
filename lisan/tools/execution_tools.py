@@ -72,6 +72,12 @@ TOOLS: list[dict[str, Any]] = [
                     "description": "Re-ingest documents that were ingested before, replacing their old chunks",
                     "default": False,
                 },
+                "mode": {
+                    "type": "string",
+                    "enum": ["life", "knowledge"],
+                    "description": "life (default): notes about people/places/projects become entity narratives, dated notes become episodes, the rest becomes knowledge. knowledge: everything becomes searchable knowledge records only.",
+                    "default": "life",
+                },
             },
             "required": ["path"],
         },
@@ -171,9 +177,10 @@ def build_tool_handlers(
             approval_fn=approval_fn,
         ),
         "self_state": lambda: self_state(vault=vault, db_path=db_path),
-        "ingest_files": lambda path, replace=False: ingest_files_tool(
+        "ingest_files": lambda path, replace=False, mode="life": ingest_files_tool(
             path=path,
             replace=bool(replace),
+            mode=str(mode or "life"),
             vault=vault,
             db_path=db_path,
             approval_fn=approval_fn,
@@ -320,59 +327,100 @@ def ingest_files_tool(
     *,
     path: str,
     replace: bool = False,
+    mode: str = "life",
     vault: Path,
     db_path: Path | None = None,
     approval_fn: Callable[[str, dict[str, Any]], bool] | None = None,
 ) -> str:
-    """Conversational ingestion. Plans first (counting files and chunks with
-    zero writes), puts those counts in front of the user as the approval,
-    then runs the same reference pipeline the CLI uses. Reads sources; never
-    writes to them."""
+    """Conversational ingestion. Plans first (counting and classifying with
+    zero writes), puts that plan in front of the user as the approval, then
+    assimilates. Life mode routes person/place/project notes into entity
+    narratives and dated notes into episodes; knowledge mode stores
+    everything as reference chunks. Reads sources; never writes to them."""
     from .ingest import ingest_reference_sources
+    from .ingest_life import ingest_life_sources
 
     source = Path(str(path or "").strip()).expanduser()
     if not source.exists():
         return f"Error: {source} does not exist"
 
-    try:
-        plan = ingest_reference_sources(
-            [source], vault=vault, db_path=db_path,
-            on_exists="replace" if replace else "abort", plan_only=True,
+    if str(mode).strip().lower() == "knowledge":
+        try:
+            plan = ingest_reference_sources(
+                [source], vault=vault, db_path=db_path,
+                on_exists="replace" if replace else "abort", plan_only=True,
+            )
+        except FileExistsError as exc:
+            return f"Already ingested: {exc}. Say the word and I'll re-ingest with replace."
+        except Exception as exc:
+            return f"Error while planning the ingestion: {exc}"
+        documents = plan.get("documents") or []
+        if not documents:
+            return f"Nothing ingestible found at {source} (markdown, text, PDF, json, csv)."
+        approved = (approval_fn or _approve_action)(
+            "ingest_files",
+            {"task": f"ingest {len(documents)} file(s) (~{int(plan.get('total_chunks') or 0)} knowledge records) from {source}"
+                     + (", replacing previous versions" if replace else "")},
         )
-    except FileExistsError as exc:
-        return f"Already ingested: {exc}. Say the word and I'll re-ingest with replace."
+        if not approved:
+            return "User denied the ingestion"
+        try:
+            result = ingest_reference_sources(
+                [source], vault=vault, db_path=db_path,
+                on_exists="replace" if replace else "abort", plan_only=False,
+            )
+        except FileExistsError as exc:
+            return f"Already ingested: {exc}. Ask me to re-ingest with replace if you want the newer version."
+        except Exception as exc:
+            return f"Ingestion failed: {exc}"
+        created = result.get("created_records") or []
+        warnings = result.get("warnings") or []
+        summary = f"Ingested {len(result.get('documents') or [])} file(s) into {len(created)} knowledge records."
+        if warnings:
+            summary += f" {len(warnings)} warning(s): " + "; ".join(str(w) for w in warnings[:3])
+        return summary
+
+    # life mode (default)
+    try:
+        plan = ingest_life_sources([source], vault=vault, db_path=db_path, replace=replace, plan_only=True)
     except Exception as exc:
         return f"Error while planning the ingestion: {exc}"
-
-    documents = plan.get("documents") or []
-    total_chunks = int(plan.get("total_chunks") or 0)
-    if not documents:
-        return f"Nothing ingestible found at {source} (markdown, text, PDF, json, csv)."
-
-    approved = (approval_fn or _approve_action)(
-        "ingest_files",
-        {"task": f"ingest {len(documents)} file(s) (~{total_chunks} knowledge records) from {source}"
-                 + (", replacing previous versions" if replace else "")},
+    counts = plan.get("classified") or {}
+    total = sum(counts.values())
+    if not total:
+        return f"Nothing ingestible found at {source}."
+    new_entities = plan.get("would_create_entities") or []
+    task = (
+        f"assimilate {total} file(s) from {source}: "
+        f"{counts.get('entity', 0)} life notes (creating {len(new_entities)} new entities), "
+        f"{counts.get('episode', 0)} dated notes as episodes, "
+        f"{counts.get('knowledge', 0)} as knowledge, "
+        f"{counts.get('skipped_empty', 0)} empty skipped"
+        + (", replacing previous versions" if replace else "")
     )
+    approved = (approval_fn or _approve_action)("ingest_files", {"task": task})
     if not approved:
         return "User denied the ingestion"
 
     try:
-        result = ingest_reference_sources(
-            [source], vault=vault, db_path=db_path,
-            on_exists="replace" if replace else "abort", plan_only=False,
-        )
-    except FileExistsError as exc:
-        return f"Already ingested: {exc}. Ask me to re-ingest with replace if you want the newer version."
+        result = ingest_life_sources([source], vault=vault, db_path=db_path, replace=replace, plan_only=False)
     except Exception as exc:
         return f"Ingestion failed: {exc}"
 
-    created = result.get("created_records") or []
+    created = result.get("entities_created") or []
+    parts = [
+        f"Assimilated {total} file(s):",
+        f"{len(created)} new entities ({', '.join(e['name'] for e in created[:8])}{'…' if len(created) > 8 else ''})" if created else "",
+        f"{len(result.get('entities_enriched') or [])} existing entities enriched" if result.get("entities_enriched") else "",
+        f"{result.get('episodes_created', 0)} episodes" if result.get("episodes_created") else "",
+        f"{result.get('knowledge_records', 0)} knowledge records",
+        f"{result.get('rewrite_jobs', 0)} narrative rewrites queued (stories compose in the background)" if result.get("rewrite_jobs") else "",
+        f"{result.get('already_ingested', 0)} already ingested, skipped" if result.get("already_ingested") else "",
+    ]
     warnings = result.get("warnings") or []
-    summary = f"Ingested {len(result.get('documents') or [])} file(s) into {len(created)} knowledge records."
     if warnings:
-        summary += f" {len(warnings)} warning(s): " + "; ".join(str(w) for w in warnings[:3])
-    return summary
+        parts.append(f"{len(warnings)} warning(s): " + "; ".join(str(w) for w in warnings[:3]))
+    return " ".join(p for p in parts if p)
 
 
 def create_plan_tool(

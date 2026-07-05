@@ -105,9 +105,12 @@ class ToolTests(_ObsidianVault):
             return True
 
         out = self._tool(approve)(path=str(self.source))
-        self.assertIn("Ingested 1 file(s)", out)
+        self.assertIn("Assimilated 1 file(s)", out)
         self.assertEqual(seen[0]["name"], "ingest_files")
         self.assertIn("1 file(s)", seen[0]["task"])  # counts shown at the veto point
+        # knowledge mode keeps the old flat behavior
+        out2 = self._tool(approve)(path=str(self.source), mode="knowledge", replace=True)
+        self.assertIn("Ingested 1 file(s)", out2)
 
     def test_missing_path_is_a_plain_error(self):
         out = self._tool(lambda n, a: True)(path=str(self.source / "nope"))
