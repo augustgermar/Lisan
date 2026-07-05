@@ -43,6 +43,7 @@ def _prompt_for_task(task: str) -> str:
         "overfitting": "dreamer_overfitting_v1",
         "identity_anchor": "dreamer_identity_anchor_v1",
         "reconcile": "dreamer_reconcile_v1",
+        "hindsight": "dreamer_hindsight_v1",
     }
     return mapping.get(task, "dreamer_compress_v1")
 
@@ -62,6 +63,8 @@ def _bundle_for_task(vault: Path, task: str) -> str:
         return _bundle_identity(vault) + _bundle_approved_patterns(vault)
     if task == "reconcile":
         return _bundle_self_reconciliation(vault)
+    if task == "hindsight":
+        return _bundle_hindsight(vault)
     return _bundle_recent_episodes(vault, days=365, include_states=True, include_entities=True) + _bundle_approved_patterns(vault)
 
 
@@ -400,7 +403,93 @@ def _apply_task_side_effect(vault: Path, task: str, bundle: str, response: dict[
         return _write_contradiction_log(vault, bundle, response)
     if task == "reconcile":
         return _apply_belief_revisions(vault, response)
+    if task == "hindsight":
+        return _apply_hindsight_elevations(vault, response)
     return None
+
+
+def _bundle_hindsight(vault: Path) -> str:
+    """Episodes in date order, with significance — the raw material for
+    re-reading old details in the light of later events."""
+    lines = ["## Episodes (date order)", ""]
+    episodes = []
+    root = vault / "episodes"
+    if root.exists():
+        for path in root.glob("*.md"):
+            try:
+                fm = load_markdown(path).frontmatter
+            except Exception:
+                continue
+            if str(fm.get("type") or "") != "episode":
+                continue
+            episodes.append(fm)
+    episodes.sort(key=lambda fm: str(fm.get("created") or ""))
+    for fm in episodes:
+        lines.append(
+            f"- id: {fm.get('id')} | date: {fm.get('created')} | "
+            f"significance: {fm.get('significance')} | {fm.get('summary')}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+_SIGNIFICANCE_ORDER = {"low": 0, "medium": 1, "high": 2}
+
+
+def _apply_hindsight_elevations(vault: Path, response: dict[str, Any]) -> Path | None:
+    """Deterministic gate over model-proposed elevations: the episode must
+    exist, every evidence ref must resolve to a real LATER-dated episode,
+    and significance may only ever rise — hindsight elevates turning
+    points, it never buries anything. The reason is appended to the record
+    body as a dated hindsight note, so the elevation carries its own
+    provenance."""
+    proposals = response.get("elevations") if isinstance(response, dict) else None
+    if not proposals:
+        return None
+    episodes: dict[str, tuple[Path, dict[str, Any]]] = {}
+    root = vault / "episodes"
+    if root.exists():
+        for path in root.glob("*.md"):
+            try:
+                fm = dict(load_markdown(path).frontmatter)
+            except Exception:
+                continue
+            if str(fm.get("type") or "") == "episode":
+                episodes[str(fm.get("id"))] = (path, fm)
+    applied: Path | None = None
+    for prop in proposals:
+        if not isinstance(prop, dict):
+            continue
+        target = episodes.get(str(prop.get("episode_id") or ""))
+        if target is None:
+            continue
+        path, fm = target
+        new_sig = str(prop.get("new_significance") or "").strip().lower()
+        old_sig = str(fm.get("significance") or "low").lower()
+        if new_sig not in _SIGNIFICANCE_ORDER:
+            continue
+        if _SIGNIFICANCE_ORDER[new_sig] <= _SIGNIFICANCE_ORDER.get(old_sig, 0):
+            continue  # elevation only, never demotion
+        target_date = str(fm.get("created") or "")
+        refs = []
+        for ref in prop.get("evidence_refs") or []:
+            other = episodes.get(str(ref))
+            if other is not None and str(other[1].get("created") or "") > target_date:
+                refs.append(str(ref))
+        if not refs:
+            continue  # hindsight requires later evidence — no evidence, no elevation
+        doc = load_markdown(path)
+        new_fm = dict(doc.frontmatter)
+        new_fm["significance"] = new_sig
+        new_fm["updated"] = today_iso()
+        reason = str(prop.get("reason") or "later events revealed its weight").strip()
+        note = (
+            f"\n\n## Hindsight ({today_iso()})\n\n"
+            f"Elevated {old_sig} → {new_sig}: {reason} "
+            f"(evidence: {', '.join(f'`{r}`' for r in refs)})\n"
+        )
+        write_markdown(path, new_fm, doc.body.rstrip() + note)
+        applied = path
+    return applied
 
 
 def _bundle_self_reconciliation(vault: Path) -> str:

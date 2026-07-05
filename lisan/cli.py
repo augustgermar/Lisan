@@ -512,7 +512,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     dreamer = subparsers.add_parser("dreamer", help="Run Dreamer maintenance analyses")
     dreamer_subparsers = dreamer.add_subparsers(dest="dreamer_command", required=True)
-    for task_name in ["compress", "primer", "contradict", "confidence", "epoch", "overfitting", "identity-anchor", "reconcile"]:
+    for task_name in ["compress", "primer", "contradict", "confidence", "epoch", "overfitting", "identity-anchor", "reconcile", "hindsight"]:
         dreamer_task = dreamer_subparsers.add_parser(task_name, help=f"Run the Dreamer {task_name} task")
         dreamer_task.add_argument("--vault", type=Path, default=vault_root())
         dreamer_task.add_argument("--provider", default=None)
