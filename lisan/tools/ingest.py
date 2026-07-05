@@ -1919,6 +1919,8 @@ def ingest_reference_sources(
     on_exists: str | None = None,
     link_entities: list[str] | None = None,
     plan_only: bool = False,
+    create_entities: bool = True,
+    reindex: bool = True,
 ) -> dict[str, Any]:
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
@@ -1949,6 +1951,8 @@ def ingest_reference_sources(
                 on_exists=existence_policy,
                 link_entities=link_entities,
                 plan_only=plan_only,
+                create_entities=create_entities,
+                reindex=reindex,
             )
             plans.extend(nested.get("documents", []))
             created_records.extend(nested.get("created_records", []))
@@ -2008,12 +2012,15 @@ def ingest_reference_sources(
 
         for chunk in chunks:
             chunk_links = set(linked_entity_ids)
-            new_links, newly_created = _link_entities_for_chunk(
+            new_links, newly_created = _link_entities_for_chunk_impl(
                 vault=vault,
                 chunk=chunk,
                 entity_catalog=entity_catalog,
                 explicit_links=linked_entity_ids,
+                create_entities=create_entities,
             )
+            if not create_entities:
+                newly_created = []  # match-only: never mint from phrases
             chunk_links.update(new_links)
             for entity in newly_created:
                 if entity.get("id"):
@@ -2056,7 +2063,8 @@ def ingest_reference_sources(
     if not plan_only and (created_records or replaced_files):
         from .rebuild_index import rebuild_index
 
-        rebuild_index(vault=vault, db_path=db_path)
+        if reindex:
+            rebuild_index(vault=vault, db_path=db_path)
 
     return {
         "plan_only": plan_only,

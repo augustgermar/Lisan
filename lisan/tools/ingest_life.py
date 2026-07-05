@@ -358,6 +358,11 @@ def _ingest_knowledge(
                 [path], vault=vault, db_path=db_path,
                 on_exists="replace" if replace else "abort",
                 link_entities=link_entity_ids,
+                # entity birth is the classifier's job (or conversation's) —
+                # phrase heuristics minted 141 junk orgs on the first real
+                # run. Match-only here; one reindex at the end of the run.
+                create_entities=False,
+                reindex=False,
             )
         except FileExistsError:
             summary["already_ingested"] += 1

@@ -145,6 +145,18 @@ class AssimilationTests(_Env):
         self.assertIn("engaged", log[1]["text"])
         self.assertEqual(again["rewrite_jobs"], 1)
 
+    def test_life_mode_never_phrase_mints_entities(self):
+        """141 junk 'organizations' on the first real run: phrase heuristics
+        must stay off in life mode — entity birth belongs to the classifier."""
+        (self.src / "Financial").mkdir(exist_ok=True)
+        (self.src / "Financial" / "pension.md").write_text(
+            "Called the Benefit Services Center about the Defined Benefit Program "
+            "and the State Retirement Board.", encoding="utf-8")
+        ingest_life_sources([self.src], vault=self.vault, db_path=self.db)
+        names = {str(load_markdown(p).frontmatter.get("canonical_name") or "")
+                 for p in (self.vault / "entities").rglob("*.md")}
+        self.assertEqual(names, {"Ruth Varga", "Moonpie77"})  # people only, no phrase-orgs
+
     def test_sources_never_modified(self):
         before = {p: p.read_bytes() for p in self.src.rglob("*") if p.is_file()}
         ingest_life_sources([self.src], vault=self.vault, db_path=self.db)
