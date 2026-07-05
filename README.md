@@ -62,6 +62,8 @@ The repository is in an MVP-ready state. It is designed so a future maintainer c
 - Serendipity slots: one fused retrieval slot reserved for a query-seeded mid-tier pick, so the same records don't always load
 - Retrospective capture sweep in `lisan sync`: exchanges whose observe job was lost (crash, kill) are found by diffing transcripts against the job ledger and re-enqueued
 - Hindsight elevation (`lisan dreamer hindsight`): episodes that later events reveal as turning points get elevation-only significance updates, gated on later-dated evidence
+- Episode auto-promotion: skeptic-approved episode drafts promote to SPEC-shaped episode records immediately, rebuilt from the Writer's own sections; blocked drafts still queue for owner review (`lisan draft promote-backlog` resolves pre-existing backlogs)
+- Belief formation (WO-10): `lisan self extract-beliefs` derives candidate self-beliefs deterministically from first-person episode outcomes behind a hard evidence gate; `lisan self ratify --from <artifact>` is owner-only for beliefs (no provisional path)
 
 The repo is usable as a local memory vault CLI now. Most remaining work is refinement, prompt calibration, and optional automation, not core plumbing.
 

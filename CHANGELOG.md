@@ -1,5 +1,23 @@
 # Changelog
 
+## 26.7.5 (later the same day)
+
+- **The episodic organ, revived.** 154 skeptic-approved episode drafts had
+  been orphaned at `fanout_applied` since the observer restructure — the
+  vault's episodic layer was empty while its content sat in a review-queue
+  blind spot. Episodes now promote themselves: `promote_episode_from_writer`
+  rebuilds SPEC-shaped records from the Writer's own sections, the pipeline
+  promotes skeptic-approved episode drafts immediately (blocked drafts still
+  queue for the owner), and `lisan draft promote-backlog` resolved the
+  backlog live — 154 episodes, validation errors to zero.
+- **WO-10 belief formation** (spec-complete): deterministic candidate
+  extraction over first-person episode outcomes with a hard gate (3+
+  episodes over 2+ days, counterexamples listed, ratio > 1/3 drops,
+  eval-tagged history excluded), owner-only ratification with vault
+  re-verification and birth-confidence capped at medium. `lisan self
+  extract-beliefs`; `lisan self ratify` dispatches on artifact kind. The
+  self-knowledge loop is closed: episodes → beliefs → reconcile → owner.
+
 ## 26.7.5
 
 Retrieval science borrowed from the vellum-assistant architecture review
