@@ -22,3 +22,18 @@ lisan-vault/backup.md
 lisan-vault/primer/current-brief.md
 # Explicit belt-and-suspenders coverage for the vault-local high-stakes file.
 lisan-vault/primer/high-stakes.yaml
+
+# ── Sensitive-data firewall (2026-07-05, real data now flows) ──────────────
+# No log file is ever publishable: logs carry chat blurbs, the instance's
+# self-chosen name, and — with real data — the owner's life. Same for eval
+# outputs, baselines, traces, and anything conversation-shaped.
+*.log
+*.jsonl
+logs/
+traces/
+evals/baselines/
+eval-reports/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+

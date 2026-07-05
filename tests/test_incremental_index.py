@@ -212,8 +212,8 @@ def test_archived_entity_snapshots_do_not_feed_alias_table(tmp_path):
 
     live = vault / "entities" / "agents" / "vega.md"
     live.write_text(entity("entity.agent.vega", "Vega"), encoding="utf-8")
-    archived = vault / "archive" / "entities" / "jake-merged.md"
-    archived.write_text(entity("entity.agent.jake", "Vega"), encoding="utf-8")
+    archived = vault / "archive" / "entities" / "vee-merged.md"
+    archived.write_text(entity("entity.agent.vee", "Vega"), encoding="utf-8")
 
     conn = sqlite3.connect(":memory:")
     ensure_index_schema(conn)

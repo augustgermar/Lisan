@@ -159,7 +159,7 @@ def _self_identity_line(vault: Path) -> str:
     kernel every turn. The prompt's {{self}} token renders as the nickname,
     while kernel materials carry the canonical name — without this line the
     model reconciles the two by disowning one of its own names (observed at
-    the first live Wipe Test: \"the name 'Vega' was a generation error\")."""
+    the first live Wipe Test: the agent disowned its own canonical name)."""
     try:
         from .primer_index import _identity_core
 
