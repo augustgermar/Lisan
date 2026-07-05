@@ -267,6 +267,8 @@ def new_knowledge(
     source_ref: str | None = None,
     chunk_index: int | None = None,
     total_chunks: int | None = None,
+    source_wikilinks: list[str] | None = None,
+    source_tags: list[str] | None = None,
     body: str | None = None,
 ) -> CreatedRecord:
     if category not in KNOWLEDGE_DIRS:
@@ -305,6 +307,10 @@ def new_knowledge(
         frontmatter["chunk_index"] = int(chunk_index)
     if total_chunks is not None:
         frontmatter["total_chunks"] = int(total_chunks)
+    if source_wikilinks:
+        frontmatter["source_wikilinks"] = sorted({str(w) for w in source_wikilinks if str(w).strip()})
+    if source_tags:
+        frontmatter["source_tags"] = sorted({str(w) for w in source_tags if str(w).strip()})
     record_body = body if body is not None else "Knowledge entry created from the CLI."
     if not record_body.lstrip().startswith("#"):
         record_body = f"# {title}\n\n{record_body.strip()}\n"

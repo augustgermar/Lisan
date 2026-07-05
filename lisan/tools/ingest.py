@@ -2039,6 +2039,8 @@ def ingest_reference_sources(
                 source_ref=chunk.source_ref,
                 chunk_index=chunk.chunk_index,
                 total_chunks=chunk.total_chunks,
+                source_wikilinks=document.get("wikilinks") or None,
+                source_tags=document.get("tags") or None,
                 body=chunk.body,
             )
             created_records.append(
@@ -2099,7 +2101,9 @@ def _reference_files_in_directory(root: Path) -> list[Path]:
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
-        if path.name.startswith("."):
+        # skip dotfiles AND anything under a dot-directory — an Obsidian
+        # vault carries .obsidian/*.json config that must never be ingested
+        if any(part.startswith(".") for part in path.relative_to(root).parts):
             continue
         if path.suffix.lower() not in {".md", ".markdown", ".txt", ".json", ".csv", ".pdf"}:
             continue
@@ -2115,8 +2119,10 @@ def _load_reference_document(path: Path) -> dict[str, Any]:
         warnings.extend(pdf_warnings)
         source_type = "pdf"
     elif suffix in {".md", ".markdown"}:
-        doc = load_markdown(path)
-        text = doc.body.strip() or path.read_text(encoding="utf-8", errors="ignore")
+        fm, body = _load_foreign_markdown(path)
+        text = body.strip() or path.read_text(encoding="utf-8", errors="ignore")
+        text, wikilinks = _resolve_wikilinks(text)
+        tags = _obsidian_tags(fm)
         source_type = "markdown"
     else:
         text = path.read_text(encoding="utf-8", errors="ignore")
@@ -2130,7 +2136,89 @@ def _load_reference_document(path: Path) -> dict[str, Any]:
         "source_locator": source_locator,
         "source_type": source_type,
         "warnings": warnings,
+        "wikilinks": wikilinks if suffix in {".md", ".markdown"} else [],
+        "tags": tags if suffix in {".md", ".markdown"} else [],
     }
+
+
+def _load_foreign_markdown(path: Path) -> tuple[dict, str]:
+    """Load markdown that was not written by Lisan. Lisan frontmatter is
+    JSON; the world's (Obsidian's especially) is YAML. Try our own loader
+    first, then fall back to a lenient split that parses the frontmatter
+    as YAML when available and shrugs it off when not — reference sources
+    must never be rejected over their metadata dialect."""
+    try:
+        doc = load_markdown(path)
+        return dict(doc.frontmatter), doc.body
+    except Exception:
+        pass
+    raw = path.read_text(encoding="utf-8", errors="ignore")
+    if not raw.startswith("---"):
+        return {}, raw
+    parts = raw.split("\n---", 2)
+    if len(parts) < 2:
+        return {}, raw
+    block = parts[0].lstrip("-").strip("\n")
+    body = parts[1].split("\n", 1)[-1] if len(parts) == 2 else "\n---".join(parts[1:]).split("\n", 1)[-1]
+    fm: dict = {}
+    try:
+        import yaml  # optional; present in most installs via transitive deps
+
+        loaded = yaml.safe_load(block)
+        if isinstance(loaded, dict):
+            fm = loaded
+    except Exception:
+        # minimal fallback: only the fields ingestion actually uses
+        tags: list[str] = []
+        in_tags = False
+        for line in block.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("tags:"):
+                rest = stripped[5:].strip().strip("[]")
+                tags.extend(part.strip().strip("'\"") for part in rest.split(",") if part.strip())
+                in_tags = not rest
+            elif in_tags and stripped.startswith("- "):
+                tags.append(stripped[2:].strip().strip("'\""))
+            elif stripped and not stripped.startswith("- "):
+                in_tags = False
+        if tags:
+            fm["tags"] = tags
+    return fm, body
+
+
+_WIKILINK_EMBED = re.compile(r"!\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]")
+_WIKILINK = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]")
+
+
+def _resolve_wikilinks(text: str) -> tuple[str, list[str]]:
+    """Obsidian wikilinks become plain prose and a target list.
+
+    ``[[Note|alias]]`` renders as the alias, ``[[Note#Section]]`` and
+    ``[[Note]]`` as the note name; embeds (``![[...]]``) are dropped —
+    they transclude attachments, not prose. The targets are the vault's
+    relationship graph; they ride along on the chunk records as
+    ``source_wikilinks`` so the graph survives ingestion as searchable
+    data without new machinery."""
+    targets: list[str] = []
+
+    def _collect(match: re.Match) -> str:
+        target = str(match.group(1) or "").strip()
+        if target:
+            targets.append(target)
+        return str(match.group(2) or target or "").strip()
+
+    text = _WIKILINK_EMBED.sub("", text)
+    text = _WIKILINK.sub(_collect, text)
+    seen: set[str] = set()
+    unique = [t for t in targets if not (t.lower() in seen or seen.add(t.lower()))]
+    return text, unique
+
+
+def _obsidian_tags(frontmatter: dict) -> list[str]:
+    raw = frontmatter.get("tags") or []
+    if isinstance(raw, str):
+        raw = [part.strip() for part in raw.replace(",", " ").split()]
+    return sorted({str(t).strip().lstrip("#") for t in raw if str(t).strip()})
 
 
 def _reference_document_title(path: Path, text: str) -> str:

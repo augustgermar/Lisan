@@ -54,6 +54,29 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "ingest_files",
+        "description": (
+            "Bring the user's files into memory as searchable knowledge records: a single file "
+            "or a whole folder of markdown/text/PDF (an Obsidian vault works natively — wikilinks "
+            "become plain prose and a preserved link graph, config junk is skipped). Source files "
+            "are READ ONLY and never modified. The user approves once, seeing the file and chunk "
+            "counts, before anything is written. Use this — not run_codex — whenever the user "
+            "asks you to ingest, import, read in, or assimilate their files or vault."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute path to the file or folder to ingest"},
+                "replace": {
+                    "type": "boolean",
+                    "description": "Re-ingest documents that were ingested before, replacing their old chunks",
+                    "default": False,
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    {
         "name": "self_state",
         "description": (
             "Your own live operational state: job queue counts, next scheduled task, index size, "
@@ -148,6 +171,13 @@ def build_tool_handlers(
             approval_fn=approval_fn,
         ),
         "self_state": lambda: self_state(vault=vault, db_path=db_path),
+        "ingest_files": lambda path, replace=False: ingest_files_tool(
+            path=path,
+            replace=bool(replace),
+            vault=vault,
+            db_path=db_path,
+            approval_fn=approval_fn,
+        ),
         "create_plan": lambda goal, steps: create_plan_tool(
             goal=goal,
             steps=steps,
@@ -284,6 +314,65 @@ def run_codex(
 
 
 _TELEGRAM_CONVERSATION_RE = re.compile(r"^telegram-(\d+)\b")
+
+
+def ingest_files_tool(
+    *,
+    path: str,
+    replace: bool = False,
+    vault: Path,
+    db_path: Path | None = None,
+    approval_fn: Callable[[str, dict[str, Any]], bool] | None = None,
+) -> str:
+    """Conversational ingestion. Plans first (counting files and chunks with
+    zero writes), puts those counts in front of the user as the approval,
+    then runs the same reference pipeline the CLI uses. Reads sources; never
+    writes to them."""
+    from .ingest import ingest_reference_sources
+
+    source = Path(str(path or "").strip()).expanduser()
+    if not source.exists():
+        return f"Error: {source} does not exist"
+
+    try:
+        plan = ingest_reference_sources(
+            [source], vault=vault, db_path=db_path,
+            on_exists="replace" if replace else "abort", plan_only=True,
+        )
+    except FileExistsError as exc:
+        return f"Already ingested: {exc}. Say the word and I'll re-ingest with replace."
+    except Exception as exc:
+        return f"Error while planning the ingestion: {exc}"
+
+    documents = plan.get("documents") or []
+    total_chunks = int(plan.get("total_chunks") or 0)
+    if not documents:
+        return f"Nothing ingestible found at {source} (markdown, text, PDF, json, csv)."
+
+    approved = (approval_fn or _approve_action)(
+        "ingest_files",
+        {"task": f"ingest {len(documents)} file(s) (~{total_chunks} knowledge records) from {source}"
+                 + (", replacing previous versions" if replace else "")},
+    )
+    if not approved:
+        return "User denied the ingestion"
+
+    try:
+        result = ingest_reference_sources(
+            [source], vault=vault, db_path=db_path,
+            on_exists="replace" if replace else "abort", plan_only=False,
+        )
+    except FileExistsError as exc:
+        return f"Already ingested: {exc}. Ask me to re-ingest with replace if you want the newer version."
+    except Exception as exc:
+        return f"Ingestion failed: {exc}"
+
+    created = result.get("created_records") or []
+    warnings = result.get("warnings") or []
+    summary = f"Ingested {len(result.get('documents') or [])} file(s) into {len(created)} knowledge records."
+    if warnings:
+        summary += f" {len(warnings)} warning(s): " + "; ".join(str(w) for w in warnings[:3])
+    return summary
 
 
 def create_plan_tool(
