@@ -141,7 +141,10 @@ def _compact(
     narrative = str(result.get("narrative") or "").strip()
     arc_note = str(result.get("arc_note") or "").strip()
     if not narrative:
-        return {"updated": False, "reason": "empty_narrative", "entity_path": str(entity_path)}
+        # An empty narrative is a provider failure (nine of them in one
+        # burst on 2026-07-05), not a result — raise so the queue's retry
+        # machinery owns it instead of recording a hollow success.
+        raise RuntimeError(f"writer returned an empty narrative for {entity_path.name}")
 
     # No-shrink guardrail: a compaction that folds in new material must never
     # come back materially shorter than the story it replaces. If it does, keep

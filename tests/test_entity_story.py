@@ -245,13 +245,13 @@ class RewriteEntityStoryTests(unittest.TestCase):
             MockWriter.return_value = instance
 
             from lisan.tools.entity_story import rewrite_entity_story
-            result = rewrite_entity_story(
-                vault=self.vault,
-                entity_path=entity_path,
-                draft_path=draft_path,
-                force_compact=True,
-            )
-        self.assertFalse(result["updated"])
+            with self.assertRaises(RuntimeError):
+                rewrite_entity_story(
+                    vault=self.vault,
+                    entity_path=entity_path,
+                    draft_path=draft_path,
+                    force_compact=True,
+                )
 
 
 class EntitesTouchedTests(unittest.TestCase):
