@@ -29,7 +29,7 @@ from .record_fanout import (
     fanout_state_updates,
     index_created_record,
 )
-from .rebuild_index import open_index_connection
+from .rebuild_index import index_single_record, open_index_connection
 from .self_model import cached_capability_index
 from .tracing import record_inline_step
 from .record_factory import (
@@ -283,22 +283,45 @@ def run_memory_pipeline(
         _create_relationship_edges(vault, writer, db_path=db_path, index_conn=index_conn)
         fanout_open_loops(vault, writer, draft_rel, source_text=text, index_conn=index_conn)
         fanout_decisions(vault, writer, draft_rel, source_text=text, index_conn=index_conn)
+        claim_id_map: dict[str, str] = {}
         if skeptic_approved:
             # Evidence runs before claims so claim.supporting_evidence can be
             # resolved through evidence_id_map. Claims run before the
             # state update so the state can reference resolved claim IDs in future
             # passes.
             evidence_id_map = fanout_evidence(vault, writer, transcript_path, draft_rel, index_conn=index_conn)
-            fanout_claims(vault, writer, draft_rel, db_path=db_path, evidence_id_map=evidence_id_map, index_conn=index_conn)
+            claim_id_map = fanout_claims(vault, writer, draft_rel, db_path=db_path, evidence_id_map=evidence_id_map, index_conn=index_conn) or {}
             fanout_state_updates(vault, writer, draft_rel, index_conn=index_conn)
             _supersede_corrected_records(vault, writer, db_path=db_path)
         else:
             record_inline_step("memory_pipeline.fanout.skeptic_blocked")
+        # Episodic memory is the primitive, and the review queue is not a
+        # graveyard: a skeptic-approved episode promotes to a real episode
+        # record immediately (the skeptic already gated interpretation risk);
+        # a blocked draft stays pending for the owner. Idempotent — a repeat
+        # of the same summary+date promotes nothing.
+        promoted_path = None
+        if skeptic_approved and task == "episode":
+            try:
+                from .drafts import promote_episode_from_writer
+
+                promoted_path = promote_episode_from_writer(
+                    vault,
+                    writer=writer,
+                    draft_path=draft_path,
+                    created=today_iso(),
+                    source=mode if mode in ("elicitor", "extraction") else "extraction",
+                    claim_ids=sorted(set(claim_id_map.values())),
+                )
+                if promoted_path is not None:
+                    index_single_record(promoted_path, vault, index_conn)
+            except Exception as exc:
+                log_error(vault, "memory_pipeline.episode_promotion failed", exc)
         index_conn.commit()
     finally:
         index_conn.close()
     if skeptic_approved:
-        _update_draft_status(draft_path, "fanout_applied")
+        _update_draft_status(draft_path, "promoted" if promoted_path is not None else "fanout_applied")
     return MemoryPipelineResult(
         transcript_path=transcript_path,
         draft_path=draft_path,

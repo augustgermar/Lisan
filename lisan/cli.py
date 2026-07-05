@@ -496,6 +496,11 @@ def build_parser() -> argparse.ArgumentParser:
     draft_promote = draft_subparsers.add_parser("promote", help="Promote a draft file into an episode")
     draft_promote.add_argument("--vault", type=Path, default=vault_root())
     draft_promote.add_argument("--path", type=Path, required=True)
+    draft_backlog = draft_subparsers.add_parser(
+        "promote-backlog", help="Promote all skeptic-approved episode drafts left behind before auto-promotion"
+    )
+    draft_backlog.add_argument("--vault", type=Path, default=vault_root())
+    draft_backlog.add_argument("--db-path", type=Path, default=None)
 
     logs = subparsers.add_parser("logs", help="Show recent log entries")
     logs.add_argument("--vault", type=Path, default=vault_root())
@@ -1577,6 +1582,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(str(exc), file=sys.stderr)
                 return 1
             print(path)
+            return 0
+        if args.draft_command == "promote-backlog":
+            from .tools.draft_backlog import promote_backlog
+
+            print(json.dumps(promote_backlog(args.vault, args.db_path), indent=2))
             return 0
 
     if args.command == "dreamer":
