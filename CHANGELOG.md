@@ -1,5 +1,39 @@
 # Changelog
 
+## 26.7.5
+
+Retrieval science borrowed from the vellum-assistant architecture review
+(docs/vellum-assistant-review.md), each adapted to Lisan's
+deterministic-first grain:
+
+- **Reply-query pass**: the assistant's previous reply runs as its own
+  FTS + vector lanes at a smaller budget, so "okay, do the next step"
+  retrieves against the thread the assistant was developing. Config:
+  `retrieval.fusion.reply_query_*`.
+- **Learned edges**: retrieval co-selection history (already logged in
+  `retrieval_log`) is mined into an NPMI association graph by `lisan
+  sync` — deterministic counting, no model — and feeds an additive
+  expansion lane. Pairs in the authored `links` graph are excluded.
+- **Anisotropy correction** (all-but-the-top): corpus mean + top
+  principal component subtracted from stored and query vectors alike,
+  calibrated per corpus at load. Live effect: random-pair cosines went
+  from a 0.51–0.72 cone to a real spread centered on zero.
+- **Serendipity slots**: one fused slot reserved for a query-seeded
+  weighted pick from the mid-tier — reproducible per query, different
+  across queries.
+- **Retrospective capture sweep**: transcripts diffed against the
+  observe-job ledger in `lisan sync`; exchanges that never got their
+  observe job (crashes, killed runs) are re-enqueued. Stateless,
+  idempotent.
+- **Hindsight elevation**: new dreamer task — episodes whose later
+  record reveals them as turning points get their significance elevated,
+  gated on later-dated evidence, elevation-only, with a dated provenance
+  note in the record.
+- **Index hardening** after live clobbering: embeddings.bin writes are
+  atomic, embed_pending refuses to merge from an index that contradicts
+  the files table, and corrected vectors are never persisted (raw and
+  scoring spaces kept separate).
+
 ## 26.7.4
 
 Skills platform: installable conversation tools, ported from the Hermes

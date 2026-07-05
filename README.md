@@ -56,6 +56,12 @@ The repository is in an MVP-ready state. It is designed so a future maintainer c
 - Graduated autonomy policy: `drive.action_tier` in config (0 = queue-for-next-session, the default; higher tiers stay inert until the owner raises them), enforced in code at one dispatch seam
 - Self-belief reconciliation: `lisan dreamer reconcile` compares capability beliefs against the first-person episodic record and applies evidence-gated revisions ("I believed X; events Y and Z suggest otherwise")
 - A bundled skills platform: installable conversation tools (Gmail, iMessage, Obsidian, maps, arXiv, YouTube transcripts, Polymarket) with per-skill approval gating for outward-facing actions and user-provisioned credentials — see "Skills"
+- Reply-query retrieval: the assistant's previous reply runs as its own retrieval lanes, so follow-ups that reference the active thread without naming it still recall the right records
+- Learned edges: retrieval co-selection history is mined (deterministically, by `lisan sync`) into an NPMI association graph that feeds an additive retrieval lane
+- Embedding anisotropy correction (all-but-the-top) calibrated per corpus at index load, applied to stored and query vectors alike
+- Serendipity slots: one fused retrieval slot reserved for a query-seeded mid-tier pick, so the same records don't always load
+- Retrospective capture sweep in `lisan sync`: exchanges whose observe job was lost (crash, kill) are found by diffing transcripts against the job ledger and re-enqueued
+- Hindsight elevation (`lisan dreamer hindsight`): episodes that later events reveal as turning points get elevation-only significance updates, gated on later-dated evidence
 
 The repo is usable as a local memory vault CLI now. Most remaining work is refinement, prompt calibration, and optional automation, not core plumbing.
 
