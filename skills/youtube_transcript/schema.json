@@ -1,0 +1,25 @@
+{
+  "description": "Fetch the transcript/captions of a YouTube video (by URL or video id) as plain text, optionally timestamped. Useful for summarizing or answering questions about a video. No credentials needed.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string",
+        "description": "YouTube URL (watch/youtu.be/shorts) or bare 11-character video id"
+      },
+      "language": {
+        "type": "string",
+        "description": "Preferred caption language code, e.g. 'en' (default: en, falls back to whatever exists)"
+      },
+      "timestamps": {
+        "type": "boolean",
+        "description": "Prefix each line with MM:SS timestamps (default false)"
+      },
+      "max_chars": {
+        "type": "integer",
+        "description": "Truncate the transcript beyond this many characters (default 12000)"
+      }
+    },
+    "required": ["url"]
+  }
+}

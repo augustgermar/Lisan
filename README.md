@@ -55,6 +55,7 @@ The repository is in an MVP-ready state. It is designed so a future maintainer c
 - Drive system v1: open loops are scored (salience + stake + age, decaying to zero), and a fresh session may open with at most one question-phrased callback about an unresolved thread — cooldown-stamped, never nagging
 - Graduated autonomy policy: `drive.action_tier` in config (0 = queue-for-next-session, the default; higher tiers stay inert until the owner raises them), enforced in code at one dispatch seam
 - Self-belief reconciliation: `lisan dreamer reconcile` compares capability beliefs against the first-person episodic record and applies evidence-gated revisions ("I believed X; events Y and Z suggest otherwise")
+- A bundled skills platform: installable conversation tools (Gmail, iMessage, Obsidian, maps, arXiv, YouTube transcripts, Polymarket) with per-skill approval gating for outward-facing actions and user-provisioned credentials — see "Skills"
 
 The repo is usable as a local memory vault CLI now. Most remaining work is refinement, prompt calibration, and optional automation, not core plumbing.
 
@@ -207,6 +208,7 @@ Treat `pytest` as the release gate; GitHub Actions runs the suite on pushes and 
 - `lisan/tools/`: deterministic workflows, retrieval, capture, backup, review, index rebuild, etc.
 - `lisan/frontmatter.py`: JSON frontmatter parser/writer for markdown records
 - `lisan/utils.py`: shared helpers like slugging, hashing, and date formatting
+- `skills/`: bundled skills, installable with `lisan skills install` (each skill is a directory with `schema.json`, `tool.py`, and `SKILL.md`; `_`-prefixed directories are shared libraries)
 
 ### Vault And Generated Artifacts
 
@@ -726,6 +728,78 @@ lisan scheduler uninstall-service
 ```
 
 On WSL, enable systemd (`/etc/wsl.conf`: `[boot]` `systemd=true`) and use `install-service`, or run `lisan scheduler run` from Windows Task Scheduler via `wsl.exe`. Missed work (machine asleep, WSL suspended) is caught up on the next start — reminders that fire late say so.
+
+## Skills
+
+Skills are optional conversation tools: each one adds a callable tool to the
+chat agent (CLI chat and Telegram alike). The repo bundles a catalog under
+`skills/`; nothing is active until you install it, so the tool list — and the
+prompt tokens it costs — stays exactly as small as you want.
+
+```bash
+lisan skills list                    # catalog: bundled vs installed
+lisan skills install obsidian_search # install one skill
+lisan skills install --all           # install everything
+lisan skills uninstall maps
+```
+
+Installed skills live in `~/.local/share/Lisan/skills/` (override with
+`LISAN_SKILLS_DIR`) and are picked up on the next chat turn — no restart.
+
+### Bundled catalog
+
+| Skill | What it does | Needs |
+|---|---|---|
+| `gmail_search` / `gmail_read` | Search and read the user's Gmail | one-time OAuth setup (below) |
+| `gmail_send` | Send/reply from Gmail — **approval-gated** | same OAuth setup |
+| `imessage_recent` / `imessage_history` / `imessage_search` | Read local Messages history | `imsg` CLI + Full Disk Access |
+| `imessage_send` | Send an iMessage/SMS — **approval-gated** | `imsg` CLI + Automation permission |
+| `obsidian_search` / `obsidian_read` | Search/read the user's Obsidian vault, strictly read-only | vault auto-detected |
+| `maps` | Geocoding, POIs, directions, timezones (OpenStreetMap) | nothing |
+| `arxiv_search` | arXiv paper search | nothing |
+| `youtube_transcript` | Fetch video transcripts | nothing |
+| `polymarket` | Prediction-market prices and order books | nothing |
+
+### Approval gating
+
+A skill whose action leaves the machine (sending email, sending a text)
+declares `"requires_approval": true` in its `schema.json`. The gate runs at
+call time with the resolved arguments, through the same channel as codex
+approvals: an interactive prompt in CLI chat, approve/deny buttons on
+Telegram. In a context with no approval channel the action is refused, never
+silently run.
+
+### Gmail setup (user-provisioned credentials)
+
+Credentials are never bundled or committed — each user mints their own.
+One-time, ~5 minutes, driveable entirely from conversation:
+
+```bash
+lisan skills setup gmail_search -- --check          # state + next step
+lisan skills setup gmail_search -- --client-secret /path/to/client_secret.json
+lisan skills setup gmail_search -- --auth-url       # user opens, approves, copies redirect URL
+lisan skills setup gmail_search -- --auth-code 'PASTED_URL'
+```
+
+The client secret comes from a Google Cloud OAuth client (Desktop app type,
+Gmail API enabled). Tokens land in `~/.local/share/Lisan/credentials/google/`
+(mode 0600; override with `LISAN_GOOGLE_CREDENTIALS_DIR`), refresh themselves,
+and are shared by all three gmail skills. Scopes are minimal: `gmail.readonly`
+plus `gmail.send`. `--revoke` undoes everything.
+
+### Writing a skill
+
+A skill is a directory with three files, no registration step:
+
+- `schema.json` — `description`, JSON-Schema `parameters`, optional
+  `requires_approval` and `shared` (list of `_`-prefixed sibling library dirs)
+- `tool.py` — `run(args: dict, vault: Path, config: dict) -> str`
+- `SKILL.md` — documentation for humans and for the agent
+
+Drop it in the skills directory (or in `skills/` in the repo to make it a
+bundled skill — `tests/test_skills_bundled.py` will hold it to the contract).
+Keep `tool.py` standard-library-only or shell out to an external binary; the
+bundled skills are the reference examples.
 
 ## Important Commands
 

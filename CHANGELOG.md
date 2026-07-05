@@ -2,6 +2,29 @@
 
 ## 26.7.4
 
+Skills platform: installable conversation tools, ported from the Hermes
+agent's skill catalog.
+
+- **Bundled skills** under `skills/`, opt-in via `lisan skills
+  list/install/uninstall`: Gmail (search/read/send with a stdlib OAuth
+  onboarding broker — credentials are user-provisioned, never bundled),
+  iMessage (recent/history/search/send via the `imsg` CLI), Obsidian
+  (search/read, strictly read-only with traversal guards), OpenStreetMap
+  maps, arXiv search, YouTube transcripts, and Polymarket. All standard
+  library; external services degrade to readable errors.
+- **Per-skill approval gating.** `"requires_approval": true` in a skill's
+  schema.json routes every call through the same approval channel as codex
+  (interactive prompt in CLI chat, approve/deny buttons on Telegram); with
+  no channel available the action is refused. `gmail_send` and
+  `imessage_send` ship gated.
+- **`lisan skills setup <name> -- <args>`** forwards to a skill's credential
+  setup script (`--check` / `--client-secret` / `--auth-url` / `--auth-code`
+  / `--revoke` for Google), so the agent can drive onboarding over any
+  conversation surface.
+- **Fix:** `python -m lisan` now propagates the CLI's exit code
+  (`__main__.py` dropped it), which the setup broker's `--check` contract
+  relies on.
+
 Phase 2: functional self-awareness architecture (docs/phase2_roadmap.md).
 
 - **The identity kernel is enforced.** `primer/identity-core.md` is

@@ -1,0 +1,18 @@
+{
+  "description": "Query Polymarket prediction markets (read-only, no credentials): search markets by keyword (action=search), list trending markets (trending), get one market or event by slug (market/event), current price for a token (price), or the order book (book).",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["search", "trending", "market", "event", "price", "book"],
+        "description": "Which query to run"
+      },
+      "query": {"type": "string", "description": "Keyword query (for search)"},
+      "slug": {"type": "string", "description": "Market or event slug (for market/event)"},
+      "token_id": {"type": "string", "description": "CLOB token id (for price/book)"},
+      "limit": {"type": "integer", "description": "Maximum results for trending (default 10)"}
+    },
+    "required": ["action"]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "description": "Search the user's Obsidian vault (their personal notes) for notes matching a text query — matches note titles and content, returns note paths with matching-line snippets. STRICTLY read-only. Use obsidian_read to open a full note.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Text to search for (case-insensitive)"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum notes to return (default 10, max 30)"
+      }
+    },
+    "required": ["query"]
+  },
+  "shared": ["_obsidian_common"]
+}

@@ -1,0 +1,19 @@
+{
+  "description": "Search arXiv for research papers by keyword, author, category (e.g. cs.AI), or arXiv id. Returns title, authors, dates, abstract, and links. No credentials needed.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "query": {"type": "string", "description": "Keyword query (searched across all fields)"},
+      "author": {"type": "string", "description": "Author name filter"},
+      "category": {"type": "string", "description": "arXiv category, e.g. cs.AI, cs.CL, stat.ML"},
+      "ids": {"type": "string", "description": "Comma-separated arXiv ids to fetch directly, e.g. 2402.03300"},
+      "max_results": {"type": "integer", "description": "Maximum papers to return (default 5, max 20)"},
+      "sort": {
+        "type": "string",
+        "enum": ["relevance", "date", "updated"],
+        "description": "Sort order (default relevance)"
+      }
+    },
+    "required": []
+  }
+}

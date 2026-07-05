@@ -1,0 +1,18 @@
+{
+  "description": "Read one note from the user's Obsidian vault by its relative path (from obsidian_search). STRICTLY read-only.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Note path relative to the vault root, e.g. 'Projects/Lisan.md' (the .md suffix is optional)"
+      },
+      "max_chars": {
+        "type": "integer",
+        "description": "Truncate the note beyond this many characters (default 10000)"
+      }
+    },
+    "required": ["path"]
+  },
+  "shared": ["_obsidian_common"]
+}
