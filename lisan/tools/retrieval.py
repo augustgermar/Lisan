@@ -286,6 +286,7 @@ def retrieve_context(
     #   current turn is short (< 5 words); longer turns have enough signal of
     #   their own and blending adds noise.
     query_word_count = len(query.split())
+    reply_query = ""
     if conversation_id:
         recent = _recent_conversation_turns(vault, conversation_id, limit=3)
         if recent:
@@ -295,6 +296,17 @@ def retrieve_context(
         else:
             domain_query = query
             effective_query = query
+        # Reply-query pass: the assistant's previous reply is its OWN retrieval
+        # intent — the thread it is actively developing, which the user's next
+        # message may reference without naming. It runs as separate queries,
+        # never blended into the user's (two speakers averaged into one vector
+        # match neither). Trivial acknowledgments carry no intent; skip them.
+        for turn in reversed(recent or []):
+            if turn.get("speaker") == "LISAN":
+                candidate_reply = str(turn.get("text") or "").strip()
+                if len(candidate_reply.split()) >= retrieval_settings["reply_query_min_words"]:
+                    reply_query = candidate_reply[:600]
+                break
     else:
         domain_query = query
         effective_query = query
@@ -372,6 +384,36 @@ def retrieve_context(
                 include_quarantined=include_quarantined,
                 limit=retrieval_settings["per_layer_limit"],
             )
+            reply_lanes = []
+            if reply_query and retrieval_settings["reply_query_enabled"]:
+                reply_fts, _ = _fts_ranked_candidates(
+                    conn,
+                    file_rows=file_rows,
+                    query=reply_query,
+                    active_contexts=active_contexts,
+                    quarantined_artifact_ids=quarantined_artifact_ids,
+                    quarantined_batch_ids=quarantined_batch_ids,
+                    include_quarantined=include_quarantined,
+                    limit=retrieval_settings["reply_query_limit"],
+                )
+                reply_scorer = build_query_scorer(
+                    reply_query,
+                    embeddings_file=db_path.parent / "embeddings.bin",
+                    config=config,
+                )
+                reply_vector = _vector_ranked_candidates(
+                    file_rows,
+                    vector_scorer=reply_scorer,
+                    active_contexts=active_contexts,
+                    quarantined_artifact_ids=quarantined_artifact_ids,
+                    quarantined_batch_ids=quarantined_batch_ids,
+                    include_quarantined=include_quarantined,
+                    limit=retrieval_settings["reply_query_limit"],
+                )
+                for lane in (reply_fts, reply_vector):
+                    for candidate in lane:
+                        candidate.source = f"{candidate.source}_reply"
+                reply_lanes = [reply_fts, reply_vector]
             direct_loaded, fusion_stats = _fuse_ranked_candidates(
                 rows_by_id=rows_by_id,
                 sql_candidates=sql_candidates,
@@ -379,6 +421,7 @@ def retrieve_context(
                 vector_candidates=vector_candidates,
                 rrf_k=retrieval_settings["rrf_k"],
                 fused_limit=retrieval_settings["fused_limit"],
+                extra_candidate_lists=reply_lanes,
             )
             direct_loaded = _demote_graph_neighbors(
                 direct_loaded,

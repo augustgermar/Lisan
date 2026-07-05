@@ -128,6 +128,14 @@ def _retrieval_fusion_settings(config: dict[str, Any]) -> dict[str, Any]:
         "per_layer_limit": int(fusion_cfg.get("per_layer_limit", 30) or 30),
         "fused_limit": int(fusion_cfg.get("fused_limit", 20) or 20),
         "recency_decay_days": int(retrieval_cfg.get("recency_decay_days", 365) or 365),
+        # Reply-query pass: the assistant's PREVIOUS reply runs as its own
+        # FTS + vector queries at a smaller budget — never concatenated onto
+        # the user's message, which would average two speakers' retrieval
+        # intents. Surfaces the threads the assistant is actively developing
+        # that the user references without naming ("do the second one").
+        "reply_query_enabled": bool(fusion_cfg.get("reply_query_enabled", True)),
+        "reply_query_limit": int(fusion_cfg.get("reply_query_limit", 10) or 10),
+        "reply_query_min_words": int(fusion_cfg.get("reply_query_min_words", 6) or 6),
     }
 
 
@@ -323,8 +331,10 @@ def _fuse_ranked_candidates(
     vector_candidates: list[_LayerCandidate],
     rrf_k: int,
     fused_limit: int,
+    extra_candidate_lists: list[list[_LayerCandidate]] | None = None,
 ) -> tuple[list[RetrievalItem], dict[str, Any]]:
     candidate_lists = [sql_candidates, fts_candidates, vector_candidates]
+    candidate_lists.extend(extra_candidate_lists or [])
     rrf_scores: dict[str, float] = defaultdict(float)
     source_order: dict[str, list[str]] = defaultdict(list)
     for candidates in candidate_lists:
