@@ -311,8 +311,17 @@ def validate_vault(vault: Path | None = None) -> ValidationReport:
         _validate_frontmatter_consistency(path, doc.body, frontmatter, report)
         file_id = str(frontmatter.get("id", ""))
         if file_id:
-            previous = seen_ids.get(file_id)
-            if previous is not None:
+            # Archived snapshots (vault/archive/) legitimately share ids with
+            # each other and with their live record — epoch archiving and
+            # entity merges both preserve the original id. The duplicate-id
+            # audit is about live records colliding.
+            try:
+                in_archive = "archive" in path.relative_to(vault).parts
+            except ValueError:
+                in_archive = "archive" in path.parts
+            if in_archive:
+                pass
+            elif (previous := seen_ids.get(file_id)) is not None:
                 report.add(path, f"Duplicate id {file_id} also used in {previous}")
             else:
                 seen_ids[file_id] = path

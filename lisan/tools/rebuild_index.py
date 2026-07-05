@@ -523,7 +523,10 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
     except sqlite3.Error:
         pass
 
-    if file_type == "entity":
+    # Archived entity snapshots (vault/archive/) stay searchable in files/FTS,
+    # but must not feed alias resolution or epochs — a merged-away duplicate
+    # would otherwise re-trigger the §7.8 alias-ambiguity audit forever.
+    if file_type == "entity" and "archive" not in rel.parts:
         canonical = str(fm.get("canonical_name") or fm.get("id") or "").strip()
         if canonical:
             conn.execute(

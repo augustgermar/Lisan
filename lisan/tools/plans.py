@@ -298,7 +298,30 @@ def _write_plan_report(payload: dict[str, Any], *, vault: Path, status: str) -> 
     reports = vault / "reports"
     reports.mkdir(parents=True, exist_ok=True)
     path = reports / f"{payload['plan_id']}.md"
+    today = utc_now_iso()[:10]
+    frontmatter = {
+        "id": f"report.{payload['plan_id']}",
+        "type": "report",
+        "created": today,
+        "updated": today,
+        "status": "active",
+        "significance": "low",
+        "domain_primary": "cross_arena",
+        "domain_secondary": [],
+        "privacy": "personal",
+        "disclosure": "private",
+        "summary": f"Plan report: {payload['goal']}"[:200],
+        "links": [],
+        "confidence": "low",
+        "confidence_basis": "Generated plan execution report",
+        "last_confirmed": today,
+        "review_after": today,
+    }
     lines = [
+        "---",
+        json.dumps(frontmatter, indent=2, ensure_ascii=True),
+        "---",
+        "",
         f"# Plan report: {payload['goal']}",
         "",
         f"- plan_id: {payload['plan_id']}",

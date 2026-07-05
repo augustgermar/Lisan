@@ -233,13 +233,14 @@ def new_entity(
         "subtype": subtype,
         "canonical_name": canonical_name or name,
         "aliases": aliases or [],
+        # nickname is schema-required (nullable); always write the key so
+        # auto-created entities validate — null means "no known nickname".
+        "nickname": nickname,
         "disambiguation": disambiguation or f"Auto-generated {subtype} placeholder.",
         "epoch": epoch,
         "epoch_started": epoch_started or today,
         "previous_epochs": previous_epochs or [],
     }
-    if nickname is not None:
-        frontmatter["nickname"] = nickname
     body_summary = summary or f"{canonical_name or name} is a {subtype}."
     body = f"# {canonical_name or name}\n\n{body_summary}\n"
     write_markdown(path, with_domain_fields(frontmatter), body)

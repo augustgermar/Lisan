@@ -177,3 +177,48 @@ class IncrementalIndexTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_archived_entity_snapshots_do_not_feed_alias_table(tmp_path):
+    """A merged-away duplicate archived under vault/archive/ must stay out of
+    entity_aliases (it would re-trigger the alias-ambiguity audit forever),
+    while the live record's aliases index normally."""
+    import json
+    import sqlite3
+
+    from lisan.tools.rebuild_index import ensure_index_schema, index_single_record
+
+    vault = tmp_path / "vault"
+    (vault / "entities" / "agents").mkdir(parents=True)
+    (vault / "archive" / "entities").mkdir(parents=True)
+
+    def entity(entity_id, name):
+        return (
+            "---\n"
+            + json.dumps(
+                {
+                    "id": entity_id,
+                    "type": "entity",
+                    "created": "2026-07-04",
+                    "updated": "2026-07-04",
+                    "status": "active",
+                    "canonical_name": name,
+                    "aliases": [name, "Vee"],
+                    "summary": name,
+                }
+            )
+            + "\n---\n\n# x\n"
+        )
+
+    live = vault / "entities" / "agents" / "vega.md"
+    live.write_text(entity("entity.agent.vega", "Vega"), encoding="utf-8")
+    archived = vault / "archive" / "entities" / "jake-merged.md"
+    archived.write_text(entity("entity.agent.jake", "Vega"), encoding="utf-8")
+
+    conn = sqlite3.connect(":memory:")
+    ensure_index_schema(conn)
+    assert index_single_record(live, vault, conn) is True
+    index_single_record(archived, vault, conn)
+
+    ids = {row[0] for row in conn.execute("SELECT entity_id FROM entity_aliases")}
+    assert ids == {"entity.agent.vega"}

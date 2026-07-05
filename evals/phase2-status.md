@@ -129,3 +129,12 @@ order; update state transitions with date + completing commit.
   formation pass over accumulated episodes (codify-don't-author applied
   to competence), or conversational self-assessments captured as
   beliefs. Owner-visible design choice; deferred past WO-9.
+- 2026-07-05: OWNER DECISIONS on the residual queue. Voice invariants
+  owner-ratified (kernel provenance now "ratified by owner"). Vault eval
+  residue repaired in place to 0 validation errors, vault put under git
+  (tier-0 backup now real). drive.action_tier raised to 1 (scheduled
+  owner-gated Telegram delivery enabled). Belief formation: approved as
+  dreamer-proposes/owner-approves — spec written to
+  docs/belief_formation.md (WO-10, not yet built). Entity duplicates
+  (jake ×3, wisteria ×3) merged; alias audit clean; indexer and
+  validator now treat vault/archive/ snapshots as non-authoritative.
