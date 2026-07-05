@@ -678,6 +678,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     self_backfill.add_argument("--vault", type=Path, default=vault_root())
     self_backfill.add_argument("--db-path", type=Path, default=None)
+    self_extract_beliefs = self_subparsers.add_parser(
+        "extract-beliefs", help="Deterministic belief candidates from first-person episodes (WO-10)"
+    )
+    self_extract_beliefs.add_argument("--vault", type=Path, default=vault_root())
+    self_extract_beliefs.add_argument("--out", type=Path, default=None)
 
     return parser
 
@@ -1314,10 +1319,35 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Artifact: {result['artifact']}")
             return 0
         if args.self_command == "ratify":
+            from .frontmatter import load_markdown as _load_md
+
+            artifact_kind = ""
+            try:
+                artifact_kind = str(_load_md(args.artifact).frontmatter.get("artifact_kind") or "")
+            except Exception:
+                pass
+            if artifact_kind == "beliefs":
+                if args.provisional:
+                    print("Beliefs have no provisional path — they enter owner-ratified or not at all.", file=sys.stderr)
+                    return 1
+                from .tools.belief_formation import ratify_beliefs
+
+                created = ratify_beliefs(args.vault, artifact_path=args.artifact)
+                for path in created:
+                    print(f"✓ Formed belief: {path.name}")
+                print(f"✓ Ratified {len(created)} belief(s) from {args.artifact.name}")
+                return 0
             from .tools.voice_extract import ratify_voice
 
             path = ratify_voice(args.vault, artifact_path=args.artifact, provisional=args.provisional)
             print(f"✓ Ratified voice into {path}" + (" (provisional — pending owner review)" if args.provisional else ""))
+            return 0
+        if args.self_command == "extract-beliefs":
+            from .tools.belief_formation import run_belief_extraction
+
+            result = run_belief_extraction(args.vault, out=args.out)
+            print(f"Candidates: {result['candidates']}")
+            print(f"Artifact: {result['artifact']}")
             return 0
         if args.self_command == "backfill-episodes":
             from .tools.self_episodes import assemble_self_episodes
