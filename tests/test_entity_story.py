@@ -165,6 +165,7 @@ class RewriteEntityStoryTests(unittest.TestCase):
                 entity_path=entity_path,
                 draft_path=draft_path,
                 db_path=self.db_path,
+                force_compact=True,
             )
 
         self.assertTrue(result["updated"])
@@ -200,6 +201,7 @@ class RewriteEntityStoryTests(unittest.TestCase):
                 entity_path=entity_path,
                 draft_path=draft_path,
                 db_path=self.db_path,
+                force_compact=True,
             )
 
         # tokenize_principal must have been called with the raw narrative
@@ -247,6 +249,7 @@ class RewriteEntityStoryTests(unittest.TestCase):
                 vault=self.vault,
                 entity_path=entity_path,
                 draft_path=draft_path,
+                force_compact=True,
             )
         self.assertFalse(result["updated"])
 
@@ -382,3 +385,78 @@ class NoShrinkGuardrailTests(unittest.TestCase):
             from lisan.tools.entity_story import rewrite_entity_story
             rewrite_entity_story(self.vault, path, draft_path=draft, db_path=self.vault / "x.sqlite")
         self.assertIn("lead the platform team", path.read_text(encoding="utf-8"))
+
+
+class LogCompactionTests(unittest.TestCase):
+    """The middle ground: cheap append every turn, rare guarded compaction,
+    and a durable log so nothing important is ever destroyed."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.vault = Path(self.tmp.name)
+        (self.vault / "entities" / "people").mkdir(parents=True)
+        (self.vault / "primer").mkdir(parents=True)
+        (self.vault / "primer" / "identity-core.md").write_text(
+            '---\n{"principal": {"name": "A", "aliases": ["A"]}, "assistant": {"name": "J"}}\n---\n',
+            encoding="utf-8")
+        self.db = self.vault / "x.sqlite"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _entity(self):
+        return _seed_entity(self.vault, "nora", "Nora Vale", "A friend.")
+
+    def _draft(self, text, n):
+        d = self.vault / "drafts" / f"d{n}.md"
+        d.parent.mkdir(exist_ok=True)
+        d.write_text(dump_markdown({"id": f"draft.{n}", "type": "draft"}, text), encoding="utf-8")
+        return d
+
+    def test_mentions_below_threshold_only_append_no_llm(self):
+        from lisan.tools.entity_story import rewrite_entity_story
+
+        path = self._entity()
+        with patch("lisan.agents.writer.WriterAgent") as MockWriter:
+            for i in range(2):  # threshold is 3
+                rewrite_entity_story(self.vault, path, draft_path=self._draft(f"Nora fact {i}", i), db_path=self.db)
+            MockWriter.assert_not_called()  # no compaction yet -> no writer call
+        fm = load_markdown(path).frontmatter
+        self.assertEqual(len([e for e in fm["source_log"] if not e["folded"]]), 2)
+
+    def test_compaction_fires_at_threshold_and_folds_log(self):
+        from lisan.tools.entity_story import rewrite_entity_story
+
+        path = self._entity()
+        with patch("lisan.agents.writer.WriterAgent") as MockWriter:
+            inst = MagicMock()
+            inst.run_json.return_value = {
+                "narrative": "Nora Vale is a friend who took up sailing and later moved to Maine to run a bakery.",
+                "arc_note": "grew"}
+            MockWriter.return_value = inst
+            for i in range(3):  # crosses threshold on the 3rd
+                rewrite_entity_story(self.vault, path, draft_path=self._draft(f"Nora update {i}", i), db_path=self.db)
+            self.assertEqual(inst.run_json.call_count, 1)  # exactly one compaction, not three
+        doc = load_markdown(path)
+        self.assertIn("bakery", doc.body)
+        # all log entries kept, now folded (durable — never deleted)
+        self.assertEqual(len(doc.frontmatter["source_log"]), 3)
+        self.assertTrue(all(e["folded"] for e in doc.frontmatter["source_log"]))
+
+    def test_durable_log_keeps_data_even_when_prose_omits_it(self):
+        """The no-lose guarantee: a compaction whose prose drops a fact still
+        keeps that fact in the durable log and in the search text."""
+        from lisan.tools.entity_story import entity_search_text, rewrite_entity_story
+
+        path = self._entity()
+        with patch("lisan.agents.writer.WriterAgent") as MockWriter:
+            inst = MagicMock()
+            # the narrative deliberately omits the peanut-allergy fact
+            inst.run_json.return_value = {"narrative": "Nora Vale is a longtime friend.", "arc_note": ""}
+            MockWriter.return_value = inst
+            rewrite_entity_story(self.vault, path,
+                                 draft_path=self._draft("Nora has a severe peanut allergy.", 0),
+                                 db_path=self.db, force_compact=True)
+        doc = load_markdown(path)
+        self.assertNotIn("peanut", doc.body)  # prose omitted it
+        self.assertIn("peanut", entity_search_text(doc.frontmatter, doc.body))  # log preserved it, still findable

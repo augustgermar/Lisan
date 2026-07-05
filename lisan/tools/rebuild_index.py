@@ -342,6 +342,12 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
     word_count = len(raw.split())
     token_count = max(1, round(word_count * 1.33))
     content = f"{str(fm.get('summary', ''))}\n\n{doc.body.strip()}".strip()
+    # An entity's durable source_log is part of its searchable content: a fact
+    # compaction left out of the narrative prose is still findable via the log.
+    if fm.get("source_log"):
+        from .entity_story import entity_search_text
+
+        content = entity_search_text(fm, doc.body)
     links = fm.get("links", []) or []
     if not isinstance(links, list):
         links = listify(links)
