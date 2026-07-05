@@ -450,6 +450,8 @@ def retrieve_context(
                 rrf_k=retrieval_settings["rrf_k"],
                 fused_limit=retrieval_settings["fused_limit"],
                 extra_candidate_lists=[*reply_lanes, learned_lane],
+                serendipity_slots=retrieval_settings["serendipity_slots"],
+                serendipity_seed=effective_query,
             )
             direct_loaded = _demote_graph_neighbors(
                 direct_loaded,

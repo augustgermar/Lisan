@@ -136,6 +136,11 @@ def _retrieval_fusion_settings(config: dict[str, Any]) -> dict[str, Any]:
         "reply_query_enabled": bool(fusion_cfg.get("reply_query_enabled", True)),
         "reply_query_limit": int(fusion_cfg.get("reply_query_limit", 10) or 10),
         "reply_query_min_words": int(fusion_cfg.get("reply_query_min_words", 6) or 6),
+        # Serendipity: reserve this many fused slots for weighted picks from
+        # the mid-tier (30th-70th percentile) of the ranked pool — the same
+        # records must not always load. Seeded from the query text, so the
+        # same query gets the same "random" pick: reproducible serendipity.
+        "serendipity_slots": int(fusion_cfg.get("serendipity_slots", 1) or 0),
     }
 
 
@@ -332,6 +337,8 @@ def _fuse_ranked_candidates(
     rrf_k: int,
     fused_limit: int,
     extra_candidate_lists: list[list[_LayerCandidate]] | None = None,
+    serendipity_slots: int = 0,
+    serendipity_seed: str = "",
 ) -> tuple[list[RetrievalItem], dict[str, Any]]:
     candidate_lists = [sql_candidates, fts_candidates, vector_candidates]
     candidate_lists.extend(extra_candidate_lists or [])
@@ -344,6 +351,7 @@ def _fuse_ranked_candidates(
                 source_order[candidate.id].append(candidate.source)
 
     fused_items: list[RetrievalItem] = []
+    ranked_remainder: list[tuple[str, float]] = []
     for record_id, score in sorted(
         rrf_scores.items(),
         key=lambda item: (
@@ -358,6 +366,9 @@ def _fuse_ranked_candidates(
         row = rows_by_id.get(record_id)
         if row is None:
             continue
+        if len(fused_items) >= fused_limit:
+            ranked_remainder.append((record_id, score))
+            continue
         sources = source_order.get(record_id, [])
         fused_items.append(
             _item_from_row(
@@ -366,8 +377,14 @@ def _fuse_ranked_candidates(
                 reason=f"rrf:{'+'.join(sources)}" if sources else "rrf",
             )
         )
-        if len(fused_items) >= fused_limit:
-            break
+
+    fused_items = _apply_serendipity(
+        fused_items,
+        ranked_remainder=ranked_remainder,
+        rows_by_id=rows_by_id,
+        slots=serendipity_slots,
+        seed=serendipity_seed,
+    )
 
     stats = {
         "sql_candidate_count": len(sql_candidates),
@@ -378,6 +395,43 @@ def _fuse_ranked_candidates(
         "source_order": source_order,
     }
     return fused_items, stats
+
+
+def _apply_serendipity(
+    fused_items: list[RetrievalItem],
+    *,
+    ranked_remainder: list[tuple[str, float]],
+    rows_by_id: dict[str, sqlite3.Row],
+    slots: int,
+    seed: str,
+) -> list[RetrievalItem]:
+    """Swap the tail of the fused set for weighted picks from the mid-tier
+    (30th-70th percentile) of the unselected remainder. Seeded from the query
+    text: the same query reproduces the same picks, so retrieval stays
+    reproducible while different queries stop always loading the same set."""
+    if slots <= 0 or not ranked_remainder or len(fused_items) <= slots:
+        return fused_items
+    import random
+
+    p30 = int(len(ranked_remainder) * 0.3)
+    p70 = int(len(ranked_remainder) * 0.7)
+    band = ranked_remainder[p30:p70] or ranked_remainder[:1]
+    rng = random.Random(seed or "serendipity")
+    picks: list[tuple[str, float]] = []
+    pool = list(band)
+    for _ in range(min(slots, len(pool))):
+        weights = [max(score, 1e-9) for _, score in pool]
+        chosen = rng.choices(range(len(pool)), weights=weights, k=1)[0]
+        picks.append(pool.pop(chosen))
+    if not picks:
+        return fused_items
+    kept = fused_items[: len(fused_items) - len(picks)]
+    for record_id, score in picks:
+        row = rows_by_id.get(record_id)
+        if row is None:
+            continue
+        kept.append(_item_from_row(row, score=round(score, 6), reason="serendipity"))
+    return kept
 
 
 def _demote_graph_neighbors(
