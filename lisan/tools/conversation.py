@@ -150,7 +150,31 @@ def _owner_profile(vault: Path) -> str:
             parts.append(f"Household cast: {people}")
     except Exception as exc:
         log_error(vault, "conversation.owner_profile roster load failed", exc)
-    return "\n\n".join(parts)
+    parts.append(_self_identity_line(vault))
+    return "\n\n".join(p for p in parts if p)
+
+
+def _self_identity_line(vault: Path) -> str:
+    """The assistant's name identity, stated deterministically from the
+    kernel every turn. The prompt's {{self}} token renders as the nickname,
+    while kernel materials carry the canonical name — without this line the
+    model reconciles the two by disowning one of its own names (observed at
+    the first live Wipe Test: \"the name 'Vega' was a generation error\")."""
+    try:
+        from .primer_index import _identity_core
+
+        assistant = (_identity_core(vault) or {}).get("assistant") or {}
+        canonical = str(assistant.get("canonical_name") or assistant.get("name") or "").strip()
+        nickname = str(assistant.get("nickname") or "").strip()
+        if not canonical:
+            return ""
+        if nickname and nickname != canonical:
+            return (f"Your identity kernel: your canonical name is {canonical}; you go by {nickname}. "
+                    "Both are your names.")
+        return f"Your identity kernel: your name is {canonical}."
+    except Exception as exc:
+        log_error(vault, "conversation.self_identity load failed", exc)
+        return ""
 
 
 def _rolling_history(vault: Path, conversation_id: str | None) -> str:
