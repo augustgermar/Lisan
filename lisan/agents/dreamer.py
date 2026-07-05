@@ -14,6 +14,12 @@ class DreamerAgent(PromptAgent):
 
     def fallback_output(self, user_input: str, significance: str = "medium", **kwargs: Any) -> str:
         task = str(kwargs.get("task") or "compress")
+        # Custom-contract tasks degrade to their honest empty answer — no
+        # provider must never mean invented revisions or elevations.
+        if task == "reconcile":
+            return json.dumps({"revisions": []})
+        if task == "hindsight":
+            return json.dumps({"elevations": []})
         payload = {
             "task": task,
             "summary": self._summary(user_input),

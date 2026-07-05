@@ -15,17 +15,33 @@ from .epistemic import canonical_pattern_status, pattern_age_days, pattern_minim
 from .primer_audit import build_primer_audit_bundle
 
 
+# Tasks whose contract is not the generic dreamer_output shape: the class
+# schema is enforced hard at the provider layer, so a custom-output task
+# MUST override it or the model is forbidden from answering the prompt
+# (found live 2026-07-05: the model refused the reconcile/hindsight
+# contracts because the enforced schema contradicted them).
+_TASK_OUTPUT_SCHEMAS = {
+    "reconcile": "dreamer_reconcile_output",
+    "hindsight": "dreamer_hindsight_output",
+}
+
+
 def run_dreamer_task(
     vault: Path | None = None,
     task: str = "compress",
     provider: str | None = None,
     model: str | None = None,
 ) -> Path:
+    from ..schemas import get_schema
+
     vault = vault or vault_root()
     prompt_file = _prompt_for_task(task)
     bundle = _bundle_for_task(vault, task)
     agent = DreamerAgent(vault=vault, prompt_file=prompt_file)
-    response = agent.run_json(bundle, significance="high", provider=provider, model=model, task=task)
+    schema = get_schema(_TASK_OUTPUT_SCHEMAS[task]) if task in _TASK_OUTPUT_SCHEMAS else None
+    response = agent.run_json(
+        bundle, significance="high", provider=provider, model=model, task=task, schema=schema
+    )
     artifact_path = _apply_task_side_effect(vault, task, bundle, response)
     out = _output_path(vault, task)
     out.parent.mkdir(parents=True, exist_ok=True)

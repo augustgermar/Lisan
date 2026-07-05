@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "dreamer_hindsight_output",
+  "type": "object",
+  "required": ["elevations"],
+  "properties": {
+    "elevations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["episode_id", "new_significance", "reason", "evidence_refs"],
+        "properties": {
+          "episode_id": {"type": "string"},
+          "new_significance": {"type": "string", "enum": ["medium", "high"]},
+          "reason": {"type": "string"},
+          "evidence_refs": {"type": "array", "items": {"type": "string"}, "minItems": 1}
+        }
+      }
+    }
+  }
+}

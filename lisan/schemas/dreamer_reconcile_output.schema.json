@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "dreamer_reconcile_output",
+  "type": "object",
+  "required": ["revisions"],
+  "properties": {
+    "revisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["belief_id", "new_statement", "new_confidence", "reason", "evidence_refs"],
+        "properties": {
+          "belief_id": {"type": "string"},
+          "new_statement": {"type": "string"},
+          "new_confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+          "reason": {"type": "string"},
+          "evidence_refs": {"type": "array", "items": {"type": "string"}, "minItems": 1}
+        }
+      }
+    }
+  }
+}
