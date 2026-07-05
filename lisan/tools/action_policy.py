@@ -30,6 +30,14 @@ ACTION_TIERS: dict[str, int] = {
     "session_callback": 0,
     "scheduled_delivery": 1,
     "autonomous_check": 2,
+    # WO-ENRICH: acquiring information to close a self-loop. Non-person
+    # entities (place/org/system/...) have no privacy stake and sit at
+    # tier 2 — the owner raises the tier deliberately. Person enrichment
+    # is registered at tier 3, which policy_tier cannot reach (it clamps
+    # to 2): gated-but-disabled *structurally* until Ship 2 raises the
+    # ceiling on purpose, with the four-prong gate implemented.
+    "enrich_entity": 2,
+    "enrich_person": 3,
 }
 
 

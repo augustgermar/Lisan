@@ -646,6 +646,11 @@ def build_parser() -> argparse.ArgumentParser:
     plan_ingest.add_argument("--limit", type=int, default=None, help="Only the first N files (for a trial run)")
     plan_ingest.add_argument("--db-path", type=Path, default=None)
 
+    deviations_cmd = subparsers.add_parser("deviations", help="The agent's own aches: deviations detected in its model of the world and itself")
+    deviations_sub = deviations_cmd.add_subparsers(dest="deviations_command", required=True)
+    deviations_sub.add_parser("scan", help="Detect deviations, satiate healed ones, emit new self-loops (capped)")
+    deviations_sub.add_parser("list", help="Show active self-originated loops")
+
     self_cmd = subparsers.add_parser("self", help="The agent's generated self-model and live state")
     self_subparsers = self_cmd.add_subparsers(dest="self_command", required=True)
     self_manifest = self_subparsers.add_parser("manifest", help="Show the generated capability manifest")
@@ -1281,6 +1286,26 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             print(f"✓ Plan {summary['plan_id']}: {summary['goal']} ({summary['steps']} steps)")
             print("  Running in the background; results and questions arrive via Telegram.")
+            return 0
+
+    if args.command == "deviations":
+        from .config import load_config
+        from .tools.deviations import scan_deviations, _self_loops
+
+        vault = vault_root()
+        if args.deviations_command == "scan":
+            result = scan_deviations(vault, db_path=sqlite_path(), config=load_config())
+            print(f"detected={result['detected']} emitted={result['emitted']} satiated={result['satiated']}")
+            for loop_id in result.get("emitted_ids") or []:
+                print(f"  + {loop_id}")
+            return 0
+        if args.deviations_command == "list":
+            rows = [(p, fm) for p, fm in _self_loops(vault) if str(fm.get("status")) == "active"]
+            if not rows:
+                print("No active self-originated loops. Nothing aches.")
+                return 0
+            for _, fm in rows:
+                print(f"[{fm.get('deviation_class','?'):>10}] {fm.get('summary','')}")
             return 0
 
     if args.command == "self":

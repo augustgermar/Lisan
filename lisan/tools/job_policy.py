@@ -24,6 +24,7 @@ DEFAULT_JOB_PRIORITIES = {
     "manifest.regenerate": 90,
     "analyst.scan": 70,
     "dreamer.maintenance": 80,
+    "deviation.scan": 85,
     "entity.rewrite_story": 85,
     # User-scheduled tasks outrank maintenance: when a reminder and a dreamer
     # pass are both due, the reminder fires first.
@@ -37,6 +38,7 @@ DEFAULT_JOB_PRIORITIES = {
 COALESCE_AGGRESSIVE = {
     "analyst.scan",
     "dreamer.maintenance",
+    "deviation.scan",
     "pattern.audit",
     "manifest.regenerate",
     "index.rebuild_all",
@@ -192,6 +194,9 @@ def which_jobs_for_turn(turn_metadata: dict[str, Any] | None, db_path: Path | No
     if _should_queue_analyst(turn_metadata, db_path):
         jobs.append(_job_spec("analyst.scan", turn_metadata, priority_for_job_type("analyst.scan")))
 
+    if _should_queue_deviation_scan(db_path):
+        jobs.append(_job_spec("deviation.scan", turn_metadata, priority_for_job_type("deviation.scan")))
+
     if _should_queue_dreamer(turn_metadata, db_path):
         jobs.append(_job_spec("dreamer.maintenance", turn_metadata, priority_for_job_type("dreamer.maintenance"), extra={"task": "compress"}))
 
@@ -230,6 +235,14 @@ def _should_queue_analyst(turn_metadata: dict[str, Any], db_path: Path | None) -
     if _changed_records_since_last_job("analyst.scan", db_path) >= DEFAULT_ANALYST_DELTA_THRESHOLD:
         return True
     return False
+
+
+def _should_queue_deviation_scan(db_path: Path | None) -> bool:
+    """Once a day, off the same idle seam as the dreamer — no new daemon."""
+    last = _last_successful_job_time("deviation.scan", db_path)
+    if last is None:
+        return True
+    return _hours_since(last) >= 24
 
 
 def _should_queue_dreamer(turn_metadata: dict[str, Any], db_path: Path | None) -> bool:

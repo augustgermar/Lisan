@@ -49,6 +49,7 @@ JOB_TYPES = {
     "task.run_codex",
     "plan.run",
     "capture.observe",
+    "deviation.scan",
 }
 
 # Indexing/embedding jobs are deterministic and cheap (no LLM call). These are
@@ -872,6 +873,12 @@ def dispatch_job(
         from .analyst_ops import run_analyst_scan
 
         return run_analyst_scan(vault=vault, provider=provider, model=model)
+
+    if job_type == "deviation.scan":
+        from ..config import load_config
+        from .deviations import scan_deviations
+
+        return scan_deviations(vault, db_path=db_path, config=load_config())
 
     if job_type == "dreamer.maintenance":
         from .dreamer_ops import run_dreamer_task
