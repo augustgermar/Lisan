@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..config import save_default_config
-from ..paths import embeddings_path, ensure_repo_layout, repo_root, sqlite_path, vault_root, write_seed_files
+from ..paths import embeddings_path, ensure_repo_layout, ensure_vault_layout, repo_root, sqlite_path, vault_root, write_seed_files
 from .backup import create_backup
 
 
@@ -29,8 +29,14 @@ def purge_installation(
     backup_before: bool = False,
     backup_destination: Path | None = None,
 ) -> PurgeResult:
+    # When no explicit base is given, resolve the vault the way the running
+    # app does — honoring LISAN_VAULT — instead of assuming the default
+    # location. Purging a hardcoded path while the install lives elsewhere
+    # was the wrong-vault footgun: it wiped a stray seed vault and the live
+    # index while leaving the real vault untouched.
+    explicit_base = base is not None
     base = base or repo_root()
-    vault = vault_root(base)
+    vault = vault_root(base) if explicit_base else vault_root()
     result = PurgeResult(base=base, vault=vault)
 
     if backup_before:
@@ -57,6 +63,10 @@ def purge_installation(
             result.removed_paths.append(str(path))
 
     ensure_repo_layout(base)
+    if not explicit_base:
+        # the resolved vault may live outside base (LISAN_VAULT) — rebuild
+        # its layout too, so reseeding lands in the vault that was purged
+        ensure_vault_layout(vault)
     result.seeded_files = write_seed_files(vault)
     if kernel_bytes is not None:
         kernel_path = vault / "primer" / "identity-core.md"

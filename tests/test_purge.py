@@ -110,6 +110,23 @@ class PurgeTests(unittest.TestCase):
         self.assertFalse((self.vault / "episodes" / "personal.md").exists())
         self.assertFalse((self.root / "lisan.sqlite").exists())
 
+    def test_purge_honors_lisan_vault_env_when_no_explicit_base(self) -> None:
+        """The wrong-vault footgun: with LISAN_VAULT set, purge must target
+        the configured vault, not the default base/lisan-vault stub."""
+        import os
+        from unittest.mock import patch as _patch
+
+        real_vault = self.root / "real-vault"
+        (real_vault / "episodes").mkdir(parents=True, exist_ok=True)
+        (real_vault / "episodes" / "e.md").write_text("x", encoding="utf-8")
+
+        with _patch.dict(os.environ, {"LISAN_VAULT": str(real_vault)}), \
+                _patch("lisan.tools.purge.repo_root", return_value=self.root):
+            result = purge_installation(preserve_config=True)
+
+        self.assertEqual(result.vault, real_vault)
+        self.assertFalse((real_vault / "episodes" / "e.md").exists())
+
     def test_cli_purge_prompts_three_times_before_running(self) -> None:
         fake_result = SimpleNamespace(
             vault=self.vault,
