@@ -1328,6 +1328,9 @@ def main(argv: list[str] | None = None) -> int:
         write_batch_review(args.vault)
         report = validate_vault(args.vault)
         counts = rebuild_index(args.vault)
+        from .tools.learned_edges import mine_learned_edges
+
+        counts["learned_edges"] = mine_learned_edges()["edges_written"]
         health = generate_health_report(args.vault)
         health_out = args.vault / "reports" / "health-latest.md"
         health_out.parent.mkdir(parents=True, exist_ok=True)

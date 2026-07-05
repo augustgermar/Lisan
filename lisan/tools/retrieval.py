@@ -17,6 +17,7 @@ from .tracing import record_retrieval_result
 from .vector_store import VectorScorer, build_query_scorer
 from .primer_index import assistant_display_name, principal_name
 from ..utils import approx_word_count, today_iso
+from .learned_edges import learned_edges_settings, learned_partners
 from .retrieval_layers import RetrievalItem, RetrievalResult, _LayerCandidate
 from .retrieval_layers import (
     _retrieval_fusion_settings,
@@ -414,6 +415,33 @@ def retrieve_context(
                     for candidate in lane:
                         candidate.source = f"{candidate.source}_reply"
                 reply_lanes = [reply_fts, reply_vector]
+            # Learned-edge lane: behavioral associations mined from retrieval
+            # co-selection history (learned_edges.py). Seeds are the top
+            # user-lane hits; the lane only ever ADDS candidates.
+            learned_lane: list[_LayerCandidate] = []
+            edge_settings = learned_edges_settings(config)
+            if edge_settings["enabled"]:
+                seeds: list[str] = []
+                for candidate in [*fts_candidates, *vector_candidates]:
+                    if candidate.id not in seeds:
+                        seeds.append(candidate.id)
+                    if len(seeds) >= int(edge_settings["seed_count"]):
+                        break
+                for partner_id, npmi in learned_partners(
+                    conn, seeds, limit=int(edge_settings["lane_limit"]), exclude=set(seeds)
+                ):
+                    row = rows_by_id.get(partner_id)
+                    if row is None:
+                        continue
+                    if _visibility_block_reason(
+                        row,
+                        active_contexts,
+                        quarantined_artifact_ids=quarantined_artifact_ids,
+                        quarantined_batch_ids=quarantined_batch_ids,
+                        include_quarantined=include_quarantined,
+                    ) is not None:
+                        continue
+                    learned_lane.append(_LayerCandidate(id=partner_id, score=npmi, source="learned_edge"))
             direct_loaded, fusion_stats = _fuse_ranked_candidates(
                 rows_by_id=rows_by_id,
                 sql_candidates=sql_candidates,
@@ -421,7 +449,7 @@ def retrieve_context(
                 vector_candidates=vector_candidates,
                 rrf_k=retrieval_settings["rrf_k"],
                 fused_limit=retrieval_settings["fused_limit"],
-                extra_candidate_lists=reply_lanes,
+                extra_candidate_lists=[*reply_lanes, learned_lane],
             )
             direct_loaded = _demote_graph_neighbors(
                 direct_loaded,
