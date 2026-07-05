@@ -1109,6 +1109,14 @@ def run_jobs_worker(
     failures: list[dict[str, Any]] = []
     successes: list[dict[str, Any]] = []
 
+    reclaimed = reclaim_stale_running_jobs(db_path)
+    if reclaimed:
+        try:
+            from .log import get_logger
+
+            get_logger(vault or vault_root()).info(f"jobs.reclaimed_stale count={reclaimed}")
+        except Exception:
+            pass
     while True:
         _promote_ready_retry_wait_jobs(db_path)
         job = claim_next_job(worker_id, db_path=db_path, job_types=job_types)
@@ -1197,13 +1205,49 @@ def _requeue_recurring(job: dict[str, Any], *, db_path: Path | None = None) -> s
 
 
 def _promote_ready_retry_wait_jobs(db_path: Path | None = None) -> int:
-    conn = _connect(db_path)
+    """Best-effort: a transient 'database is locked' here killed the live
+    jobs service mid-ingestion (2026-07-05) and orphaned its claims. The
+    next cycle promotes whatever this one could not."""
+    try:
+        conn = _connect(db_path)
+    except Exception:
+        return 0
     try:
         ensure_jobs_table(conn)
         conn.execute("BEGIN IMMEDIATE")
         promoted = _promote_due_retry_wait_jobs(conn)
         conn.commit()
         return promoted
+    except sqlite3.OperationalError:
+        return 0
+    finally:
+        conn.close()
+
+
+def reclaim_stale_running_jobs(db_path: Path | None = None, *, stale_minutes: int = 45) -> int:
+    """Jobs claimed by a worker that died stay 'running' forever — there is
+    no liveness signal, so age is the heuristic. Requeued jobs re-run; every
+    handler is idempotent (compaction is guarded, indexing converges), which
+    is what makes this safe."""
+    from datetime import datetime, timedelta, timezone
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        conn = _connect(db_path)
+    except Exception:
+        return 0
+    try:
+        ensure_jobs_table(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        cur = conn.execute(
+            "UPDATE jobs SET status = 'queued', started_at = NULL "
+            "WHERE status = 'running' AND started_at IS NOT NULL AND started_at < ?",
+            (cutoff,),
+        )
+        conn.commit()
+        return cur.rowcount or 0
+    except sqlite3.OperationalError:
+        return 0
     finally:
         conn.close()
 

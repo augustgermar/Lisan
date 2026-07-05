@@ -274,3 +274,35 @@ class JobQueueTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StaleReclaimTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        ensure_repo_layout(self.root)
+        self.db = self.root / "jobs.sqlite"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_stale_running_jobs_are_reclaimed(self):
+        """A worker that dies mid-job must not orphan its claim forever —
+        seven narratives were stranded exactly this way on 2026-07-05."""
+        from lisan.tools.jobs import enqueue_job, get_job, reclaim_stale_running_jobs
+        from lisan.tools.db import connect
+
+        job_id = enqueue_job("index.rebuild_record", {"x": 1}, db_path=self.db)
+        conn = connect(self.db)
+        conn.execute("UPDATE jobs SET status='running', started_at='2026-07-05T00:00:00Z' WHERE id=?", (job_id,))
+        conn.commit(); conn.close()
+
+        self.assertEqual(reclaim_stale_running_jobs(self.db), 1)
+        self.assertEqual(get_job(job_id, db_path=self.db)["status"], "queued")
+        # a FRESH running claim is left alone
+        conn = connect(self.db)
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        conn.execute("UPDATE jobs SET status='running', started_at=? WHERE id=?", (now, job_id))
+        conn.commit(); conn.close()
+        self.assertEqual(reclaim_stale_running_jobs(self.db), 0)
