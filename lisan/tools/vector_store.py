@@ -9,6 +9,7 @@ from typing import Any
 
 from ..config import load_config
 from ..providers.embeddings import EmbeddingProvider
+from .anisotropy import anisotropy_settings, apply_correction, compute_calibration
 
 
 # embeddings.bin format (JSON lines):
@@ -26,11 +27,22 @@ EMB_VERSION = 1
 class EmbeddingIndex:
     model: str
     dimension: int
+    # RAW vectors, exactly as persisted in embeddings.bin. Anything that
+    # writes vectors back to disk (embed_pending's merge) MUST use these —
+    # persisting a corrected vector would double-correct on the next load.
     vectors: dict[str, list[float]]
+    # Anisotropy calibration computed from this corpus (anisotropy.py), or
+    # None when correction is off/inapplicable.
+    calibration: Any | None = None
+    # Corrected vectors for scoring, or None when no calibration applies.
+    scoring_vectors: dict[str, list[float]] | None = None
 
     @property
     def has_meta(self) -> bool:
         return self.dimension > 0
+
+    def vectors_for_scoring(self) -> dict[str, list[float]]:
+        return self.scoring_vectors if self.scoring_vectors is not None else self.vectors
 
 
 def write_embeddings(
@@ -49,7 +61,10 @@ def write_embeddings(
         if vector is None:
             continue
         lines.append(json.dumps({"id": record_id, "embedding": vector}))
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Atomic replace: a concurrent reader never sees a half-written index.
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    tmp.replace(path)
 
 
 # (mtime, size) -> EmbeddingIndex, keyed by resolved path string.
@@ -60,10 +75,14 @@ def clear_index_cache() -> None:
     _INDEX_CACHE.clear()
 
 
-def load_index(path: Path) -> EmbeddingIndex:
+def load_index(path: Path, *, config: dict[str, Any] | None = None) -> EmbeddingIndex:
     """Load ``embeddings.bin`` into an in-memory ``{id: vector}`` map exactly
     once, cached keyed by file path + mtime + size. Subsequent calls within the
-    same process reuse the parsed map until the file changes on disk."""
+    same process reuse the parsed map until the file changes on disk.
+
+    When anisotropy correction is enabled (the default) and the corpus is a
+    real semantic space (not the hash fallback), the loaded vectors are
+    corrected once here and the calibration rides the cache."""
     if not path.exists():
         return EmbeddingIndex(model="none", dimension=0, vectors={})
     stat = path.stat()
@@ -102,7 +121,28 @@ def load_index(path: Path) -> EmbeddingIndex:
     if dimension == 0 and vectors:
         dimension = len(next(iter(vectors.values())))
 
-    index = EmbeddingIndex(model=model, dimension=dimension, vectors=vectors)
+    calibration = None
+    scoring_vectors = None
+    settings = anisotropy_settings(config or load_config())
+    if settings["enabled"] and vectors and "hash" not in model.lower():
+        calibration = compute_calibration(
+            list(vectors.values()),
+            components=int(settings["components"]),
+            min_corpus=int(settings["min_corpus"]),
+        )
+        if calibration is not None:
+            scoring_vectors = {
+                record_id: apply_correction(vector, calibration)
+                for record_id, vector in vectors.items()
+            }
+
+    index = EmbeddingIndex(
+        model=model,
+        dimension=dimension,
+        vectors=vectors,
+        calibration=calibration,
+        scoring_vectors=scoring_vectors,
+    )
     _INDEX_CACHE[key] = (stat.st_mtime, stat.st_size, index)
     return index
 
@@ -145,7 +185,7 @@ class VectorScorer:
     def score(self, file_id: Any) -> float:
         if not self.query_vector or not self.index.vectors:
             return 0.0
-        vector = self.index.vectors.get(str(file_id))
+        vector = self.index.vectors_for_scoring().get(str(file_id))
         if vector is None:
             return 0.0
         index_dim = self.index.dimension or len(vector)
@@ -181,9 +221,12 @@ def build_query_scorer(
     config = config or load_config()
     provider = provider or EmbeddingProvider(config)
     query_embedding = provider.embed_query(query)
-    index = load_index(embeddings_file)
+    index = load_index(embeddings_file, config=config)
+    query_vector = query_embedding.vector
+    if index.calibration is not None and query_vector:
+        query_vector = apply_correction(query_vector, index.calibration)
     return VectorScorer(
-        query_vector=query_embedding.vector,
+        query_vector=query_vector,
         index=index,
         mode_used=query_embedding.mode_used,
     )

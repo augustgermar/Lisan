@@ -778,6 +778,29 @@ def embed_pending_records(
 
         provider = EmbeddingProvider(load_config())
         existing = load_index(embeddings_file)
+        # Consistency guard: an (almost) empty index while the files table
+        # claims many embedded records means we are racing a rebuild or the
+        # index was clobbered — a merge-and-rewrite from this state would
+        # persist the loss (observed live 2026-07-05: a 62-byte index under
+        # 622 'embedded' rows). Refuse; the next full rebuild reconciles.
+        embedded_count = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM files WHERE embedding_status = 'embedded'"
+            ).fetchone()[0]
+        )
+        if embedded_count > 10 and len(existing.vectors) < embedded_count // 2:
+            from .log import log_error
+
+            log_error(
+                vault,
+                "embed_pending refused: index/status mismatch",
+                RuntimeError(
+                    f"index holds {len(existing.vectors)} vectors but {embedded_count} rows "
+                    "claim 'embedded' — run `lisan rebuild-index` to reconcile"
+                ),
+            )
+            return {"pending": len(pending), "embedded": 0,
+                    "still_pending": len(pending), "mode_used": "refused"}
         merged: dict[str, list[float]] = dict(existing.vectors)
         index_model = existing.model
         index_dimension = existing.dimension
