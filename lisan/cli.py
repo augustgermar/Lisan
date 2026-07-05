@@ -1329,8 +1329,10 @@ def main(argv: list[str] | None = None) -> int:
         report = validate_vault(args.vault)
         counts = rebuild_index(args.vault)
         from .tools.learned_edges import mine_learned_edges
+        from .tools.retrospective import sweep_missed_captures
 
         counts["learned_edges"] = mine_learned_edges()["edges_written"]
+        counts["retrospective_enqueued"] = sweep_missed_captures(args.vault)["enqueued"]
         health = generate_health_report(args.vault)
         health_out = args.vault / "reports" / "health-latest.md"
         health_out.parent.mkdir(parents=True, exist_ok=True)
