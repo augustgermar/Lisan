@@ -91,6 +91,25 @@ class BotDispatchTests(unittest.TestCase):
         # typing indicator should have been sent before the reply
         self.assertIn("sendChatAction", [m for m, _ in self.calls])
 
+    def test_typing_indicator_survives_a_long_turn_and_stops_after(self):
+        """Telegram drops a chat action after ~5s; a slow turn must refresh
+        it until the reply is ready — and stop refreshing afterwards."""
+        import time as _time
+
+        self.bot.typing_refresh_seconds = 0.05
+
+        def slow_turn(**kwargs):
+            _time.sleep(0.3)
+            return {"response": "done", "route": "advice", "topic": "t", "content_text": "x"}
+
+        with patch.object(telegram_bot, "_process_chat_turn", side_effect=slow_turn):
+            self.bot.handle_update(_update("think hard"))
+        during = len([m for m, _ in self.calls if m == "sendChatAction"])
+        self.assertGreaterEqual(during, 3)  # refreshed, not fired once
+        _time.sleep(0.2)  # were it still running, more actions would land
+        after = len([m for m, _ in self.calls if m == "sendChatAction"])
+        self.assertEqual(during, after)
+
     def test_help_command_does_not_invoke_pipeline(self):
         with patch.object(telegram_bot, "_process_chat_turn") as proc:
             self.bot.handle_update(_update("/help"))

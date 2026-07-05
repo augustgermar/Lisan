@@ -129,6 +129,23 @@ class TelegramBot:
         except Exception:
             pass  # purely cosmetic
 
+    def _typing_keepalive(self, chat_id: int):
+        """Telegram shows a chat action for only ~5 seconds; a turn takes
+        8-25. Refresh the indicator until the reply is ready, so the pause
+        never reads as the bot having gone quiet. Returns a stop callable."""
+        stop = threading.Event()
+
+        interval = float(getattr(self, "typing_refresh_seconds", 4.0))
+
+        def _loop() -> None:
+            while not stop.is_set():
+                self._typing(chat_id)
+                stop.wait(interval)
+
+        thread = threading.Thread(target=_loop, daemon=True, name="typing-keepalive")
+        thread.start()
+        return stop.set
+
     # ── State + auth ────────────────────────────────────────────────────────
     def _is_allowed(self, user_id: int) -> bool:
         return user_id in self.allowed_user_ids
@@ -198,8 +215,8 @@ class TelegramBot:
             self._send_message(chat_id, tail_log(self.vault, lines=n) or "(no logs)")
             return
 
-        # Normal turn — show "typing" while the model works, then reply.
-        self._typing(chat_id)
+        # Normal turn — keep "typing" alive while the model works, then reply.
+        stop_typing = self._typing_keepalive(chat_id)
         try:
             result = _process_chat_turn(
                 vault=self.vault,
@@ -215,10 +232,12 @@ class TelegramBot:
                 approval_fn=self._approval_fn_for(chat_id),
             )
         except Exception as exc:
+            stop_typing()
             log_error(self.vault, "telegram turn failed", exc)
             self._send_message(chat_id, f"Something went wrong handling that: {exc}")
             return
 
+        stop_typing()
         response = str(result.get("response") or "").strip()
         self._update_state_after_turn(state, result, text, response)
         if not response:
