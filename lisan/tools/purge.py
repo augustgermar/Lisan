@@ -18,12 +18,14 @@ class PurgeResult:
     backup_created: bool = False
     backup_archive_path: str | None = None
     config_reset: bool = False
+    kernel_preserved: bool = False
 
 
 def purge_installation(
     base: Path | None = None,
     *,
     preserve_config: bool = False,
+    preserve_kernel: bool = False,
     backup_before: bool = False,
     backup_destination: Path | None = None,
 ) -> PurgeResult:
@@ -37,6 +39,16 @@ def purge_installation(
         result.backup_created = True
         result.backup_archive_path = str(backup.archive_path)
 
+    # The Memory Wipe Test as a first-class operation: erase the autobiography
+    # (Layer B — episodes, entities, loops, claims), keep the identity kernel.
+    # The kernel file is held in memory across the wipe and restored after
+    # reseeding, so the reboot is the same self with amnesia, not a stranger.
+    kernel_bytes: bytes | None = None
+    if preserve_kernel:
+        kernel_path = vault / "primer" / "identity-core.md"
+        if kernel_path.exists():
+            kernel_bytes = kernel_path.read_bytes()
+
     for path in _paths_to_remove(base=base, vault=vault):
         if preserve_config and path.name in ("config.json", "config.yaml"):
             continue
@@ -46,6 +58,11 @@ def purge_installation(
 
     ensure_repo_layout(base)
     result.seeded_files = write_seed_files(vault)
+    if kernel_bytes is not None:
+        kernel_path = vault / "primer" / "identity-core.md"
+        kernel_path.parent.mkdir(parents=True, exist_ok=True)
+        kernel_path.write_bytes(kernel_bytes)
+        result.kernel_preserved = True
     if not preserve_config:
         save_default_config(base / "config.json")
         result.config_reset = True

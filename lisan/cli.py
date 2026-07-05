@@ -87,6 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
     purge = subparsers.add_parser("purge", help="Delete personal vault data and reset to a fresh start")
     purge.add_argument("--yes", action="store_true", help="Skip the confirmation prompt")
     purge.add_argument("--preserve-config", action="store_const", const=True, default=None, help="Keep config.json instead of resetting it")
+    purge.add_argument("--preserve-kernel", action="store_true", help="Keep the identity kernel (primer/identity-core.md) — wipe the autobiography, not the self (the Memory Wipe Test)")
     purge.add_argument("--backup-before", action="store_const", const=True, default=None, help="Create a backup before deleting anything")
     purge.add_argument("--backup-destination", type=Path, default=None, help="Write the optional pre-purge backup to this directory")
 
@@ -747,10 +748,13 @@ def main(argv: list[str] | None = None) -> int:
         preserve_config, backup_before = resolved
         result = purge_installation(
             preserve_config=preserve_config,
+            preserve_kernel=bool(getattr(args, "preserve_kernel", False)),
             backup_before=backup_before,
             backup_destination=args.backup_destination,
         )
         print(f"Purged vault: {result.vault}")
+        if getattr(result, "kernel_preserved", False):
+            print("Identity kernel preserved (primer/identity-core.md).")
         if result.backup_created and result.backup_archive_path:
             print(f"Backup created: {result.backup_archive_path}")
         if result.removed_paths:

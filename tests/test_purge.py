@@ -95,6 +95,21 @@ class PurgeTests(unittest.TestCase):
         self.assertEqual(kwargs["destination"], backup_dir)
         self.assertEqual(result.backup_archive_path, str(backup_path))
 
+    def test_purge_preserve_kernel_wipes_autobiography_not_self(self) -> None:
+        """The Memory Wipe Test as an operation: episodes/entities go, the
+        identity kernel survives byte-identical — amnesia, not a stranger."""
+        kernel = self.vault / "primer" / "identity-core.md"
+        kernel.parent.mkdir(parents=True, exist_ok=True)
+        kernel_content = "---\nkernel_hash: \"abc\"\n---\n# Identity Core\nVega, dry wit.\n"
+        kernel.write_text(kernel_content, encoding="utf-8")
+
+        result = purge_installation(self.root, preserve_config=True, preserve_kernel=True)
+
+        self.assertTrue(result.kernel_preserved)
+        self.assertEqual(kernel.read_text(encoding="utf-8"), kernel_content)
+        self.assertFalse((self.vault / "episodes" / "personal.md").exists())
+        self.assertFalse((self.root / "lisan.sqlite").exists())
+
     def test_cli_purge_prompts_three_times_before_running(self) -> None:
         fake_result = SimpleNamespace(
             vault=self.vault,
@@ -108,7 +123,7 @@ class PurgeTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(prompt.call_count, 3)
-        purge.assert_called_once_with(preserve_config=False, backup_before=True, backup_destination=None)
+        purge.assert_called_once_with(preserve_config=False, preserve_kernel=False, backup_before=True, backup_destination=None)
 
     def test_cli_purge_yes_bypasses_prompts_for_automation(self) -> None:
         fake_result = SimpleNamespace(
@@ -125,6 +140,7 @@ class PurgeTests(unittest.TestCase):
         prompt.assert_not_called()
         purge.assert_called_once_with(
             preserve_config=True,
+            preserve_kernel=False,
             backup_before=True,
             backup_destination=self.root / "custom-backups",
         )
