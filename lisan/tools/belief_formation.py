@@ -54,10 +54,13 @@ class BeliefCandidate:
 
 
 def _is_eval_tagged(fm: dict[str, Any]) -> bool:
+    # the eval marker can live in the title OR the summary — the summary
+    # became the first-person narration (deixis fix), so title must be
+    # checked too or eval-run episodes leak into belief evidence
     haystack = " ".join(
         [str(fm.get("conversation_id") or "")]
         + [str(r) for r in (fm.get("source_refs") or [])]
-        + [str(fm.get("summary") or "")]
+        + [str(fm.get("summary") or ""), str(fm.get("title") or "")]
     ).lower()
     return any(ns in haystack for ns in EVAL_NAMESPACES)
 

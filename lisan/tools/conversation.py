@@ -51,6 +51,9 @@ def run_conversation_turn(
     history = _rolling_history(vault, conversation_id)
     context = _retrieval_context(vault=vault, text=text, conversation_id=conversation_id, db_path=db_path)
     profile = _owner_profile(vault)
+    self_story = _self_story_context(vault, text)
+    if self_story:
+        context = f"{context}\n\n{self_story}" if context else self_story
 
     # Session open is the drive system's single delivery seam (v1 action
     # budget): a fresh conversation may carry at most one question-phrased
@@ -152,6 +155,60 @@ def _owner_profile(vault: Path) -> str:
         log_error(vault, "conversation.owner_profile roster load failed", exc)
     parts.append(_self_identity_line(vault))
     return "\n\n".join(p for p in parts if p)
+
+
+_SELF_STORY_TRIGGER = __import__("re").compile(
+    r"\b(about (yourself|you\b)|your (story|history|life|past|origin|beginnings|memory of yourself)"
+    r"|who are you|how did you (start|begin|come to be)|tell me about you\b"
+    r"|what have you (done|been through)|your own (words|experience))\b",
+    __import__("re").IGNORECASE,
+)
+
+
+def _self_story_context(vault: Path, text: str) -> str:
+    """When the user asks about the agent itself, inject the autobiography:
+    recent self-episodes (Layer B), ratified beliefs, and voice provenance.
+    Deterministic — assembled from records, so the story cannot be
+    confabulated; a thin Layer B yields a thin (honest) story."""
+    if not _SELF_STORY_TRIGGER.search(text or ""):
+        return ""
+    parts: list[str] = []
+    episodes_dir = vault / "self" / "episodes"
+    if episodes_dir.exists():
+        from ..frontmatter import load_markdown
+
+        rows = []
+        for p in sorted(episodes_dir.glob("*.md"), reverse=True)[:12]:
+            try:
+                fm = load_markdown(p).frontmatter
+                rows.append(f"- ({fm.get('created')}) {fm.get('summary')}")
+            except Exception:
+                continue
+        if rows:
+            parts.append("Recent events in your own life (deterministic records — safe to narrate):\n" + "\n".join(rows))
+    beliefs_dir = vault / "self" / "beliefs"
+    if beliefs_dir.exists():
+        from ..frontmatter import load_markdown
+
+        rows = []
+        for p in sorted(beliefs_dir.glob("*.md"))[:8]:
+            try:
+                fm = load_markdown(p).frontmatter
+                rows.append(f"- {fm.get('summary') or p.stem}")
+            except Exception:
+                continue
+        if rows:
+            parts.append("Your ratified self-beliefs:\n" + "\n".join(rows))
+    try:
+        core = (vault / "primer" / "identity-core.md").read_text(encoding="utf-8")
+        if "Voice Provenance" in core:
+            prov = core.split("## Voice Provenance", 1)[1].strip()[:500]
+            parts.append("How your voice was formed (provenance):\n" + prov)
+    except Exception:
+        pass
+    if not parts:
+        return ""
+    return "SELF_STORY (your own autobiography, from your records):\n\n" + "\n\n".join(parts)
 
 
 def _self_identity_line(vault: Path) -> str:

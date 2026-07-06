@@ -200,7 +200,12 @@ def write_self_episode(vault: Path, event: SelfEvent, db_path: Path | None = Non
         "domain_secondary": [],
         "privacy": "personal",
         "disclosure": "private",
-        "summary": event.title,
+        # The summary is MY act, not the owner's content — a reminder about
+        # the owner's oven is not an event in my life; delivering it is.
+        # (Found live: the first post-wipe self-episode's summary was the
+        # bare task text "Turn the oven on for the pork loin.")
+        "summary": event.narration,
+        "title": event.title,
         "links": [],
         "confidence": "high",
         "confidence_basis": "Assembled deterministically from system records",

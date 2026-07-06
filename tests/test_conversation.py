@@ -163,3 +163,31 @@ class TelegramApprovalTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SelfStoryTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.vault = Path(self.tmp.name)
+        (self.vault / "self" / "episodes").mkdir(parents=True)
+        (self.vault / "primer").mkdir(parents=True)
+        (self.vault / "self" / "episodes" / "2026-07-05-e1.md").write_text(
+            "---\n{\"id\": \"self_episode.e1\", \"created\": \"2026-07-05\", "
+            "\"summary\": \"{{self}} survived a full memory wipe with identity intact.\"}\n---\n\n# e1\n",
+            encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_self_questions_inject_the_autobiography(self):
+        from lisan.tools.conversation import _self_story_context
+
+        out = _self_story_context(self.vault, "Tell me about yourself — your story so far")
+        self.assertIn("SELF_STORY", out)
+        self.assertIn("memory wipe", out)
+
+    def test_ordinary_questions_do_not(self):
+        from lisan.tools.conversation import _self_story_context
+
+        self.assertEqual(_self_story_context(self.vault, "what's on my calendar for tomorrow?"), "")
+        self.assertEqual(_self_story_context(self.vault, "tell me about Ruth"), "")
