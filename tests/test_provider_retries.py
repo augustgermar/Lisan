@@ -47,12 +47,16 @@ class CodexSandboxTests(unittest.TestCase):
     will sometimes act inline despite instructions, which would bypass the
     run_codex approval gate. The boundary must be structural."""
 
-    def _capture_args(self, agent: str) -> list[str]:
+    def _args_for(self, agent: str, sandbox_mode: str | None = None) -> list[str]:
+        return self._capture_args(agent, sandbox_mode=sandbox_mode)
+
+    def _capture_args(self, agent: str, sandbox_mode: str | None = None) -> list[str]:
         from unittest.mock import MagicMock
 
         from lisan.providers.codex import CodexClient
 
-        client = CodexClient({"providers": {"codex": {}}})
+        codex_cfg = {"sandbox_mode": sandbox_mode} if sandbox_mode else {}
+        client = CodexClient({"providers": {"codex": codex_cfg}})
         captured: list[list[str]] = []
 
         def fake_run(args, **kwargs):
@@ -73,11 +77,17 @@ class CodexSandboxTests(unittest.TestCase):
             self.assertIn("--sandbox", args, f"{agent} must run sandboxed")
             self.assertIn("read-only", args)
 
-    def test_executor_agent_writes_only_in_its_workspace(self) -> None:
-        args = self._capture_args("codex")
+    def test_executor_agent_default_is_unsandboxed_and_config_reversible(self):
+        """Owner decision 2026-07-06: the executor runs with the sandbox
+        bypassed by default (network-dependent tasks kept failing with
+        misleading errors); setting providers.codex.sandbox_mode restores
+        the cage. Non-executor agents stay read-only regardless."""
+        args = self._args_for(agent="codex")
+        self.assertIn("--dangerously-bypass-approvals-and-sandbox", args)
+        self.assertNotIn("--sandbox", args)
+        args = self._args_for(agent="codex", sandbox_mode="workspace-write")
         self.assertIn("--sandbox", args)
         self.assertIn("workspace-write", args)
-        self.assertNotIn("read-only", args)
 
 
 class CodexBinaryErrorTests(unittest.TestCase):

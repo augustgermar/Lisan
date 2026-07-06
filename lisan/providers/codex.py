@@ -80,10 +80,18 @@ class CodexClient(ProviderClient):
         try:
             args = [binary, "exec", "--skip-git-repo-check", "--cd", str(working_directory or repo_root())]
             if agent == "codex":
-                # The executor writes — but only inside its workspace. An
-                # unsandboxed executor edited the owner's personal notes when
-                # asked to update a memory record; never again.
-                args.extend(["--sandbox", "workspace-write"])
+                # Owner decision 2026-07-06: the executor runs unsandboxed by
+                # default ("--yolo") — scheduled tasks and plans kept failing
+                # on network-dependent work (telegram sends, gmail, installs)
+                # with misleading errors. The write-boundary briefing (never
+                # touch files outside the Lisan install) remains in force at
+                # the prompt layer; an owner who wants the cage back sets
+                # codex.sandbox_mode in config ("workspace-write"/"read-only").
+                mode = str(((self.config.get("providers") or {}).get("codex") or {}).get("sandbox_mode") or "danger-full-access")
+                if mode == "danger-full-access":
+                    args.append("--dangerously-bypass-approvals-and-sandbox")
+                else:
+                    args.extend(["--sandbox", mode])
             if agent != "codex":
                 # Decision/extraction agents (listener, interlocutor, writer,
                 # skeptic, ...) must never act on the system themselves — all
