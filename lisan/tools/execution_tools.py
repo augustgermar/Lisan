@@ -143,9 +143,11 @@ TOOLS: list[dict[str, Any]] = [
             "and reports back when done — use this when a request needs several actions that "
             "take time (inspect, then process, then verify), not for a single immediate action. "
             "Each step has a kind: 'codex' (run a shell/CLI/file task — the workhorse), 'prompt' "
-            "(run a prompt through your own pipeline), or 'note' (record an observation). Steps "
-            "run in order; each sees the goal and the results of earlier steps. The user approves "
-            "the plan now, at creation. Keep plans to a few concrete steps."
+            "(run a prompt through your own pipeline — REQUIRED for any step that needs your "
+            "skills: gmail, messages, browser, calendar; the codex sandbox has no network to "
+            "those services and will fail with misleading auth errors), or 'note' (record an "
+            "observation). Steps run in order; each sees the goal and the results of earlier "
+            "steps. The user approves the plan now, at creation. Keep plans to a few concrete steps."
         ),
         "parameters": {
             "type": "object",
