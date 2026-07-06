@@ -42,3 +42,6 @@ eval-reports/
 credentials/
 *.token
 token.json
+# The agent's browser profile holds cookies and saved passwords
+browser-profile/
+browser-shots/

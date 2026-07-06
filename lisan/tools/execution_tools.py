@@ -54,6 +54,32 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "browser",
+        "description": (
+            "Your own visible Chrome browser on the user's desktop — a SHARED session: the user "
+            "can watch, take the mouse anytime, log into sites for you, or show you a page. Its "
+            "profile is persistent (cookies, logins, tabs survive restarts). Actions: 'open' "
+            "(bring it up), 'goto' {url}, 'read' (current page text), 'click' {target: visible "
+            "text or CSS selector}, 'type' {target, text, submit?}, 'screenshot', 'tabs', "
+            "'switch_tab' {index}, 'back'. Compose small steps and read after navigating. When a "
+            "login or CAPTCHA blocks you, say so and ask the user to handle it in the window — "
+            "then continue. Use this for anything web: searching, reading pages, checking sites."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["open", "goto", "read", "click", "type", "screenshot", "tabs", "switch_tab", "back"]},
+                "url": {"type": "string"},
+                "target": {"type": "string"},
+                "text": {"type": "string"},
+                "submit": {"type": "boolean"},
+                "index": {"type": "integer"},
+                "max_chars": {"type": "integer"},
+            },
+            "required": ["action"],
+        },
+    },
+    {
         "name": "merge_entities",
         "description": (
             "Merge two entity records that are really the same thing (a duplicate or a "
@@ -195,6 +221,7 @@ def build_tool_handlers(
             approval_fn=approval_fn,
         ),
         "self_state": lambda: self_state(vault=vault, db_path=db_path),
+        "browser": lambda action, **kw: _browser_tool(action, **kw),
         "merge_entities": lambda source, target: _merge_entities_tool(source, target, vault=vault, db_path=db_path),
         "ingest_files": lambda path, replace=False, mode="life": ingest_files_tool(
             path=path,
@@ -340,6 +367,15 @@ def run_codex(
 
 
 _TELEGRAM_CONVERSATION_RE = re.compile(r"^telegram-(\d+)\b")
+
+
+def _browser_tool(action: str, **kw: Any) -> str:
+    import json as _json
+
+    from .browser import browser_action
+
+    result = browser_action(action, **kw)
+    return _json.dumps(result, ensure_ascii=True)
 
 
 def _merge_entities_tool(source: str, target: str, *, vault: Path, db_path: Path | None) -> str:

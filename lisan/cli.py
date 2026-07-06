@@ -646,6 +646,14 @@ def build_parser() -> argparse.ArgumentParser:
     plan_ingest.add_argument("--limit", type=int, default=None, help="Only the first N files (for a trial run)")
     plan_ingest.add_argument("--db-path", type=Path, default=None)
 
+    browser_cmd = subparsers.add_parser("browser", help="The agent's own persistent, shared Chrome session")
+    browser_sub = browser_cmd.add_subparsers(dest="browser_command", required=True)
+    browser_sub.add_parser("open", help="Launch (or focus) the agent's browser")
+    browser_sub.add_parser("status", help="Is the agent's browser running?")
+    browser_goto = browser_sub.add_parser("goto", help="Navigate the agent's browser")
+    browser_goto.add_argument("url")
+    browser_sub.add_parser("read", help="Print the current page's text")
+
     entities_cmd = subparsers.add_parser("entities", help="Entity maintenance: find and merge duplicates")
     entities_sub = entities_cmd.add_subparsers(dest="entities_command", required=True)
     entities_dedup = entities_sub.add_parser("dedup", help="List same-kind near-duplicate entities worth merging")
@@ -1296,6 +1304,23 @@ def main(argv: list[str] | None = None) -> int:
             print(f"✓ Plan {summary['plan_id']}: {summary['goal']} ({summary['steps']} steps)")
             print("  Running in the background; results and questions arrive via Telegram.")
             return 0
+
+    if args.command == "browser":
+        from .tools.browser import _cdp_alive, browser_action
+
+        if args.browser_command == "status":
+            print("running" if _cdp_alive() else "not running")
+            return 0
+        if args.browser_command == "open":
+            r = browser_action("open")
+        elif args.browser_command == "goto":
+            r = browser_action("goto", url=args.url)
+        else:
+            r = browser_action("read")
+        import json as _json
+
+        print(_json.dumps(r, indent=2, ensure_ascii=True)[:4000])
+        return 0 if r.get("ok") else 1
 
     if args.command == "entities":
         from .tools.entity_merge import dedup_candidates, merge_entities
