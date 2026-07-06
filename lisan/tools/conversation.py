@@ -71,18 +71,23 @@ def run_conversation_turn(
 
     agent = ConversationAgent(vault=vault)
     record_inline_step("conversation.agent")
+    # Section order is cache order (render_input preserves kwargs order):
+    # stable blocks first (capabilities, owner profile), volatile last
+    # (retrieval, the growing conversation, and the minute-resolution
+    # clock) — so a provider's prefix cache survives across turns instead
+    # of missing on the first volatile byte.
     out = agent.run_json(
         json.dumps({"user_message": text}, indent=2, ensure_ascii=True),
         significance="medium",
         provider=provider,
         model=model,
         provider_error_mode="raise",
-        conversation=history or None,
-        today=_today_line(),
+        capabilities=cached_capability_index(),
         owner_profile=profile or None,
         retrieved_context=context or None,
         unresolved_thread=unresolved_thread,
-        capabilities=cached_capability_index(),
+        conversation=history or None,
+        today=_today_line(),
         db_path=db_path,
         conversation_id=conversation_id,
         approval_fn=approval_fn,
@@ -153,6 +158,16 @@ def _owner_profile(vault: Path) -> str:
             parts.append(f"Household cast: {people}")
     except Exception as exc:
         log_error(vault, "conversation.owner_profile roster load failed", exc)
+    try:
+        style = (vault / "primer" / "operating-style.md").read_text(encoding="utf-8")
+        marker = "## Standing instructions (captured live)"
+        if marker in style:
+            standing = style.split(marker, 1)[1].strip()
+            if standing:
+                parts.append("Standing instructions from the user about how to behave "
+                             "(honor these every turn):\n" + standing[:1200])
+    except Exception:
+        pass
     parts.append(_self_identity_line(vault))
     return "\n\n".join(p for p in parts if p)
 

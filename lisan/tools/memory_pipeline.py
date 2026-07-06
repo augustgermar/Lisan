@@ -25,6 +25,7 @@ from .record_fanout import (
     fanout_claims,
     fanout_decisions,
     fanout_evidence,
+    apply_behavioral_contracts,
     fanout_open_loops,
     fanout_state_updates,
     index_created_record,
@@ -282,6 +283,7 @@ def run_memory_pipeline(
         entities_touched = _create_entity_stubs(vault, writer, draft_rel, text, frequent_names=frequent_names, index_conn=index_conn)
         _create_relationship_edges(vault, writer, db_path=db_path, index_conn=index_conn)
         fanout_open_loops(vault, writer, draft_rel, source_text=text, index_conn=index_conn)
+        apply_behavioral_contracts(vault, writer, source_ref=draft_rel)
         fanout_decisions(vault, writer, draft_rel, source_text=text, index_conn=index_conn)
         claim_id_map: dict[str, str] = {}
         if skeptic_approved:

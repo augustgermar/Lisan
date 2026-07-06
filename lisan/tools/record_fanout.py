@@ -331,6 +331,46 @@ def _is_negated_decision(title: str, summary: str) -> bool:
 
 # ── Shared fanout: open loops ─────────────────────────────────────────────────
 
+def apply_behavioral_contracts(vault, writer, *, source_ref: str = "") -> int:
+    """Fast lane (vellum borrow #6): a durable instruction about HOW the
+    assistant should behave lands in primer/operating-style.md the moment
+    capture sees it — in effect by the next turn, not after a dreamer
+    cycle. Deduped by normalized text; dated; provenance-marked."""
+    import re as _re
+
+    from ..utils import today_iso as _today
+
+    contracts = [str(c).strip() for c in (writer.get("behavioral_contracts") or []) if str(c).strip()]
+    if not contracts:
+        return 0
+    path = vault / "primer" / "operating-style.md"
+    try:
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+    except Exception:
+        text = ""
+    header = "## Standing instructions (captured live)"
+    if header not in text:
+        base = text.rstrip() if text.strip() else "# Operating Style"
+        text = f"{base}\n\n{header}\n"
+    existing_norm = {
+        _re.sub(r"[^a-z0-9 ]", "", line.lower()).strip()
+        for line in text.splitlines() if line.strip().startswith("- ")
+    }
+    added = 0
+    for contract in contracts:
+        norm = _re.sub(r"[^a-z0-9 ]", "", contract.lower()).strip()
+        if not norm or any(e and (norm in e or e in norm) for e in existing_norm):
+            continue
+        suffix = f", from {source_ref})" if source_ref else ")"
+        text = text.rstrip() + f"\n- {contract} ({_today()}{suffix}\n"
+        existing_norm.add(norm)
+        added += 1
+    if added:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    return added
+
+
 def fanout_open_loops(
     vault: Path,
     writer: dict[str, Any],

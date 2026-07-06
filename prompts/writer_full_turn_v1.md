@@ -26,3 +26,5 @@ The full-turn input may include:
 - `narrative_state`
 
 Use those fields when they are present. Do not ignore assistant actions simply because they were not part of the user's message.
+
+BEHAVIORAL CONTRACTS (fast lane): also emit `behavioral_contracts` — an array of strings for durable instructions the user gave about HOW the assistant should behave from now on (style, format, tone, language, process). One imperative sentence each. Only explicit standing instructions; never one-off requests. This field IS yours to emit in this pass even though other artifact fields are not — a behavioral contract must take effect by the next turn. Leave empty if none.

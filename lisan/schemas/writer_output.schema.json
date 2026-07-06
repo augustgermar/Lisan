@@ -12,23 +12,70 @@
     "significance_rationale"
   ],
   "properties": {
-    "record_type": { "type": "string" },
-    "summary": { "type": "string", "description": "Machine narrative. Use role tokens: principal -> {{principal}}, Lisan -> {{self}}, every other person -> their literal name. Never begin with a token. Same rule applies to claim_text and all titles." },
-    "significance": { "type": "string", "enum": ["low", "medium", "high"] },
-    "frontmatter": { "type": "object" },
-    "sections": { "type": "object" },
-    "questions": { "type": "array", "items": { "type": "string" } },
-    "significance_rationale": { "type": "string" },
+    "record_type": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string",
+      "description": "Machine narrative. Use role tokens: principal -> {{principal}}, Lisan -> {{self}}, every other person -> their literal name. Never begin with a token. Same rule applies to claim_text and all titles."
+    },
+    "significance": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "frontmatter": {
+      "type": "object"
+    },
+    "sections": {
+      "type": "object"
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "significance_rationale": {
+      "type": "string"
+    },
     "entities_to_create": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "subtype", "summary"],
+        "required": [
+          "name",
+          "subtype",
+          "summary"
+        ],
         "properties": {
-          "name":    { "type": "string" },
-          "subtype": { "type": "string", "enum": ["person", "place", "thing", "project", "organization"] },
-          "summary": { "type": "string" },
-          "disclosure": { "type": "string", "enum": ["private", "personal", "public"] }
+          "name": {
+            "type": "string"
+          },
+          "subtype": {
+            "type": "string",
+            "enum": [
+              "person",
+              "place",
+              "thing",
+              "project",
+              "organization"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "disclosure": {
+            "type": "string",
+            "enum": [
+              "private",
+              "personal",
+              "public"
+            ]
+          }
         }
       }
     },
@@ -36,13 +83,36 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["category", "summary"],
+        "required": [
+          "category",
+          "summary"
+        ],
         "properties": {
-          "category":   { "type": "string" },
-          "arena":      { "type": "string" },
-          "summary":    { "type": "string" },
-          "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
-          "disclosure": { "type": "string", "enum": ["private", "personal", "public"] }
+          "category": {
+            "type": "string"
+          },
+          "arena": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "disclosure": {
+            "type": "string",
+            "enum": [
+              "private",
+              "personal",
+              "public"
+            ]
+          }
         }
       }
     },
@@ -50,15 +120,43 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["title", "next_action", "summary"],
+        "required": [
+          "title",
+          "next_action",
+          "summary"
+        ],
         "properties": {
-          "title":       { "type": "string" },
-          "next_action": { "type": "string" },
-          "summary":     { "type": "string" },
-          "priority":    { "type": "string", "enum": ["low", "medium", "high"] },
-          "domain":      { "type": "string" },
-          "arena":       { "type": "string" },
-          "disclosure":  { "type": "string", "enum": ["private", "personal", "public"] }
+          "title": {
+            "type": "string"
+          },
+          "next_action": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "domain": {
+            "type": "string"
+          },
+          "arena": {
+            "type": "string"
+          },
+          "disclosure": {
+            "type": "string",
+            "enum": [
+              "private",
+              "personal",
+              "public"
+            ]
+          }
         }
       }
     },
@@ -66,16 +164,51 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["title", "summary"],
+        "required": [
+          "title",
+          "summary"
+        ],
         "properties": {
-          "title":                  { "type": "string" },
-          "summary":                { "type": "string" },
-          "domain":                 { "type": "string" },
-          "arena":                  { "type": "string" },
-          "significance":           { "type": "string", "enum": ["low", "medium", "high"] },
-          "alternatives_considered":{ "type": "array", "items": { "type": "string" } },
-          "revisit_conditions":     { "type": "array", "items": { "type": "string" } },
-          "disclosure":             { "type": "string", "enum": ["private", "personal", "public"] }
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "arena": {
+            "type": "string"
+          },
+          "significance": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "alternatives_considered": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "revisit_conditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "disclosure": {
+            "type": "string",
+            "enum": [
+              "private",
+              "personal",
+              "public"
+            ]
+          }
         }
       }
     },
@@ -83,25 +216,99 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["title", "source_type", "summary", "observed_facts"],
+        "required": [
+          "title",
+          "source_type",
+          "summary",
+          "observed_facts"
+        ],
         "properties": {
-          "title": {"type": "string"},
-          "source_type": {"type": "string"},
-          "source_uri": {"type": ["string", "null"]},
-          "artifact_ref": {"type": ["string", "null"]},
-          "artifact_hash": {"type": ["string", "null"]},
-          "timestamp_of_artifact": {"type": ["string", "null"]},
-          "actors": {"type": "array", "items": {"type": "string"}},
-          "arena": {"type": "string"},
-          "compartments": {"type": "array", "items": {"type": "string"}},
-          "disclosure": {"type": "string", "enum": ["private", "personal", "public"]},
-          "sensitivity": {"type": "string"},
-          "reliability": {"type": "string"},
-          "summary": {"type": "string"},
-          "observed_facts": {"type": "array", "items": {"type": "string"}},
-          "verbatim_excerpt": {"type": ["string", "null"]},
-          "linked_claims": {"type": "array", "items": {"type": "string"}},
-          "linked_episodes": {"type": "array", "items": {"type": "string"}}
+          "title": {
+            "type": "string"
+          },
+          "source_type": {
+            "type": "string"
+          },
+          "source_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "artifact_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "artifact_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timestamp_of_artifact": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "arena": {
+            "type": "string"
+          },
+          "compartments": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "disclosure": {
+            "type": "string",
+            "enum": [
+              "private",
+              "personal",
+              "public"
+            ]
+          },
+          "sensitivity": {
+            "type": "string"
+          },
+          "reliability": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "observed_facts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "verbatim_excerpt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "linked_claims": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_episodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       }
     },
@@ -109,25 +316,90 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["claim_text", "claim_class", "owner", "confidence"],
+        "required": [
+          "claim_text",
+          "claim_class",
+          "owner",
+          "confidence"
+        ],
         "properties": {
-          "claim_text": {"type": "string"},
-          "claim_class": {"type": "string"},
-          "owner": {"type": "string"},
-          "status": {"type": "string"},
-          "confidence": {"type": "number"},
-          "supporting_evidence": {"type": "array", "items": {"type": "string"}},
-          "contradicting_evidence": {"type": "array", "items": {"type": "string"}},
-          "linked_patterns": {"type": "array", "items": {"type": "string"}},
-          "first_seen": {"type": ["string", "null"]},
-          "last_reviewed": {"type": ["string", "null"]},
-          "review_notes": {"type": "string"},
-          "arena": {"type": "string"},
-          "compartments": {"type": "array", "items": {"type": "string"}},
-          "summary": {"type": "string"},
-          "disclosure": {"type": "string", "enum": ["private", "personal", "public"]}
+          "claim_text": {
+            "type": "string"
+          },
+          "claim_class": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "supporting_evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "contradicting_evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "linked_patterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "first_seen": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_reviewed": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "review_notes": {
+            "type": "string"
+          },
+          "arena": {
+            "type": "string"
+          },
+          "compartments": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "summary": {
+            "type": "string"
+          },
+          "disclosure": {
+            "type": "string",
+            "enum": [
+              "private",
+              "personal",
+              "public"
+            ]
+          }
         }
       }
+    },
+    "behavioral_contracts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Durable instructions the user gave about HOW the assistant should behave going forward (style, format, tone, process) \u2014 not one-off requests."
     }
   }
 }
