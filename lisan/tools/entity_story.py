@@ -186,7 +186,17 @@ def entity_search_text(fm: dict[str, Any], body: str) -> str:
     return "\n\n".join(p for p in parts if p).strip()
 
 
+_SCAFFOLDING = re.compile(
+    r"^#{1,3}\s*(Memory Draft|Status|Task episode|Listener|Conversation — .*)$|^```.*$",
+    re.MULTILINE,
+)
+
+
 def _condense(text: str) -> str:
+    # Pipeline scaffolding (draft headers, transcript conversation markers,
+    # code fences) is plumbing, not life — seen polluting live source_logs
+    # ('# Memory Draft ## Status Skeptic approved…'). Strip before storing.
+    text = _SCAFFOLDING.sub(" ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:_LOG_ENTRY_MAX_CHARS]
 
