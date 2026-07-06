@@ -1,5 +1,12 @@
 # Phase 2 Roadmap — Functional Self-Awareness Architecture (Executable Runbook)
 
+> **STATUS: EXECUTED — HISTORICAL RECORD.** Every work order in this
+> document was completed 2026-07-04 (see evals/phase2-status.md and
+> evals/phase2-closing-report.md). Do not execute anything from this
+> file. The only live, unexecuted work orders in this repo are
+> docs/ship2_enable_workorder.md and docs/self_repair_workorder.md.
+
+
 Status: executable. This document is written to be run, top to bottom, by a
 single Claude Code (Fable 5) instance operating in `~/.lisan/repo` (the
 production install — NOT `~/Code/Lisan`, which is a stale clone) as a
