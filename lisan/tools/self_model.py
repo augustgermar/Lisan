@@ -247,6 +247,27 @@ def ensure_capabilities_primer(vault: Path | None = None, *, force: bool = False
 
 # ── Live operational state ───────────────────────────────────────────────────
 
+def _skill_auth_status() -> dict:
+    out: dict = {}
+    try:
+        import sys as _sys
+
+        common = str(Path(__file__).resolve().parents[2] / "skills" / "_google_common")
+        if common not in _sys.path:
+            _sys.path.insert(0, common)
+        import lisan_google as _g
+
+        from ..config import load_config
+
+        cfg = load_config()
+        tok = _g.load_token(cfg)
+        out["google"] = "authorized (token valid)" if not _g.token_expired(tok) else "token expired — refresh will run on next use"
+        out["google_auth_command"] = "lisan skills auth gmail"
+    except Exception:
+        out["google"] = "not authorized — run: lisan skills auth gmail"
+    return out
+
+
 def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) -> dict[str, Any]:
     """What is actually going on right now: queue, schedule, index, services,
     recent errors. Every field comes from live data."""
@@ -259,6 +280,10 @@ def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) 
         "commit": _git_commit(),
         "checked_at": utc_now_iso(),
     }
+    # Live skill-auth status: the agent kept answering auth questions from
+    # stale memory ('the Hermes token', invented setup commands). Interoception
+    # beats confabulation — put the truth where self_state can see it.
+    state["skill_auth"] = _skill_auth_status()
 
     jobs_by_status: dict[str, dict[str, int]] = {}
     next_task = None
