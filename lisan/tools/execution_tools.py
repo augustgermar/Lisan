@@ -59,8 +59,8 @@ TOOLS: list[dict[str, Any]] = [
             "Your own visible Chrome browser on the user's desktop — a SHARED session: the user "
             "can watch, take the mouse anytime, log into sites for you, or show you a page. Its "
             "profile is persistent (cookies, logins, tabs survive restarts). Actions: 'open' "
-            "(bring it up), 'goto' {url}, 'read' (current page text), 'click' {target: visible "
-            "text or CSS selector}, 'type' {target, text, submit?}, 'screenshot', 'tabs', "
+            "(bring it up), 'goto' {url}, 'read' (current page text), 'elements' (numbered list of everything clickable — use on complex pages, then click by index), 'click' {target: visible "
+            "text, CSS selector, or index from 'elements'}, 'type' {target, text, submit?}, 'screenshot', 'tabs', "
             "'switch_tab' {index}, 'back'. Compose small steps and read after navigating. When a "
             "login or CAPTCHA blocks you, say so and ask the user to handle it in the window — "
             "then continue. Use this for anything web: searching, reading pages, checking sites."
@@ -68,7 +68,7 @@ TOOLS: list[dict[str, Any]] = [
         "parameters": {
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["open", "goto", "read", "click", "type", "screenshot", "tabs", "switch_tab", "back"]},
+                "action": {"type": "string", "enum": ["open", "goto", "read", "elements", "click", "type", "screenshot", "tabs", "switch_tab", "back"]},
                 "url": {"type": "string"},
                 "target": {"type": "string"},
                 "text": {"type": "string"},

@@ -138,6 +138,13 @@ class PromptAgent:
             if not tool_calls:
                 data = self.parse_output(response.text)
                 if schema is not None and not _schema_satisfied(data, schema):
+                    text = str(response.text or "").strip()
+                    # An agent that talks to a human may end a tool loop in
+                    # plain prose ("I can't reliably operate this page…").
+                    # Discarding those words for a canned shrug loses the
+                    # honest answer — let the caller's prose recovery keep it.
+                    if getattr(self, "accepts_prose_finale", False) and text and not text.startswith("{"):
+                        return AgentResult(text=text, response=response, data=None, tool_calls=tool_log)
                     from ..tools.log import log_error
                     log_error(self.vault, f"{self.name}.parse", ValueError(
                         f"non-JSON response from {response.provider}: {response.text[:120]!r}"

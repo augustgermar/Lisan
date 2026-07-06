@@ -104,6 +104,13 @@ def browser_action(action: str, **kw: Any) -> dict[str, Any]:
         context = cdp.contexts[0] if cdp.contexts else cdp.new_context()
         pages = [p for p in context.pages if not p.url.startswith("devtools")]
         page = pages[-1] if pages else context.new_page()
+        try:
+            # Playwright's CDP attach emulates prefers-color-scheme: light,
+            # flipping the owner's dark theme every time the agent drives.
+            # no-override hands appearance back to the system.
+            page.emulate_media(color_scheme="no-override")
+        except Exception:
+            pass
 
         if action == "goto":
             url = str(kw.get("url") or "").strip()
@@ -121,14 +128,45 @@ def browser_action(action: str, **kw: Any) -> dict[str, Any]:
             return {"ok": True, "url": page.url, "title": page.title(),
                     "text": body[:limit], "truncated": len(body) > limit}
 
+        if action == "elements":
+            # Complex apps (Google Cloud Console class) defeat text-guessing.
+            # Enumerate what is actually clickable/fillable, numbered, so the
+            # next click/type can target by index — deterministic aiming.
+            els = page.eval_on_selector_all(
+                "a, button, [role=button], [role=link], [role=tab], [role=menuitem], "
+                "input, select, textarea",
+                """(nodes) => nodes
+                    .filter(n => n.offsetParent !== null)
+                    .slice(0, 120)
+                    .map((n, i) => ({
+                        index: i,
+                        tag: n.tagName.toLowerCase(),
+                        text: (n.innerText || n.value || n.placeholder || n.getAttribute('aria-label') || '').trim().slice(0, 80),
+                        type: n.getAttribute('type') || undefined,
+                    }))
+                    .filter(e => e.text)""",
+            )
+            return {"ok": True, "url": page.url, "elements": els}
+
         if action == "click":
             target = str(kw.get("target") or "").strip()
-            if not target:
-                return {"ok": False, "error": "click needs a target (visible text or CSS selector)"}
-            try:
-                page.get_by_text(target, exact=False).first.click(timeout=6000)
-            except Exception:
-                page.click(target, timeout=6000)
+            index = kw.get("index")
+            if index is not None:
+                els = page.query_selector_all(
+                    "a, button, [role=button], [role=link], [role=tab], [role=menuitem], "
+                    "input, select, textarea")
+                visible = [e for e in els if e.is_visible()][:120]
+                idx = int(index)
+                if not (0 <= idx < len(visible)):
+                    return {"ok": False, "error": f"no element {idx} (have {len(visible)})"}
+                visible[idx].click(timeout=6000)
+            elif target:
+                try:
+                    page.get_by_text(target, exact=False).first.click(timeout=6000)
+                except Exception:
+                    page.click(target, timeout=6000)
+            else:
+                return {"ok": False, "error": "click needs a target (visible text/CSS) or an index from 'elements'"}
             page.wait_for_load_state("domcontentloaded", timeout=15000)
             return {"ok": True, "url": page.url, "title": page.title()}
 

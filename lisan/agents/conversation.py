@@ -79,6 +79,8 @@ class ConversationAgent(PromptAgent):
             return {"response": text}
         return {"response": ""}
 
+    accepts_prose_finale = True
+
     def fallback_output(self, user_input: str, significance: str = "medium", **kwargs: Any) -> str:
         try:
             payload = json.loads(user_input)
