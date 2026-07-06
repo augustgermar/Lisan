@@ -181,6 +181,10 @@ TOOLS: list[dict[str, Any]] = [
             "messages include the current local time, so you can correct yourself). Optional "
             "'recurrence': 'every:30m', 'every:2h', 'every:1d', or 'daily@HH:MM'. Omit 'when' on "
             "recurring tasks to start at the next occurrence."
+            " KIND RULES: 'codex' runs in a sandbox with NO network — it can never send a Telegram"
+            " message, reach email, or browse; scheduling 'lisan telegram send' as codex fails"
+            " every time. To deliver text on a schedule use kind 'reminder'; to have yourself"
+            " think and respond on a schedule use kind 'prompt'."
         ),
         "parameters": {
             "type": "object",
