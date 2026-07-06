@@ -54,6 +54,24 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "merge_entities",
+        "description": (
+            "Merge two entity records that are really the same thing (a duplicate or a "
+            "qualified variant like 'deck rebuild project (summer 2026)' vs 'deck rebuild'). "
+            "The source's content is absorbed into the target's story, its names become the "
+            "target's aliases, and the fragment is archived (reversible). Use when the user "
+            "confirms two records are the same thing; never merge on a guess."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "source": {"type": "string", "description": "Entity to absorb (name or id)"},
+                "target": {"type": "string", "description": "Entity that survives (name or id)"},
+            },
+            "required": ["source", "target"],
+        },
+    },
+    {
         "name": "ingest_files",
         "description": (
             "Bring the user's files into memory as searchable knowledge records: a single file "
@@ -177,6 +195,7 @@ def build_tool_handlers(
             approval_fn=approval_fn,
         ),
         "self_state": lambda: self_state(vault=vault, db_path=db_path),
+        "merge_entities": lambda source, target: _merge_entities_tool(source, target, vault=vault, db_path=db_path),
         "ingest_files": lambda path, replace=False, mode="life": ingest_files_tool(
             path=path,
             replace=bool(replace),
@@ -321,6 +340,16 @@ def run_codex(
 
 
 _TELEGRAM_CONVERSATION_RE = re.compile(r"^telegram-(\d+)\b")
+
+
+def _merge_entities_tool(source: str, target: str, *, vault: Path, db_path: Path | None) -> str:
+    from .entity_merge import merge_entities
+
+    result = merge_entities(vault, source, target, db_path=db_path)
+    if result.get("merged"):
+        return (f"Merged '{result['source']}' into '{result['target']}'. Its story is being "
+                "rewoven in the background; the old record is archived and recoverable.")
+    return f"Not merged: {result.get('reason')}"
 
 
 def ingest_files_tool(

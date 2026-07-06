@@ -646,6 +646,13 @@ def build_parser() -> argparse.ArgumentParser:
     plan_ingest.add_argument("--limit", type=int, default=None, help="Only the first N files (for a trial run)")
     plan_ingest.add_argument("--db-path", type=Path, default=None)
 
+    entities_cmd = subparsers.add_parser("entities", help="Entity maintenance: find and merge duplicates")
+    entities_sub = entities_cmd.add_subparsers(dest="entities_command", required=True)
+    entities_dedup = entities_sub.add_parser("dedup", help="List same-kind near-duplicate entities worth merging")
+    entities_merge = entities_sub.add_parser("merge", help="Merge one entity into another (content absorbed, fragment archived, names become aliases)")
+    entities_merge.add_argument("source", help="Entity to absorb (name, id, or file stem)")
+    entities_merge.add_argument("target", help="Entity that survives")
+
     deviations_cmd = subparsers.add_parser("deviations", help="The agent's own aches: deviations detected in its model of the world and itself")
     deviations_sub = deviations_cmd.add_subparsers(dest="deviations_command", required=True)
     deviations_sub.add_parser("scan", help="Detect deviations, satiate healed ones, emit new self-loops (capped)")
@@ -1289,6 +1296,27 @@ def main(argv: list[str] | None = None) -> int:
             print(f"✓ Plan {summary['plan_id']}: {summary['goal']} ({summary['steps']} steps)")
             print("  Running in the background; results and questions arrive via Telegram.")
             return 0
+
+    if args.command == "entities":
+        from .tools.entity_merge import dedup_candidates, merge_entities
+
+        vault = vault_root()
+        if args.entities_command == "dedup":
+            cands = dedup_candidates(vault)
+            if not cands:
+                print("No near-duplicate entities found.")
+                return 0
+            for c in cands:
+                print(f"[{c['kind']:>12}] absorb '{c['absorb']}' into '{c['keep']}'  ({c['why']})")
+            print(f"\n{len(cands)} candidate(s). Merge with: lisan entities merge <source> <target>")
+            return 0
+        if args.entities_command == "merge":
+            result = merge_entities(vault, args.source, args.target, db_path=sqlite_path())
+            if result.get("merged"):
+                print(f"Merged '{result['source']}' into '{result['target']}' (fragment archived: {result['archived']})")
+                return 0
+            print(f"Not merged: {result.get('reason')}")
+            return 1
 
     if args.command == "deviations":
         from .config import load_config

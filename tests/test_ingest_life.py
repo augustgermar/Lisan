@@ -32,6 +32,9 @@ def _messy_vault(root: Path) -> Path:
     (people / "vega-owner.md").write_text("Notes about myself and my goals.", encoding="utf-8")
     # empty person note
     (people / "empty-person.md").write_text("", encoding="utf-8")
+    # prose-titled and multi-person notes: about people, not people
+    (people / "dealing-with-tansy.md").write_text("Notes on the conflict.", encoding="utf-8")
+    (people / "wren-calla-fenna.md").write_text("The three of them came by.", encoding="utf-8")
     # meta notes that live in the People folder but are not people
     (people / "people-index.md").write_text("A list of everyone: see individual notes.", encoding="utf-8")
     (people / "people-template.md").write_text("Relationship: / Birthday: / Summary:", encoding="utf-8")
@@ -77,7 +80,7 @@ class ClassificationTests(_Env):
         self.assertEqual(c["entity"], 2)          # ruth + moonpie (vega routed away, empty skipped)
         self.assertEqual(c["episode"], 1)
         self.assertEqual(c["skipped_empty"], 1)
-        self.assertEqual(c["knowledge"], 5)       # tmp, Big Ideas, vega-owner, index, template
+        self.assertEqual(c["knowledge"], 7)       # tmp, Big Ideas, vega-owner, index, template, prose-title, multi-person
         names = {e["name"] for e in plan["would_create_entities"]}
         self.assertEqual(names, {"Ruth Varga", "Moonpie77"})
         # planning writes nothing

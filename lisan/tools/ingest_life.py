@@ -169,6 +169,12 @@ def _classify(files: list[Path], roots: dict[Path, Path], vault: Path) -> dict[s
             if any(tok in _META_TOKENS for tok in name.lower().split()):
                 routed["knowledge"].append({"path": path})  # index/template/meta note
                 continue
+            if kind == "person" and not _person_shaped(name):
+                # "dealing-with-dana.md" is a note ABOUT a person, not a
+                # person; "maya-josie-ruth.md" is three people. Both
+                # became fake person entities on the first real run.
+                routed["knowledge"].append({"path": path})
+                continue
             routed["entity"].append({"path": path, "name": name, "kind": kind})
             continue
 
@@ -185,6 +191,25 @@ def _kind_from_folders(path: Path, root: Path | None) -> str | None:
         if part in _FOLDER_KIND:
             return _FOLDER_KIND[part]
     return None
+
+
+_NON_NAME_TOKENS = {
+    "with", "and", "about", "dealing", "helping", "meeting", "letter",
+    "to", "from", "for", "my", "the", "a", "an", "of", "on", "vs", "re",
+}
+
+
+def _person_shaped(name: str) -> bool:
+    """A person note's title must look like ONE person's name or handle:
+    at most two tokens (name, or first+last), none of them prose words.
+    Three first names ("wren-calla-fenna") and prose titles ("dealing-
+    with-tansy") are notes ABOUT people — knowledge, not a person. The
+    person entity forms properly the first time they come up in
+    conversation."""
+    tokens = name.lower().split()
+    if not tokens or len(tokens) > 2:
+        return False
+    return not any(tok in _NON_NAME_TOKENS for tok in tokens)
 
 
 def _deslug(stem: str) -> str:

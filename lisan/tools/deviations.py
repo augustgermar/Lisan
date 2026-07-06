@@ -54,13 +54,14 @@ DEFAULTS: dict[str, Any] = {
 
 _SIGNIFICANCE = {
     "cross_kind": "high",
+    "near_dup": "medium",
     "dangling": "medium",
     "thin": "medium",
     "interocept": "medium",
     "stale": "low",
 }
 # emission order under the cap: model contradictions first, housekeeping last
-_CLASS_ORDER = ["cross_kind", "interocept", "thin", "dangling", "stale"]
+_CLASS_ORDER = ["cross_kind", "near_dup", "interocept", "thin", "dangling", "stale"]
 
 
 def deviations_config(config: dict[str, Any] | None) -> dict[str, Any]:
@@ -101,6 +102,7 @@ def detect(vault: Path, *, db_path: Path | None = None, config: dict[str, Any] |
     found: list[dict[str, Any]] = []
     entities = _load_entities(vault)
     found.extend(_cross_kind_duplicates(entities))
+    found.extend(_near_duplicates(vault))
     found.extend(_dangling_links(vault))
     found.extend(_thin_persons(entities, db_path=db_path, cfg=cfg))
     found.extend(_stale_entities(entities, cfg=cfg))
@@ -156,6 +158,29 @@ def _cross_kind_duplicates(entities: list[dict[str, Any]]) -> list[dict[str, Any
                 ),
                 "links": [e["rel"] for e in group],
             })
+    return out
+
+
+def _near_duplicates(vault: Path) -> list[dict[str, Any]]:
+    """Same-kind name near-duplicates ('deck rebuild' vs 'deck rebuild
+    project (summer 2026)'). Never merged automatically — each becomes a
+    question the drive can ask, per the surface-with-curiosity policy."""
+    try:
+        from .entity_merge import dedup_candidates
+    except Exception:
+        return []
+    out = []
+    for c in dedup_candidates(vault):
+        pair = "-".join(sorted([_slug(c["keep"]), _slug(c["absorb"])]))[:80]
+        out.append({
+            "klass": "near_dup",
+            "fingerprint": f"near-dup-{pair}",
+            "summary": (
+                f"'{c['absorb']}' and '{c['keep']}' look like the same {c['kind']} "
+                f"({c['why']}) — worth merging into one"
+            ),
+            "links": [],
+        })
     return out
 
 

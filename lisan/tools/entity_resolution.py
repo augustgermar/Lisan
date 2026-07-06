@@ -891,6 +891,53 @@ def _existing_entity_kind(index: dict[str, Any], name: str) -> str:
 
 
 
+_PAREN = __import__("re").compile(r"\s*\([^)]*\)")
+_DATEISH = __import__("re").compile(
+    r"\b(on\s+)?\d{4}-\d{2}-\d{2}\b|\b(spring|summer|fall|autumn|winter)\s+\d{4}\b",
+    __import__("re").IGNORECASE,
+)
+# trailing tokens that qualify an occasion of a thing rather than naming a
+# different thing: "deck rebuild project (summer 2026)" is an occasion of
+# "deck rebuild"; "monterey bay aquarium" is NOT an occasion of "monterey"
+_QUALIFIER_TAIL = {
+    "project", "plan", "event", "meeting", "dinner", "lunch", "coffee",
+    "trip", "visit", "session", "work", "day", "party", "workday",
+}
+
+
+def _qualifier_base(name: str) -> str:
+    """The name with parentheticals and date expressions stripped —
+    the base a suffix-qualified variant should bind back to."""
+    base = _PAREN.sub("", name)
+    base = _DATEISH.sub("", base)
+    return " ".join(base.split()).strip().lower()
+
+
+def _suffix_fragment_target(name: str, index: dict[str, dict[str, Any]]) -> Path | None:
+    """A proposed name that is an existing entity's name plus only
+    qualifier/date decoration binds to that entity instead of fragmenting
+    (the scale test's 'deck rebuild (summer 2026)' failure). Conservative
+    by construction: every extra token must be a known qualifier word —
+    'monterey bay aquarium' never binds to 'monterey'."""
+    base = _qualifier_base(name)
+    if not base or base == name.lower():
+        candidates = [base] if base != name.lower() else []
+    else:
+        candidates = [base]
+    tokens = base.split()
+    while tokens and tokens[-1] in _QUALIFIER_TAIL:
+        tokens = tokens[:-1]
+        if tokens:
+            candidates.append(" ".join(tokens))
+    for cand in candidates:
+        hit = index.get(cand)
+        if hit and hit.get("kind") == "full":
+            path = hit.get("path")
+            if isinstance(path, Path):
+                return path
+    return None
+
+
 def _match_existing_entity(
     vault: Path,
     name: str,
@@ -919,6 +966,10 @@ def _match_existing_entity(
         direct_path = direct.get("path")
         if isinstance(direct_path, Path) and _entity_subtype(direct_path) == "person":
             return direct_path
+
+    fragment_target = _suffix_fragment_target(name, index)
+    if fragment_target is not None:
+        return fragment_target
 
     tokens = [t.lower() for t in name.split() if t]
     if not tokens:
