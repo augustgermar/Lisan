@@ -122,8 +122,25 @@ def browser_action(action: str, **kw: Any) -> dict[str, Any]:
             return {"ok": True, "url": page.url, "title": page.title()}
 
         if action == "read":
-            body = page.inner_text("body", timeout=10000)
-            body = "\n".join(line.strip() for line in body.splitlines() if line.strip())
+            # innerText forces a full layout pass and can freeze a heavy
+            # page's main thread for seconds (Chrome's "Wait/Kill page"
+            # dialog — seen live on the Google Cloud Console, even while
+            # the owner was driving). A TreeWalker over textContent reads
+            # the DOM without any layout work: never hangs the renderer.
+            body = page.evaluate(
+                """() => {
+                    const skip = new Set(['SCRIPT','STYLE','NOSCRIPT','TEMPLATE']);
+                    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+                    const parts = [];
+                    let node, budget = 400000;
+                    while ((node = walker.nextNode()) && budget > 0) {
+                        if (skip.has(node.parentElement && node.parentElement.tagName)) continue;
+                        const s = node.textContent.replace(/\\s+/g, ' ').trim();
+                        if (s) { parts.push(s); budget -= s.length; }
+                    }
+                    return parts.join('\\n');
+                }"""
+            )
             limit = int(kw.get("max_chars") or 6000)
             return {"ok": True, "url": page.url, "title": page.title(),
                     "text": body[:limit], "truncated": len(body) > limit}
@@ -141,7 +158,9 @@ def browser_action(action: str, **kw: Any) -> dict[str, Any]:
                     .map((n, i) => ({
                         index: i,
                         tag: n.tagName.toLowerCase(),
-                        text: (n.innerText || n.value || n.placeholder || n.getAttribute('aria-label') || '').trim().slice(0, 80),
+                        // textContent, never innerText: innerText forces a
+                        // layout pass PER NODE and froze heavy pages
+                        text: (n.textContent || n.value || n.placeholder || n.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim().slice(0, 80),
                         type: n.getAttribute('type') || undefined,
                     }))
                     .filter(e => e.text)""",
