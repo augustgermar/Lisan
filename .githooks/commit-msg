@@ -1,0 +1,14 @@
+#!/bin/bash
+# Commit messages are checked against an optional local blocklist
+# (${LISAN_BLOCKLIST:-~/.lisan/private-names.txt}, never tracked). Used to
+# keep machine-local identifiers out of shared history. Absent list = no-op.
+NAMES="${LISAN_BLOCKLIST:-$HOME/.lisan/private-names.txt}"
+[ -f "$NAMES" ] || exit 0
+while IFS= read -r name; do
+  [ -z "$name" ] && continue
+  if grep -iqE "[[:<:]]${name}[[:>:]]" "$1" 2>/dev/null; then
+    echo "BLOCKED: commit message contains a blocklisted term ('${name}'). Reword it." >&2
+    exit 1
+  fi
+done < "$NAMES"
+exit 0
