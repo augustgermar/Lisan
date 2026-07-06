@@ -114,3 +114,33 @@ or a source class is reclassified):
 would the subject find it fair if a competent agent did it to them for
 someone else? If not, it fails — regardless of what the prongs technically
 permit.*
+
+---
+
+## Amendment (2026-07-05, owner-ratified): the source ladder ("bloodseeking")
+
+The owner extended the acquisition design in conversation: when a deviation
+(especially an unresolvable contradiction) cannot close from the vault, the
+agent may consult sources in strict proximity order, escalating outward
+only when the inner ring fails — the mosquito seeks one specific meal, then
+quiesces:
+
+- **Ring 0 — the vault.** Interior; free; always first.
+- **Ring 1 — the owner's own corpora** (Gmail, Messages/SMS, the owner's
+  files). The owner's data: no third-party gate, but every read is
+  loop-scoped and audit-logged — pulled because THIS ache demanded it.
+  Background scanning of any corpus is never permitted; the trigger is
+  always a specific named deficit. What is stored is the RESOLUTION plus
+  provenance ("resolved via Messages, 2026-03 thread"), never the corpus.
+- **Ring 2 — the published world** (web search / the browser). Full
+  four-prong gate for person subjects; frame-relevance and retention
+  discipline as specified above.
+
+Conflict handling keeps conversation first-class: rings 0-1 may be
+consulted BEFORE asking the owner so the question arrives informed
+("your texts say Tuesdays, my notes say Wednesdays — which is current?"),
+but a question the owner alone can answer is still asked, with curiosity,
+not silently resolved. Creative tool composition in service of closing a
+specific loop is desired behavior; appetite without a loop is the failure
+mode. Same caps, same audit, same satiation as everything else.
+
