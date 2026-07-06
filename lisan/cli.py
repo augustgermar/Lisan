@@ -581,6 +581,14 @@ def build_parser() -> argparse.ArgumentParser:
     skills_install.add_argument("--force", action="store_true", help="Overwrite an existing installed copy")
     skills_uninstall = skills_subparsers.add_parser("uninstall", help="Remove an installed skill")
     skills_uninstall.add_argument("name")
+    skills_auth = skills_subparsers.add_parser(
+        "auth",
+        help="Authorize a skill's account access (google/gmail/calendar/drive): prints the consent URL, then exchange the pasted redirect URL",
+    )
+    skills_auth.add_argument("name", help="Skill or provider: gmail, google, calendar, drive")
+    skills_auth.add_argument("pasted_url", nargs="?", default=None,
+                             help="The full URL your browser landed on after consent (second step)")
+
     skills_setup = skills_subparsers.add_parser(
         "setup",
         help="Run a skill's credential/setup script (e.g. lisan skills setup gmail_search -- --check)",
@@ -1122,6 +1130,40 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if result.status in {"ok", "warning"} else 1
 
     if args.command == "skills":
+        if args.skills_command == "auth":
+            import subprocess as _sp
+            import sys as _sys
+
+            broker = Path(__file__).resolve().parent.parent / "skills" / "_google_common" / "setup.py"
+            if not broker.exists():
+                print("No auth broker found for that skill.")
+                return 1
+            import os as _os
+
+            env = dict(_os.environ)
+            try:
+                from .config import load_config
+
+                cred_dir = str(((load_config().get("skills") or {}).get("google") or {}).get("credentials_dir") or "")
+                if cred_dir:
+                    # the app's config is authoritative; the standalone broker
+                    # must never resolve a different directory than the skills do
+                    env["LISAN_GOOGLE_CREDENTIALS_DIR"] = cred_dir
+            except Exception:
+                pass
+            if args.pasted_url:
+                cmd = [_sys.executable, str(broker), "--auth-code", args.pasted_url]
+            else:
+                r = _sp.run([_sys.executable, str(broker), "--check"], capture_output=True, text=True, env=env)
+                print(r.stdout.strip())
+                cmd = [_sys.executable, str(broker), "--auth-url"]
+            r = _sp.run(cmd, capture_output=True, text=True, env=env)
+            print(r.stdout.strip() or r.stderr.strip())
+            if not args.pasted_url and r.returncode == 0:
+                print("\nOpen that URL, approve access, then run:")
+                print("  lisan skills auth", args.name, "'<the full URL your browser lands on>'")
+            return r.returncode
+
         from .tools.skills_cli import (
             install_all,
             install_skill,
