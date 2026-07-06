@@ -650,9 +650,11 @@ def build_parser() -> argparse.ArgumentParser:
     deviations_sub = deviations_cmd.add_subparsers(dest="deviations_command", required=True)
     deviations_sub.add_parser("scan", help="Detect deviations, satiate healed ones, emit new self-loops (capped)")
     deviations_sub.add_parser("list", help="Show active self-originated loops")
+    self_eval_note = "Review my own recent real conversations and machinery; write a private report; suggest improvements"
 
     self_cmd = subparsers.add_parser("self", help="The agent's generated self-model and live state")
     self_subparsers = self_cmd.add_subparsers(dest="self_command", required=True)
+    self_subparsers.add_parser("evaluate", help=self_eval_note)
     self_manifest = self_subparsers.add_parser("manifest", help="Show the generated capability manifest")
     self_manifest.add_argument("--json", action="store_true", dest="as_json")
     self_state_cmd = self_subparsers.add_parser("state", help="Show live operational state")
@@ -1307,6 +1309,18 @@ def main(argv: list[str] | None = None) -> int:
             for _, fm in rows:
                 print(f"[{fm.get('deviation_class','?'):>10}] {fm.get('summary','')}")
             return 0
+
+    if args.command == "self" and getattr(args, "self_command", "") == "evaluate":
+        from .config import load_config
+        from .tools.self_eval import run_self_evaluation
+
+        result = run_self_evaluation(vault_root(), db_path=sqlite_path(), config=load_config())
+        print(f"exchanges={result.get('exchanges')} judged={result.get('judged')} "
+              f"overall={result.get('overall_mean')} suggestions={len(result.get('suggestions') or [])}")
+        for s in result.get("suggestions") or []:
+            print(f"  • {s}")
+        print(f"report: {result.get('report')}")
+        return 0
 
     if args.command == "self":
         from .tools.self_model import (

@@ -50,6 +50,7 @@ JOB_TYPES = {
     "plan.run",
     "capture.observe",
     "deviation.scan",
+    "self.evaluate",
 }
 
 # Indexing/embedding jobs are deterministic and cheap (no LLM call). These are
@@ -873,6 +874,12 @@ def dispatch_job(
         from .analyst_ops import run_analyst_scan
 
         return run_analyst_scan(vault=vault, provider=provider, model=model)
+
+    if job_type == "self.evaluate":
+        from ..config import load_config
+        from .self_eval import run_self_evaluation
+
+        return run_self_evaluation(vault, db_path=db_path, config=load_config())
 
     if job_type == "deviation.scan":
         from ..config import load_config

@@ -25,6 +25,7 @@ DEFAULT_JOB_PRIORITIES = {
     "analyst.scan": 70,
     "dreamer.maintenance": 80,
     "deviation.scan": 85,
+    "self.evaluate": 90,
     "entity.rewrite_story": 85,
     # User-scheduled tasks outrank maintenance: when a reminder and a dreamer
     # pass are both due, the reminder fires first.
@@ -39,6 +40,7 @@ COALESCE_AGGRESSIVE = {
     "analyst.scan",
     "dreamer.maintenance",
     "deviation.scan",
+    "self.evaluate",
     "pattern.audit",
     "manifest.regenerate",
     "index.rebuild_all",
@@ -194,6 +196,9 @@ def which_jobs_for_turn(turn_metadata: dict[str, Any] | None, db_path: Path | No
     if _should_queue_analyst(turn_metadata, db_path):
         jobs.append(_job_spec("analyst.scan", turn_metadata, priority_for_job_type("analyst.scan")))
 
+    if _should_queue_self_eval(db_path):
+        jobs.append(_job_spec("self.evaluate", turn_metadata, priority_for_job_type("self.evaluate")))
+
     if _should_queue_deviation_scan(db_path):
         jobs.append(_job_spec("deviation.scan", turn_metadata, priority_for_job_type("deviation.scan")))
 
@@ -235,6 +240,21 @@ def _should_queue_analyst(turn_metadata: dict[str, Any], db_path: Path | None) -
     if _changed_records_since_last_job("analyst.scan", db_path) >= DEFAULT_ANALYST_DELTA_THRESHOLD:
         return True
     return False
+
+
+def _should_queue_self_eval(db_path: Path | None) -> bool:
+    """Weekly, off the same post-turn idle seam. The interval lives in
+    config (self_eval.interval_hours) so the owner can tune the cadence."""
+    from ..config import load_config
+    from .self_eval import self_eval_config
+
+    cfg = self_eval_config(load_config())
+    if not cfg.get("enabled", True):
+        return False
+    last = _last_successful_job_time("self.evaluate", db_path)
+    if last is None:
+        return True
+    return _hours_since(last) >= float(cfg.get("interval_hours") or 168)
 
 
 def _should_queue_deviation_scan(db_path: Path | None) -> bool:
