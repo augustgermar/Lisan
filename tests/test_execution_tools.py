@@ -131,13 +131,18 @@ def test_interlocutor_tool_loop_executes_tool_and_returns_final_response(tmp_pat
 def test_codex_workspace_is_the_install_not_home():
     from pathlib import Path
 
-    from lisan.tools.execution_tools import codex_workspace
+    from lisan.tools.execution_tools import codex_workspace, repo_root
 
     workspace = Path(codex_workspace())
     assert workspace != Path.home()
     assert workspace not in Path.home().parents
     assert workspace != Path(workspace.anchor)
-    assert "Lisan" in str(workspace) or ".lisan" in str(workspace) or "lisan" in str(workspace).lower()
+    # The real invariant, independent of what the clone directory is named:
+    # the workspace is the repo itself or an ancestor of it (the smallest
+    # tree that also holds the vault). The old check grepped the path for
+    # "lisan" and failed on any differently-named clone.
+    repo = Path(repo_root())
+    assert workspace == repo or workspace in repo.parents
 
 
 def test_codex_workspace_collapses_to_repo_when_vault_is_disjoint(monkeypatch):
