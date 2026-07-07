@@ -277,21 +277,11 @@ def _retrieval_context(*, vault: Path, text: str, conversation_id: str | None, d
         from .retrieval import assemble_context
 
         record_inline_step("conversation.retrieval")
-        ctx = assemble_context(text, vault=vault, conversation_id=conversation_id, db_path=db_path, lean=True)
-        # strip per-record diagnostics and default-value noise — scoring
-        # internals ('reason: rrf:…') and null fields spend tokens telling
-        # the model nothing
-        import re as _re
-
-        ctx = _re.sub(r"^- reason: .*\n", "", ctx, flags=_re.M)
-        ctx = _re.sub(r"^- (?:supporting|contradicting)_evidence: none\n", "", ctx, flags=_re.M)
-        ctx = _re.sub(r"^- status: active\n", "", ctx, flags=_re.M)
-        ctx = _re.sub(r" \| rrf[^|\n]*", "", ctx)
-        # chunk provenance beyond source_document restates the summary
-        # breadcrumb and the link; source_document itself stays — the
-        # citation rule reads it
-        ctx = _re.sub(r"^- (?:source_section|source_ref|chunk_index|total_chunks): .*\n", "", ctx, flags=_re.M)
-        return ctx
+        # lean=True suppresses diagnostics and default-value noise at the
+        # rendering layer itself (see _format_item_detail) — this caller
+        # used to regex-strip the rendered text, which silently broke the
+        # moment the format changed.
+        return assemble_context(text, vault=vault, conversation_id=conversation_id, db_path=db_path, lean=True)
     except Exception as exc:
         log_error(vault, "conversation.retrieval", exc)
         return ""

@@ -242,7 +242,7 @@ def assemble_context(
             continue
         for item in items:
             path = vault / item.path
-            details = _format_item_detail(item, path)
+            details = _format_item_detail(item, path, lean=lean)
             # Every record carries its date: stored text may say "today" or
             # "tomorrow" frozen at write time, and the reader can only
             # resolve those against the record's own date.
@@ -252,13 +252,15 @@ def assemble_context(
             sections.append(details)
         sections.append("")
 
-    if result.rejected:
+    # Quarantine/graph-block diagnostics carry scoring internals; lean
+    # callers compose their own context and never want them.
+    if result.rejected and not lean:
         sections.append("## Rejected By Quarantine")
         for item in result.rejected:
             sections.append(f"- `{item.id}` | {item.type} | {item.summary} | `{item.path}` | {item.reason}")
         sections.append("")
 
-    if result.graph_blocked:
+    if result.graph_blocked and not lean:
         sections.append("## Graph Blocked Expansions")
         for item in result.graph_blocked:
             sections.append(

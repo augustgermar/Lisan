@@ -452,113 +452,133 @@ def _metadata_haystack(row: sqlite3.Row) -> str:
     return "\n".join(parts).lower()
 
 
-def _format_item_detail(item: RetrievalItem, path: Path) -> str:
+def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> str:
+    """Render one retrieved record for the model. ``lean`` omits scoring
+    diagnostics and default-value noise (reason lines, 'none' evidence,
+    status: active, chunk provenance) AT GENERATION — the conversation layer
+    used to strip these with regexes after assembly, which silently coupled
+    the savings to the exact rendered format. The noise a caller does not
+    want is noise this function must not produce."""
+    fallback = f"- `{item.id}` | {item.type} | {item.summary} | `{item.path}`"
+    if not lean:
+        fallback += f" | {item.reason}"
     if not path.exists():
-        return f"- `{item.id}` | {item.type} | {item.summary} | `{item.path}` | {item.reason}"
+        return fallback
     try:
         doc = load_markdown(path)
     except Exception:
-        return f"- `{item.id}` | {item.type} | {item.summary} | `{item.path}` | {item.reason}"
+        return fallback
     fm = doc.frontmatter
+
+    def _render(lines: list[str | None]) -> str:
+        body = [ln for ln in lines if ln]
+        expansion = _expansion_detail_lines(item).rstrip("\n")
+        if expansion:
+            body.append(expansion)
+        if not lean:
+            body.append(f"- reason: {item.reason}")
+        return "\n".join(body)
+
+    def _list_line(label: str, value: Any) -> str | None:
+        joined = ", ".join(_json_list(value))
+        if not joined and lean:
+            return None
+        return f"- {label}: {joined or 'none'}"
+
     if item.type == "evidence":
-        return (
-            f"### `{item.id}`\n"
-            f"- summary: {fm.get('summary', item.summary)}\n"
-            f"- source_type: {fm.get('source_type', 'unknown')}\n"
-            f"- actors: {', '.join(_json_list(fm.get('actors'))) or 'none'}\n"
-            f"- reliability: {fm.get('reliability', 'unknown')}\n"
-            f"- observed_facts: {', '.join(_json_list(fm.get('observed_facts'))) or 'none'}\n"
-            f"- link: `{item.path}`\n"
-            f"{_expansion_detail_lines(item)}"
-            f"- reason: {item.reason}"
-        )
+        return _render([
+            f"### `{item.id}`",
+            f"- summary: {fm.get('summary', item.summary)}",
+            f"- source_type: {fm.get('source_type', 'unknown')}",
+            _list_line("actors", fm.get("actors")),
+            f"- reliability: {fm.get('reliability', 'unknown')}",
+            _list_line("observed_facts", fm.get("observed_facts")),
+            f"- link: `{item.path}`",
+        ])
     if item.type == "artifact":
-        return (
-            f"### `{item.id}`\n"
-            f"- file_name: {fm.get('file_name', 'unknown')}\n"
-            f"- source_path: {fm.get('source_path', 'unknown')}\n"
-            f"- source_type: {fm.get('source_type', 'unknown')}\n"
-            f"- artifact_hash: {fm.get('artifact_hash', 'unknown')}\n"
-            f"- file_ext: {fm.get('file_ext', 'unknown')}\n"
-            f"- mime_type: {fm.get('mime_type', 'unknown')}\n"
-            f"- size_bytes: {fm.get('size_bytes', 'unknown')}\n"
-            f"- modified_at: {fm.get('modified_at', 'unknown')}\n"
-            f"- imported_at: {fm.get('imported_at', 'unknown')}\n"
-            f"- ingestion_status: {fm.get('ingestion_status', 'unknown')}\n"
-            f"- sensitivity: {fm.get('sensitivity', 'unknown')}\n"
-            f"- extracted_text_ref: {fm.get('extracted_text_ref', 'none')}\n"
-            f"- linked_evidence: {', '.join(_json_list(fm.get('linked_evidence'))) or 'none'}\n"
-            f"- linked_claims: {', '.join(_json_list(fm.get('linked_claims'))) or 'none'}\n"
-            f"- parse_errors: {', '.join(_json_list(fm.get('parse_errors'))) or 'none'}\n"
-            f"- link: `{item.path}`\n"
-            f"{_expansion_detail_lines(item)}"
-            f"- reason: {item.reason}"
-        )
+        return _render([
+            f"### `{item.id}`",
+            f"- file_name: {fm.get('file_name', 'unknown')}",
+            f"- source_path: {fm.get('source_path', 'unknown')}",
+            f"- source_type: {fm.get('source_type', 'unknown')}",
+            f"- artifact_hash: {fm.get('artifact_hash', 'unknown')}",
+            f"- file_ext: {fm.get('file_ext', 'unknown')}",
+            f"- mime_type: {fm.get('mime_type', 'unknown')}",
+            f"- size_bytes: {fm.get('size_bytes', 'unknown')}",
+            f"- modified_at: {fm.get('modified_at', 'unknown')}",
+            f"- imported_at: {fm.get('imported_at', 'unknown')}",
+            f"- ingestion_status: {fm.get('ingestion_status', 'unknown')}",
+            f"- sensitivity: {fm.get('sensitivity', 'unknown')}",
+            f"- extracted_text_ref: {fm.get('extracted_text_ref', 'none')}",
+            _list_line("linked_evidence", fm.get("linked_evidence")),
+            _list_line("linked_claims", fm.get("linked_claims")),
+            _list_line("parse_errors", fm.get("parse_errors")),
+            f"- link: `{item.path}`",
+        ])
     if item.type == "claim":
-        return (
-            f"### `{item.id}`\n"
-            f"- claim_text: {fm.get('claim_text', item.summary)}\n"
-            f"- class: {fm.get('claim_class', 'unknown')}\n"
-            f"- owner: {fm.get('owner', 'unknown')}\n"
-            f"- status: {fm.get('status', 'unknown')}\n"
-            f"- confidence: {fm.get('confidence', 'unknown')}\n"
-            f"- supporting_evidence: {', '.join(_json_list(fm.get('supporting_evidence'))) or 'none'}\n"
-            f"- contradicting_evidence: {', '.join(_json_list(fm.get('contradicting_evidence'))) or 'none'}\n"
-            f"- link: `{item.path}`\n"
-            f"{_expansion_detail_lines(item)}"
-            f"- reason: {item.reason}"
-        )
+        status = fm.get("status", "unknown")
+        return _render([
+            f"### `{item.id}`",
+            f"- claim_text: {fm.get('claim_text', item.summary)}",
+            f"- class: {fm.get('claim_class', 'unknown')}",
+            f"- owner: {fm.get('owner', 'unknown')}",
+            None if (lean and status == "active") else f"- status: {status}",
+            f"- confidence: {fm.get('confidence', 'unknown')}",
+            _list_line("supporting_evidence", fm.get("supporting_evidence")),
+            _list_line("contradicting_evidence", fm.get("contradicting_evidence")),
+            f"- link: `{item.path}`",
+        ])
     if item.type == "pattern":
-        return (
-            f"### `{item.id}`\n"
-            f"- hypothesis: {fm.get('hypothesis', item.summary)}\n"
-            f"- pattern_type: {fm.get('pattern_type', 'unknown')}\n"
-            f"- confidence: {fm.get('confidence', 'unknown')}\n"
-            f"- supporting_records: {', '.join(_json_list(fm.get('supporting_records'))) or 'none'}\n"
-            f"- counterexamples: {', '.join(_json_list(fm.get('counterexamples'))) or 'none'}\n"
-            f"- alternative_explanations: {', '.join(_json_list(fm.get('alternative_explanations'))) or 'none'}\n"
-            f"- predictions: {', '.join(_json_list(fm.get('predictions'))) or 'none'}\n"
-            f"- evidence_needed: {', '.join(_json_list(fm.get('evidence_needed'))) or 'none'}\n"
-            f"- link: `{item.path}`\n"
-            f"{_expansion_detail_lines(item)}"
-            f"- reason: {item.reason}"
-        )
+        return _render([
+            f"### `{item.id}`",
+            f"- hypothesis: {fm.get('hypothesis', item.summary)}",
+            f"- pattern_type: {fm.get('pattern_type', 'unknown')}",
+            f"- confidence: {fm.get('confidence', 'unknown')}",
+            _list_line("supporting_records", fm.get("supporting_records")),
+            _list_line("counterexamples", fm.get("counterexamples")),
+            _list_line("alternative_explanations", fm.get("alternative_explanations")),
+            _list_line("predictions", fm.get("predictions")),
+            _list_line("evidence_needed", fm.get("evidence_needed")),
+            f"- link: `{item.path}`",
+        ])
     if item.type == "skeptical_review":
-        return (
-            f"### `{item.id}`\n"
-            f"- summary: {fm.get('summary', item.summary)}\n"
-            f"- reviewed_record_id: {fm.get('reviewed_record_id', 'unknown')}\n"
-            f"- risk: {fm.get('risk', 'unknown')}\n"
-            f"- recommended_action: {fm.get('recommended_action', 'unknown')}\n"
-            f"- reasoning_errors: {', '.join(_json_list(fm.get('reasoning_errors'))) or 'none'}\n"
-            f"- link: `{item.path}`\n"
-            f"- reason: {item.reason}"
-        )
+        return _render([
+            f"### `{item.id}`",
+            f"- summary: {fm.get('summary', item.summary)}",
+            f"- reviewed_record_id: {fm.get('reviewed_record_id', 'unknown')}",
+            f"- risk: {fm.get('risk', 'unknown')}",
+            f"- recommended_action: {fm.get('recommended_action', 'unknown')}",
+            _list_line("reasoning_errors", fm.get("reasoning_errors")),
+            f"- link: `{item.path}`",
+        ])
     if item.type == "report":
-        return (
-            f"### `{item.id}`\n"
-            f"- summary: {fm.get('summary', item.summary)}\n"
-            f"- task: {fm.get('task', 'unknown')}\n"
-            f"- link: `{item.path}`\n"
-            f"{_expansion_detail_lines(item)}"
-            f"- reason: {item.reason}"
-        )
+        return _render([
+            f"### `{item.id}`",
+            f"- summary: {fm.get('summary', item.summary)}",
+            f"- task: {fm.get('task', 'unknown')}",
+            f"- link: `{item.path}`",
+        ])
     if item.type == "knowledge":
-        return (
-            f"### `{item.id}`\n"
-            f"- summary: {fm.get('summary', item.summary)}\n"
-            f"- source_document: {fm.get('source_document', 'unknown')}\n"
-            f"- source_section: {fm.get('source_section', 'unknown')}\n"
-            f"- source_ref: {fm.get('source_ref', 'unknown')}\n"
-            f"- chunk_index: {fm.get('chunk_index', 'unknown')}\n"
-            f"- total_chunks: {fm.get('total_chunks', 'unknown')}\n"
-            f"- link: `{item.path}`\n"
-            f"{_expansion_detail_lines(item)}"
-            f"- reason: {item.reason}"
-        )
+        # Chunk provenance beyond source_document restates the summary
+        # breadcrumb and the link; source_document itself stays — the
+        # citation rule reads it.
+        return _render([
+            f"### `{item.id}`",
+            f"- summary: {fm.get('summary', item.summary)}",
+            f"- source_document: {fm.get('source_document', 'unknown')}",
+            None if lean else f"- source_section: {fm.get('source_section', 'unknown')}",
+            None if lean else f"- source_ref: {fm.get('source_ref', 'unknown')}",
+            None if lean else f"- chunk_index: {fm.get('chunk_index', 'unknown')}",
+            None if lean else f"- total_chunks: {fm.get('total_chunks', 'unknown')}",
+            f"- link: `{item.path}`",
+        ])
     if item.type == "episode":
-        return f"### `{item.id}`\n- summary: {fm.get('summary', item.summary)}\n- link: `{item.path}`\n{_expansion_detail_lines(item)}- reason: {item.reason}"
-    return f"- `{item.id}` | {item.type} | {item.summary} | `{item.path}` | {item.reason}"
+        return _render([
+            f"### `{item.id}`",
+            f"- summary: {fm.get('summary', item.summary)}",
+            f"- link: `{item.path}`",
+        ])
+    return fallback
 
 
 def _expansion_detail_lines(item: RetrievalItem) -> str:
