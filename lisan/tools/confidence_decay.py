@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 from pathlib import Path
+from .db import connect as _db_connect
 
 from ..paths import sqlite_path, vault_root
 from .deixis import render_for_display
@@ -15,7 +16,7 @@ def detect_decay_candidates(vault: Path | None = None, db_path: Path | None = No
     if not db_path.exists():
         return "SQLite index not found.\n"
 
-    conn = sqlite3.connect(db_path)
+    conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
     lines = ["# Confidence Decay Candidates", "", f"generated: {date.today().isoformat()}", ""]
     found_any = False

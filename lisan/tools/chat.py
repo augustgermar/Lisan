@@ -11,6 +11,7 @@ import uuid
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
+from .db import connect as _db_connect
 
 from ..config import load_config
 from ..paths import sqlite_path, vault_root
@@ -75,7 +76,7 @@ def _check_index(vault: Path) -> bool:
     needs_rebuild = not db.exists()
     if db.exists():
         try:
-            conn = sqlite3.connect(db)
+            conn = _db_connect(db)
             count = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
             conn.close()
             if count == 0:

@@ -18,6 +18,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from .db import connect as _db_connect
 
 
 @dataclass(slots=True)
@@ -341,7 +342,7 @@ def _count_vault_entity_hits(text: str, db_path: Path | None) -> int:
     if not proper_nouns:
         return 0
     try:
-        conn = sqlite3.connect(db_path)
+        conn = _db_connect(db_path)
         try:
             hits = 0
             for name in proper_nouns:

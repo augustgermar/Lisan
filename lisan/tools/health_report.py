@@ -5,6 +5,7 @@ import sqlite3
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from .db import connect as _db_connect
 
 from ..frontmatter import load_markdown
 from ..paths import ensure_vault_layout, sqlite_path, vault_root
@@ -18,7 +19,7 @@ def generate_health_report(vault: Path | None = None, db_path: Path | None = Non
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
     ensure_vault_layout(vault)
-    conn = sqlite3.connect(db_path)
+    conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         ensure_index_schema(conn)

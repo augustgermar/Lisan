@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
+from .db import connect as _db_connect
 
 from ..paths import sqlite_path, vault_root
 from ..utils import approx_token_count
@@ -244,7 +245,7 @@ def finalize_turn_trace(
 
 
 def load_turn_trace(turn_id: str, db_path: Path | None = None) -> dict[str, Any] | None:
-    conn = sqlite3.connect(db_path or sqlite_path())
+    conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         ensure_turn_traces_table(conn)
@@ -257,7 +258,7 @@ def load_turn_trace(turn_id: str, db_path: Path | None = None) -> dict[str, Any]
 
 
 def list_recent_turn_traces(limit: int = 20, db_path: Path | None = None) -> list[dict[str, Any]]:
-    conn = sqlite3.connect(db_path or sqlite_path())
+    conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         ensure_turn_traces_table(conn)
@@ -364,7 +365,7 @@ def ensure_turn_traces_table(conn: sqlite3.Connection) -> None:
 
 def _persist_trace(trace: TurnTrace, db_path: Path | None = None, vault: Path | None = None) -> None:
     db = db_path or sqlite_path()
-    conn = sqlite3.connect(db)
+    conn = _db_connect(db)
     try:
         ensure_turn_traces_table(conn)
         trace_dir = (vault or vault_root()) / "logs" / "traces"

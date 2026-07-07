@@ -4,6 +4,7 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from .db import connect as _db_connect
 
 from ..frontmatter import load_markdown, write_markdown
 from ..utils import slugify, today_iso
@@ -1330,7 +1331,7 @@ def supersede_record(vault: Path, record_id: str, db_path: Path | None = None) -
     _db = db_path or sqlite_path()
     if not _db.exists():
         return False
-    conn = _sqlite3.connect(_db)
+    conn = _db_connect(_db)
     try:
         row = conn.execute("SELECT path FROM files WHERE id = ?", (record_id,)).fetchone()
     finally:

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
+from .db import connect as _db_connect
 
 from ..config import load_config
 from ..frontmatter import load_markdown
@@ -335,7 +336,7 @@ def retrieve_context(
         config=config,
     )
 
-    conn = sqlite3.connect(db_path)
+    conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         try:

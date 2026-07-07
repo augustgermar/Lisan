@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
+from .db import connect as _db_connect
 
 from ..frontmatter import load_markdown
 from ..paths import sqlite_path, vault_root
@@ -126,7 +127,7 @@ def _due_open_loops(vault: Path, db_path: Path) -> list[BatchReviewItem]:
         return items
     import sqlite3
 
-    conn = sqlite3.connect(db_path)
+    conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
@@ -160,7 +161,7 @@ def _due_claims(db_path: Path) -> list[BatchReviewItem]:
         return items
     import sqlite3
 
-    conn = sqlite3.connect(db_path)
+    conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(

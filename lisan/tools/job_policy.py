@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from .db import connect as _db_connect
 
 from ..paths import sqlite_path
 from ..utils import parse_utc_timestamp as _parse_timestamp
@@ -279,7 +280,7 @@ def _should_queue_dreamer(turn_metadata: dict[str, Any], db_path: Path | None) -
 def _changed_records_since_last_job(job_type: str, db_path: Path | None) -> int:
     if db_path is None:
         return 0
-    conn = sqlite3.connect(db_path)
+    conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         last = _last_successful_job_time(job_type, db_path, conn)
@@ -309,7 +310,7 @@ def _changed_records_since_last_job(job_type: str, db_path: Path | None) -> int:
 def _reviewed_patterns_exist(db_path: Path | None) -> bool:
     if db_path is None:
         return False
-    conn = sqlite3.connect(db_path)
+    conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         try:
@@ -338,7 +339,7 @@ def _reviewed_patterns_exist(db_path: Path | None) -> bool:
 def _stale_claims_exist(db_path: Path | None) -> bool:
     if db_path is None:
         return False
-    conn = sqlite3.connect(db_path)
+    conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         today = datetime.now(timezone.utc).date().isoformat()
@@ -367,7 +368,7 @@ def _last_successful_job_time(job_type: str, db_path: Path | None, conn: sqlite3
     if conn is None:
         if db_path is None:
             return None
-        conn = sqlite3.connect(db_path)
+        conn = _db_connect(db_path)
         conn.row_factory = sqlite3.Row
         close_conn = True
     try:

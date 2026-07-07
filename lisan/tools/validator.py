@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any
+from .db import connect as _db_connect
 
 from ..config import load_config
 from ..frontmatter import FrontmatterError, load_markdown
@@ -624,7 +625,7 @@ def _validate_alias_uniqueness(vault: Path, report: ValidationReport) -> None:
     if not db.exists():
         return
     try:
-        conn = sqlite3.connect(db)
+        conn = _db_connect(db)
         try:
             rows = conn.execute(
                 """

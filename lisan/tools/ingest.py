@@ -192,7 +192,7 @@ def _manifest_snapshot(db_path: Path) -> list[dict[str, Any]]:
     if not db_path.exists():
         return []
     try:
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn = _connect(db_path, readonly=True)
     except sqlite3.Error:
         return []
     conn.row_factory = sqlite3.Row

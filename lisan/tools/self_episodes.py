@@ -21,6 +21,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from .db import connect as _db_connect
 
 from ..frontmatter import write_markdown
 from ..paths import sqlite_path, vault_root
@@ -59,7 +60,7 @@ def job_events(db_path: Path | None = None) -> list[SelfEvent]:
         return []
     events: list[SelfEvent] = []
     try:
-        conn = sqlite3.connect(db)
+        conn = _db_connect(db)
         conn.row_factory = sqlite3.Row
         try:
             rows = conn.execute(

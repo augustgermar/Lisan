@@ -6,6 +6,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from .db import connect as _db_connect
 
 from ..config import load_config
 from ..frontmatter import FrontmatterError, load_markdown
@@ -263,7 +264,7 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
     if embeddings_file.exists():
         embeddings_file.unlink()
 
-    conn = sqlite3.connect(db_path)
+    conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         ensure_index_schema(conn)
@@ -289,7 +290,7 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
 
 def open_index_connection(db_path: Path | None = None) -> sqlite3.Connection:
     """Open a SQLite index connection with the files schema ready for writes."""
-    conn = sqlite3.connect(db_path or sqlite_path())
+    conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
     ensure_index_schema(conn)
     return conn
@@ -315,7 +316,7 @@ def index_record_best_effort(vault: Path, path: Path, db_path: Path | None = Non
     if not db.exists():
         return False
     try:
-        conn = sqlite3.connect(db)
+        conn = _db_connect(db)
         try:
             indexed = index_single_record(Path(path), vault, conn)
             conn.commit()
@@ -756,7 +757,7 @@ def embed_pending_records(
     db_path = db_path or sqlite_path()
     embeddings_file = embeddings_file or embeddings_path()
 
-    conn = sqlite3.connect(db_path)
+    conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         _ensure_files_columns(conn)

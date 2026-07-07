@@ -29,6 +29,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from .db import connect as _db_connect
 
 from ..paths import sqlite_path
 
@@ -85,7 +86,7 @@ def mine_learned_edges(
     max_partners = max_partners if max_partners is not None else int(settings["max_partners"])
 
     db = db_path or sqlite_path()
-    conn = sqlite3.connect(db)
+    conn = _db_connect(db)
     try:
         ensure_learned_edges_table(conn)
         try:

@@ -24,6 +24,7 @@ import re
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
+from .db import connect as _db_connect
 
 from ..utils import today_iso
 from .log import get_logger, log_error
@@ -178,7 +179,7 @@ def machine_health(vault: Path, *, db_path: Path | None, days: int) -> dict[str,
 
     if db_path and Path(db_path).exists():
         try:
-            conn = sqlite3.connect(db_path)
+            conn = _db_connect(db_path)
             try:
                 rows = conn.execute(
                     "SELECT job_type, status, COUNT(*) FROM jobs WHERE created_at >= ? GROUP BY 1, 2",

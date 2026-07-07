@@ -24,6 +24,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
+from .db import connect as _db_connect
 
 from ..config import load_config
 from ..paths import sqlite_path
@@ -397,7 +398,7 @@ def seconds_until_next_due(*, db_path: Path | None = None, ceiling: float = 30.0
     at ``ceiling`` so work scheduled by other processes is noticed promptly."""
     import sqlite3
 
-    conn = sqlite3.connect(db_path or sqlite_path())
+    conn = _db_connect(db_path)
     try:
         try:
             immediate = conn.execute(

@@ -34,6 +34,7 @@ from collections import defaultdict
 from datetime import date
 from pathlib import Path
 from typing import Any
+from .db import connect as _db_connect
 
 from ..frontmatter import load_markdown, write_markdown
 from ..utils import today_iso
@@ -234,7 +235,7 @@ def _thin_persons(entities: list[dict[str, Any]], *, db_path: Path | None, cfg: 
     max_words = int(cfg["thin_person_max_words"])
     min_mentions = int(cfg["thin_person_min_mentions"])
     try:
-        conn = sqlite3.connect(db_path)
+        conn = _db_connect(db_path)
     except Exception:
         return []
     try:
@@ -296,7 +297,7 @@ def _interoception(vault: Path, *, db_path: Path | None, cfg: dict[str, Any]) ->
         return []
     out = []
     try:
-        conn = sqlite3.connect(db_path)
+        conn = _db_connect(db_path)
     except Exception:
         return []
     try:

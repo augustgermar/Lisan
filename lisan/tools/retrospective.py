@@ -20,6 +20,7 @@ import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
+from .db import connect as _db_connect
 
 from ..paths import sqlite_path, vault_root
 from .log import log_error
@@ -62,7 +63,7 @@ def _observed_keys(db_path: Path) -> set[tuple[str, str]]:
     keys: set[tuple[str, str]] = set()
     if not Path(db_path).exists():
         return keys
-    conn = sqlite3.connect(db_path)
+    conn = _db_connect(db_path)
     try:
         try:
             rows = conn.execute(

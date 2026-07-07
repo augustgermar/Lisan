@@ -36,6 +36,7 @@ eval-reports/
 *.sqlite
 *.sqlite-journal
 *.sqlite-wal
+*.sqlite-shm
 
 
 # OAuth tokens and any credential material — never trackable

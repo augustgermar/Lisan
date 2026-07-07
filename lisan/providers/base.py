@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib import error, request
+from ..tools.db import connect as _db_connect
 
 from ..config import load_config
 from ..paths import sqlite_path
@@ -410,7 +411,7 @@ def _log_call(
     latency_ms: int,
     success: bool,
 ) -> None:
-    conn = sqlite3.connect(db_path)
+    conn = _db_connect(db_path)
     try:
         conn.execute(
             """

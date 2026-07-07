@@ -24,6 +24,7 @@ from .deixis import has_unresolved_token
 from .record_fanout import basis_or_default, index_created_record
 from .record_factory import CreatedRecord, new_entity
 from .reference_resolution import normalize_text, resolution_action
+from .db import connect as _db_connect
 
 
 def _create_entity_stubs(
@@ -223,7 +224,7 @@ def _create_relationship_edges(
     _db = db_path or sqlite_path()
     if index_conn is None and not _db.exists():
         return
-    conn = index_conn or _sqlite3.connect(_db)
+    conn = index_conn or _db_connect(_db)
     try:
         for rel in relationships:
             if not isinstance(rel, dict):

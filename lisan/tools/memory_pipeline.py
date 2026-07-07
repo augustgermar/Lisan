@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from .db import connect as _db_connect
 
 from ..agents import AssemblerAgent, InterlocutorAgent, ListenerAgent, SkepticAgent, WriterAgent
 from .heuristic_gate import is_correction_turn
@@ -936,7 +937,7 @@ def _build_correction_context(text: str, db_path: Path | None = None) -> str:
     }]
     if not tokens:
         return ""
-    conn = _sqlite3.connect(_db)
+    conn = _db_connect(_db)
     try:
         seen: set[str] = set()
         rows: list[dict[str, Any]] = []
