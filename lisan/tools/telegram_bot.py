@@ -177,7 +177,14 @@ class TelegramBot:
             get_logger(self.vault).warning("telegram: rejected unauthorized user %s", user_id)
             return
 
-        self._handle_text(int(chat_id), text.strip())
+        # A message often arrives inside a ~45s darkwake on a sleeping Mac;
+        # without pinning the machine awake, a turn that outgrows the window
+        # freezes mid-reply until the next wake (2026-07-06: 15 minutes,
+        # read as a crashed agent and got the process killed).
+        from .wake import hold_awake
+
+        with hold_awake(f"telegram turn chat={chat_id}"):
+            self._handle_text(int(chat_id), text.strip())
 
     def _handle_text(self, chat_id: int, text: str) -> None:
         state = self._state_for(chat_id)

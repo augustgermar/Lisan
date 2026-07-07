@@ -1130,7 +1130,13 @@ def run_jobs_worker(
         if job is None:
             break
         try:
-            result = dispatch_job(job, vault=vault, db_path=db_path, provider=provider, model=model)
+            from .wake import hold_awake
+
+            # A claimed job must not be sliced across darkwakes on a
+            # sleeping Mac — pin the machine awake for its duration
+            # (generous cap: codex runs are legitimately long).
+            with hold_awake(f"job {job['id']}", cap_seconds=3600):
+                result = dispatch_job(job, vault=vault, db_path=db_path, provider=provider, model=model)
             result_data, result_ref = _normalize_job_result(result)
             updated = mark_job_succeeded(job["id"], result=result_data, result_ref=result_ref, db_path=db_path)
             successes.append(updated or job)
