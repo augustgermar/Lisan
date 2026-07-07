@@ -1,8 +1,8 @@
 """Rubric-driven model judge (WO-3).
 
 Examiner ≠ examinee: the resident agent runs on a Gemini-class engine, so
-the judge defaults to a different model family via OpenRouter. The judge
-sees one exchange at a time plus the rubric, and returns per-dimension
+the judge defaults to the codex provider inside the trust boundary. The
+judge sees one exchange at a time plus the rubric, and returns per-dimension
 scores (or null where the exchange offers no evidence).
 """
 from __future__ import annotations
@@ -14,8 +14,8 @@ from ..config import load_config
 from ..providers.base import LisanLLM
 from .structured import extract_json
 
-DEFAULT_JUDGE_PROVIDER = "openrouter"
-DEFAULT_JUDGE_MODEL = "openai/gpt-4o"
+DEFAULT_JUDGE_PROVIDER = "codex"
+DEFAULT_JUDGE_MODEL = None
 
 _JUDGE_PROMPT = """You are a blind, rubric-driven evaluator of one assistant reply.
 
@@ -45,7 +45,7 @@ def judge_exchange(
     assistant_text: str,
     *,
     provider: str = DEFAULT_JUDGE_PROVIDER,
-    model: str = DEFAULT_JUDGE_MODEL,
+    model: str | None = DEFAULT_JUDGE_MODEL,
     llm: Any | None = None,
     context: str | None = None,
 ) -> list[dict[str, Any]]:
@@ -59,7 +59,14 @@ def judge_exchange(
         "user": user_text,
         "assistant": assistant_text,
     }
-    response = llm.complete(prompt, agent="analyst", significance="high", provider=provider, model=model)
+    complete_kwargs: dict[str, Any] = {
+        "agent": "analyst",
+        "significance": "high",
+        "provider": provider,
+    }
+    if model is not None:
+        complete_kwargs["model"] = model
+    response = llm.complete(prompt, **complete_kwargs)
     data = extract_json(response.text)
     scores = data.get("scores") if isinstance(data, dict) else None
     valid_ids = {d["id"] for d in rubric["dimensions"]}

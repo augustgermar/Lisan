@@ -7,6 +7,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 _EVALS = Path(__file__).resolve().parents[1] / "evals"
 
@@ -22,6 +23,8 @@ def _load(name: str):
 rubric_mod = _load("rubric")
 metrics_mod = _load("metrics")
 judge_mod = _load("judge")
+
+from lisan.tools import judge as tool_judge
 
 
 def _seed_kernel_with_voice(vault: Path) -> None:
@@ -131,6 +134,31 @@ def test_judge_context_enters_prompt(tmp_path):
     fake2 = _FakeLLM(json.dumps({"scores": []}))
     judge_mod.judge_exchange(rubric, "hi", "hello", llm=fake2)
     assert "CONVERSATION_CONTEXT (established ground truth):" not in fake2.last_prompt
+
+
+def test_judge_defaults_route_to_codex_analyst_without_model_override():
+    calls = []
+
+    class FakeLLM:
+        def __init__(self, config=None, db_path=None):
+            self.config = config
+
+        def complete(self, prompt, **kwargs):
+            calls.append(kwargs)
+
+            class R:
+                pass
+
+            r = R()
+            r.text = json.dumps({"scores": []})
+            return r
+
+    rubric = {"dimensions": [{"id": "continuity"}]}
+    with patch.object(tool_judge, "LisanLLM", FakeLLM):
+        assert tool_judge.DEFAULT_JUDGE_PROVIDER == "codex"
+        assert tool_judge.DEFAULT_JUDGE_MODEL is None
+        tool_judge.judge_exchange(rubric, "hi", "hello")
+    assert calls == [{"agent": "analyst", "significance": "high", "provider": "codex"}]
 
 
 def test_aggregate_ignores_nulls():

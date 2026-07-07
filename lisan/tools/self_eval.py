@@ -33,7 +33,7 @@ DEFAULTS: dict[str, Any] = {
     "enabled": True,
     "days": 7,               # review window
     "sample_size": 10,       # judged exchanges per run
-    "judge_provider": None,  # default: judge.py's own (openrouter/gpt-4o)
+    "judge_provider": None,  # default: judge.py's own (codex/analyst read-only)
     "judge_model": None,
     "min_dimension_mean": 3.5,   # below this (with evidence) → suggestion
     "regression_drop": 0.5,      # overall-mean drop vs last run → suggestion
