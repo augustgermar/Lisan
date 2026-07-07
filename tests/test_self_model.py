@@ -84,6 +84,64 @@ class SelfStateTests(unittest.TestCase):
             self.assertIn("task.reminder", rendered)
             self.assertIn("Next scheduled", rendered)
 
+    def test_future_scheduled_jobs_are_not_rendered_as_stuck(self):
+        """A reminder waiting for next week is 'queued' in the table; the
+        render must say it is waiting for its time — 'two jobs stuck in the
+        queue' (2026-07-06) came straight from this ambiguity."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ensure_repo_layout(root)
+            vault = vault_root(root)
+            db = root / "jobs.sqlite"
+            enqueue_job("task.reminder", {"message": "x"}, scheduled_for="2099-01-01T00:00:00Z", db_path=db)
+            state = snapshot_self_state(vault=vault, db_path=db)
+            self.assertEqual(state["queued_due_now"], 0)
+            rendered = render_self_state(state)
+            self.assertIn("0 due now", rendered)
+            self.assertIn("not stuck", rendered)
+
+    def test_snapshot_reports_machine_sleep_when_available(self):
+        """The agent must be able to tell 'the machine was asleep' from 'my
+        services failed' — the 2026-07-06 incident was a sleeping Mac
+        misdiagnosed as a stalled processor, by the agent and then by the
+        troubleshooting human it misinformed."""
+        from unittest.mock import patch
+
+        from lisan.tools import self_model
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ensure_repo_layout(root)
+            with patch.object(
+                self_model,
+                "_machine_sleep_status",
+                return_value={"last_sleep": "2026-07-06 09:32 PDT", "last_wake": "2026-07-06 12:56 PDT"},
+            ):
+                state = snapshot_self_state(vault=vault_root(root), db_path=root / "jobs.sqlite")
+                rendered = render_self_state(state)
+        self.assertIn("last slept 2026-07-06 09:32 PDT", rendered)
+        self.assertIn("not a service failure", rendered)
+
+    def test_log_tail_keeps_only_whole_timestamped_lines(self):
+        """The tail of a multi-line traceback is a context-free shard the
+        model narrates into a story; only stamped log lines may surface."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ensure_repo_layout(root)
+            vault = vault_root(root)
+            log_dir = vault / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            (log_dir / "lisan.log").write_text(
+                "2026-07-06 09:38:15 [ERROR] lisan: telegram poll error; retry in 1s\n"
+                "Traceback (most recent call last):\n"
+                '  File "x.py", line 1, in <module>\n'
+                "TimeoutError: The read operation timed out\n",
+                encoding="utf-8",
+            )
+            state = snapshot_self_state(vault=vault, db_path=root / "jobs.sqlite")
+        for line in state["recent_log_tail"]:
+            self.assertRegex(line, r"^\d{4}-\d{2}-\d{2} ")
+
     def test_snapshot_survives_missing_database(self):
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp)

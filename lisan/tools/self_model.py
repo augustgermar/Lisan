@@ -25,6 +25,7 @@ import subprocess
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from .db import connect as _db_connect
 
 from .. import __version__
 from ..config import load_config
@@ -289,7 +290,7 @@ def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) 
     next_task = None
     index_records = 0
     try:
-        conn = sqlite3.connect(db)
+        conn = _db_connect(db)
         conn.row_factory = sqlite3.Row
         try:
             for row in conn.execute("SELECT status, job_type, COUNT(*) AS n FROM jobs GROUP BY status, job_type"):
@@ -308,6 +309,12 @@ def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) 
                         next_task["about"] = body if len(body) <= 80 else body[:77] + "..."
                 except Exception:
                     pass
+            due_row = conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE status = 'queued' "
+                "AND (scheduled_for IS NULL OR scheduled_for <= ?)",
+                (utc_now_iso(),),
+            ).fetchone()
+            state["queued_due_now"] = int(due_row[0]) if due_row else 0
             index_records = int(conn.execute("SELECT COUNT(*) FROM files").fetchone()[0])
         finally:
             conn.close()
@@ -331,12 +338,22 @@ def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) 
         state["active_plans"] = []
 
     state["services"] = _service_status()
+    state["machine"] = _machine_sleep_status()
 
     try:
+        import re as _re
+
         from .log import tail_log
 
-        tail = tail_log(vault, lines=5)
-        state["recent_log_tail"] = tail.strip().splitlines()[-5:] if tail else []
+        # Only whole, timestamped log lines: the tail of a multi-line
+        # traceback ("TimeoutError: ...") is a context-free shard the model
+        # narrates into a story about whatever it currently believes.
+        tail = tail_log(vault, lines=40)
+        stamped = [
+            ln for ln in (tail.strip().splitlines() if tail else [])
+            if _re.match(r"^\d{4}-\d{2}-\d{2} ", ln)
+        ]
+        state["recent_log_tail"] = stamped[-5:]
     except Exception:
         state["recent_log_tail"] = []
     return state
@@ -346,7 +363,7 @@ def _last_success_time(job_type: str, db_path: Path) -> str | None:
     import sqlite3
 
     try:
-        conn = sqlite3.connect(db_path)
+        conn = _db_connect(db_path)
         try:
             row = conn.execute(
                 "SELECT finished_at FROM jobs WHERE job_type = ? AND status = 'succeeded' "
@@ -358,6 +375,31 @@ def _last_success_time(job_type: str, db_path: Path) -> str | None:
             conn.close()
     except Exception:
         return None
+
+
+def _machine_sleep_status() -> dict[str, str]:
+    """When the computer last slept and woke. The agent cannot tell the
+    difference between "my services are broken" and "the machine was asleep"
+    without this — on 2026-07-06 that gap produced an invented 'stalled task
+    processor' diagnosis (and got a healthy process killed) when the real
+    story was a Mac in Deep Idle all morning."""
+    import platform
+    import re as _re
+    from datetime import datetime, timezone
+
+    if platform.system() != "Darwin":
+        return {}
+    out: dict[str, str] = {}
+    for key, name in (("last_sleep", "kern.sleeptime"), ("last_wake", "kern.waketime")):
+        try:
+            result = subprocess.run(["sysctl", "-n", name], capture_output=True, text=True, timeout=5)
+            match = _re.search(r"sec = (\d+)", result.stdout)
+            if match:
+                stamp = datetime.fromtimestamp(int(match.group(1)), tz=timezone.utc).astimezone()
+                out[key] = stamp.strftime("%Y-%m-%d %H:%M %Z")
+        except Exception:
+            continue
+    return out
 
 
 def _service_status() -> dict[str, bool]:
@@ -402,7 +444,19 @@ def render_self_state(state: dict[str, Any]) -> str:
     if jobs:
         for status in sorted(jobs):
             per_type = ", ".join(f"{t}×{n}" for t, n in sorted(jobs[status].items()))
-            lines.append(f"Jobs {status}: {per_type}")
+            line = f"Jobs {status}: {per_type}"
+            # "queued" lumps due-now work with jobs waiting for a future
+            # scheduled time; without the split, tomorrow's reminder reads
+            # as a stuck queue (it did, twice, on 2026-07-06).
+            if status == "queued" and state.get("queued_due_now") is not None:
+                total = sum(jobs[status].values())
+                future = total - int(state["queued_due_now"])
+                if future > 0:
+                    line += (
+                        f" — {state['queued_due_now']} due now, {future} scheduled for a"
+                        " future time (waiting for their moment, not stuck)"
+                    )
+            lines.append(line)
     else:
         lines.append("Jobs: queue is empty")
     nxt = state.get("next_scheduled_task")
@@ -420,6 +474,14 @@ def render_self_state(state: dict[str, Any]) -> str:
     lines.append(
         "Services: " + ", ".join(f"{name} {'up' if up else 'down'}" for name, up in sorted(services.items()))
     )
+    machine = state.get("machine") or {}
+    if machine.get("last_wake") or machine.get("last_sleep"):
+        lines.append(
+            f"Machine: last slept {machine.get('last_sleep') or 'unknown'}, "
+            f"last woke {machine.get('last_wake') or 'unknown'} — while the computer "
+            "sleeps, all services pause and messages wait; a silent stretch between "
+            "those times was the machine asleep, not a service failure."
+        )
     tail = state.get("recent_log_tail") or []
     if tail:
         lines.append("Recent log: " + " | ".join(tail[-2:]))
