@@ -460,3 +460,91 @@ class LogCompactionTests(unittest.TestCase):
         doc = load_markdown(path)
         self.assertNotIn("peanut", doc.body)  # prose omitted it
         self.assertIn("peanut", entity_search_text(doc.frontmatter, doc.body))  # log preserved it, still findable
+
+
+class LogSpillTests(unittest.TestCase):
+    """The in-file log is bounded: compaction spills the oldest folded
+    entries to an append-only archive. Storage keeps everything (the spill
+    is deduplicated and never drops an entry); the search index keeps
+    seeing spilled facts through the archive."""
+
+    def setUp(self) -> None:
+        self.tmp, self.vault, self.db = _make_vault()
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _seed_with_log(self, n_entries: int, unfolded_tail: int = 0) -> Path:
+        path = _seed_entity(self.vault, "ruth", "Ruth Vale", "Ruth is a friend.")
+        doc = load_markdown(path)
+        fm = dict(doc.frontmatter)
+        fm["source_log"] = [
+            {"date": f"2026-01-{(i % 28) + 1:02d}", "text": f"logged fact number {i}",
+             "folded": i < n_entries - unfolded_tail}
+            for i in range(n_entries)
+        ]
+        path.write_text(dump_markdown(fm, doc.body), encoding="utf-8")
+        return path
+
+    def test_compaction_spills_oldest_folded_beyond_keep(self) -> None:
+        from lisan.tools.entity_story import rewrite_entity_story, source_log_archive_path
+
+        path = self._seed_with_log(50, unfolded_tail=2)
+        with patch("lisan.agents.writer.WriterAgent") as MockWriter, \
+                patch("lisan.tools.entity_story._log_keep", return_value=10):
+            inst = MagicMock()
+            inst.run_json.return_value = {"narrative": "Ruth Vale is a friend with a long history.", "arc_note": ""}
+            MockWriter.return_value = inst
+            result = rewrite_entity_story(self.vault, path, db_path=self.db, force_compact=True)
+
+        self.assertTrue(result["updated"])
+        self.assertEqual(result["spilled"], 40)
+        doc = load_markdown(path)
+        remaining = doc.frontmatter["source_log"]
+        self.assertEqual(len(remaining), 10)
+        self.assertEqual(remaining[-1]["text"], "logged fact number 49")
+
+        archive = source_log_archive_path(self.vault, path)
+        self.assertTrue(archive.exists())
+        archived_lines = [ln for ln in archive.read_text().splitlines() if ln.strip()]
+        self.assertEqual(len(archived_lines), 40)
+        # nothing lost: file entries + archive entries == the original 50
+        import json as _json
+        all_texts = {e["text"] for e in remaining} | {_json.loads(ln)["text"] for ln in archived_lines}
+        self.assertEqual(all_texts, {f"logged fact number {i}" for i in range(50)})
+
+    def test_spill_never_takes_unfolded_entries(self) -> None:
+        from lisan.tools.entity_story import _spill_folded_log
+
+        # an unfolded entry sits FIRST: nothing before it may spill past it
+        log = [{"date": "2026-01-01", "text": "unfolded oldest", "folded": False}] + [
+            {"date": "2026-01-02", "text": f"folded {i}", "folded": True} for i in range(20)
+        ]
+        with patch("lisan.tools.entity_story._log_keep", return_value=5):
+            remaining, spilled = _spill_folded_log(self.vault, Path("/tmp/x.md"), log)
+        self.assertEqual(spilled, 0)
+        self.assertEqual(len(remaining), 21)
+
+    def test_spill_is_idempotent_across_retries(self) -> None:
+        from lisan.tools.entity_story import _spill_folded_log, source_log_archive_path
+
+        log = [{"date": "2026-01-01", "text": f"folded {i}", "folded": True} for i in range(20)]
+        entity = self.vault / "entities" / "people" / "ruth.md"
+        with patch("lisan.tools.entity_story._log_keep", return_value=5):
+            _spill_folded_log(self.vault, entity, list(log))
+            _spill_folded_log(self.vault, entity, list(log))  # retried job
+        archive = source_log_archive_path(self.vault, entity)
+        lines = [ln for ln in archive.read_text().splitlines() if ln.strip()]
+        self.assertEqual(len(lines), 15, "retry must not double the archive")
+
+    def test_search_text_includes_archived_entries(self) -> None:
+        from lisan.tools.entity_story import entity_search_text, source_log_archive_path
+
+        path = self._seed_with_log(3)
+        archive = source_log_archive_path(self.vault, path)
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        archive.write_text('{"date": "2025-11-01", "text": "spilled peanut-allergy fact", "folded": true}\n')
+        doc = load_markdown(path)
+        text = entity_search_text(doc.frontmatter, doc.body, archive_path=archive)
+        self.assertIn("spilled peanut-allergy fact", text)
+        self.assertIn("logged fact number 0", text)

@@ -31,6 +31,13 @@ from .rebuild_index import index_single_record, open_index_connection
 # via config (memory.entity_compact_threshold).
 _DEFAULT_COMPACT_THRESHOLD = 3
 _LOG_ENTRY_MAX_CHARS = 1200
+# Keep at most this many log entries in the entity file itself; older folded
+# entries spill to an append-only archive. Without the spill, every read
+# parses and every write rewrites an ever-growing frontmatter blob — the
+# LSM-tree analogy this design was sold on truncates its log after
+# compaction, and for a well-loved entity (a parent, a child) the blob
+# otherwise grows for life. Overridable via config (memory.entity_log_keep).
+_DEFAULT_LOG_KEEP = 40
 
 
 def _compact_threshold() -> int:
@@ -41,6 +48,59 @@ def _compact_threshold() -> int:
         return max(1, v)
     except Exception:
         return _DEFAULT_COMPACT_THRESHOLD
+
+
+def _log_keep() -> int:
+    try:
+        from ..config import load_config
+
+        v = int((load_config().get("memory") or {}).get("entity_log_keep") or _DEFAULT_LOG_KEEP)
+        return max(1, v)
+    except Exception:
+        return _DEFAULT_LOG_KEEP
+
+
+def source_log_archive_path(vault: Path, entity_path: Path) -> Path:
+    """Where an entity's spilled log entries live: append-only JSONL, one
+    entry per line, never rewritten. The durable half of the storage
+    guarantee once the in-file log is bounded."""
+    return vault / "archive" / "entities" / "source-logs" / f"{entity_path.stem}.jsonl"
+
+
+def _spill_folded_log(vault: Path, entity_path: Path, log: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Move the oldest FOLDED entries beyond the keep-window to the archive
+    file. Only a folded prefix may spill — an unfolded entry has not been
+    woven into the narrative yet and must stay in the file. Append is
+    deduplicated by exact line, so a retried job never doubles the archive.
+    Returns (remaining_log, spilled_count)."""
+    import json as _json
+
+    keep = _log_keep()
+    if len(log) <= keep:
+        return log, 0
+    spill: list[dict[str, Any]] = []
+    for entry in log[: len(log) - keep]:
+        if not entry.get("folded"):
+            break
+        spill.append(entry)
+    if not spill:
+        return log, 0
+
+    path = source_log_archive_path(vault, entity_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing: set[str] = set()
+    if path.exists():
+        existing = {ln.strip() for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()}
+    lines = []
+    for entry in spill:
+        line = _json.dumps(entry, ensure_ascii=True, sort_keys=True)
+        if line not in existing:
+            lines.append(line)
+            existing.add(line)
+    if lines:
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+    return log[len(spill):], len(spill)
 
 
 def rewrite_entity_story(
@@ -163,26 +223,43 @@ def _compact(
                     "entity_path": str(entity_path)}
 
     narrative = tokenize_principal(narrative, vault)
-    # Mark the compacted entries folded — kept, not deleted.
+    # Mark the compacted entries folded — kept, not deleted — then spill
+    # the oldest folded entries past the keep-window to the archive file,
+    # so the in-file log stays bounded while the storage keeps everything.
     for entry in log:
         if not entry.get("folded"):
             entry["folded"] = True
+    log, spilled = _spill_folded_log(vault, entity_path, log)
     fm["source_log"] = log
     fm["updated"] = today_iso()
     write_markdown(entity_path, fm, f"# {canonical_name}\n\n{narrative}\n")
     _reindex(entity_path, vault, db_path)
     return {"updated": True, "action": "compacted", "arc_note": arc_note,
-            "folded": len(unfolded), "entity_path": str(entity_path)}
+            "folded": len(unfolded), "spilled": spilled, "entity_path": str(entity_path)}
 
 
-def entity_search_text(fm: dict[str, Any], body: str) -> str:
-    """The full searchable text for an entity: the narrative core plus every
-    entry in the durable log. Ensures a logged fact is findable even when the
-    compacted prose left it out."""
+def entity_search_text(fm: dict[str, Any], body: str, archive_path: Path | None = None) -> str:
+    """The full searchable text for an entity: the narrative core, every
+    entry still in the durable log, and every entry spilled to the archive.
+    Ensures a logged fact is findable even when the compacted prose left it
+    out — compaction and spilling are lossy only in the rendering, never in
+    the search index."""
+    import json as _json
+
     parts = [_strip_title(body).strip()]
     for entry in (fm.get("source_log") or []):
         if isinstance(entry, dict) and entry.get("text"):
             parts.append(str(entry["text"]))
+    if archive_path is not None and archive_path.exists():
+        try:
+            for line in archive_path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                entry = _json.loads(line)
+                if isinstance(entry, dict) and entry.get("text"):
+                    parts.append(str(entry["text"]))
+        except Exception:
+            pass
     return "\n\n".join(p for p in parts if p).strip()
 
 
