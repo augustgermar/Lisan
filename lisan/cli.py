@@ -503,6 +503,10 @@ def build_parser() -> argparse.ArgumentParser:
     draft_backlog.add_argument("--vault", type=Path, default=vault_root())
     draft_backlog.add_argument("--db-path", type=Path, default=None)
 
+    restart = subparsers.add_parser("restart", help="Restart the resident service (refuses over in-flight jobs)")
+    restart.add_argument("--db-path", type=Path, default=None)
+    restart.add_argument("--force", action="store_true", help="Restart even while jobs are mid-run")
+
     logs = subparsers.add_parser("logs", help="Show recent log entries")
     logs.add_argument("--vault", type=Path, default=vault_root())
     logs.add_argument("--tail", type=int, default=50, metavar="N")
@@ -722,6 +726,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "restart":
+        from .tools.restart import render_restart_report, restart_service
+        report = restart_service(db_path=args.db_path, force=args.force)
+        print(render_restart_report(report))
+        return 0 if report.get("restarted") or report.get("reason") == "jobs_in_flight" else 1
 
     if args.command == "logs":
         from .tools.log import tail_log
