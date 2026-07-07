@@ -506,6 +506,7 @@ def build_parser() -> argparse.ArgumentParser:
     logs = subparsers.add_parser("logs", help="Show recent log entries")
     logs.add_argument("--vault", type=Path, default=vault_root())
     logs.add_argument("--tail", type=int, default=50, metavar="N")
+    logs.add_argument("--errors", action="store_true", help="Only warnings and errors (logs/errors.log)")
 
     traces = subparsers.add_parser("traces", help="Inspect recent chat turn traces")
     traces_subparsers = traces.add_subparsers(dest="traces_command", required=True)
@@ -724,7 +725,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "logs":
         from .tools.log import tail_log
-        print(tail_log(args.vault, lines=args.tail))
+        print(tail_log(args.vault, lines=args.tail, errors_only=args.errors))
         return 0
 
     if args.command == "traces":

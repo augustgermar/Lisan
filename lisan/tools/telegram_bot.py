@@ -47,7 +47,7 @@ _HELP_TEXT = (
     "Commands:\n"
     "/new — start a fresh conversation\n"
     "/domain <name> — pin the retrieval domain (no arg clears it)\n"
-    "/logs [N] — show recent log lines\n"
+    "/logs [N] [errors] — recent log lines; 'errors' shows only warnings/errors\n"
     "/help — this message"
 )
 
@@ -213,13 +213,16 @@ class TelegramBot:
             from .log import tail_log
 
             n = 20
-            parts = lowered.split()
-            if len(parts) > 1:
+            errors_only = False
+            for part in lowered.split()[1:]:
+                if part in ("errors", "error", "err"):
+                    errors_only = True
+                    continue
                 try:
-                    n = int(parts[1])
+                    n = int(part)
                 except ValueError:
                     pass
-            self._send_message(chat_id, tail_log(self.vault, lines=n) or "(no logs)")
+            self._send_message(chat_id, tail_log(self.vault, lines=n, errors_only=errors_only) or "(no logs)")
             return
 
         # Normal turn — keep "typing" alive while the model works, then reply.

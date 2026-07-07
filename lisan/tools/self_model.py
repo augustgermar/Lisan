@@ -347,8 +347,10 @@ def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) 
 
         # Only whole, timestamped log lines: the tail of a multi-line
         # traceback ("TimeoutError: ...") is a context-free shard the model
-        # narrates into a story about whatever it currently believes.
-        tail = tail_log(vault, lines=40)
+        # narrates into a story about whatever it currently believes. Read
+        # from the dedicated error log so "recent errors" means errors, not
+        # whatever INFO noise happened last.
+        tail = tail_log(vault, lines=40, errors_only=True)
         stamped = [
             ln for ln in (tail.strip().splitlines() if tail else [])
             if _re.match(r"^\d{4}-\d{2}-\d{2} ", ln)
@@ -484,7 +486,7 @@ def render_self_state(state: dict[str, Any]) -> str:
         )
     tail = state.get("recent_log_tail") or []
     if tail:
-        lines.append("Recent log: " + " | ".join(tail[-2:]))
+        lines.append("Recent errors: " + " | ".join(tail[-2:]))
     if state.get("database_error"):
         lines.append(f"Database error: {state['database_error']}")
     return "\n".join(lines)

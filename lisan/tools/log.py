@@ -20,23 +20,37 @@ def get_logger(vault: Path | None = None) -> logging.Logger:
     vault = vault or vault_root()
     log_dir = vault / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / "lisan.log"
 
     logger = logging.getLogger("lisan")
     logger.setLevel(logging.DEBUG)
 
     if not logger.handlers:
+        formatter = logging.Formatter(
+            "%(asctime)s [%(levelname)-5s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
         handler = RotatingFileHandler(
-            log_path,
+            log_dir / "lisan.log",
             maxBytes=2 * 1024 * 1024,  # 2 MB per file
             backupCount=3,
             encoding="utf-8",
         )
-        handler.setFormatter(logging.Formatter(
-            "%(asctime)s [%(levelname)-5s] %(name)s: %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        ))
+        handler.setFormatter(formatter)
         logger.addHandler(handler)
+
+        # Everything WARNING and above also lands in its own file, so "show
+        # me just the problems" is a tail, not an archaeology dig through
+        # poll-retry tracebacks (the 2026-07-06 incident diagnosis required
+        # exactly that dig — and the troubleshooting agent misread the mix).
+        errors = RotatingFileHandler(
+            log_dir / "errors.log",
+            maxBytes=2 * 1024 * 1024,
+            backupCount=3,
+            encoding="utf-8",
+        )
+        errors.setLevel(logging.WARNING)
+        errors.setFormatter(formatter)
+        logger.addHandler(errors)
 
     _logger = logger
     return logger
@@ -60,10 +74,11 @@ def log_error(vault: Path, context: str, exc: Exception) -> None:
     get_logger(vault).error(f"{context}: {exc}", exc_info=True)
 
 
-def tail_log(vault: Path | None = None, lines: int = 50) -> str:
+def tail_log(vault: Path | None = None, lines: int = 50, *, errors_only: bool = False) -> str:
     vault = vault or vault_root()
-    log_path = vault / "logs" / "lisan.log"
+    name = "errors.log" if errors_only else "lisan.log"
+    log_path = vault / "logs" / name
     if not log_path.exists():
-        return "No log file found."
+        return "No errors logged." if errors_only else "No log file found."
     all_lines = log_path.read_text(encoding="utf-8").splitlines()
     return "\n".join(all_lines[-lines:])

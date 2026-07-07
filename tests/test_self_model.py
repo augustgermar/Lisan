@@ -131,7 +131,7 @@ class SelfStateTests(unittest.TestCase):
             vault = vault_root(root)
             log_dir = vault / "logs"
             log_dir.mkdir(parents=True, exist_ok=True)
-            (log_dir / "lisan.log").write_text(
+            (log_dir / "errors.log").write_text(
                 "2026-07-06 09:38:15 [ERROR] lisan: telegram poll error; retry in 1s\n"
                 "Traceback (most recent call last):\n"
                 '  File "x.py", line 1, in <module>\n'
