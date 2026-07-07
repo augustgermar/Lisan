@@ -1,8 +1,11 @@
 # docs/ — what is live and what is history
 
-Two documents are LIVE (unexecuted work orders; each states its own entry
-gate — read it before starting):
+Three documents are LIVE (unexecuted work orders; each states its own
+entry gate — read it before starting):
 
+- `ground_truth_workorder.md` — WO-GROUND, self-referential questions
+  answered from generated ground truth, never memory. No entry gate;
+  good first task for a post-Fable agent.
 - `ship2_enable_workorder.md` — enable person enrichment (Ship 2 of
   WO-ENRICH). Waits for the owner's calibration verdict, pasted into the
   slot in that file. Binding spec: `ship2_person_enrichment.md`.
