@@ -170,15 +170,6 @@ def _find_entity(vault: Path, ref: str) -> Path | None:
 
 
 def _reindex(vault: Path, db_path: Path | None, updated: Path, *, removed: Path) -> None:
-    try:
-        from .rebuild_index import index_single_record, open_index_connection
+    from .rebuild_index import reindex_record
 
-        conn = open_index_connection(db_path)
-        try:
-            index_single_record(updated, vault, conn)
-            conn.execute("DELETE FROM files WHERE path = ?", (str(removed.relative_to(vault)),))
-            conn.commit()
-        finally:
-            conn.close()
-    except Exception:
-        pass
+    reindex_record(updated, vault, db_path, remove=removed, quiet=True)

@@ -439,17 +439,9 @@ def _emit(
 
 
 def _index_quietly(path: Path, vault: Path, db_path: Path | None) -> None:
-    try:
-        from .rebuild_index import index_single_record, open_index_connection
+    from .rebuild_index import reindex_record
 
-        conn = open_index_connection(db_path)
-        try:
-            index_single_record(path, vault, conn)
-            conn.commit()
-        finally:
-            conn.close()
-    except Exception:
-        pass
+    reindex_record(path, vault, db_path, quiet=True)
 
 
 def _slug(text: str) -> str:

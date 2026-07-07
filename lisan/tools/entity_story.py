@@ -25,7 +25,7 @@ from typing import Any
 from ..frontmatter import load_markdown, write_markdown
 from ..utils import today_iso
 from .deixis import tokenize_principal
-from .rebuild_index import index_single_record, open_index_connection
+from .rebuild_index import reindex_record
 
 # Compact after this many unfolded log entries have accumulated. Overridable
 # via config (memory.entity_compact_threshold).
@@ -291,12 +291,9 @@ def _append_developments(prior_story: str, new_material: str) -> str:
 
 
 def _reindex(entity_path: Path, vault: Path, db_path: Path | None) -> None:
-    conn = open_index_connection(db_path)
-    try:
-        index_single_record(entity_path, vault, conn)
-        conn.commit()
-    finally:
-        conn.close()
+    # Raising on purpose: a story write whose index update failed must
+    # surface to the job queue and retry, not silently drift out of search.
+    reindex_record(entity_path, vault, db_path)
 
 
 def _read_draft_body(draft_path: Path | None) -> str:

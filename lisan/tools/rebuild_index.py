@@ -296,6 +296,33 @@ def open_index_connection(db_path: Path | None = None) -> sqlite3.Connection:
     return conn
 
 
+def reindex_record(
+    path: Path,
+    vault: Path,
+    db_path: Path | None = None,
+    *,
+    remove: Path | None = None,
+    quiet: bool = False,
+) -> None:
+    """Reindex one record (optionally dropping another, for merges) in a
+    single connection and commit. The one home for the connect-index-commit
+    dance — entity_story, entity_merge, and deviations each grew a private
+    near-copy of it. ``quiet`` swallows failures for callers where indexing
+    is best-effort; leave it False where a failed index must retry."""
+    try:
+        conn = open_index_connection(db_path)
+        try:
+            index_single_record(path, vault, conn)
+            if remove is not None:
+                conn.execute("DELETE FROM files WHERE path = ?", (str(remove.relative_to(vault)),))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        if not quiet:
+            raise
+
+
 def ensure_index_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_SQL)
     _ensure_files_columns(conn)
