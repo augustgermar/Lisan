@@ -170,11 +170,27 @@ def test_aggregate_ignores_nulls():
     assert agg["b"] == {"mean": 2.0, "n": 1}
 
 
+def _private_terms() -> tuple[str, ...]:
+    """Terms that must never appear in committed eval fixtures. Loaded from
+    the machine-local blocklist (never tracked) when it exists — hardcoding
+    the list here would BE the leak it exists to prevent. On machines
+    without a blocklist, the generic owner marker still keeps the check
+    exercising the mechanism."""
+    import os
+
+    path = Path(os.environ.get("LISAN_BLOCKLIST") or Path.home() / ".lisan" / "private-names.txt")
+    terms = ("august", "vega")
+    if path.exists():
+        local = tuple(t.strip().lower() for t in path.read_text(encoding="utf-8").splitlines() if t.strip())
+        terms = terms + local
+    return terms
+
+
 def test_probe_set_is_well_formed():
     spec = json.loads((_EVALS / "probes" / "baseline_v1.json").read_text(encoding="utf-8"))
     ids = [p["id"] for p in spec["probes"]]
     assert len(ids) == len(set(ids))
     assert all(p["text"].strip() for p in spec["probes"])
-    banned = ("august", "maya", "josie", "pip", "varga", "chico", "vega")
     blob = json.dumps(spec).lower()
-    assert not any(name in blob for name in banned)
+    leaked = [t for t in _private_terms() if f" {t}" in blob or f'"{t}' in blob]
+    assert not leaked, f"private terms in committed probe set: {leaked}"
