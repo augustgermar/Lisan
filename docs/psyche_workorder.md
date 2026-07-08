@@ -31,7 +31,8 @@ and scored against outcomes.
 (Implement, do not relitigate.)
 
 - **Tier F — Facts.** Externally established events, including formal
-  medical or educational diagnoses of household members. Stored as
+  medical or educational diagnoses of people in the owner's world.
+  Stored as
   claims/evidence with source, date, and provider; full confidence is
   legitimate because the *event of the diagnosis* is the fact being
   recorded. Recording a diagnosis is memory, not diagnosing.
@@ -170,7 +171,7 @@ applies unchanged).
    mention threshold? (Ship 1 is unaffected — observation is always
    explicit and owner-initiated.)
 2. The context-tag vocabulary: fixed small set or free tags?
-3. Does the analyst run per-entity or across the household graph
+3. Does the analyst run per-entity or across the relationship graph
    (relationship-level patterns)? Per-entity first is the safe default.
 4. Retention/rollup for check-ins after they fold into longer records.
 
