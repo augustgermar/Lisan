@@ -78,6 +78,14 @@ and scored against outcomes.
    that leaves the machine's trust boundary, and never present in the
    repo, commit messages, or documentation. Committed examples use the
    repository's invented cast only.
+6. **The agent is a subject too (owner-decreed).** The same Tier-H
+   machinery applies to the agent's own behavior: hypotheses with
+   evidence, counterexample duty, predictions scored against what it
+   actually did. Same schema, same gates, no special pleading in either
+   direction — an agent that holds everyone in the owner's world to
+   evidence-gated hypotheses is held to the same standard by its own
+   machinery. Its observational record is different (see §4.4); the
+   epistemics are identical.
 
 ## 2. Ship 1 — Observation and support layer (build now)
 
@@ -122,6 +130,29 @@ and scored against outcomes.
    distinct weeks (ship conservative: N=5, M=3; config-tunable).
 3. The gate exists because an analyst with two data points is a
    horoscope. It waits for the data it needs to be honest.
+4. **The self-analysis pass (rule 6 of §1).** The analyst also runs
+   with the agent itself as subject, reading the sources where its
+   behavior is actually recorded: the first-person episode layer, the
+   job/plan ledger, transcripts, and self-evaluation findings — not
+   owner check-ins, which will never mention it. Distinct from the
+   existing capability-belief machinery and deliberately so: beliefs
+   say what the agent CAN do; these patterns say what it TENDS to do
+   ("invents explanations under diagnostic pressure" is a behavior
+   pattern, and a historically attested one). Constraints beyond the
+   shared gates:
+   - Self-patterns link to the agent's entity/self record; like all
+     interpretation they are never woven into narrative, and they NEVER
+     touch the identity kernel — a hypothesis about behavior is not
+     identity, and promotion of anything to identity level remains an
+     owner-gated ceremony.
+   - Prediction scoring prefers deterministic signals (job outcomes,
+     tool-call records, response-latency, self-eval dimension scores);
+     where judgment is required it comes from the external judge, never
+     self-assessment (examiner ≠ examinee).
+   - A confirmed negative self-pattern may emit an origin:self
+     improvement loop through the existing deviation seam — which is
+     how a fact about the agent's psychology becomes, eventually, a
+     fix (see the self-repair work order, when its gate opens).
 
 ## 5. Ship 4 — Decode-on-demand (anytime; mostly prompt + retrieval)
 
