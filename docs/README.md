@@ -1,8 +1,12 @@
 # docs/ — what is live and what is history
 
-Three documents are LIVE (unexecuted work orders; each states its own
+Four documents are LIVE (unexecuted work orders; each states its own
 entry gate — read it before starting):
 
+- `psyche_workorder.md` — WO-PSYCHE, the psychological pattern layer:
+  three-tier provenance (facts / owner-ratified frameworks / earned
+  hypotheses), observation-first, prediction-scored. Ship 1 has no
+  entry gate; Ship 3 waits for four weeks of observation data.
 - `ground_truth_workorder.md` — WO-GROUND, self-referential questions
   answered from generated ground truth, never memory. No entry gate;
   good first task for a post-Fable agent.
