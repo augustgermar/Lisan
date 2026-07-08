@@ -257,6 +257,7 @@ ENUMS = {
         "confidence_evidence_mismatch",
         "identity_claim",
         "psychological_hypothesis",
+        "support_strategy",
         "other",
     },
     "subtype": {"person", "place", "thing", "project", "organization", "text_message", "photo", "document", "call_log", "receipt", "legal", "screenshot"},

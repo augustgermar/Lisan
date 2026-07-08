@@ -80,6 +80,49 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "checkin",
+        "description": (
+            "Record a thirty-second observational check-in about a person the user "
+            "mentions (mood, state, something they said or did). Record ONLY what was "
+            "observed — states, actions, words — NEVER interpretation, diagnosis, or "
+            "speculation about causes; those belong to pattern records with their own "
+            "lifecycle. Use when the user reports how someone is doing ('checkin: ...' "
+            "or naturally: 'M was quiet after school today'). Context tags capture "
+            "circumstances worth correlating later (whose day it was, school day, etc.)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "person": {"type": "string", "description": "Who the observation is about (name)"},
+                "note": {"type": "string", "description": "The neutral observation — what happened"},
+                "tags": {"type": "array", "items": {"type": "string"},
+                         "description": "Context tags, e.g. ['school-day', 'transition-evening']"},
+                "quote": {"type": "string", "description": "Optional direct quote, verbatim"},
+            },
+            "required": ["person", "note"],
+        },
+    },
+    {
+        "name": "support_note",
+        "description": (
+            "Record a dated outcome for a support strategy tried with a person — did it "
+            "help? First use creates the strategy's record; later uses accumulate its "
+            "track record. Use when the user says something like 'the bubble game worked "
+            "today' or 'the countdown timer didn't help this time'. Ask 'want me to log "
+            "that?' if unsure. To answer 'what works for X', use search_memory."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "person": {"type": "string", "description": "Who the strategy is for"},
+                "strategy": {"type": "string", "description": "The strategy, briefly named"},
+                "outcome": {"type": "string", "enum": ["worked", "didnt_work", "mixed"]},
+                "note": {"type": "string", "description": "Optional context for this outcome"},
+            },
+            "required": ["person", "strategy", "outcome"],
+        },
+    },
+    {
         "name": "merge_entities",
         "description": (
             "Merge two entity records that are really the same thing (a duplicate or a "
@@ -228,6 +271,10 @@ def build_tool_handlers(
         ),
         "self_state": lambda: self_state(vault=vault, db_path=db_path),
         "browser": lambda action, **kw: _browser_tool(action, **kw),
+        "checkin": lambda person, note, tags=None, quote=None: _checkin_tool(
+            person, note, tags=tags, quote=quote, vault=vault, db_path=db_path),
+        "support_note": lambda person, strategy, outcome, note=None: _support_note_tool(
+            person, strategy, outcome, note=note, vault=vault, db_path=db_path),
         "merge_entities": lambda source, target: _merge_entities_tool(source, target, vault=vault, db_path=db_path),
         "ingest_files": lambda path, replace=False, mode="life": ingest_files_tool(
             path=path,
@@ -373,6 +420,24 @@ def run_codex(
 
 
 _TELEGRAM_CONVERSATION_RE = re.compile(r"^telegram-(\d+)\b")
+
+
+def _checkin_tool(person: str, note: str, *, tags=None, quote=None, vault: Path, db_path: Path | None) -> str:
+    import json as _json
+
+    from .checkin import record_checkin
+
+    out = record_checkin(vault, person, note, tags=list(tags or []), quote=quote, db_path=db_path)
+    return _json.dumps(out, ensure_ascii=True)
+
+
+def _support_note_tool(person: str, strategy: str, outcome: str, *, note=None, vault: Path, db_path: Path | None) -> str:
+    import json as _json
+
+    from .checkin import support_note
+
+    out = support_note(vault, person, strategy, outcome, note=note, db_path=db_path)
+    return _json.dumps(out, ensure_ascii=True)
 
 
 def _browser_tool(action: str, **kw: Any) -> str:

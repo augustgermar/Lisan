@@ -1003,6 +1003,7 @@ def normalize_evidence_source_type(value: Any) -> str:
         "git_commit",
         "file",
         "manual_note",
+        "checkin",
         "other",
         "markdown",
         "pdf",

@@ -503,6 +503,22 @@ def build_parser() -> argparse.ArgumentParser:
     draft_backlog.add_argument("--vault", type=Path, default=vault_root())
     draft_backlog.add_argument("--db-path", type=Path, default=None)
 
+    checkin_cmd = subparsers.add_parser("checkin", help="Record a neutral observational check-in about a person")
+    checkin_cmd.add_argument("person", help="Who the observation is about")
+    checkin_cmd.add_argument("--note", required=True, help="What was observed (never interpretation)")
+    checkin_cmd.add_argument("--tag", action="append", default=[], help="Context tag (repeatable)")
+    checkin_cmd.add_argument("--quote", default=None, help="Optional verbatim quote")
+    checkin_cmd.add_argument("--vault", type=Path, default=vault_root())
+    checkin_cmd.add_argument("--db-path", type=Path, default=None)
+
+    support_cmd = subparsers.add_parser("support", help="Log a support-strategy outcome, or list what helps")
+    support_cmd.add_argument("person", help="Who the strategy is for")
+    support_cmd.add_argument("--strategy", default=None, help="The strategy tried (omit to list what helps)")
+    support_cmd.add_argument("--outcome", default=None, choices=["worked", "didnt_work", "mixed"])
+    support_cmd.add_argument("--note", default=None, help="Optional context for this outcome")
+    support_cmd.add_argument("--vault", type=Path, default=vault_root())
+    support_cmd.add_argument("--db-path", type=Path, default=None)
+
     restart = subparsers.add_parser("restart", help="Restart the resident service (refuses over in-flight jobs)")
     restart.add_argument("--db-path", type=Path, default=None)
     restart.add_argument("--force", action="store_true", help="Restart even while jobs are mid-run")
@@ -726,6 +742,23 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "checkin":
+        from .tools.checkin import record_checkin
+        out = record_checkin(args.vault, args.person, args.note, tags=args.tag, quote=args.quote, db_path=args.db_path)
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+        return 0 if out.get("ok") else 1
+
+    if args.command == "support":
+        from .tools.checkin import support_note, support_summary
+        if args.strategy and args.outcome:
+            out = support_note(args.vault, args.person, args.strategy, args.outcome, note=args.note, db_path=args.db_path)
+        elif not args.strategy and not args.outcome:
+            out = support_summary(args.vault, args.person)
+        else:
+            out = {"ok": False, "error": "give both --strategy and --outcome to log, or neither to list"}
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+        return 0 if out.get("ok") else 1
 
     if args.command == "restart":
         from .tools.restart import render_restart_report, restart_service
