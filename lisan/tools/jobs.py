@@ -971,12 +971,28 @@ def dispatch_job(
         rewrites = _enqueue_entity_rewrites(
             result, vault=vault, conversation_id=payload.get("conversation_id"), db_path=db_path,
         )
+        # Post-turn job planning is the seam the maintenance drives hang off
+        # (analyst, dreamer, self-eval, deviation scan). The legacy path runs
+        # it inside capture_text; the observer must run it here — bypassing
+        # it silenced every drive from 2026-07-05 to 2026-07-15.
+        post_turn: list[dict[str, Any]] = []
+        if result.action != "skip":
+            from .capture import enqueue_post_turn_jobs
+
+            post_turn = enqueue_post_turn_jobs(
+                result,
+                vault=vault,
+                text=text,
+                conversation_id=payload.get("conversation_id"),
+                db_path=db_path,
+            )
         return {
             "action": result.action,
             "mode": result.mode,
             "draft": str(result.draft_path) if result.draft_path else None,
             "skeptic_approved": result.skeptic_approved,
             "entity_rewrites_queued": rewrites,
+            "post_turn_jobs_queued": post_turn,
         }
 
     if job_type == "plan.run":

@@ -79,39 +79,10 @@ def capture_text(
         out["response"] = response_text
         if queue_background and result.action != "skip":
             from .jobs import enqueue_job
-            from .job_policy import which_jobs_for_turn
 
-            queued_jobs: list[dict[str, Any]] = []
-            turn_metadata = {
-                "vault": str(vault),
-                "db_path": str(db_path) if db_path else None,
-                "conversation_id": conversation_id,
-                "text": text,
-                "action": result.action,
-                "mode": result.mode,
-                "reason": "memory capture wrote or updated records",
-                "listener": result.listener,
-                "writer": result.writer or {},
-                "draft_path": str(result.draft_path or ""),
-                "transcript_path": str(result.transcript_path),
-                "records_written": _count_created_records(result.writer or {}),
-                "high_salience": _is_high_salience(result.listener, result.writer or {}),
-                "self_analysis_requested": _is_self_analysis_requested(text),
-                "explicit_memory_request": _is_memory_request(text),
-            }
-            job_specs = which_jobs_for_turn(turn_metadata, db_path=db_path)
-            for job_spec in job_specs:
-                if isinstance(job_spec, dict):
-                    job_type = str(job_spec.get("job_type") or "")
-                    payload = job_spec.get("payload") or {}
-                    priority = int(job_spec.get("priority") or 100)
-                else:
-                    job_type, payload, priority = job_spec
-                try:
-                    job_id = enqueue_job(job_type, payload, priority=priority, db_path=db_path)
-                    queued_jobs.append({"job_type": job_type, "job_id": job_id})
-                except Exception:
-                    continue
+            queued_jobs = enqueue_post_turn_jobs(
+                result, vault=vault, text=text, conversation_id=conversation_id, db_path=db_path,
+            )
             # Enqueue story-rewrite jobs for entities that received new material.
             for entity_path in (result.entities_touched or []):
                 try:
@@ -164,6 +135,60 @@ def capture_text(
     finally:
         if created_trace:
             reset_current_turn_trace(trace_token)
+
+
+def enqueue_post_turn_jobs(
+    result,
+    *,
+    vault: Path,
+    text: str,
+    conversation_id: str | None,
+    db_path: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Plan and enqueue the post-turn background jobs for a captured turn.
+
+    This seam is where every maintenance drive hangs — analyst scans,
+    dreamer compaction, the weekly self-eval, the daily deviation scan.
+    Both capture paths must pass through it: when the observer path
+    (capture.observe) bypassed it, none of those drives ran even once
+    between 2026-07-05 and 2026-07-15 and nothing said so. ``result`` is
+    the MemoryPipelineResult of the turn just captured.
+    """
+    from .job_policy import which_jobs_for_turn
+    from .jobs import enqueue_job
+
+    queued_jobs: list[dict[str, Any]] = []
+    turn_metadata = {
+        "vault": str(vault),
+        "db_path": str(db_path) if db_path else None,
+        "conversation_id": conversation_id,
+        "text": text,
+        "action": result.action,
+        "mode": result.mode,
+        "reason": "memory capture wrote or updated records",
+        "listener": result.listener,
+        "writer": result.writer or {},
+        "draft_path": str(result.draft_path or ""),
+        "transcript_path": str(result.transcript_path),
+        "records_written": _count_created_records(result.writer or {}),
+        "high_salience": _is_high_salience(result.listener, result.writer or {}),
+        "self_analysis_requested": _is_self_analysis_requested(text),
+        "explicit_memory_request": _is_memory_request(text),
+    }
+    job_specs = which_jobs_for_turn(turn_metadata, db_path=db_path)
+    for job_spec in job_specs:
+        if isinstance(job_spec, dict):
+            job_type = str(job_spec.get("job_type") or "")
+            payload = job_spec.get("payload") or {}
+            priority = int(job_spec.get("priority") or 100)
+        else:
+            job_type, payload, priority = job_spec
+        try:
+            job_id = enqueue_job(job_type, payload, priority=priority, db_path=db_path)
+            queued_jobs.append({"job_type": job_type, "job_id": job_id})
+        except Exception:
+            continue
+    return queued_jobs
 
 
 def _drain_entity_rewrite_jobs(
