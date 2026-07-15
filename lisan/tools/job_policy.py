@@ -25,6 +25,7 @@ DEFAULT_JOB_PRIORITIES = {
     "manifest.regenerate": 90,
     "analyst.scan": 70,
     "prediction.reconcile": 75,
+    "corpus.audit_priors": 78,
     "dreamer.maintenance": 80,
     "deviation.scan": 85,
     "self.evaluate": 90,
@@ -41,6 +42,7 @@ DEFAULT_JOB_PRIORITIES = {
 COALESCE_AGGRESSIVE = {
     "analyst.scan",
     "prediction.reconcile",
+    "corpus.audit_priors",
     "dreamer.maintenance",
     "deviation.scan",
     "self.evaluate",
@@ -222,6 +224,9 @@ def which_jobs_for_turn(turn_metadata: dict[str, Any] | None, db_path: Path | No
     if _should_queue_prediction_reconcile(turn_metadata, db_path):
         jobs.append(_job_spec("prediction.reconcile", turn_metadata, priority_for_job_type("prediction.reconcile")))
 
+    if _should_queue_corpus_audit(db_path):
+        jobs.append(_job_spec("corpus.audit_priors", turn_metadata, priority_for_job_type("corpus.audit_priors")))
+
     return jobs
 
 
@@ -277,6 +282,15 @@ def _should_queue_self_eval(db_path: Path | None) -> bool:
 def _should_queue_deviation_scan(db_path: Path | None) -> bool:
     """Once a day, off the same idle seam as the dreamer — no new daemon."""
     last = _last_successful_job_time("deviation.scan", db_path)
+    if last is None:
+        return True
+    return _hours_since(last) >= 24
+
+
+def _should_queue_corpus_audit(db_path: Path | None) -> bool:
+    """Daily, like the deviation scan: the register is a slow-moving fact
+    about the corpus, not a hot path."""
+    last = _last_successful_job_time("corpus.audit_priors", db_path)
     if last is None:
         return True
     return _hours_since(last) >= 24

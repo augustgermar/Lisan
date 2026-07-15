@@ -374,6 +374,50 @@ def _enforce_interpretation_protocol(
                 log_error(vault, "conversation.iip_regeneration", exc)
                 break
             complaints = validate_interpretation(out, db_path=db_path)
+
+        # IIP Phase 2: a structurally valid answer can still be wholly
+        # in-register — every hypothesis wearing one of the corpus's own
+        # favorite frames. The challenge shares the regeneration budget.
+        if not complaints:
+            try:
+                from .attribution_priors import (
+                    challenge_feedback,
+                    hypotheses_all_in_register,
+                    load_attribution_register,
+                )
+
+                register = load_attribution_register(vault)
+                matched = hypotheses_all_in_register(out, register)
+                if matched:
+                    challenge: dict[str, Any] = {"priors_matched": matched}
+                    event["challenge"] = challenge
+                    if regens < max_regens:
+                        regens += 1
+                        try:
+                            out = call_agent(challenge_feedback(matched))
+                            complaints = validate_interpretation(out, db_path=db_path)
+                            still = None if complaints else hypotheses_all_in_register(out, register)
+                            challenge["outcome"] = (
+                                "structure_regressed" if complaints
+                                else ("still_in_register" if still else "cleared")
+                            )
+                        except Exception as exc:
+                            log_error(vault, "conversation.iip_challenge_regen", exc)
+                            challenge["outcome"] = "regeneration_failed"
+                    else:
+                        challenge["outcome"] = "exhausted"
+                    if challenge["outcome"] in {"exhausted", "still_in_register"}:
+                        response = str(out.get("response") or "").strip()
+                        if response:
+                            out = dict(out)
+                            out["response"] = (
+                                f"{response}\n\n(A note on my own reasoning: every reading "
+                                "here leans on frames my records already favor about these "
+                                "people — hold them extra loosely.)"
+                            )
+            except Exception as exc:
+                log_error(vault, "conversation.iip_challenge", exc)
+
         event["regenerations"] = regens
         if complaints:
             event["validated"] = "incomplete"

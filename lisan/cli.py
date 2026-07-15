@@ -356,6 +356,12 @@ def build_parser() -> argparse.ArgumentParser:
     predictions_reconcile.add_argument("--vault", type=Path, default=vault_root())
     predictions_reconcile.add_argument("--db-path", type=Path, default=None)
 
+    iip_cmd = subparsers.add_parser("iip", help="Interpersonal Interpretation Protocol instruments")
+    iip_subparsers = iip_cmd.add_subparsers(dest="iip_command", required=True)
+    iip_challenges = iip_subparsers.add_parser("challenges", help="Weekly counts from the IIP fire/challenge log")
+    iip_challenges.add_argument("--vault", type=Path, default=vault_root())
+    iip_challenges.add_argument("--weeks", type=int, default=4, help="How many weeks back to summarize")
+
     frameworks_cmd = subparsers.add_parser("frameworks", help="Owner-ratified interpretive frameworks (Tier R)")
     frameworks_subparsers = frameworks_cmd.add_subparsers(dest="frameworks_command", required=True)
     frameworks_list = frameworks_subparsers.add_parser("list", help="List ratified frameworks with predictive standing")
@@ -1838,6 +1844,13 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(out)
         return 0
+
+    if args.command == "iip":
+        if args.iip_command == "challenges":
+            from .tools.interpretation import summarize_iip_log
+
+            print(summarize_iip_log(args.vault, weeks=args.weeks))
+            return 0
 
     if args.command == "frameworks":
         from .tools.decode import list_ratified_frameworks, ratify_framework
