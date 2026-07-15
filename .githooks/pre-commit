@@ -6,11 +6,11 @@ set -eu
 # Only inspects files being added/changed (ACM) so removing a tracked file
 # from the index does not trip the guard.
 blocked=$(git diff --cached --name-only --diff-filter=ACM \
-  | grep -E '(^|/)lisan-vault/|(^|/)lisan\.sqlite$|(^|/)embeddings\.bin$' || true)
+  | grep -E '(^|/)lisan-vault/|(^|/)vault/|(^|/)transcripts/|(^|/)credentials/|(^|/)logs/|\.jsonl$|\.log$|\.sqlite(-wal|-shm|-journal)?$|(^|/)embeddings\.bin$' || true)
 if [ -n "$blocked" ]; then
   echo "pre-commit: refusing to commit personal/local files (gitignored by design):" >&2
   printf '  %s\n' $blocked >&2
-  echo "These are vault data or live config. Unstage them (git restore --staged <file>)." >&2
+  echo "These are vault data, logs, or live config. Unstage them (git restore --staged <file>)." >&2
   exit 1
 fi
 

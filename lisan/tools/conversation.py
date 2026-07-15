@@ -83,30 +83,55 @@ def run_conversation_turn(
     except Exception as exc:
         log_error(vault, "conversation.ground_truth", exc)
 
+    # IIP Phase 1: an interpretation-of-a-person turn carries a hard protocol
+    # — locus-diverse hypotheses, discriminators, a convergent action —
+    # injected as a directive and enforced deterministically after the call.
+    # Independent of GROUND_TRUTH: a turn about a person AND the system
+    # ("why does she keep asking about my reminders?") carries both blocks.
+    interpretation_directive = None
+    try:
+        from .interpretation import INTERPRETATION_DIRECTIVE, is_interpretation_query
+
+        if is_interpretation_query(text):
+            interpretation_directive = INTERPRETATION_DIRECTIVE
+    except Exception as exc:
+        log_error(vault, "conversation.interpretation_detect", exc)
+
     agent = ConversationAgent(vault=vault)
     record_inline_step("conversation.agent")
+
     # Section order is cache order (render_input preserves kwargs order):
     # stable blocks first (capabilities, owner profile), volatile last
     # (retrieval, the growing conversation, and the minute-resolution
     # clock) — so a provider's prefix cache survives across turns instead
-    # of missing on the first volatile byte.
-    out = agent.run_json(
-        json.dumps({"user_message": text}, indent=2, ensure_ascii=True),
-        significance="medium",
-        provider=provider,
-        model=model,
-        provider_error_mode="raise",
-        capabilities=cached_capability_index(),
-        owner_profile=profile or None,
-        retrieved_context=context or None,
-        ground_truth=ground_truth,
-        unresolved_thread=unresolved_thread,
-        conversation=history or None,
-        today=_today_line(),
-        db_path=db_path,
-        conversation_id=conversation_id,
-        approval_fn=approval_fn,
-    )
+    # of missing on the first volatile byte. validator_feedback, when a
+    # regeneration needs it, appends after everything.
+    def _call_agent(validator_feedback: str | None = None) -> dict[str, Any]:
+        return agent.run_json(
+            json.dumps({"user_message": text}, indent=2, ensure_ascii=True),
+            significance="medium",
+            provider=provider,
+            model=model,
+            provider_error_mode="raise",
+            capabilities=cached_capability_index(),
+            owner_profile=profile or None,
+            retrieved_context=context or None,
+            ground_truth=ground_truth,
+            interpretation_protocol=interpretation_directive,
+            unresolved_thread=unresolved_thread,
+            conversation=history or None,
+            today=_today_line(),
+            validator_feedback=validator_feedback,
+            db_path=db_path,
+            conversation_id=conversation_id,
+            approval_fn=approval_fn,
+        )
+
+    out = _call_agent()
+    if interpretation_directive is not None:
+        out = _enforce_interpretation_protocol(
+            out, _call_agent, text=text, vault=vault, db_path=db_path,
+        )
     response = str(out.get("response") or "").strip()
     tool_calls = list(getattr(agent, "last_tool_calls", []) or [])
     if not response:
@@ -300,6 +325,68 @@ def _retrieval_context(*, vault: Path, text: str, conversation_id: str | None, d
     except Exception as exc:
         log_error(vault, "conversation.retrieval", exc)
         return ""
+
+
+def _enforce_interpretation_protocol(
+    out: dict[str, Any],
+    call_agent,
+    *,
+    text: str,
+    vault: Path,
+    db_path: Path | None,
+) -> dict[str, Any]:
+    """Deterministic IIP enforcement (never an LLM judging an LLM): validate
+    the structured hypothesis space, regenerate with the validator's
+    complaint at most `iip.max_regenerations` times (owner-set: 1), and on
+    exhaustion render the best attempt with an explicit incompleteness
+    notice — the requirement is never silently dropped. Every detector fire
+    is logged, pass or fail, so detector precision stays visible. The
+    whole ladder is disabled at runtime by `iip.validator_enabled`."""
+    from ..config import load_config
+    from .interpretation import (
+        incompleteness_notice,
+        log_iip_event,
+        query_digest,
+        validate_interpretation,
+    )
+
+    cfg = load_config().get("iip") or {}
+    event: dict[str, Any] = {"detector": "interpretation", "query_digest": query_digest(text)}
+    try:
+        if not cfg.get("validator_enabled", True):
+            event["validated"] = "disabled"
+            return out
+        max_regens = int(cfg.get("max_regenerations", 1))
+        complaints = validate_interpretation(out, db_path=db_path)
+        event["first_pass_complaints"] = list(complaints)
+        regens = 0
+        while complaints and regens < max_regens:
+            regens += 1
+            feedback = (
+                "Your previous answer failed the interpretation protocol: "
+                + "; ".join(complaints)
+                + ". Produce the full response again with a compliant interpretation object. "
+                "Do not mention this correction to the user."
+            )
+            try:
+                out = call_agent(feedback)
+            except Exception as exc:
+                log_error(vault, "conversation.iip_regeneration", exc)
+                break
+            complaints = validate_interpretation(out, db_path=db_path)
+        event["regenerations"] = regens
+        if complaints:
+            event["validated"] = "incomplete"
+            event["final_complaints"] = list(complaints)
+            response = str(out.get("response") or "").strip()
+            if response:
+                out = dict(out)
+                out["response"] = f"{response}\n\n{incompleteness_notice(complaints)}"
+        else:
+            event["validated"] = "pass"
+        return out
+    finally:
+        log_iip_event(vault, event)
 
 
 def _queue_observation(

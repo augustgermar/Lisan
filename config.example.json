@@ -109,6 +109,11 @@
     "text_preview_chars": 4000,
     "skip_if_inside_vault": true
   },
+  "iip": {
+    "validator_enabled": true,
+    "max_regenerations": 1,
+    "__comment": "Interpersonal Interpretation Protocol: deterministic validator on interpret-a-person turns. validator_enabled=false disables enforcement at runtime (detector fires still log); max_regenerations bounds the retry cost per turn."
+  },
   "backup": {
     "destination_dir": "backups",
     "encrypt_by_default": false,
