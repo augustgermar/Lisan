@@ -76,6 +76,15 @@ class WriterAgent(PromptAgent):
     def run_json(self, user_input: str, **kwargs: Any) -> Any:
         task = str(kwargs.get("task") or "episode")
         self.prompt_file = _TASK_PROMPT_FILES.get(task, "writer_episode_v1")
+        if task == "episode_artifacts" and not kwargs.get("schema"):
+            # The artifacts prompt forbids re-emitting the episode-core keys,
+            # so it must not be validated against the schema that requires
+            # them: every prompt-obedient response failed that check, and the
+            # silent fallback dropped the turn's entities, open loops, and
+            # decisions (the 2026-07-05..15 record losses, Chrysalis included).
+            from ..schemas import get_schema
+
+            kwargs["schema"] = get_schema("writer_artifacts_output")
         return super().run_json(user_input, **kwargs)
 
     def fallback_output(self, user_input: str, significance: str = "medium", **kwargs: Any) -> str:

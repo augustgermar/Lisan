@@ -65,5 +65,57 @@ class WriterStrictParseTests(unittest.TestCase):
         self.assertIn('"parse_error_mode": "raise"', source)
 
 
+class _ArtifactsOnlyLLM:
+    """A provider that obeys the artifacts prompt: arrays only, no core keys."""
+
+    def complete(self, prompt, **kwargs) -> LLMResponse:
+        return LLMResponse(
+            text=(
+                '{"entities_to_create": [{"name": "Wren", "kind": "person", '
+                '"summary": "A friend", "confidence_basis": "named in turn"}], '
+                '"open_loops_to_create": [], "decisions_to_create": [], '
+                '"behavioral_contracts": [], "state_updates": [], "evidence_to_create": []}'
+            ),
+            provider="stub",
+            model="stub",
+        )
+
+
+class ArtifactsPassSchemaTests(unittest.TestCase):
+    """The 2026-07-05..15 record-loss root cause: the artifacts prompt forbids
+    the exact keys the writer_output schema requires, so every response that
+    OBEYED the prompt failed validation and fell back to a hollow record.
+    The artifacts pass must validate against its own schema."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        ensure_repo_layout(self.root)
+        self.vault = vault_root(self.root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_prompt_obedient_artifacts_response_is_accepted(self):
+        agent = WriterAgent(vault=self.vault, config={})
+        agent.llm = _ArtifactsOnlyLLM()
+        out = agent.run_json(
+            "a turn naming Wren", task="episode_artifacts", parse_error_mode="raise",
+        )
+        self.assertEqual(out["entities_to_create"][0]["name"], "Wren")
+
+    def test_core_pass_still_requires_the_core_keys(self):
+        agent = WriterAgent(vault=self.vault, config={})
+        agent.llm = _ArtifactsOnlyLLM()
+        with self.assertRaises(SchemaParseError):
+            agent.run_json("a turn naming Wren", task="episode_core", parse_error_mode="raise")
+
+    def test_degenerate_artifacts_response_still_fails(self):
+        agent = WriterAgent(vault=self.vault, config={})
+        agent.llm = _ProseLLM()
+        with self.assertRaises(SchemaParseError):
+            agent.run_json("a turn", task="episode_artifacts", parse_error_mode="raise")
+
+
 if __name__ == "__main__":
     unittest.main()

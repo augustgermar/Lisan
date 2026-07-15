@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "writer_artifacts_output",
+  "description": "Output of the writer's episode_artifacts pass. The artifacts prompt explicitly forbids re-emitting the episode-core keys (record_type, summary, frontmatter, ...), so this schema must not require them — validating this pass against writer_output made every prompt-obedient response fail and silently dropped the turn's entities, open loops, and decisions (2026-07-05..15).",
+  "type": "object",
+  "required": ["entities_to_create"],
+  "properties": {
+    "entities_to_create": {"type": "array", "items": {"type": "object"}},
+    "behavioral_contracts": {"type": "array", "items": {"type": "string"}},
+    "open_loops_to_create": {"type": "array", "items": {"type": "object"}},
+    "decisions_to_create": {"type": "array", "items": {"type": "object"}},
+    "state_updates": {"type": "array", "items": {"type": "object"}},
+    "evidence_to_create": {"type": "array", "items": {"type": "object"}}
+  }
+}
