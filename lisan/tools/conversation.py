@@ -69,6 +69,20 @@ def run_conversation_turn(
     except Exception as exc:
         log_error(vault, "conversation.drive_callback", exc)
 
+    # WO-GROUND Seam A: on a self-referential turn the model does not get to
+    # choose whether to consult ground truth — the truth is already in front
+    # of it before it answers. (The self_state tool stays, for turns the
+    # deterministic detector misses.)
+    ground_truth = None
+    try:
+        from .self_questions import detect_self_question, render_ground_truth
+
+        needed = detect_self_question(text)
+        if needed:
+            ground_truth = render_ground_truth(needed, vault=vault, db_path=db_path)
+    except Exception as exc:
+        log_error(vault, "conversation.ground_truth", exc)
+
     agent = ConversationAgent(vault=vault)
     record_inline_step("conversation.agent")
     # Section order is cache order (render_input preserves kwargs order):
@@ -85,6 +99,7 @@ def run_conversation_turn(
         capabilities=cached_capability_index(),
         owner_profile=profile or None,
         retrieved_context=context or None,
+        ground_truth=ground_truth,
         unresolved_thread=unresolved_thread,
         conversation=history or None,
         today=_today_line(),

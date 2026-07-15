@@ -309,6 +309,21 @@ def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) 
                         next_task["about"] = body if len(body) <= 80 else body[:77] + "..."
                 except Exception:
                     pass
+                # A "correctly scheduled" next run says nothing about whether
+                # the series works: on 2026-07-14 the agent reassured the
+                # owner over a series with 8 straight terminal failures. The
+                # snapshot must carry that record with the schedule.
+                try:
+                    from datetime import datetime, timedelta, timezone
+
+                    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    fail_row = conn.execute(
+                        "SELECT COUNT(*) FROM jobs WHERE job_type = ? AND status = 'failed' AND finished_at >= ?",
+                        (next_task["job_type"], cutoff),
+                    ).fetchone()
+                    next_task["recent_failures"] = int(fail_row[0]) if fail_row else 0
+                except Exception:
+                    pass
             due_row = conn.execute(
                 "SELECT COUNT(*) FROM jobs WHERE status = 'queued' "
                 "AND (scheduled_for IS NULL OR scheduled_for <= ?)",
@@ -466,6 +481,12 @@ def render_self_state(state: dict[str, Any]) -> str:
         recur = f" (recurring {nxt['recurrence']})" if nxt.get("recurrence") else ""
         about = f' — "{nxt["about"]}"' if nxt.get("about") else ""
         lines.append(f"Next scheduled: {nxt['job_type']} at {nxt['scheduled_for']}{recur}{about}")
+        if nxt.get("recent_failures"):
+            lines.append(
+                f"CAUTION: {nxt['recent_failures']} {nxt['job_type']} run(s) ended in terminal "
+                "failure in the last 7 days — being scheduled is not the same as working; do "
+                "not call this schedule healthy until a run has succeeded."
+            )
     for key in ("last_dreamer_success", "last_analyst_success"):
         label = key.replace("last_", "").replace("_success", "")
         lines.append(f"Last {label} success: {state.get(key) or 'never'}")
