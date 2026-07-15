@@ -240,7 +240,20 @@ def finalize_turn_trace(
     vault: Path | None = None,
 ) -> TurnTrace:
     trace.finish()
-    _persist_trace(trace, db_path=db_path, vault=vault)
+    try:
+        _persist_trace(trace, db_path=db_path, vault=vault)
+    except Exception as exc:
+        # Diagnostics must never fail the turn they describe. This runs in
+        # the turn's `finally`, after the reply is composed — on 2026-07-15
+        # a locked database here (a global index rebuild holding the writer)
+        # raised out of that finally and ate the reply. A trace is ephemeral
+        # telemetry; losing one row is nothing, losing a turn is not.
+        try:
+            from .log import log_error
+
+            log_error(vault or vault_root(), "tracing.persist (best-effort)", exc)
+        except Exception:
+            pass
     return trace
 
 

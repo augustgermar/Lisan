@@ -194,7 +194,18 @@ def which_jobs_for_turn(turn_metadata: dict[str, Any] | None, db_path: Path | No
     jobs: list[dict[str, Any]] = []
 
     if turn_metadata.get("records_written", 0) or turn_metadata.get("draft_path"):
-        jobs.append(_job_spec("index.rebuild_record", turn_metadata, priority_for_job_type("index.rebuild_record")))
+        # Records are indexed at write time by the capture fanout; the only
+        # work left post-turn is embedding whatever is new. The old spec here
+        # queued index.rebuild_record — which the dispatcher runs as a FULL
+        # vault rebuild — after every substantive turn: ~2 minutes holding
+        # the writer, which killed a concurrent chat turn on 2026-07-15.
+        # The full rebuild is a scheduled consistency net now (below).
+        jobs.append(_job_spec("index.embed_pending", turn_metadata, priority_for_job_type("index.embed_pending")))
+
+    if _should_queue_index_rebuild(db_path):
+        # Daily, deliberately at the back of the queue: a consistency net
+        # for hand-edited or externally-touched records, not a hot path.
+        jobs.append(_job_spec("index.rebuild_all", turn_metadata, priority=95))
 
     if _should_queue_analyst(turn_metadata, db_path):
         jobs.append(_job_spec("analyst.scan", turn_metadata, priority_for_job_type("analyst.scan")))
@@ -266,6 +277,20 @@ def _should_queue_self_eval(db_path: Path | None) -> bool:
 def _should_queue_deviation_scan(db_path: Path | None) -> bool:
     """Once a day, off the same idle seam as the dreamer — no new daemon."""
     last = _last_successful_job_time("deviation.scan", db_path)
+    if last is None:
+        return True
+    return _hours_since(last) >= 24
+
+
+def _should_queue_index_rebuild(db_path: Path | None) -> bool:
+    """Once a day, counting either rebuild flavor as satisfying the net."""
+    last = max(
+        filter(None, (
+            _last_successful_job_time("index.rebuild_all", db_path),
+            _last_successful_job_time("index.rebuild_record", db_path),
+        )),
+        default=None,
+    )
     if last is None:
         return True
     return _hours_since(last) >= 24

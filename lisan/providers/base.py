@@ -411,6 +411,34 @@ def _log_call(
     latency_ms: int,
     success: bool,
 ) -> None:
+    """Telemetry, strictly best-effort: by the time this runs the model has
+    already answered, and a locked database must not turn that answer into
+    a failure — on 2026-07-15 it did, when a global index rebuild held the
+    writer through the busy timeout and a user turn died logging itself."""
+    try:
+        _write_call_log(db_path, agent, provider, model, prompt_version,
+                        input_hash, output_hash, schema_version, latency_ms, success)
+    except Exception as exc:
+        try:
+            from ..tools.log import get_logger
+
+            get_logger().warning(f"llm_call_log write skipped ({exc}); the call itself succeeded")
+        except Exception:
+            pass
+
+
+def _write_call_log(
+    db_path: Path,
+    agent: str,
+    provider: str,
+    model: str,
+    prompt_version: str,
+    input_hash: str | None,
+    output_hash: str | None,
+    schema_version: str,
+    latency_ms: int,
+    success: bool,
+) -> None:
     conn = _db_connect(db_path)
     try:
         conn.execute(
