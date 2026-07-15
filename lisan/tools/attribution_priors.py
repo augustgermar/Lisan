@@ -57,9 +57,22 @@ _NON_ORIGIN_RE = re.compile(
 
 # ── Entity roster ────────────────────────────────────────────────────────────
 
+# Kinds with agency: attribution priors are about people modeling people
+# (and the institutions people act through). A concept or artifact entity
+# in the roster produces nonsense priors — the first live run registered
+# a topic entity as a causal agent because its leading article "The"
+# matched every sentence in the vault.
+_AGENTIVE_SUBTYPES = {"person", "agent", "organization", "pet"}
+
+_NAME_STOPWORDS = {
+    "the", "and", "for", "one", "two", "new", "old", "day", "her", "his",
+    "our", "their", "that", "this", "with", "from",
+}
+
+
 def _entity_roster(vault: Path) -> dict[str, dict[str, Any]]:
-    """entity_id → {names: lowercase name/alias set, canonical}. The
-    principal rides along under its substrate token."""
+    """entity_id → {names: lowercase name/alias set, canonical}. Agentive
+    entities only; the principal rides along under its substrate token."""
     roster: dict[str, dict[str, Any]] = {
         "principal": {"names": {"{{principal}}"}, "canonical": "{{principal}}"},
     }
@@ -73,17 +86,19 @@ def _entity_roster(vault: Path) -> dict[str, dict[str, Any]]:
             continue
         entity_id = str(fm.get("id") or "").strip()
         canonical = str(fm.get("canonical_name") or "").strip()
-        if not entity_id or not canonical:
+        subtype = str(fm.get("subtype") or fm.get("kind") or "").strip().lower()
+        if not entity_id or not canonical or subtype not in _AGENTIVE_SUBTYPES:
             continue
-        names = {canonical.lower()}
-        first = canonical.split()[0]
-        if len(first) >= 3:
-            names.add(first.lower())
-        for alias in fm.get("aliases") or []:
-            alias = str(alias).strip().lower()
-            if len(alias) >= 3:
-                names.add(alias)
-        roster[entity_id] = {"names": names, "canonical": canonical}
+        names = set()
+        for candidate in [canonical] + [str(a) for a in (fm.get("aliases") or [])]:
+            candidate = candidate.strip().lower()
+            if len(candidate) >= 3 and candidate not in _NAME_STOPWORDS:
+                names.add(candidate)
+        first = canonical.split()[0].lower()
+        if len(first) >= 3 and first not in _NAME_STOPWORDS:
+            names.add(first)
+        if names:
+            roster[entity_id] = {"names": names, "canonical": canonical}
     return roster
 
 

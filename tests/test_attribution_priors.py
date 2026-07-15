@@ -104,6 +104,22 @@ class PriorsMinerTests(PriorsMinerBase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(load_markdown(entries[0]).frontmatter["support_count"], MIN_SUPPORT)
 
+    def test_non_agentive_entities_never_register(self):
+        # The live first-run bug: a topic entity ("The ONE Thing"-shaped,
+        # kind thing) whose leading article matched every sentence became a
+        # registered causal agent. Things don't have agency.
+        new_entity(self.vault, "The Big Move", subtype="thing", summary="A concept entity.")
+        for i in range(MIN_SUPPORT):
+            new_claim(
+                self.vault,
+                f"Ruth skipped the visit because of the big move looming (instance {i})",
+                owner="user", claim_class="interpretation", confidence=0.5,
+            )
+        mine_attribution_priors(self.vault)
+        register = load_attribution_register(self.vault)
+        targets = {entry["target"] for entry in register}
+        self.assertNotIn("entity.the-big-move", targets)
+
 
 class ChallengeConditionTests(PriorsMinerBase):
     def _register(self):
