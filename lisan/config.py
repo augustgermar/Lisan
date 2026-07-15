@@ -67,6 +67,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "biographical_terms": None,
         "affect_terms": None,
     },
+    # IIP (interpersonal interpretation protocol): the deterministic
+    # validator on interpretation-of-a-person turns. validator_enabled is
+    # the owner's runtime kill switch; max_regenerations starts at 1
+    # (owner-set 2026-07-15, revisit after a week of challenge-log data).
+    "iip": {
+        "validator_enabled": True,
+        "max_regenerations": 1,
+    },
     "ingest": {
         "max_file_size_bytes": 5 * 1024 * 1024,
         "text_preview_chars": 4000,

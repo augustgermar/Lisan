@@ -1,5 +1,25 @@
 # Changelog
 
+## 26.7.5 — IIP Phase 1 (2026-07-15)
+
+- **Interpersonal Interpretation Protocol (Phase 1 of the owner's
+  2026-07-15 brief).** Asked to interpret a person's behavior, the agent
+  once produced hypotheses that all lived inside one person's psychology —
+  no reading where the user was a causal factor, no boring base-rate
+  reading, no discriminators, no convergent action. Now: a deterministic
+  detector classifies interpret-a-person turns and injects a protocol
+  block; the reply must carry a structured hypothesis space (locus-tagged,
+  ≥1 `user_causal`, ≥1 `situational_baserate`, discriminators, convergent
+  action, provenance refs that must resolve when present — empty provenance
+  is valid by owner decree); a deterministic post-hoc validator regenerates
+  non-compliant replies (cap: 1, owner-set) and on exhaustion renders the
+  best attempt with an explicit incompleteness notice. Every detector fire
+  logs to `vault/logs/iip-challenges.jsonl` (digest, never query text) so
+  detector precision is measurable; `iip.validator_enabled` is the runtime
+  kill switch. Repo hygiene shipped alongside: `core.hooksPath` was unset —
+  the privacy hooks were not running — now wired, with the pre-commit guard
+  extended to refuse vault/transcript/log/sqlite/credential paths.
+
 ## 26.7.5 (later the same day)
 
 - **The episodic organ, revived.** 154 skeptic-approved episode drafts had

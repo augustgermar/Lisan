@@ -4,6 +4,30 @@
   "type": "object",
   "required": ["response"],
   "properties": {
-    "response": { "type": "string" }
+    "response": { "type": "string" },
+    "interpretation": {
+      "type": "object",
+      "description": "Required only on turns carrying an INTERPRETATION_PROTOCOL block; enforced by the deterministic IIP validator, not by this schema.",
+      "required": ["hypotheses", "discriminators", "convergent_action"],
+      "properties": {
+        "hypotheses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["text", "locus"],
+            "properties": {
+              "text": { "type": "string" },
+              "locus": {
+                "type": "string",
+                "enum": ["other_person", "user_causal", "situational_baserate", "relationship_system"]
+              },
+              "provenance": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "discriminators": { "type": "array", "items": { "type": "string" } },
+        "convergent_action": { "type": "string" }
+      }
+    }
   }
 }
