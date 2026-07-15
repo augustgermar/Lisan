@@ -32,6 +32,17 @@ class AgentResult:
     tool_calls: list[dict[str, Any]] | None = None
 
 
+class SchemaParseError(RuntimeError):
+    """The model answered, but never in the required schema.
+
+    Deliberately NOT a ProviderError: a caller that opts into
+    ``parse_error_mode="raise"`` needs this to travel past the provider
+    fallback and fail the surrounding job, where the queue's retry and
+    escalation machinery owns it. The silent alternative — a deterministic
+    fallback quietly standing in for the real extraction — is how the
+    Chrysalis session's open loops vanished on 2026-07-12."""
+
+
 class PromptAgent:
     name: str = "agent"
     prompt_file: str = ""
@@ -192,10 +203,12 @@ class PromptAgent:
         model: str | None = None,
         schema: dict[str, Any] | None = None,
         provider_error_mode: str = "fallback",
+        parse_error_mode: str = "fallback",
         **kwargs: Any,
     ) -> AgentResult:
         render_kwargs = dict(kwargs)
         render_kwargs.pop("provider_error_mode", None)
+        render_kwargs.pop("parse_error_mode", None)
         prompt = self.render_input(user_input, **render_kwargs)
         schema = schema or self.output_schema()
         try:
@@ -217,6 +230,11 @@ class PromptAgent:
                 log_error(self.vault, f"{self.name}.parse", ValueError(
                     f"non-JSON response from {response.provider}: {response.text[:120]!r}"
                 ))
+                if parse_error_mode == "raise":
+                    raise SchemaParseError(
+                        f"{self.name}: response from {response.provider} did not satisfy "
+                        f"the output schema: {response.text[:200]!r}"
+                    )
                 fallback = self.fallback_output(user_input, significance=significance, **kwargs)
                 return AgentResult(text=fallback, response=response, data=self.parse_output(fallback))
         except ProviderError as exc:

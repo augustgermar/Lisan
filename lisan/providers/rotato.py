@@ -54,6 +54,11 @@ class RotatoClient(ProviderClient):
             "model": chosen_model,
             "messages": [{"role": "user", "content": full_prompt}],
             "temperature": temperature,
+            # Without an explicit ceiling the proxy's default silently cut
+            # long writer outputs mid-JSON (13 dropped memory extractions in
+            # the week of 2026-07-06). High on purpose; truncation below is
+            # an error, never a result.
+            "max_tokens": int(cfg.get("max_output_tokens") or 16384),
         }
         data = json.dumps(payload).encode("utf-8")
         request = urllib.request.Request(base_url, data=data, headers={"Content-Type": "application/json"})
@@ -66,6 +71,15 @@ class RotatoClient(ProviderClient):
         choices = body.get("choices") or []
         if not choices:
             raise ProviderError(f"rotato returned no choices: {str(body)[:200]}")
+        finish_reason = str(choices[0].get("finish_reason") or "").lower()
+        if finish_reason in {"length", "max_tokens"}:
+            # A truncated response is not a response. Returning it hands the
+            # parser half a JSON object and the caller a silent fallback;
+            # raising makes it a provider failure the retry machinery owns.
+            raise ProviderError(
+                f"rotato response truncated (finish_reason={finish_reason}); "
+                "raise providers.rotato.max_output_tokens if this recurs"
+            )
         message = choices[0].get("message") or {}
         text = str(message.get("content") or "").strip()
         if not text:

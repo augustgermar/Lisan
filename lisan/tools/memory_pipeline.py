@@ -196,6 +196,12 @@ def run_memory_pipeline(
         "provider": provider,
         "model": model,
         "provider_error_mode": "raise",
+        # A writer that can't produce schema-valid output must fail the
+        # turn's capture job — retried, escalated, investigated — never be
+        # silently replaced by the deterministic fallback. The fallback
+        # writes a hollow record (no entities, loops, or decisions) while
+        # the reply has already told the user "I have this recorded".
+        "parse_error_mode": "raise",
         "retrieved_context": context,
         "transcript": str(transcript_path.relative_to(vault)),
         "conversation_policy": json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),

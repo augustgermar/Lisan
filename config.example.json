@@ -32,7 +32,8 @@
     "rotato": {
       "base_url": "http://localhost:8990/gemflash/chat/completions",
       "default_model": "gemini-2.5-pro",
-      "timeout_seconds": 120
+      "timeout_seconds": 120,
+      "max_output_tokens": 16384
     }
   },
   "routing": {

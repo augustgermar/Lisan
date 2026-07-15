@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -132,3 +133,27 @@ class RotatoClientTests(unittest.TestCase):
         with ctx:
             with self.assertRaises(ProviderError):
                 client.complete("x")
+
+    def test_truncated_response_raises_instead_of_returning_half_json(self):
+        # The 2026-07-06..12 defect: the proxy cut long writer output at its
+        # default token ceiling, finish_reason "length", and the half-JSON
+        # went on to a silent fallback that dropped the turn's records. A
+        # truncated response is a provider failure, not a result.
+        client, ctx = self._client({
+            "choices": [{
+                "finish_reason": "length",
+                "message": {"content": '{\n  "entities_to_create": [\n    {"name": "Ti'},
+            }]
+        })
+        with ctx:
+            with self.assertRaises(ProviderError) as err:
+                client.complete("x")
+        self.assertIn("truncated", str(err.exception))
+
+    def test_request_carries_explicit_max_tokens(self):
+        client, ctx = self._client({"choices": [{"message": {"content": "ok"}}]})
+        with ctx as urlopen:
+            client.complete("x")
+        request = urlopen.call_args.args[0]
+        body = json.loads(request.data.decode("utf-8"))
+        self.assertGreaterEqual(int(body["max_tokens"]), 16384)
