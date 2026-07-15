@@ -30,7 +30,8 @@ def _seed_person(vault: Path, slug: str, canonical: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     fm = {
         "id": f"entity.{slug}", "type": "entity", "subtype": "person", "kind": "person",
-        "canonical_name": canonical, "aliases": [], "summary": f"{canonical} is a person.",
+        "canonical_name": canonical, "aliases": [], "nickname": "", "disambiguation": "",
+        "summary": f"{canonical} is a person.",
         "significance": "medium", "confidence": "low", "confidence_basis": "seed",
         "created": "2026-07-01", "updated": "2026-07-01", "status": "active",
         "domain_primary": "relational", "domain_secondary": [], "privacy": "personal",
