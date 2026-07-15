@@ -356,6 +356,16 @@ def build_parser() -> argparse.ArgumentParser:
     predictions_reconcile.add_argument("--vault", type=Path, default=vault_root())
     predictions_reconcile.add_argument("--db-path", type=Path, default=None)
 
+    frameworks_cmd = subparsers.add_parser("frameworks", help="Owner-ratified interpretive frameworks (Tier R)")
+    frameworks_subparsers = frameworks_cmd.add_subparsers(dest="frameworks_command", required=True)
+    frameworks_list = frameworks_subparsers.add_parser("list", help="List ratified frameworks with predictive standing")
+    frameworks_list.add_argument("--vault", type=Path, default=vault_root())
+    frameworks_ratify = frameworks_subparsers.add_parser("ratify", help="Record a framework the owner has adopted")
+    frameworks_ratify.add_argument("name")
+    frameworks_ratify.add_argument("--summary", required=True, help="One paragraph: what the framework claims")
+    frameworks_ratify.add_argument("--source", default=None, help="Where it comes from (book, document, conversation)")
+    frameworks_ratify.add_argument("--vault", type=Path, default=vault_root())
+
     evidence = subparsers.add_parser("evidence", help="Evidence-specific operations")
     evidence_subparsers = evidence.add_subparsers(dest="evidence_command", required=True)
     evidence_correct = evidence_subparsers.add_parser("correct", help="Create an append-only evidence correction record")
@@ -1828,6 +1838,27 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(out)
         return 0
+
+    if args.command == "frameworks":
+        from .tools.decode import list_ratified_frameworks, ratify_framework
+
+        if args.frameworks_command == "list":
+            entries = list_ratified_frameworks(args.vault)
+            if not entries:
+                print("No ratified frameworks on record.")
+                return 0
+            for entry in entries:
+                standing = f"  [{entry['prediction_standing']}]" if entry.get("prediction_standing") else ""
+                print(f"{entry['id']}  (adopted {entry['adopted']}){standing}")
+                print(f"  {entry['summary'][:160]}")
+            return 0
+        if args.frameworks_command == "ratify":
+            out = ratify_framework(args.vault, args.name, args.summary, source=args.source)
+            if not out.get("ok"):
+                print(out.get("error"), file=sys.stderr)
+                return 1
+            print(out["path"])
+            return 0
 
     if args.command == "predictions":
         from .tools.predictions import format_prediction_list, list_predictions, run_prediction_reconcile

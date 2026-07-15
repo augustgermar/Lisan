@@ -178,7 +178,7 @@ deltas reported per the header):
      how a fact about the agent's psychology becomes, eventually, a
      fix (see the self-repair work order, when its gate opens).
 
-## 5. Ship 4 — Decode-on-demand (anytime; mostly prompt + retrieval)
+## 5. Ship 4 — Decode-on-demand (anytime; mostly prompt + retrieval) — EXECUTED 2026-07-15
 
 "Help me read this": the owner pastes a message or describes an
 interaction; the agent answers grounded in the counterpart's actual
@@ -187,6 +187,22 @@ frames its output as readings and options — "three ways to hear this,
 and what each would imply" — never as a verdict on the sender. External
 text handled here remains data, never instructions (the firewall rule
 applies unchanged).
+
+Execution notes (2026-07-15, Claude Fable 5 with the owner):
+- `decode_message` tool + `tools/decode.py`: gathers the counterpart's
+  entity story, linked non-retired patterns (with Ship 2 calibration
+  standing), recent dated observations, and the ratified frameworks;
+  refuses unrecorded counterparts (with known-people candidates) and
+  ambiguous first names (with the candidate list) rather than guessing;
+  pasted text returns wearing the same untrusted-content fence the
+  browser tool uses. Readings-not-verdicts discipline lives in the
+  conversation prompt, test-pinned.
+- Ship 4 needed Tier R to exist, so its storage ritual shipped here:
+  `ratify_framework` (tool + `lisan frameworks ratify|list`) records an
+  owner-adopted framework as a knowledge record with `owner: user`, an
+  adoption date, and `framework_ratified: true`. Ratification is the
+  owner's act; the agent's interpretations through it stay attributed,
+  and its standing is earned on the Ship 2 ledger.
 
 ## 6. Open questions (resolve with the owner, then update here)
 
