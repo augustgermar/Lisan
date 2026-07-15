@@ -16,6 +16,25 @@ from ..paths import vault_root
 _DEDUP_WINDOW_MINUTES = 60
 
 
+def transcript_path_for(
+    vault: Path | None = None,
+    timestamp: datetime | None = None,
+) -> Path:
+    """Today's transcript file, created empty if absent — no appending.
+
+    For callers that need a transcript reference for a turn that is
+    already in the transcript (the capture observer: the conversation
+    layer appended both sides of the exchange at receive time)."""
+    vault = vault or vault_root()
+    timestamp = timestamp or datetime.now()
+    date_str = timestamp.date().isoformat()
+    path = vault / "transcripts" / f"{date_str}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        write_markdown(path, {"date": date_str}, "")
+    return path
+
+
 def append_transcript(
     vault: Path | None = None,
     conversation_id: str | None = None,

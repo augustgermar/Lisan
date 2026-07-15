@@ -40,7 +40,7 @@ from .record_factory import (
     supersede_record,
 )
 from .reference_resolution import normalize_text, resolve_reference, resolution_action
-from .transcripts import append_transcript
+from .transcripts import append_transcript, transcript_path_for
 from ..agents.writer import _truncate_summary as _truncate_summary_boundary
 
 
@@ -99,7 +99,15 @@ def run_memory_pipeline(
     # writer extracts from the full exchange, skeptic reviews, fanout writes.
     observe = observed_response is not None
     record_inline_step("memory_pipeline.start")
-    transcript_path = append_transcript(vault=vault, conversation_id=conversation_id, speaker=speaker, text=text)
+    if observe:
+        # The conversation layer appended both sides of this exchange at
+        # receive time; the observer only reads. Appending here wrote every
+        # turn a second time, minutes late, whenever other turns landed in
+        # between (the 2026-07-12 transcript holds the whole Chrysalis
+        # session twice) — the dedup guard only checks the latest turn.
+        transcript_path = transcript_path_for(vault)
+    else:
+        transcript_path = append_transcript(vault=vault, conversation_id=conversation_id, speaker=speaker, text=text)
     record_inline_step("memory_pipeline.transcript")
     fw = scan_text(text, vault=vault)
     text = fw.text  # use sanitized version for all downstream agents
