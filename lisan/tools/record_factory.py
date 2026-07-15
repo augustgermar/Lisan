@@ -825,6 +825,33 @@ def new_evidence(
     return CreatedRecord(path=record_path, created=True)
 
 
+# WO-GROUND Seam B: a claim the agent makes about its own operational state
+# is a self-report, and a self-report can never impersonate an observation.
+# The 2026-07-06 poison record ("stalled task processor", confidence 1.0,
+# basis "direct observation of its internal logs" — it was no such thing)
+# was retrieved the next morning, narrated as current fact, and got a
+# healthy process killed. The cap is structural: this factory is the only
+# way claims are written.
+SELF_REPORT_CONFIDENCE_CAP = 0.6  # "medium"
+
+_AGENT_OPERATIONAL_RE = None
+
+
+def _is_agent_operational(claim_text: str) -> bool:
+    """Does this claim talk about the agent's own machinery?"""
+    global _AGENT_OPERATIONAL_RE
+    if _AGENT_OPERATIONAL_RE is None:
+        import re
+
+        _AGENT_OPERATIONAL_RE = re.compile(
+            r"\b(task processor|processor|scheduler|schedul\w*|queue|job|jobs|reminder\w*|"
+            r"pipeline|capture|index\w*|database|service\w*|telegram|gmail|email|auth\w*|"
+            r"token|credential\w*|skill\w*|ingest\w*|vault|log|logs|restart\w*|version|"
+            r"stalled|crash\w*|stuck|timeout|error\w*|memory system|can ingest|configured)\b"
+        )
+    return bool(_AGENT_OPERATIONAL_RE.search(str(claim_text or "").lower()))
+
+
 def new_claim(
     vault: Path,
     claim_text: str,
@@ -868,6 +895,17 @@ def new_claim(
     owner = normalize_claim_owner(owner)
     status = normalize_claim_status(status)
     privacy = normalize_claim_privacy(privacy)
+    # WO-GROUND Seam B: agent-owned claims about the agent's own machinery
+    # become self_report, capped at medium confidence; the basis may assert
+    # observation only when the capture carries linked evidence (a tool
+    # result), otherwise it says what it is. Applies whoever the caller is —
+    # writer fanout, CLI, ingestion — this factory is the seam.
+    if owner == "agent" and _is_agent_operational(claim_text):
+        claim_class = "self_report"
+    if claim_class == "self_report":
+        confidence = min(float(confidence), SELF_REPORT_CONFIDENCE_CAP)
+        if not (support or artifact_ref):
+            confidence_basis = "agent self-report, unverified"
     frontmatter = {
         "id": f"claim.{safe_slug}",
         "type": "claim",
@@ -942,6 +980,7 @@ def normalize_claim_class(value: Any) -> str:
         "value_statement",
         "identity_claim",
         "psychological_hypothesis",
+        "self_report",
     }
     return _CLAIM_CLASS_ALIASES.get(key, key if key in allowed else "interpretation")
 

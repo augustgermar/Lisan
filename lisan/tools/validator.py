@@ -243,6 +243,7 @@ ENUMS = {
         "value_statement",
         "identity_claim",
         "psychological_hypothesis",
+        "self_report",
     },
     "claim_owner": {"user", "agent", "external_actor"},
     "pattern_type": {
@@ -377,6 +378,14 @@ def _validate_type_specific(path: Path, frontmatter: dict[str, Any], report: Val
             report.add(path, f"Invalid claim_class: {frontmatter.get('claim_class')}")
         if str(frontmatter.get("owner", "")) not in ENUMS["claim_owner"]:
             report.add(path, f"Invalid owner: {frontmatter.get('owner')}")
+        # WO-GROUND Seam B gate: a self-report above medium confidence is the
+        # poison-record shape (2026-07-06) and must not validate.
+        if (
+            str(frontmatter.get("claim_class", "")) == "self_report"
+            and isinstance(confidence, (int, float))
+            and float(confidence) > 0.6
+        ):
+            report.add(path, "self_report claims are capped at medium confidence (0.6)")
     elif file_type == "pattern":
         confidence = frontmatter.get("confidence")
         if not isinstance(confidence, (int, float)):

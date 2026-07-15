@@ -452,6 +452,15 @@ def _metadata_haystack(row: sqlite3.Row) -> str:
     return "\n".join(parts).lower()
 
 
+def _claim_is_agent_operational(claim_text: str) -> bool:
+    from .record_factory import _is_agent_operational
+
+    try:
+        return _is_agent_operational(claim_text)
+    except Exception:
+        return False
+
+
 def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> str:
     """Render one retrieved record for the model. ``lean`` omits scoring
     diagnostics and default-value noise (reason lines, 'none' evidence,
@@ -517,8 +526,23 @@ def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> 
         ])
     if item.type == "claim":
         status = fm.get("status", "unknown")
+        # WO-GROUND Seam B: a retrieved self-report must never read as an
+        # observation of the present. Generated here, at the rendering layer
+        # (never regexed in afterwards — the lean-retrieval lesson). The
+        # owner+subject fallback also banners legacy records that predate
+        # the self_report class.
+        banner = None
+        claim_text = str(fm.get("claim_text", item.summary) or "")
+        if str(fm.get("claim_class") or "") == "self_report" or (
+            str(fm.get("owner") or "") == "agent" and _claim_is_agent_operational(claim_text)
+        ):
+            stamp = str(fm.get("created") or fm.get("created_at") or "an earlier date")
+            banner = (
+                f"- [agent self-report from {stamp} — for current state, self_state]"
+            )
         return _render([
             f"### `{item.id}`",
+            banner,
             f"- claim_text: {fm.get('claim_text', item.summary)}",
             f"- class: {fm.get('claim_class', 'unknown')}",
             f"- owner: {fm.get('owner', 'unknown')}",
