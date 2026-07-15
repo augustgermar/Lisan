@@ -179,11 +179,15 @@ class TaskExecutionTests(unittest.TestCase):
             os.environ.pop("LISAN_TELEGRAM_ALLOWED", None)
             summary = run_jobs_worker(vault=self.vault, db_path=self.db)
         # the worker exhausts max_attempts within one drain (retry_wait
-        # promotes immediately when scheduled_for is now)
-        self.assertEqual(summary["failure_count"], 3)
+        # promotes immediately when scheduled_for is now), then escalation
+        # grants one second chance which also fails: 3 + 1 attempts.
+        self.assertEqual(summary["failure_count"], 4)
         job = get_job(job_id, db_path=self.db)
         self.assertEqual(job["status"], "failed")
         self.assertIn("telegram is not configured", str(job["error"]))
+        # the second failure filed an investigation open loop
+        loops = list((self.vault / "open_loops").glob("*investigate*"))
+        self.assertEqual(len(loops), 1)
 
     def test_recurring_reminder_requeues_next_occurrence(self):
         payload = {"message": "stretch", "due": "2020-01-01T00:00:00Z"}

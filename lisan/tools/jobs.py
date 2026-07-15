@@ -1159,6 +1159,12 @@ def run_jobs_worker(
             if updated is not None and str(updated.get("status")) == "failed":
                 _record_self_episode(vault, updated, db_path=db_path)
                 _requeue_recurring(job, db_path=db_path)
+                # Loud by policy: the owner hears about every terminal
+                # failure, the job gets exactly one second chance, and a
+                # second failure files an investigation. Never raises.
+                from .escalation import escalate_terminal_failure
+
+                escalate_terminal_failure(job, str(exc), vault=vault, db_path=db_path)
                 if str(job.get("job_type")) == "plan.run":
                     from .plans import handle_terminal_failure
 
