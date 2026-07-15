@@ -2,9 +2,15 @@
 set -eu
 
 # Guard: never let personal data or vault files into a commit.
-# config.yaml is intentionally tracked (shipped codex default).
 # Only inspects files being added/changed (ACM) so removing a tracked file
 # from the index does not trip the guard.
+#
+# NOTE (2026-07-15): this hook deliberately does NOT run `lisan manifest`
+# or `lisan validate` — in the production install their default vault
+# resolves to the repo-local fixture (repo/lisan-vault), not the real
+# vault, so they validated the wrong thing while writing manifests into
+# the fixture. Validation runs in the test suite, where it is explicit
+# about its vault.
 blocked=$(git diff --cached --name-only --diff-filter=ACM \
   | grep -E '(^|/)lisan-vault/|(^|/)vault/|(^|/)transcripts/|(^|/)credentials/|(^|/)logs/|\.jsonl$|\.log$|\.sqlite(-wal|-shm|-journal)?$|(^|/)embeddings\.bin$' || true)
 if [ -n "$blocked" ]; then
@@ -13,6 +19,3 @@ if [ -n "$blocked" ]; then
   echo "These are vault data, logs, or live config. Unstage them (git restore --staged <file>)." >&2
   exit 1
 fi
-
-python3 -m lisan manifest
-python3 -m lisan validate
