@@ -75,12 +75,14 @@ class CheckinTests(unittest.TestCase):
         self.assertEqual(list((self.vault / "evidence" / "records").glob("*checkin*")), [])
 
     def test_checkin_record_validates(self):
+        # This test previously read `report.errors`, an attribute that does
+        # not exist (the report holds `issues`), so it passed vacuously while
+        # every real check-in failed validation on source_type "checkin".
         from lisan.tools.validator import validate_vault
 
         record_checkin(self.vault, "maya", "smiled at drop-off", tags=["school-day"])
         report = validate_vault(self.vault)
-        errors = [e for e in getattr(report, "errors", []) if "checkin" in str(e).lower()]
-        self.assertEqual(errors, [])
+        self.assertTrue(report.ok, report.summary())
 
 
 class SupportTests(unittest.TestCase):

@@ -130,6 +130,16 @@ TYPE_FIELDS = {
         "strength_override",
         "integration_override",
     },
+    "prediction": {
+        "expectation",
+        "trigger",
+        "source_id",
+        "verdict",
+        "verdict_evidence",
+        "verdict_note",
+        "scored_at",
+        "score_attempts",
+    },
     "evidence_correction": {"corrects", "date", "field_corrected", "original_value", "corrected_value", "basis", "approved_by"},
     "state": {"ttl_days", "sources", "confidence", "confidence_basis", "last_confirmed"},
     "decision": {"revisit_after", "revisit_conditions", "alternatives_considered"},
@@ -231,6 +241,10 @@ ENUMS = {
         "image",
         "email_export",
         "sms_export",
+        # Ship 1 of WO-PSYCHE writes owner check-ins with this source_type;
+        # it was missing here, so every real check-in failed validation
+        # (latent — found while building Ship 2's test fixtures).
+        "checkin",
     },
     "sensitivity": {"low", "medium", "high", "restricted", "sealed"},
     "reliability": {"low", "medium", "high"},
@@ -386,6 +400,22 @@ def _validate_type_specific(path: Path, frontmatter: dict[str, Any], report: Val
             and float(confidence) > 0.6
         ):
             report.add(path, "self_report claims are capped at medium confidence (0.6)")
+    elif file_type == "prediction":
+        # WO-PSYCHE Ship 2 gates: attribution is mandatory; a scored record
+        # carries its verdict; a hit/miss without cited evidence is a vibe.
+        if str(frontmatter.get("status", "")) not in {"pending", "scored", "retired"}:
+            report.add(path, f"Invalid prediction status: {frontmatter.get('status')}")
+        verdict = str(frontmatter.get("verdict", ""))
+        if verdict not in {"", "hit", "miss", "unclear"}:
+            report.add(path, f"Invalid prediction verdict: {verdict}")
+        if not str(frontmatter.get("source_id", "")).strip():
+            report.add(path, "prediction requires a source_id (framework or pattern)")
+        if str(frontmatter.get("status")) == "scored" and verdict not in {"hit", "miss", "unclear"}:
+            report.add(path, "a scored prediction must carry a verdict")
+        if verdict in {"hit", "miss"} and not (frontmatter.get("verdict_evidence") or []):
+            report.add(path, "a hit/miss verdict requires verdict_evidence")
+        if _prediction_has_banned_language(frontmatter):
+            report.add(path, "Prediction expectations must not use diagnostic or pathologizing language")
     elif file_type == "pattern":
         confidence = frontmatter.get("confidence")
         if not isinstance(confidence, (int, float)):
@@ -467,6 +497,16 @@ def _pattern_has_banned_language(frontmatter: dict[str, Any]) -> bool:
     text = " ".join(
         str(frontmatter.get(field, ""))
         for field in ["hypothesis", "summary", "review_notes"]
+    ).lower()
+    return any(term in text for term in BANNED_PATTERN_TERMS)
+
+
+def _prediction_has_banned_language(frontmatter: dict[str, Any]) -> bool:
+    """Same clinical-label rule as patterns (WO-PSYCHE §1 rule 2): the ledger
+    inherits the hypothesis layer's language discipline."""
+    text = " ".join(
+        str(frontmatter.get(field, ""))
+        for field in ["expectation", "trigger", "summary", "verdict_note"]
     ).lower()
     return any(term in text for term in BANNED_PATTERN_TERMS)
 
