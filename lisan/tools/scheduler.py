@@ -363,8 +363,12 @@ def run_task_job(
         if not response:
             error = str(result.get("error") or "the pipeline produced no response").strip()
             response = f"The scheduled task ran but failed: {error}"
-        delivered = _best_effort_deliver(deliver, _with_late_note(f"⏰ Scheduled: {prompt}\n\n{response}", payload), chat_id)
-        return {"response": response, "delivered": delivered, "conversation_id": conversation_id}
+        # Delivery IS the task for a scheduled prompt — an undelivered
+        # response is a silent failure. Re-running the pipeline on retry is
+        # cheap and safe, unlike codex below, so let a delivery error fail
+        # the job and walk the escalation ladder.
+        deliver(_with_late_note(f"⏰ Scheduled: {prompt}\n\n{response}", payload), chat_id)
+        return {"response": response, "delivered": True, "conversation_id": conversation_id}
 
     if job_type == "task.run_codex":
         from .execution_tools import run_codex
@@ -399,8 +403,10 @@ def _with_late_note(text: str, payload: dict[str, Any]) -> str:
 
 
 def _best_effort_deliver(deliver: Callable[[str, int | None], Any], text: str, chat_id: int | None) -> bool:
-    """Prompt/codex tasks did their real work already; a delivery hiccup
-    should surface in the job result, not fail (and re-run) the whole job."""
+    """Codex tasks did their real work already, with side effects a retry
+    would repeat — a delivery hiccup surfaces in the job result instead of
+    failing (and re-running) the whole job. Prompt tasks deliberately do
+    NOT use this: their delivery is the task."""
     try:
         deliver(text, chat_id)
         return True

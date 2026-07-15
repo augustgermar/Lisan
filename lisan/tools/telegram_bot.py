@@ -393,20 +393,37 @@ class TelegramBot:
             try:
                 self.poll_once()
                 backoff = 1
-            except urllib.error.URLError as exc:
-                log_error(self.vault, f"telegram poll network error; retry in {backoff}s", exc)
-                time.sleep(backoff)
-                backoff = min(backoff * 2, 60)
             except KeyboardInterrupt:
                 return 0
             except Exception as exc:
-                log_error(self.vault, f"telegram poll error; retry in {backoff}s", exc)
-                time.sleep(backoff)
-                backoff = min(backoff * 2, 60)
+                if _is_poll_timeout(exc):
+                    # Routine long-poll churn: the connection outlived its
+                    # window with nothing to say. One WARN line — a full
+                    # traceback 15-20x a day buried real errors — and no
+                    # backoff: backing off here made the bot deaf for up to
+                    # a minute per lull.
+                    get_logger(self.vault).warning("telegram long-poll timeout; reconnecting")
+                elif isinstance(exc, urllib.error.URLError):
+                    log_error(self.vault, f"telegram poll network error; retry in {backoff}s", exc)
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2, 60)
+                else:
+                    log_error(self.vault, f"telegram poll error; retry in {backoff}s", exc)
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2, 60)
             if not _forever:
                 if _on_idle:
                     _on_idle()
                 return 0
+
+
+def _is_poll_timeout(exc: BaseException) -> bool:
+    """A read timeout on the getUpdates long poll — expected, not an error."""
+    if isinstance(exc, TimeoutError):
+        return True
+    if isinstance(exc, urllib.error.URLError) and isinstance(getattr(exc, "reason", None), TimeoutError):
+        return True
+    return False
 
 
 def _resolve_settings(config: dict[str, Any], *, include_env: bool = True) -> tuple[str, set[int]]:
