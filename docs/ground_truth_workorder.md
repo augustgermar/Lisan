@@ -1,10 +1,13 @@
 # Work Order — Ground Truth for Self-Referential Questions (WO-GROUND)
 
-**Status: SPECIFIED, NOT SCHEDULED.** Written 2026-07-06, the last day of
+**Status: EXECUTED 2026-07-15** (commits 1ffa6e9 Seam A, b61caf2 Seam B),
+by Claude (Fable 5) with the owner. Written 2026-07-06, the last day of
 frontier-model access, as the class-level fix behind a season of local
-patches. No entry gate beyond a green suite; this can be the first thing
-a post-Fable agent executes. Where this document conflicts with the code
-as it then exists, reality wins — report the conflict.
+patches. Kept as the record of why the seams exist. One addition beyond
+spec, same class: the self-state snapshot now carries a series-health
+caution (recent terminal failures of the next scheduled task's type),
+because on 2026-07-14 "scheduled correctly" was said over a series with
+eight straight failures — the truth block must contain the truth needed.
 
 **One-line goal:** the agent must never answer a question about ITSELF
 (capabilities, status, auth, schedule, its own past actions) from memory
