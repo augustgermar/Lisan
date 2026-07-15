@@ -210,6 +210,70 @@ class TaskExecutionTests(unittest.TestCase):
         self.assertEqual(list_jobs(status="queued", db_path=self.db), [])
 
 
+class TaskPayloadKeyGateTests(unittest.TestCase):
+    """Gate for the 2026-07-06 defect class: a task.prompt whose body sat
+    under ``text`` instead of ``prompt`` failed at fire time — and, being
+    recurring, respawned that failure every morning for nine days. Two
+    invariants close the class: (1) a stored task whose body is findable
+    under ANY known key fires; (2) a task with no body under any key is
+    rejected at enqueue, where the caller sees the error."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        ensure_repo_layout(self.root)
+        self.vault = vault_root(self.root)
+        self.db = self.root / "jobs.sqlite"
+        self.sent: list[tuple[str, int | None]] = []
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _send(self, text: str, chat_id: int | None) -> None:
+        self.sent.append((text, chat_id))
+
+    def test_enqueue_canonicalizes_alias_body_key(self):
+        job_id = enqueue_job(
+            "task.prompt", {"text": "morning check-in", "due": "2030-01-01T00:00:00Z"},
+            scheduled_for="2030-01-01T00:00:00Z", db_path=self.db,
+        )
+        payload = get_job(job_id, db_path=self.db)["payload"]
+        self.assertEqual(payload["prompt"], "morning check-in")
+        self.assertNotIn("text", payload)
+
+    def test_enqueue_rejects_bodyless_task(self):
+        for job_type in ("task.reminder", "task.prompt", "task.run_codex"):
+            with self.assertRaises(ValueError):
+                enqueue_job(job_type, {"due": "2030-01-01T00:00:00Z"}, db_path=self.db)
+
+    def test_legacy_row_with_alias_key_still_fires(self):
+        # Simulates a pre-fix row already in the DB (enqueue normalization
+        # never saw it): the reminder must deliver, not raise.
+        job = {
+            "id": "job.legacy",
+            "job_type": "task.reminder",
+            "payload": {"text": "water the cats", "chat_id": 7},
+        }
+        result = run_task_job(job, vault=self.vault, db_path=self.db, send_fn=self._send)
+        self.assertTrue(result["delivered"])
+        self.assertIn("water the cats", self.sent[0][0])
+
+    def test_legacy_prompt_row_with_text_key_runs_pipeline(self):
+        job = {
+            "id": "job.legacy2",
+            "job_type": "task.prompt",
+            "payload": {"text": "one thing today?", "chat_id": 7},
+        }
+        with patch("lisan.tools.chat._process_chat_turn", return_value={"response": "ok"}) as turn:
+            result = run_task_job(job, vault=self.vault, db_path=self.db, send_fn=self._send)
+        self.assertEqual(turn.call_args.kwargs["text"], "one thing today?")
+        self.assertTrue(result["delivered"])
+
+    def test_canonical_key_wins_over_alias(self):
+        payload = {"prompt": "canonical", "text": "alias"}
+        self.assertEqual(scheduler.task_body("task.prompt", payload), "canonical")
+
+
 class ScheduleTaskToolTests(unittest.TestCase):
     """The interlocutor-facing schedule_task tool."""
 

@@ -37,6 +37,44 @@ _TASK_KINDS = {
     "codex": "task.run_codex",
 }
 
+# Canonical payload key for each task type, per schedule_task. Jobs written
+# by other hands (the executor once created a task.prompt whose body sat
+# under "text", killing the owner's daily prompt for nine straight days)
+# must still fire: a task whose body is findable under any known key runs.
+_TASK_BODY_KEYS = {
+    "task.reminder": ("message", "text", "prompt", "task"),
+    "task.prompt": ("prompt", "text", "message", "task"),
+    "task.run_codex": ("task", "text", "prompt", "message"),
+}
+
+
+def task_body(job_type: str, payload: dict[str, Any]) -> str:
+    """The task's body text, canonical key first, known aliases after."""
+    for key in _TASK_BODY_KEYS.get(job_type, ()):
+        body = str(payload.get(key) or "").strip()
+        if body:
+            return body
+    return ""
+
+
+def normalize_task_payload(job_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite a task payload onto its canonical body key, dropping aliases.
+
+    Called at enqueue time so the stored row is always canonical no matter
+    who created it. Raises when no body is present under any known key —
+    a bodyless task must fail at creation, where someone is watching, not
+    at fire time where the failure respawns daily.
+    """
+    keys = _TASK_BODY_KEYS.get(job_type)
+    if not keys:
+        return payload
+    body = task_body(job_type, payload)
+    if not body:
+        raise ValueError(f"{job_type} requires a non-empty body (checked keys: {', '.join(keys)})")
+    normalized = {key: value for key, value in payload.items() if key not in keys}
+    normalized[keys[0]] = body
+    return normalized
+
 # How far past due a delivery may be before we say so explicitly.
 _LATE_THRESHOLD = timedelta(minutes=15)
 
@@ -300,7 +338,7 @@ def run_task_job(
     deliver = send_fn or (lambda text, cid: _deliver_owner_message(text, chat_id=cid, config=config))
 
     if job_type == "task.reminder":
-        message = str(payload.get("message") or "").strip()
+        message = task_body(job_type, payload)
         if not message:
             raise ValueError("task.reminder requires a message")
         deliver(_with_late_note(f"⏰ Reminder: {message}", payload), chat_id)
@@ -309,7 +347,7 @@ def run_task_job(
     if job_type == "task.prompt":
         from .chat import _process_chat_turn
 
-        prompt = str(payload.get("prompt") or "").strip()
+        prompt = task_body(job_type, payload)
         if not prompt:
             raise ValueError("task.prompt requires a prompt")
         conversation_id = f"scheduled-{job.get('id')}"
@@ -331,7 +369,7 @@ def run_task_job(
     if job_type == "task.run_codex":
         from .execution_tools import run_codex
 
-        task = str(payload.get("task") or "").strip()
+        task = task_body(job_type, payload)
         if not task:
             raise ValueError("task.run_codex requires a task")
         # The owner approved this task when scheduling it; firing later must

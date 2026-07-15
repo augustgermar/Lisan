@@ -437,10 +437,17 @@ def enqueue_job(
 ) -> str:
     if job_type not in JOB_TYPES:
         raise ValueError(f"Unsupported job_type: {job_type}")
+    payload_obj = payload if payload is not None else {}
+    if job_type in {"task.reminder", "task.prompt", "task.run_codex"} and isinstance(payload_obj, dict):
+        # Canonicalize the body key and refuse bodyless tasks here, at
+        # creation, where the caller can see the error — not at fire time,
+        # where a recurring series would fail invisibly every day.
+        from .scheduler import normalize_task_payload
+
+        payload_obj = normalize_task_payload(job_type, payload_obj)
     conn = _connect(db_path)
     try:
         ensure_jobs_table(conn)
-        payload_obj = payload if payload is not None else {}
         if priority is None:
             priority = priority_for_job_type(job_type)
         if coalesce_key is None and isinstance(payload_obj, dict):
