@@ -205,3 +205,44 @@ def log_iip_event(vault: Path | None, event: dict[str, Any]) -> None:
 
 def query_digest(text: str) -> str:
     return hashlib.sha1(str(text or "").encode("utf-8")).hexdigest()[:12]
+
+
+def summarize_iip_log(vault: Path | None = None, *, weeks: int = 4) -> str:
+    """Weekly counts from the fire/challenge log — the instrument for
+    'is the system inheriting the owner's blind spots' and for judging
+    detector precision and the regeneration cap. Plain text, per week."""
+    from collections import defaultdict
+    from datetime import timedelta
+
+    vault = vault or vault_root()
+    path = vault / "logs" / LOG_NAME
+    if not path.exists():
+        return "No IIP events logged yet."
+    cutoff = (datetime.now(timezone.utc) - timedelta(weeks=weeks)).isoformat()
+    buckets: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        ts = str(event.get("ts") or "")
+        if ts < cutoff:
+            continue
+        week = datetime.fromisoformat(ts).strftime("%G-W%V") if ts else "unknown"
+        b = buckets[week]
+        b["fires"] += 1
+        b[f"validated_{event.get('validated', 'unknown')}"] += 1
+        if event.get("regenerations"):
+            b["regenerated"] += int(event["regenerations"])
+        challenge = event.get("challenge")
+        if isinstance(challenge, dict):
+            b["challenges"] += 1
+            b[f"challenge_{challenge.get('outcome', 'unknown')}"] += 1
+    if not buckets:
+        return f"No IIP events in the last {weeks} week(s)."
+    lines = []
+    for week in sorted(buckets):
+        b = buckets[week]
+        parts = [f"{key}={count}" for key, count in sorted(b.items())]
+        lines.append(f"{week}: " + "  ".join(parts))
+    return "\n".join(lines)

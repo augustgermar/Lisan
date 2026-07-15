@@ -1,5 +1,24 @@
 # Changelog
 
+## 26.7.5 — IIP Phase 2 (2026-07-15)
+
+- **The corpus-adversarial register.** A Skeptic built from the corpus it
+  checks will audit everything except the corpus's own priors. A daily,
+  deterministic, LLM-free miner (`corpus.audit_priors`) now counts
+  recurring causal attributions across claims and episodes — "events
+  around X attributed to Y", "Z modeled as non-originating" — and
+  registers regularities with ≥3 distinct supporting records as
+  `attribution_prior` pattern records (retrievable, auditable, confidence
+  ceilinged at 0.5: a register entry is a fact about the corpus, never
+  about the world). At interpretation time, a structurally valid answer
+  whose every hypothesis instantiates a registered prior is regenerated
+  with a demand for one reading from outside the register (shares the
+  Phase-1 regeneration budget); an uncleared challenge marks the reply —
+  "hold them extra loosely" — instead of passing silently. Challenges log
+  to the same JSONL as detector fires; `lisan iip challenges [--weeks N]`
+  summarizes weekly counts — the instrument for "is the system inheriting
+  the owner's blind spots."
+
 ## 26.7.5 — IIP Phase 1 (2026-07-15)
 
 - **Interpersonal Interpretation Protocol (Phase 1 of the owner's

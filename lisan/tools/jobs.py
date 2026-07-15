@@ -52,6 +52,7 @@ JOB_TYPES = {
     "deviation.scan",
     "self.evaluate",
     "prediction.reconcile",
+    "corpus.audit_priors",
 }
 
 # Indexing/embedding jobs are deterministic and cheap (no LLM call). These are
@@ -899,6 +900,11 @@ def dispatch_job(
         from .predictions import run_prediction_reconcile
 
         return run_prediction_reconcile(vault=vault, provider=provider, model=model, db_path=db_path)
+
+    if job_type == "corpus.audit_priors":
+        from .attribution_priors import mine_attribution_priors
+
+        return mine_attribution_priors(vault, db_path=db_path)
 
     if job_type == "dreamer.maintenance":
         from .dreamer_ops import run_dreamer_task

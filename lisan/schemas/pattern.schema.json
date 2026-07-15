@@ -163,6 +163,7 @@
         "identity_claim",
         "psychological_hypothesis",
         "support_strategy",
+        "attribution_prior",
         "other"
       ]
     },
