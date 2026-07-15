@@ -6,8 +6,9 @@ entry gate — read it before starting):
 - `psyche_workorder.md` — WO-PSYCHE, the psychological pattern layer:
   three-tier provenance (facts / owner-ratified frameworks / earned
   hypotheses), observation-first, prediction-scored. Ship 1 shipped
-  2026-07-08; Ships 2 and 4 have no entry gate; Ship 3 waits for four
-  weeks of observation data (clock starts when check-ins start).
+  2026-07-08; Ship 2 (prediction ledger) shipped 2026-07-15; Ship 4 has
+  no entry gate; Ship 3 waits for four weeks of observation data (clock
+  starts when check-ins start).
 - `ship2_enable_workorder.md` — enable person enrichment (Ship 2 of
   WO-ENRICH). Waits for the owner's calibration verdict, pasted into the
   slot in that file. Binding spec: `ship2_person_enrichment.md`.

@@ -106,7 +106,7 @@ and scored against outcomes.
    the capture prompt with a test pinning it; nothing in this ship
    writes to narratives.
 
-## 3. Ship 2 — Prediction ledger (build second)
+## 3. Ship 2 — Prediction ledger (build second) — EXECUTED 2026-07-15
 
 1. Prediction records carry: the concrete expectation, its trigger
    condition, the source it derives from (framework id or pattern id),
@@ -117,6 +117,29 @@ and scored against outcomes.
    well earns confidence; one that keeps being surprised loses it, and
    the agent says so plainly when asked. Calibration is the honest form
    of "the system knows things the owner doesn't."
+
+Execution notes (2026-07-15, Claude Fable 5 with the owner; reality-wins
+deltas reported per the header):
+- `vault/predictions/` + `prediction` schema; `record_prediction` refuses
+  unresolvable sources and clinical language at creation. Entry points:
+  the `record_prediction` conversation tool, `lisan new prediction`,
+  `lisan predictions list|reconcile`.
+- `prediction.reconcile` runs daily off the post-turn seam, only when a
+  pending prediction is due. Evidence pool = retrieved records postdating
+  the prediction; deterministic gates discard verdicts citing anything
+  else; hit/miss require ≥1 ref. `unclear` defers 7 days at a time, at
+  most 3 attempts, then finalizes as unclear — the record never settling
+  it is itself calibration data. The scorer rides the analyst's routing
+  (Ship 3 inherits this job) and is never the author of what it scores.
+- §3.3 delta: "earns/loses confidence" is implemented as a derived
+  `prediction_calibration` view on the source (tallies + a plain-words
+  standing: unproven / early / predicting well / mixed / keeps being
+  surprised), rendered wherever the source is retrieved — NOT as an
+  automated mutation of the source's `confidence` float, which stays
+  owned by the skeptic/dreamer machinery. One number, two writers, no
+  referee was the losing design; the standing line satisfies "says so
+  plainly when asked" without it. No standing is claimed in either
+  direction under three settled verdicts.
 
 ## 4. Ship 3 — The analyst organ (entry gate: ≥4 weeks of Ship-1 data)
 

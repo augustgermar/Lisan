@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "prediction",
+  "description": "Ship 2 of WO-PSYCHE: one entry in the prediction ledger. A concrete expectation derived from a named source (framework or pattern), scored hit/miss/unclear against subsequent records by the reconcile job. Attribution is mandatory — a prediction with no source is a vibe, not a record.",
+  "type": "object",
+  "required": [
+    "id",
+    "type",
+    "created",
+    "created_at",
+    "updated",
+    "status",
+    "significance",
+    "domain_primary",
+    "domain_secondary",
+    "arena",
+    "privacy",
+    "summary",
+    "links",
+    "confidence",
+    "confidence_basis",
+    "last_confirmed",
+    "review_after",
+    "expectation",
+    "trigger",
+    "source_id",
+    "verdict",
+    "verdict_evidence",
+    "verdict_note",
+    "scored_at",
+    "score_attempts"
+  ],
+  "properties": {
+    "id": {"type": "string"},
+    "type": {"type": "string", "enum": ["prediction"]},
+    "created": {"type": "string"},
+    "created_at": {"type": "string"},
+    "updated": {"type": "string"},
+    "status": {"type": "string", "enum": ["pending", "scored", "retired"]},
+    "significance": {"type": "string"},
+    "domain_primary": {"type": "string"},
+    "domain_secondary": {"type": "array", "items": {"type": "string"}},
+    "arena": {"type": "string"},
+    "arena_primary": {"type": "string"},
+    "arena_secondary": {"type": "array", "items": {"type": "string"}},
+    "privacy": {"type": "string"},
+    "disclosure": {
+      "type": "string",
+      "enum": ["private", "personal", "public"]
+    },
+    "summary": {"type": "string"},
+    "links": {"type": "array", "items": {"type": "string"}},
+    "confidence": {"type": "number"},
+    "confidence_basis": {"type": "string"},
+    "last_confirmed": {"type": "string"},
+    "review_after": {"type": "string"},
+    "expectation": {
+      "type": "string",
+      "description": "The concrete expectation — falsifiable, dated, in plain words"
+    },
+    "trigger": {
+      "type": "string",
+      "description": "The condition under which the expectation should be judged"
+    },
+    "source_id": {
+      "type": "string",
+      "description": "The framework (knowledge) or pattern record this derives from"
+    },
+    "subject": {"type": "string"},
+    "verdict": {"type": "string", "enum": ["", "hit", "miss", "unclear"]},
+    "verdict_evidence": {"type": "array", "items": {"type": "string"}},
+    "verdict_note": {"type": "string"},
+    "scored_at": {"type": "string"},
+    "score_attempts": {"type": "integer"},
+    "batch_id": {"type": ["string", "null"]}
+  }
+}

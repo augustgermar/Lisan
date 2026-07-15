@@ -24,6 +24,7 @@ DEFAULT_JOB_PRIORITIES = {
     "pattern.audit": 60,
     "manifest.regenerate": 90,
     "analyst.scan": 70,
+    "prediction.reconcile": 75,
     "dreamer.maintenance": 80,
     "deviation.scan": 85,
     "self.evaluate": 90,
@@ -39,6 +40,7 @@ DEFAULT_JOB_PRIORITIES = {
 
 COALESCE_AGGRESSIVE = {
     "analyst.scan",
+    "prediction.reconcile",
     "dreamer.maintenance",
     "deviation.scan",
     "self.evaluate",
@@ -206,6 +208,9 @@ def which_jobs_for_turn(turn_metadata: dict[str, Any] | None, db_path: Path | No
     if _should_queue_dreamer(turn_metadata, db_path):
         jobs.append(_job_spec("dreamer.maintenance", turn_metadata, priority_for_job_type("dreamer.maintenance"), extra={"task": "compress"}))
 
+    if _should_queue_prediction_reconcile(turn_metadata, db_path):
+        jobs.append(_job_spec("prediction.reconcile", turn_metadata, priority_for_job_type("prediction.reconcile")))
+
     return jobs
 
 
@@ -261,6 +266,25 @@ def _should_queue_self_eval(db_path: Path | None) -> bool:
 def _should_queue_deviation_scan(db_path: Path | None) -> bool:
     """Once a day, off the same idle seam as the dreamer — no new daemon."""
     last = _last_successful_job_time("deviation.scan", db_path)
+    if last is None:
+        return True
+    return _hours_since(last) >= 24
+
+
+def _should_queue_prediction_reconcile(turn_metadata: dict[str, Any], db_path: Path | None) -> bool:
+    """Only when the ledger actually holds a due pending prediction — the
+    scoring pass has nothing to do otherwise — and at most daily."""
+    vault = str(turn_metadata.get("vault") or "")
+    if not vault:
+        return False
+    try:
+        from .predictions import has_due_predictions
+
+        if not has_due_predictions(Path(vault)):
+            return False
+    except Exception:
+        return False
+    last = _last_successful_job_time("prediction.reconcile", db_path)
     if last is None:
         return True
     return _hours_since(last) >= 24

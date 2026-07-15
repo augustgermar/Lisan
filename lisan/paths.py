@@ -168,6 +168,7 @@ def ensure_vault_layout(vault: Path) -> None:
         "evidence/records",
         "evidence/corrections",
         "patterns",
+        "predictions",
         "claims",
         "reviews",
         "decisions",

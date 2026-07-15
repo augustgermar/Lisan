@@ -609,6 +609,83 @@ def new_open_loop(
     return CreatedRecord(path=path, created=True)
 
 
+def new_prediction(
+    vault: Path,
+    expectation: str,
+    *,
+    source_id: str,
+    review_after: str,
+    trigger: str = "",
+    subject: str | None = None,
+    confidence: float = 0.5,
+    confidence_basis: str = "Stated at prediction time; earned or lost at reconcile time",
+    significance: str = "low",
+    privacy: str = "personal",
+    disclosure: str | None = "private",
+    arena: str = "cross_arena",
+    links: list[str] | None = None,
+) -> CreatedRecord:
+    """Ship 2 of WO-PSYCHE: one prediction-ledger entry.
+
+    Attribution is structural: ``source_id`` names the framework or pattern
+    the expectation derives from, and the caller (``record_prediction``)
+    verifies it resolves to a real record before this runs. The ledger is
+    how a framework earns or loses standing — an unattributed prediction
+    can never pay its source back, so it is not a prediction."""
+    expectation = str(expectation or "").strip()
+    if not expectation:
+        raise ValueError("a prediction needs a concrete expectation")
+    source_id = str(source_id or "").strip()
+    if not source_id:
+        raise ValueError("a prediction needs a source_id (framework or pattern record)")
+    review_after = str(review_after or "").strip()
+    if not review_after:
+        raise ValueError("a prediction needs a review_after date")
+    today = today_iso()
+    safe_slug = slugify(expectation)[:80]
+    path = vault / "predictions" / f"{today}-{safe_slug}.md"
+    if path.exists():
+        raise FileExistsError(path)
+
+    frontmatter = {
+        "id": f"prediction.{safe_slug}",
+        "type": "prediction",
+        "created": today,
+        "created_at": today,
+        "updated": today,
+        "status": "pending",
+        "significance": significance,
+        "domain_primary": arena,
+        "domain_secondary": [],
+        "arena": arena,
+        "privacy": privacy,
+        "disclosure": normalize_disclosure(disclosure),
+        "summary": expectation[:120],
+        "links": [source_id] + list(links or []),
+        "confidence": float(confidence),
+        "confidence_basis": confidence_basis,
+        "last_confirmed": today,
+        "review_after": review_after,
+        "expectation": expectation,
+        "trigger": str(trigger or "").strip(),
+        "source_id": source_id,
+        "subject": str(subject or "").strip(),
+        "verdict": "",
+        "verdict_evidence": [],
+        "verdict_note": "",
+        "scored_at": "",
+        "score_attempts": 0,
+    }
+    body = (
+        f"# Prediction\n\n## Expectation\n\n{expectation}\n\n"
+        f"## Trigger\n\n{str(trigger or '').strip() or 'Review date reached.'}\n\n"
+        f"## Source\n\n- {source_id}\n"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_markdown(path, with_domain_fields(frontmatter), body)
+    return CreatedRecord(path=path, created=True)
+
+
 def new_state(
     vault: Path,
     state_category: str,

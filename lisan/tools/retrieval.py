@@ -216,11 +216,12 @@ def assemble_context(
         "evidence": [item for item in unique_loaded if item.type == "evidence"],
         "claim": [item for item in unique_loaded if item.type == "claim"],
         "pattern": [item for item in unique_loaded if item.type == "pattern"],
+        "prediction": [item for item in unique_loaded if item.type == "prediction"],
         "skeptical_review": [item for item in unique_loaded if item.type == "skeptical_review"],
         "episode": [item for item in unique_loaded if item.type == "episode"],
         "report": [item for item in unique_loaded if item.type == "report"],
         "state": [item for item in unique_loaded if item.type == "state"],
-        "other": [item for item in unique_loaded if item.type not in {"artifact", "evidence", "claim", "pattern", "skeptical_review", "episode", "report", "state"}],
+        "other": [item for item in unique_loaded if item.type not in {"artifact", "evidence", "claim", "pattern", "prediction", "skeptical_review", "episode", "report", "state"}],
     }
 
     section_order = [
@@ -228,6 +229,7 @@ def assemble_context(
         ("## Evidence", groups["evidence"]),
         ("## Claims", groups["claim"]),
         ("## Patterns", groups["pattern"]),
+        ("## Predictions", groups["prediction"]),
         ("## Skeptical Reviews", groups["skeptical_review"]),
         ("## Episodes", groups["episode"]),
         ("## Dreamer Summaries", groups["report"]),

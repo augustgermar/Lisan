@@ -338,6 +338,24 @@ def build_parser() -> argparse.ArgumentParser:
     new_claim_cmd.add_argument("--significance", default="low")
     new_claim_cmd.add_argument("--summary", default=None)
 
+    new_prediction_cmd = new_subparsers.add_parser("prediction", help="Record one prediction-ledger entry (WO-PSYCHE Ship 2)")
+    new_prediction_cmd.add_argument("--vault", type=Path, default=vault_root())
+    new_prediction_cmd.add_argument("expectation")
+    new_prediction_cmd.add_argument("--source", required=True, help="Id of the framework or pattern it derives from")
+    new_prediction_cmd.add_argument("--review-after", required=True, help="YYYY-MM-DD or offset like '+14d'")
+    new_prediction_cmd.add_argument("--trigger", default="", help="Condition under which it should be judged")
+    new_prediction_cmd.add_argument("--subject", default=None)
+    new_prediction_cmd.add_argument("--confidence", type=float, default=0.5)
+
+    predictions_cmd = subparsers.add_parser("predictions", help="The prediction ledger: list entries, run the reconcile pass")
+    predictions_subparsers = predictions_cmd.add_subparsers(dest="predictions_command", required=True)
+    predictions_list = predictions_subparsers.add_parser("list", help="List ledger entries with verdicts")
+    predictions_list.add_argument("--vault", type=Path, default=vault_root())
+    predictions_list.add_argument("--pending", action="store_true", help="Only unscored entries")
+    predictions_reconcile = predictions_subparsers.add_parser("reconcile", help="Score due predictions now")
+    predictions_reconcile.add_argument("--vault", type=Path, default=vault_root())
+    predictions_reconcile.add_argument("--db-path", type=Path, default=None)
+
     evidence = subparsers.add_parser("evidence", help="Evidence-specific operations")
     evidence_subparsers = evidence.add_subparsers(dest="evidence_command", required=True)
     evidence_correct = evidence_subparsers.add_parser("correct", help="Create an append-only evidence correction record")
@@ -1811,6 +1829,21 @@ def main(argv: list[str] | None = None) -> int:
         print(out)
         return 0
 
+    if args.command == "predictions":
+        from .tools.predictions import format_prediction_list, list_predictions, run_prediction_reconcile
+
+        if args.predictions_command == "list":
+            print(format_prediction_list(list_predictions(args.vault, include_scored=not args.pending)))
+            return 0
+        if args.predictions_command == "reconcile":
+            try:
+                summary = run_prediction_reconcile(vault=args.vault, db_path=args.db_path)
+            except (ValueError, ProviderError) as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            print(json.dumps(summary, indent=2))
+            return 0
+
     if args.command == "analyst":
         if args.analyst_command == "scan":
             try:
@@ -2068,6 +2101,23 @@ def _handle_new(args: argparse.Namespace) -> int:
                 review_after=args.review_after,
                 ttl_days=args.ttl_days,
             )
+        elif args.new_command == "prediction":
+            from .tools.predictions import record_prediction
+
+            out = record_prediction(
+                vault,
+                args.expectation,
+                source=args.source,
+                review_after=args.review_after,
+                trigger=args.trigger,
+                subject=args.subject,
+                confidence=args.confidence,
+            )
+            if not out.get("ok"):
+                print(out.get("error"), file=sys.stderr)
+                return 1
+            print(out["path"])
+            return 0
         else:
             raise ValueError(f"Unknown new command: {args.new_command}")
     except (FileExistsError, ValueError) as exc:

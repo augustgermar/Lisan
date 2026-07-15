@@ -123,6 +123,31 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "record_prediction",
+        "description": (
+            "Record one entry in the prediction ledger: a concrete, falsifiable "
+            "expectation derived from a NAMED source — a ratified framework or an "
+            "existing pattern record — with a future review date. A reconcile pass "
+            "later scores it hit/miss/unclear against what memory actually recorded, "
+            "and the score rolls up to the source's standing. Attribution is "
+            "mandatory: no source record, no prediction. Use when the user commits a "
+            "forecast to the record ('under my X framework I expect...', 'log the "
+            "prediction that...'), or when YOU offer one through a source and the "
+            "user agrees to track it. Never use clinical or diagnostic language."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "expectation": {"type": "string", "description": "The concrete expectation, falsifiable and plain"},
+                "source": {"type": "string", "description": "Id of the framework or pattern it derives from"},
+                "review_after": {"type": "string", "description": "When to judge it: YYYY-MM-DD or an offset like '+14d'"},
+                "trigger": {"type": "string", "description": "Optional condition under which it should be judged"},
+                "subject": {"type": "string", "description": "Optional person/entity the expectation is about"},
+            },
+            "required": ["expectation", "source", "review_after"],
+        },
+    },
+    {
         "name": "merge_entities",
         "description": (
             "Merge two entity records that are really the same thing (a duplicate or a "
@@ -275,6 +300,8 @@ def build_tool_handlers(
             person, note, tags=tags, quote=quote, vault=vault, db_path=db_path),
         "support_note": lambda person, strategy, outcome, note=None: _support_note_tool(
             person, strategy, outcome, note=note, vault=vault, db_path=db_path),
+        "record_prediction": lambda expectation, source, review_after, trigger="", subject=None: _record_prediction_tool(
+            expectation, source, review_after, trigger=trigger, subject=subject, vault=vault, db_path=db_path),
         "merge_entities": lambda source, target: _merge_entities_tool(source, target, vault=vault, db_path=db_path),
         "ingest_files": lambda path, replace=False, mode="life": ingest_files_tool(
             path=path,
@@ -437,6 +464,28 @@ def _support_note_tool(person: str, strategy: str, outcome: str, *, note=None, v
     from .checkin import support_note
 
     out = support_note(vault, person, strategy, outcome, note=note, db_path=db_path)
+    return _json.dumps(out, ensure_ascii=True)
+
+
+def _record_prediction_tool(
+    expectation: str,
+    source: str,
+    review_after: str,
+    *,
+    trigger: str = "",
+    subject: str | None = None,
+    vault: Path,
+    db_path: Path | None,
+) -> str:
+    import json as _json
+
+    from .predictions import record_prediction
+
+    out = record_prediction(
+        vault, expectation,
+        source=source, review_after=review_after, trigger=trigger, subject=subject,
+        db_path=db_path,
+    )
     return _json.dumps(out, ensure_ascii=True)
 
 

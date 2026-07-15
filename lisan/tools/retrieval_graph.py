@@ -452,6 +452,19 @@ def _metadata_haystack(row: sqlite3.Row) -> str:
     return "\n".join(parts).lower()
 
 
+def _calibration_line(fm: dict[str, Any]) -> str | None:
+    """The source's predictive record, said plainly wherever it is retrieved
+    (WO-PSYCHE Ship 2 §3.3: calibration is the honest form of 'the system
+    knows things the owner doesn't')."""
+    cal = fm.get("prediction_calibration")
+    if not isinstance(cal, dict):
+        return None
+    return (
+        f"- prediction record: {cal.get('hits', 0)} hit / {cal.get('misses', 0)} miss / "
+        f"{cal.get('unclear', 0)} unclear / {cal.get('pending', 0)} pending — {cal.get('standing', 'unproven')}"
+    )
+
+
 def _claim_is_agent_operational(claim_text: str) -> bool:
     from .record_factory import _is_agent_operational
 
@@ -558,11 +571,24 @@ def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> 
             f"- hypothesis: {fm.get('hypothesis', item.summary)}",
             f"- pattern_type: {fm.get('pattern_type', 'unknown')}",
             f"- confidence: {fm.get('confidence', 'unknown')}",
+            _calibration_line(fm),
             _list_line("supporting_records", fm.get("supporting_records")),
             _list_line("counterexamples", fm.get("counterexamples")),
             _list_line("alternative_explanations", fm.get("alternative_explanations")),
             _list_line("predictions", fm.get("predictions")),
             _list_line("evidence_needed", fm.get("evidence_needed")),
+            f"- link: `{item.path}`",
+        ])
+    if item.type == "prediction":
+        status = fm.get("status", "pending")
+        verdict = str(fm.get("verdict") or "")
+        return _render([
+            f"### `{item.id}`",
+            f"- expectation: {fm.get('expectation', item.summary)}",
+            f"- source: {fm.get('source_id', 'unknown')}",
+            f"- status: {status}" + (f" — verdict: {verdict} ({fm.get('scored_at', '')})" if verdict else f" — review after {fm.get('review_after', '?')}"),
+            (f"- verdict_note: {fm.get('verdict_note')}" if fm.get("verdict_note") else None),
+            _list_line("verdict_evidence", fm.get("verdict_evidence")) if verdict in {"hit", "miss"} else None,
             f"- link: `{item.path}`",
         ])
     if item.type == "skeptical_review":
@@ -589,6 +615,7 @@ def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> 
         return _render([
             f"### `{item.id}`",
             f"- summary: {fm.get('summary', item.summary)}",
+            _calibration_line(fm),
             f"- source_document: {fm.get('source_document', 'unknown')}",
             None if lean else f"- source_section: {fm.get('source_section', 'unknown')}",
             None if lean else f"- source_ref: {fm.get('source_ref', 'unknown')}",
