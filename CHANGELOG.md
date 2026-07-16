@@ -1,5 +1,17 @@
 # Changelog
 
+## 26.7.15 (2026-07-15)
+
+One day, one release. Everything below down to the 26.7.5 entries
+shipped today: the reliability batch (task payload keys, the
+terminal-failure escalation ladder, writer schema fixes, transcript
+ownership, the reconnected maintenance drives, index/telemetry lock
+fixes), WO-GROUND (ground truth for self-questions, self-report claim
+gates), WO-PSYCHE Ships 2 and 4 (prediction ledger, decode-on-demand,
+Tier-R ratification), IIP Phases 1–2 (interpretation protocol,
+corpus-adversarial register), and the owner-configurable hypothesis
+language gate. Suite: 869.
+
 ## 26.7.5 — IIP Phase 2 (2026-07-15)
 
 - **The corpus-adversarial register.** A Skeptic built from the corpus it
