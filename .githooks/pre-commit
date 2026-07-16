@@ -19,3 +19,27 @@ if [ -n "$blocked" ]; then
   echo "These are vault data, logs, or live config. Unstage them (git restore --staged <file>)." >&2
   exit 1
 fi
+
+# Content guard (added 2026-07-15 after a near-miss): staged file CONTENT is
+# scanned against the machine-local blocklist — the path guard above and the
+# commit-msg hook never looked inside files, which is exactly where a real
+# name slipped in via a test fixture. Lines matching python-pip tooling are
+# ignored (documented false positive for one short blocklist entry).
+blocklist="$HOME/.lisan/private-names.txt"
+if [ -r "$blocklist" ]; then
+  staged=$(git diff --cached --name-only --diff-filter=ACM)
+  if [ -n "$staged" ]; then
+    while IFS= read -r term; do
+      [ -z "$term" ] && continue
+      for f in $staged; do
+        case "$f" in .githooks/*) continue ;; esac
+        if git show ":$f" 2>/dev/null \
+          | grep -viE 'pip (install|cache|-)|python3? -m pip|cache: pip|pypi' \
+          | grep -qiwE -- "$term"; then
+          echo "pre-commit: staged content of '$f' contains a blocklisted term. Use the invented cast." >&2
+          exit 1
+        fi
+      done
+    done < "$blocklist"
+  fi
+fi
