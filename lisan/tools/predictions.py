@@ -116,16 +116,23 @@ def record_prediction(
     """One ledger entry. Refuses missing/unknown sources rather than minting
     unattributed expectations, and refuses clinical-label language outright
     (WO-PSYCHE §1 rule 2 — the ledger inherits the hypothesis discipline)."""
+    from .epistemic import hypothesis_gate_terms
     from .record_factory import new_prediction
-    from .validator import BANNED_PATTERN_TERMS
 
     expectation = str(expectation or "").strip()
     if not expectation:
         return {"ok": False, "error": "empty expectation — a prediction states what is expected to happen"}
     lowered = f"{expectation} {trigger or ''}".lower()
-    banned = [term for term in BANNED_PATTERN_TERMS if term in lowered]
+    banned = [term for term in hypothesis_gate_terms() if term in lowered]
     if banned:
-        return {"ok": False, "error": f"diagnostic/pathologizing language is not allowed in predictions: {', '.join(sorted(banned))}"}
+        return {
+            "ok": False,
+            "error": (
+                f"the hypothesis language gate refused terms: {', '.join(sorted(banned))}. "
+                "Rephrase, or edit psyche.banned_hypothesis_terms in config.json "
+                "(an empty list disables the gate)"
+            ),
+        }
     resolved = _resolve_source(vault, source, db_path=db_path)
     if resolved is None:
         return {

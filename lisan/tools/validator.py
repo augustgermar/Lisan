@@ -279,17 +279,11 @@ ENUMS = {
     "subtype": {"person", "place", "thing", "project", "organization", "text_message", "photo", "document", "call_log", "receipt", "legal", "screenshot"},
 }
 
-BANNED_PATTERN_TERMS = {
-    "narcissistic",
-    "borderline",
-    "autistic",
-    "bipolar",
-    "trauma disorder",
-    "personality disorder",
-    "pathological",
-    "delusional",
-    "paranoid",
-}
+# Single source: tools/epistemic.py. This was a second, drift-prone copy;
+# the gate is owner-configurable via psyche.banned_hypothesis_terms
+# (null = default, [] = disabled — clinician mode, list = custom).
+from .epistemic import hypothesis_gate_terms as _hypothesis_gate_terms  # noqa: E402
+from .epistemic import BANNED_PATTERN_TERMS  # noqa: E402,F401  (back-compat re-export)
 
 
 def validate_vault(vault: Path | None = None) -> ValidationReport:
@@ -499,7 +493,7 @@ def _pattern_has_banned_language(frontmatter: dict[str, Any]) -> bool:
         str(frontmatter.get(field, ""))
         for field in ["hypothesis", "summary", "review_notes"]
     ).lower()
-    return any(term in text for term in BANNED_PATTERN_TERMS)
+    return any(term in text for term in _hypothesis_gate_terms())
 
 
 def _prediction_has_banned_language(frontmatter: dict[str, Any]) -> bool:
@@ -509,7 +503,7 @@ def _prediction_has_banned_language(frontmatter: dict[str, Any]) -> bool:
         str(frontmatter.get(field, ""))
         for field in ["expectation", "trigger", "summary", "verdict_note"]
     ).lower()
-    return any(term in text for term in BANNED_PATTERN_TERMS)
+    return any(term in text for term in _hypothesis_gate_terms())
 
 
 def _validate_schema(path: Path, frontmatter: dict[str, Any], schemas: dict[str, dict[str, Any]], report: ValidationReport) -> None:

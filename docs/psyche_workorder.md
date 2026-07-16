@@ -64,6 +64,14 @@ and scored against outcomes.
    and attribute Tier R framings, and that is all. (Schema-gate this:
    a Tier-H pattern whose hypothesis asserts a clinical label is
    refused at write time, with a test.)
+   *Amended 2026-07-15 (owner decision):* the gate vocabulary is now
+   owner-configurable — `psyche.banned_hypothesis_terms` in config
+   (null = shipped defaults, [] = gate disabled for deployments whose
+   operator is licensed to mint diagnostic language, list = custom).
+   The rule's scope is unchanged and clarified: it gates MACHINE-AUTHORED
+   hypothesis surfaces only; user-authored text is stored verbatim on
+   every surface, pinned by test. Refusals are loud (logged / returned),
+   never silent.
 3. **Minors get support-profiles only.** Patterns about children
    describe supports and observables — what helps, what precedes hard
    moments, which scripts landed, observable changes over time — never

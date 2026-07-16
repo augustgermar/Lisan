@@ -104,7 +104,18 @@ def _materialize_pattern(vault: Path, bundle: str, pattern: dict[str, Any], exis
         support_count = len(support)
         if support_count < 2:
             return None
-        if pattern_is_too_broad(hypothesis) or pattern_contains_diagnostic_language(hypothesis):
+        if pattern_is_too_broad(hypothesis):
+            return None
+        if pattern_contains_diagnostic_language(hypothesis):
+            # Loud, never silent (owner policy): a refused hypothesis is a
+            # visible event in the vault log, not a record that quietly
+            # never appears. The gate is owner-configurable
+            # (psyche.banned_hypothesis_terms; [] disables it).
+            from .log import get_logger
+
+            get_logger(vault).warning(
+                f"analyst hypothesis refused by the language gate: {hypothesis[:160]!r}"
+            )
             return None
         if pattern_conflicts_with_existing(hypothesis, pattern_type, existing_patterns):
             return None

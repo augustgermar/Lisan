@@ -75,6 +75,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "validator_enabled": True,
         "max_regenerations": 1,
     },
+    # The hypothesis language gate on MACHINE-AUTHORED psychology (analyst
+    # patterns, predictions). User text is always stored verbatim; this
+    # never touches it. null = built-in default terms; [] = gate disabled
+    # (a deployment whose operator is licensed to mint diagnostic language);
+    # a list replaces the default. Owner decision 2026-07-15.
+    "psyche": {
+        "banned_hypothesis_terms": None,
+    },
     "ingest": {
         "max_file_size_bytes": 5 * 1024 * 1024,
         "text_preview_chars": 4000,

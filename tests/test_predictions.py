@@ -99,7 +99,7 @@ class CreationGateTests(PredictionLedgerBase):
     def test_clinical_language_is_refused(self):
         out = self._record(expectation="Wren's narcissistic behavior will recur at the picnic")
         self.assertFalse(out["ok"])
-        self.assertIn("diagnostic", out["error"])
+        self.assertIn("language gate", out["error"])
 
     def test_past_review_date_is_refused(self):
         out = self._record(review_after="2020-01-01")

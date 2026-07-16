@@ -114,6 +114,10 @@
     "max_regenerations": 1,
     "__comment": "Interpersonal Interpretation Protocol: deterministic validator on interpret-a-person turns. validator_enabled=false disables enforcement at runtime (detector fires still log); max_regenerations bounds the retry cost per turn."
   },
+  "psyche": {
+    "banned_hypothesis_terms": null,
+    "__comment": "Language gate on MACHINE-AUTHORED psychology only (analyst-minted patterns, prediction expectations); user notes are always stored verbatim. null = built-in defaults; [] = gate fully disabled (e.g. a clinician's practice, where the operator mints diagnostic language professionally); a list of terms replaces the default."
+  },
   "backup": {
     "destination_dir": "backups",
     "encrypt_by_default": false,

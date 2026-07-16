@@ -70,7 +70,22 @@ LEGACY_PATTERN_STATUS_MAP = {
     "confirmed": "supported",
     "superseded": "retired",
 }
-BANNED_PATTERN_TERMS = {
+# The hypothesis language gate — SINGLE SOURCE (validator and predictions
+# import from here; a second copy of this list once drifted for a week).
+#
+# Scope, precisely: this gates MACHINE-AUTHORED hypothesis surfaces only —
+# analyst-minted patterns, prediction expectations, pattern validation.
+# The owner's own words are stored verbatim everywhere (claims, check-ins,
+# episodes, knowledge, frameworks); nothing rewrites or filters user text.
+#
+# Owner-configurable (2026-07-15, owner decision): config key
+# `psyche.banned_hypothesis_terms` — null uses this default, [] disables
+# every gate (a deployment where the operator is licensed to mint
+# diagnostic language, e.g. a clinician's practice), a list replaces it.
+# The default fits THIS deployment: a personal agent doing longitudinal
+# observation of a family, where a system that speaks clinical labels in
+# its own voice is a diagnosis machine.
+DEFAULT_HYPOTHESIS_GATE_TERMS = frozenset({
     "narcissistic",
     "borderline",
     "autistic",
@@ -80,7 +95,22 @@ BANNED_PATTERN_TERMS = {
     "pathological",
     "delusional",
     "paranoid",
-}
+})
+
+# Back-compat alias; prefer hypothesis_gate_terms().
+BANNED_PATTERN_TERMS = DEFAULT_HYPOTHESIS_GATE_TERMS
+
+
+def hypothesis_gate_terms(config: dict | None = None) -> frozenset[str]:
+    """The active gate vocabulary. null → default, [] → gate disabled."""
+    if config is None:
+        from ..config import load_config
+
+        config = load_config()
+    configured = (config.get("psyche") or {}).get("banned_hypothesis_terms")
+    if configured is None:
+        return DEFAULT_HYPOTHESIS_GATE_TERMS
+    return frozenset(str(t).strip().lower() for t in configured if str(t).strip())
 STOPWORDS = {
     "the",
     "a",
@@ -371,9 +401,9 @@ def pattern_similarity_score(left: str, right: str) -> float:
     return overlap / union if union else 0.0
 
 
-def pattern_contains_diagnostic_language(text: str) -> bool:
+def pattern_contains_diagnostic_language(text: str, config: dict | None = None) -> bool:
     lowered = text.lower()
-    return any(term in lowered for term in BANNED_PATTERN_TERMS)
+    return any(term in lowered for term in hypothesis_gate_terms(config))
 
 
 def pattern_is_too_broad(text: str) -> bool:
