@@ -36,7 +36,16 @@ from .adjutant_gate import gate, log_cycle_event, log_verdict, required_capabili
 from .adjutant_poller import PolledTask, poll
 from .adjutant_reporter import report_result
 from .db import connect as _db_connect
-from .intent import CONFIRM, DENY, EXECUTE, Intent, IntentError, detect_out_of_band_edit, load_intent
+from .intent import (
+    CONFIRM,
+    DENY,
+    EXECUTE,
+    Intent,
+    IntentError,
+    detect_out_of_band_edit,
+    has_sentinel_dates,
+    load_intent,
+)
 from .rebuild_index import ensure_index_schema, reindex_record
 
 MAX_ATTEMPTS = 2  # a task that fails twice moves to blocked — no infinite retries
@@ -72,6 +81,18 @@ def run_cycle(
             conn.commit()
             return {"halted": True, "reason": str(exc), "verdicts": [], "executed": [], "dry_run": dry_run}
         conn.commit()
+
+        if enabled and has_sentinel_dates(intent):
+            # Uncustomized authority is no authority: the template's
+            # sentinel dates mean nobody has adopted this document yet.
+            # Dry-run may proceed (it acts on nothing); execution may not.
+            reason = (
+                "intent.md still carries the template's sentinel dates (1970-01-01) in "
+                "created/updated/review_after; customize and set real dates before enabling"
+            )
+            log_cycle_event(conn, "halt", reason)
+            conn.commit()
+            return {"halted": True, "reason": reason, "verdicts": [], "executed": [], "dry_run": dry_run}
 
         expired = expire_stale_confirmations(vault, db_path)
         if expired:

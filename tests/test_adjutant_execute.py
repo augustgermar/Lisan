@@ -61,7 +61,10 @@ def world(tmp_path):
     start = body.index("```json")
     end = body.index("```", start + 7) + 3
     body = body[:start] + "```json\n" + json.dumps(DELEGATIONS, indent=2) + "\n```" + body[end:]
-    path.write_text(dump_markdown(doc.frontmatter, body), encoding="utf-8")
+    fm = dict(doc.frontmatter)
+    # Adopt the document: clear the template sentinels, or enabled cycles halt.
+    fm.update(created="2026-07-23", updated="2026-07-23", review_after="2026-10-23")
+    path.write_text(dump_markdown(fm, body), encoding="utf-8")
     _record_known_hash(vault)
 
     scripts = tmp_path / "scripts"
@@ -427,6 +430,58 @@ def test_schedule_advances_or_parks_after_run(world):
     check = db_connect(db)
     assert check.execute("SELECT 1 FROM adjutant_log WHERE verdict='schedule_parked'").fetchone()
     check.close()
+
+
+def test_sentinel_dates_refuse_enabled_cycles(world, tmp_path):
+    """Uncustomized authority is no authority: the seed template's 1970
+    sentinels halt enabled cycles loudly; dry-run proceeds."""
+    from lisan.paths import ensure_vault_layout as _evl
+
+    vault2 = tmp_path / "vault2"
+    _evl(vault2)
+    init_intent(vault2)  # sentinel template, valid but unadopted
+    db2 = tmp_path / "db2.sqlite"
+    spy = CaptureSpy()
+    result = run_cycle(vault2, db2, config={"adjutant": {"enabled": True}}, capture=spy)
+    assert result["halted"] and "sentinel" in result["reason"]
+    result = run_cycle(vault2, db2, config={"adjutant": {"enabled": False}}, capture=spy)
+    assert not result["halted"]  # dry-run acts on nothing, so it may run
+
+
+def test_has_sentinel_dates_predicate():
+    from lisan.tools.intent import default_intent_document, has_sentinel_dates, parse_intent
+
+    assert has_sentinel_dates(parse_intent(default_intent_document()))
+    assert not has_sentinel_dates(parse_intent(default_intent_document(today="2026-07-23")))
+
+
+def test_double_expiry_escalates_in_batch_review(world):
+    vault, db, conn, config, scripts, tmp = world
+    loop_id, loop_path = _task_loop(vault, conn, "Send the quarterly letter")
+    for round_ in range(2):
+        created = create_confirmation_for_task(
+            vault, task_id=loop_id, task_summary="send", planned_action="send it", risk="outbound", db_path=db
+        )
+        assert created
+        expire_stale_confirmations(vault, db, today="2030-01-01")
+        # Re-arm the task so a second confirmation can exist.
+        doc = load_markdown(loop_path)
+        fm = dict(doc.frontmatter)
+        fm["task_status"] = "pending"
+        write_markdown(loop_path, fm, doc.body)
+        index_single_record(loop_path, vault, conn)
+        conn.commit()
+    from lisan.tools.batch_review import generate_batch_review
+
+    # Park it as expired for the digest (the second expiry left it pending).
+    doc = load_markdown(loop_path)
+    fm = dict(doc.frontmatter)
+    fm["task_status"] = "expired"
+    write_markdown(loop_path, fm, doc.body)
+    index_single_record(loop_path, vault, conn)
+    conn.commit()
+    digest = generate_batch_review(vault, db)
+    assert "REPEATEDLY EXPIRED (2x)" in digest
 
 
 def test_dry_run_still_executes_nothing(world):

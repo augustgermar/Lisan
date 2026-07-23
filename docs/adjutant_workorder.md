@@ -371,6 +371,26 @@ Config (`config.json`):
   denied and logged; script outside allowlist refuses; invalid intent.md
   prevents daemon start.
 
+## Future-work notes
+
+- **Deviation-drive candidate pattern (2026-07-23):** "helper timeouts
+  that are actually held locks." An uncommitted INSERT on the cycle's
+  connection stalled every helper that opened its own SQLite connection
+  into silent five-second lock waits — a degradation that never fails a
+  test and always ruins a daemon. Fixed by committing after each verdict
+  log; the *pattern* (quiet stalls whose real cause is a lock held
+  upstream) belongs in the deviation drive's vocabulary.
+- **Double-expiry escalation (ratified 2026-07-23):** one expired
+  confirmation is bookkeeping; the same task expiring twice is the owner
+  avoiding or not seeing a decision. Batch review flags it
+  (REPEATEDLY EXPIRED) as of step 4; once notify exists (step 5), a
+  second expiry should also ping the owner once.
+- **Template sentinel gate (ratified 2026-07-23):** the seed intent
+  template ships with 1970-01-01 dates; while any of created/updated/
+  review_after carries the sentinel, enabled cycles halt loudly
+  (uncustomized authority is no authority). Dry-run proceeds — it acts
+  on nothing.
+
 ## 8. Out of scope (v1)
 
 - Email/SMS live adapters (stubs only).

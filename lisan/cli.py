@@ -1027,6 +1027,18 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.intent_command == "edit":
             try:
+                seed_vault = (repo_root() / "lisan-vault").resolve()
+                if Path(args.vault).resolve() == seed_vault:
+                    print(
+                        "WARNING: this intent.md lives in the in-repo seed vault and is git-tracked.\n"
+                        "Personal authority documents belong in an external vault:\n"
+                        '  export LISAN_VAULT="$HOME/.local/share/Lisan/vault"\n'
+                        "or gitignore lisan-vault/primer/intent.md and lisan-vault/primer/intent-history/ first.",
+                        file=sys.stderr,
+                    )
+            except OSError:
+                pass
+            try:
                 result = edit_intent(args.vault)
             except IntentError as exc:
                 print(str(exc), file=sys.stderr)

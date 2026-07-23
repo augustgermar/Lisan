@@ -141,16 +141,26 @@ def _blocked_tasks(db_path: Path) -> list[BatchReviewItem]:
             rows = conn.execute(
                 "SELECT id, summary, path, task_status FROM files WHERE task_status IN ('blocked', 'expired')"
             ).fetchall()
+            # Repeated silence is signal: a task whose confirmations have
+            # expired twice is being avoided or unseen — escalate the line.
+            expiry_counts = dict(
+                conn.execute(
+                    "SELECT task_id, COUNT(*) FROM confirmations WHERE resolution='expired' GROUP BY task_id"
+                ).fetchall()
+            )
         except sqlite3.Error:
             return items
     finally:
         conn.close()
     for row in rows:
+        summary = f"task_status={row['task_status']}: {row['summary']}"
+        if int(expiry_counts.get(str(row["id"]), 0)) >= 2:
+            summary = f"REPEATEDLY EXPIRED ({expiry_counts[str(row['id'])]}x) — this decision keeps not getting made. {summary}"
         items.append(
             BatchReviewItem(
                 category="blocked task",
                 identifier=str(row["id"]),
-                summary=f"task_status={row['task_status']}: {row['summary']}",
+                summary=summary,
                 due="",
                 path=str(row["path"] or ""),
             )

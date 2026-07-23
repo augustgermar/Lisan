@@ -1511,11 +1511,17 @@ def new_confirmation(
     the exact action — for outbound messages, the full outgoing content."""
     today = today_iso()
     safe_slug = slugify(title)
-    path = vault / "confirmations" / f"{today}-{safe_slug}.md"
-    if path.exists():
-        raise FileExistsError(path)
+    # A task can legitimately need a second confirmation on the same day
+    # (the first expired or was denied); uniquify file and id together.
+    counter = 0
+    while True:
+        suffix = f"-{counter}" if counter else ""
+        path = vault / "confirmations" / f"{today}-{safe_slug}{suffix}.md"
+        if not path.exists():
+            break
+        counter += 1
     frontmatter = {
-        "id": f"confirmation.{today}-{safe_slug}",
+        "id": f"confirmation.{today}-{safe_slug}{suffix}",
         "type": "confirmation",
         "created": today,
         "updated": today,
