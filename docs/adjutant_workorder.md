@@ -383,6 +383,16 @@ owner has explicitly granted.
 
 ## Future-work notes
 
+- **Deviation-drive candidate pattern #2 (2026-07-24):** "ambient
+  sqlite_path reaches further than you think." The global default DB
+  path bit twice in two days: a test's broken monkeypatch leaked two
+  adjutant.cycle jobs into the LIVE jobs table (one fired against the
+  old worker, failed 3x, and paged the owner through the escalation
+  ladder), and a hermetic-looking test resolved a check-in subject
+  through the developer's real alias table. Anything that writes
+  through a default db_path should be suspicious in tests and explicit
+  in tools; a future gate test could refuse enqueue_job calls whose
+  db_path was defaulted inside pytest.
 - **Deviation-drive candidate pattern (2026-07-23):** "helper timeouts
   that are actually held locks." An uncommitted INSERT on the cycle's
   connection stalled every helper that opened its own SQLite connection
