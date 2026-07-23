@@ -259,6 +259,107 @@ def execute_draft(
     return result
 
 
+def execute_research(
+    task_id: str,
+    payload: dict[str, Any],
+    *,
+    complete: CompleteFn | None,
+    context: str = "",
+) -> ExecutionResult:
+    """Research via the provider (which may carry its own web access, e.g.
+    the codex CLI). Findings must arrive as the prompt's JSON contract:
+    per-finding sources and confidence, or the result says why not."""
+    import json as _json
+    import re as _re
+
+    result = ExecutionResult(task_id=task_id, kind="research", ok=False)
+    question = str(payload.get("question", "")).strip()
+    if not question:
+        result.errors.append("payload carries no question; a research task must ask something")
+        return result
+    if complete is None:
+        result.errors.append("no generation provider available; research tasks require one")
+        return result
+    from ..prompts import load_prompt
+
+    prompt = (
+        load_prompt("adjutant_research_v1")
+        .replace("{{question}}", question)
+        .replace("{{context}}", context or "(no assembled context)")
+    )
+    try:
+        text = str(complete(prompt))
+    except Exception as exc:
+        result.errors.append(f"generation failed: {exc}")
+        return result
+    blocks = _re.findall(r"```json\s*\n(.*?)\n```", text, _re.DOTALL)
+    parsed = None
+    if blocks:
+        try:
+            parsed = _json.loads(blocks[-1])
+        except _json.JSONDecodeError as exc:
+            result.errors.append(f"findings block is not valid JSON: {exc}")
+    else:
+        result.errors.append("response carried no fenced JSON findings block")
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("findings"), list):
+        if not result.errors:
+            result.errors.append("findings JSON must be an object with a findings list")
+        return result
+    for index, finding in enumerate(parsed["findings"]):
+        if not isinstance(finding, dict) or not str(finding.get("finding", "")).strip():
+            result.errors.append(f"finding[{index}] malformed; dropped")
+            continue
+        sources = [str(s) for s in finding.get("sources", []) if str(s).strip()]
+        confidence = str(finding.get("confidence", "low"))
+        if confidence not in {"high", "medium", "low"}:
+            confidence = "low"
+        if not sources and confidence != "low":
+            # The prompt's contract: unsourced findings are low, no exceptions.
+            confidence = "low"
+            result.actions.append(f"finding[{index}] had no sources; confidence forced to low")
+        result.findings.append(
+            {"finding": str(finding["finding"]).strip(), "sources": sources, "confidence": confidence}
+        )
+    result.ok = bool(result.findings)
+    if not result.ok and not result.errors:
+        result.errors.append("research produced zero usable findings")
+    result.actions.append(f"researched {question!r}: {len(result.findings)} finding(s)")
+    result.confidence = "medium" if result.ok else "low"
+    return result
+
+
+DeliverFn = Callable[[str], None]
+
+
+def execute_notify(
+    task_id: str,
+    payload: dict[str, Any],
+    *,
+    deliver: DeliverFn | None,
+) -> ExecutionResult:
+    """Send an outbound message to the owner. Always behind
+    send_outbound_message gating (the gate enforces that); this function
+    just sends exactly the payload text — which is exactly what the
+    confirmation showed, because both read the same record field."""
+    result = ExecutionResult(task_id=task_id, kind="notify", ok=False)
+    message = str(payload.get("message", "")).strip()
+    if not message:
+        result.errors.append("payload carries no message; a notify task must say what to send")
+        return result
+    if deliver is None:
+        result.errors.append("no delivery channel available (telegram not configured); cannot notify")
+        return result
+    try:
+        deliver(message)
+    except Exception as exc:
+        result.errors.append(f"delivery failed: {exc}")
+        return result
+    result.ok = True
+    result.actions.append(f"sent {len(message)} chars to the owner via telegram")
+    result.confidence = "high"
+    return result
+
+
 def execute_task(
     task_id: str,
     kind: str,
@@ -270,6 +371,7 @@ def execute_task(
     complete: CompleteFn | None = None,
     context: str = "",
     scratch_root: Path | None = None,
+    deliver: DeliverFn | None = None,
 ) -> ExecutionResult:
     if kind == "run_script":
         return execute_run_script(task_id, payload, config=config, timeout_seconds=timeout_seconds, scratch_root=scratch_root)
@@ -277,8 +379,12 @@ def execute_task(
         return execute_collect(task_id, payload, config=config)
     if kind == "draft":
         return execute_draft(task_id, payload, vault=vault, complete=complete, context=context)
+    if kind == "research":
+        return execute_research(task_id, payload, complete=complete, context=context)
+    if kind == "notify":
+        return execute_notify(task_id, payload, deliver=deliver)
     result = ExecutionResult(task_id=task_id, kind=kind, ok=False)
-    result.errors.append(f"task kind {kind!r} is not executable in this step (research/notify land in step 5)")
+    result.errors.append(f"unknown task kind {kind!r}")
     return result
 
 

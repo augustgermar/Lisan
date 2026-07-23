@@ -48,6 +48,8 @@ _HELP_TEXT = (
     "/new — start a fresh conversation\n"
     "/domain <name> — pin the retrieval domain (no arg clears it)\n"
     "/logs [N] [errors] — recent log lines; 'errors' shows only warnings/errors\n"
+    "/confirmations — pending Adjutant confirmations\n"
+    "approve <id> / deny <id> — resolve a confirmation\n"
     "/help — this message"
 )
 
@@ -208,6 +210,14 @@ class TelegramBot:
             state.domain_override = parts[1].strip().lower() if len(parts) > 1 and parts[1].strip() else None
             msg = f"Domain set to: {state.domain_override}" if state.domain_override else "Domain cleared (auto-detect)."
             self._send_message(chat_id, msg)
+            return
+        # Adjutant confirmations: approve/deny/list, handled before the
+        # model ever sees the text — authority decisions are deterministic.
+        from .adjutant_confirmations import confirmation_command_response
+
+        confirmation_reply = confirmation_command_response(self.vault, text)
+        if confirmation_reply is not None:
+            self._send_message(chat_id, confirmation_reply)
             return
         if lowered.startswith("/logs"):
             from .log import tail_log

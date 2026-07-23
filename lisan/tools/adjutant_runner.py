@@ -58,6 +58,7 @@ def run_cycle(
     config: dict[str, Any] | None = None,
     complete: Callable[[str], str] | None = None,
     capture: Callable[..., Any] | None = None,
+    deliver: Callable[[str], None] | None = None,
     scratch_root: Path | None = None,
 ) -> dict[str, Any]:
     vault = vault or vault_root()
@@ -94,9 +95,13 @@ def run_cycle(
             conn.commit()
             return {"halted": True, "reason": reason, "verdicts": [], "executed": [], "dry_run": dry_run}
 
+        if deliver is None:
+            deliver = _default_deliver(config)
+
         expired = expire_stale_confirmations(vault, db_path)
         if expired:
             log_cycle_event(conn, "confirmations_expired", ", ".join(e["id"] for e in expired))
+            _escalate_repeat_expiries(conn, expired, deliver)
 
         tasks = poll(conn, intent, vault)
         wall_seconds = int((intent.delegations.get("global", {}) or {}).get("max_task_wall_seconds", 600) or 600)
@@ -146,7 +151,7 @@ def run_cycle(
                     conn, vault, task, intent, config,
                     verdict_path=f"owner approval + {verdict_path}",
                     wall_seconds=wall_seconds, db_path=db_path,
-                    complete=complete, capture=capture, scratch_root=scratch_root,
+                    complete=complete, capture=capture, deliver=deliver, scratch_root=scratch_root,
                 )
                 if outcome["ok"]:
                     mark_executed(vault, task.task_id, db_path)
@@ -156,7 +161,7 @@ def run_cycle(
                     _execute_and_report(
                         conn, vault, task, intent, config,
                         verdict_path=verdict_path, wall_seconds=wall_seconds, db_path=db_path,
-                        complete=complete, capture=capture, scratch_root=scratch_root,
+                        complete=complete, capture=capture, deliver=deliver, scratch_root=scratch_root,
                     )
                 )
             elif verdict.decision == CONFIRM:
@@ -171,6 +176,13 @@ def run_cycle(
                 )
                 if created:
                     log_cycle_event(conn, "confirmation_created", f"{created} for {task.task_id}")
+                    _ping_owner(
+                        deliver,
+                        f"Adjutant: confirmation pending — {created}\n"
+                        f"Task: {task.summary or task.task_id}\n"
+                        f"Will do: {_planned_action(vault, task)}\n"
+                        f"Reply: approve {created}  /  deny {created}",
+                    )
 
         log_cycle_event(
             conn,
@@ -192,7 +204,57 @@ def run_cycle(
 
 def _planned_action(vault: Path, task: PolledTask) -> str:
     payload = task_payload_from_record(vault, task.path) if task.path else {}
+    if "notify" in task.task_kinds:
+        # Spec §5 / Never #1: the human approves the actual message.
+        message = str(payload.get("message", "")).strip() or "(payload carries no message — the task will fail)"
+        return f"Send this exact message to the owner via telegram:\n\n{message}"
     return f"kind={'+'.join(task.task_kinds)} payload={payload!r} (task: {task.summary})"
+
+
+def _ping_owner(deliver: Callable[[str], None] | None, text: str) -> None:
+    """Owner pings are best-effort: an unconfigured or failing channel must
+    never break the cycle; the log and batch review remain the floor."""
+    if deliver is None:
+        return
+    try:
+        deliver(text)
+    except Exception:
+        pass
+
+
+def _escalate_repeat_expiries(conn: sqlite3.Connection, expired: list[dict[str, Any]], deliver) -> None:
+    """Ratified 2026-07-23: the same task expiring twice is a decision the
+    owner keeps not making. Ping exactly at the second expiry."""
+    for item in expired:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM confirmations WHERE task_id = ? AND resolution = 'expired'",
+            (str(item["task_id"]),),
+        ).fetchone()
+        if int(row[0]) == 2:
+            _ping_owner(
+                deliver,
+                f"Adjutant: task {item['task_id']} has now had 2 confirmations expire unanswered — "
+                "this decision keeps not getting made. It is parked in batch review.",
+            )
+
+
+def _default_deliver(config: dict[str, Any]):
+    """Owner delivery via the existing Telegram path (settled fork: no
+    parallel adapter). None when unconfigured — callers degrade cleanly."""
+    try:
+        from .telegram_bot import _resolve_settings
+
+        token, allowed = _resolve_settings(config)
+        if not token or not allowed:
+            return None
+        from .scheduler import _deliver_owner_message
+
+        def _send(text: str) -> None:
+            _deliver_owner_message(text, config=config)
+
+        return _send
+    except Exception:
+        return None
 
 
 def _next_attempt(conn: sqlite3.Connection, task_id: str) -> int:
@@ -212,6 +274,7 @@ def _execute_and_report(
     db_path: Path,
     complete: Callable[[str], str] | None,
     capture: Callable[..., Any] | None,
+    deliver: Callable[[str], None] | None,
     scratch_root: Path | None,
 ) -> dict[str, Any]:
     attempt = _next_attempt(conn, task.task_id)
@@ -231,7 +294,8 @@ def _execute_and_report(
 
     if task.source == "decision":
         results = _execute_decision_steps(
-            vault, task, config, wall_seconds=wall_seconds, complete=complete, scratch_root=scratch_root, db_path=db_path
+            vault, task, config, wall_seconds=wall_seconds, complete=complete, deliver=deliver,
+            scratch_root=scratch_root, db_path=db_path
         )
     else:
         payload = task_payload_from_record(vault, task.path) if task.path else {}
@@ -240,7 +304,7 @@ def _execute_and_report(
             execute_task(
                 task.task_id, kind, payload,
                 vault=vault, config=config, timeout_seconds=wall_seconds,
-                complete=complete, scratch_root=scratch_root,
+                complete=complete, deliver=deliver, scratch_root=scratch_root,
             )
         ]
 
@@ -286,6 +350,7 @@ def _execute_decision_steps(
     *,
     wall_seconds: int,
     complete: Callable[[str], str] | None,
+    deliver: Callable[[str], None] | None,
     scratch_root: Path | None,
     db_path: Path,
 ) -> list[ExecutionResult]:
@@ -304,7 +369,7 @@ def _execute_decision_steps(
         result = execute_task(
             f"{task.task_id}#step{index}", str(step.get("task_kind", "")), payload if isinstance(payload, dict) else {},
             vault=vault, config=config, timeout_seconds=wall_seconds,
-            complete=complete, scratch_root=scratch_root,
+            complete=complete, deliver=deliver, scratch_root=scratch_root,
         )
         results.append(result)
         if result.ok:

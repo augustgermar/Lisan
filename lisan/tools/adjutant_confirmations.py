@@ -219,6 +219,50 @@ def list_pending(db_path: Path | None = None, *, today: str | None = None) -> li
         conn.close()
 
 
+_COMMAND_RE = None
+
+
+def confirmation_command_response(
+    vault: Path,
+    text: str,
+    db_path: Path | None = None,
+    *,
+    capture: Callable[..., Any] | None = None,
+) -> str | None:
+    """Inbound-message hook for the Telegram bot (settled fork: the
+    existing bot IS the chat surface). Recognizes:
+
+        /confirmations            -> list pending
+        approve <confirmation.id> -> approve (also /approve)
+        deny <confirmation.id>    -> deny   (also /deny)
+
+    Returns the reply text, or None when the message is not a
+    confirmation command (the bot then treats it as a normal turn)."""
+    import re
+
+    global _COMMAND_RE
+    if _COMMAND_RE is None:
+        _COMMAND_RE = re.compile(r"^/?(approve|deny)\s+(confirmation\.\S+)\s*$", re.IGNORECASE)
+    stripped = text.strip()
+    if stripped.lower() in ("/confirmations", "/pending"):
+        return format_pending(vault, list_pending(db_path))
+    match = _COMMAND_RE.match(stripped)
+    if not match:
+        return None
+    action, confirmation_id = match.group(1).lower(), match.group(2)
+    try:
+        if action == "approve":
+            outcome = approve_confirmation(vault, confirmation_id, db_path=db_path, capture=capture)
+            return (
+                f"Approved {outcome['id']} (task {outcome['task_id']}). "
+                "It executes on the next Adjutant cycle — unless intent has since forbidden it."
+            )
+        outcome = deny_confirmation(vault, confirmation_id, db_path=db_path, capture=capture)
+        return f"Denied {outcome['id']} (task {outcome['task_id']})."
+    except (KeyError, ValueError) as exc:
+        return f"Cannot {action} {confirmation_id}: {exc}"
+
+
 def format_pending(vault: Path, pending: list[dict[str, Any]]) -> str:
     if not pending:
         return "No pending confirmations."
