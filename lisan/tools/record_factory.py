@@ -500,6 +500,7 @@ def new_decision(
     alternatives_considered: list[str] | None = None,
     supersedes: list[str] | None = None,
     superseded_by: str | None = None,
+    execution_steps: list[dict[str, Any]] | None = None,
 ) -> CreatedRecord:
     today = today_iso()
     safe_slug = slugify(title)
@@ -530,6 +531,9 @@ def new_decision(
         "supersedes": supersedes or [],
         "superseded_by": superseded_by or "",
     }
+    if execution_steps:
+        # WO-ADJUTANT: unexecuted implications; callers sanitize the shape.
+        frontmatter["execution_steps"] = execution_steps
     decision_text = summary or title
     alts = "\n".join(f"- {a}" for a in (alternatives_considered or [])) or "None recorded."
     revisit = "\n".join(f"- {r}" for r in (revisit_conditions or [])) or "None recorded."
@@ -572,6 +576,10 @@ def new_open_loop(
     resolved_by: str | None = None,
     resolved_note: str | None = None,
     resolved_at: str | None = None,
+    task_kind: str | None = None,
+    task_payload: dict[str, Any] | None = None,
+    execute_asap: bool | None = None,
+    due: str | None = None,
 ) -> CreatedRecord:
     today = today_iso()
     safe_slug = slugify(title)
@@ -604,6 +612,16 @@ def new_open_loop(
         "resolved_note": resolved_note or "",
         "resolved_at": resolved_at or "",
     }
+    if task_kind:
+        # WO-ADJUTANT task fields: a tasked loop is pollable. Callers own
+        # vocabulary validation (fanout sanitizes; the validator enforces).
+        frontmatter["task_kind"] = task_kind
+        frontmatter["task_payload"] = task_payload or {}
+        frontmatter["task_status"] = "pending"
+        if execute_asap is not None:
+            frontmatter["execute_asap"] = bool(execute_asap)
+        if due:
+            frontmatter["due"] = due
     body = f"# {title}\n\n## Next Action\n\n{next_action}\n"
     write_markdown(path, with_domain_fields(frontmatter), body)
     return CreatedRecord(path=path, created=True)

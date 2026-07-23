@@ -103,6 +103,32 @@ def test_indexing_schedule_materializes_one_alarm_job(vault, tmp_path):
     conn.close()
 
 
+def test_editing_schedule_earlier_pulls_the_alarm_forward(vault, tmp_path):
+    """The direction an owner would notice and mind: editing next_run to
+    fire SOONER must update the queued alarm, not leave the stale later
+    one. (Coalescing keeps the earliest scheduled_for; the later-edit
+    inverse costs one no-op cycle by ratified trade.)"""
+    from lisan.tools.rebuild_index import reindex_record
+
+    db = tmp_path / "e.sqlite"
+    created = new_schedule(
+        vault, "monthly sweep", task_kind="draft", cron="monthly:1@09:00",
+        next_run="2030-06-01T09:00:00", payload={"instructions": "sweep"},
+    )
+    reindex_record(created.path, vault, db)
+    doc = load_markdown(created.path)
+    fm = dict(doc.frontmatter)
+    fm["next_run"] = "2030-02-01T09:00:00"  # owner wants it sooner
+    write_markdown(created.path, fm, doc.body)
+    reindex_record(created.path, vault, db)
+    conn = db_connect(db)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM jobs WHERE job_type='adjutant.cycle' AND status='queued'").fetchall()
+    assert len(rows) == 1
+    assert rows[0]["scheduled_for"].startswith("2030-02-01")
+    conn.close()
+
+
 def test_weekly_schedule_unparks_after_run(vault, tmp_path):
     """The step-4 parking behavior is gone: weekly cadences now advance."""
     init_intent(vault)

@@ -76,6 +76,14 @@ class WriterAgent(PromptAgent):
     def run_json(self, user_input: str, **kwargs: Any) -> Any:
         task = str(kwargs.get("task") or "episode")
         self.prompt_file = _TASK_PROMPT_FILES.get(task, "writer_episode_v1")
+        # WO-ADJUTANT step 7: with the execution layer enabled, open loops
+        # and decisions use the v2 prompts that may attach task fields.
+        # v1 stays the default — a vault without an Adjutant never asks
+        # the writer to think about taskings at all.
+        if task in ("open_loop", "decision") and bool(
+            (self.config.get("adjutant") or {}).get("enabled", False)
+        ):
+            self.prompt_file = {"open_loop": "writer_open_loop_v2", "decision": "writer_decision_v2"}[task]
         if task == "episode_artifacts" and not kwargs.get("schema"):
             # The artifacts prompt forbids re-emitting the episode-core keys,
             # so it must not be validated against the schema that requires

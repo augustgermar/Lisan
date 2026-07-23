@@ -59,6 +59,21 @@ capabilities ship implemented but *unreachable*, and only the owner's
 hand raises the tier. The agent ships the capability; the owner turns
 the key.
 
+**An execution layer under commander's intent.** The Adjutant polls the
+vault for actionable records — tasked open loops, decisions with
+pending steps, schedules, approved confirmations — checks each against
+`primer/intent.md` (your mission, priorities, and standing delegations,
+resolved by pure code, most-restrictive-wins), executes within the
+authority you granted, and reports every result back through the same
+capture pipeline as everything else, where the Skeptic reads it like
+any other claim. It ships **off**: cycles run dry — verdicts logged,
+nothing executed — until you turn both keys, `adjutant.enabled: true`
+in config.json *and* an adopted intent.md (the template's sentinel
+dates replaced with real ones). Outbound messages and spending always
+require confirmation of the exact action; every verdict is audited with
+the intent version that produced it. See `docs/adjutant_workorder.md`
+and `docs/adjutant_daemon.md`.
+
 ## Design principles
 
 1. **Deterministic first.** An LLM is the last resort, never the first.

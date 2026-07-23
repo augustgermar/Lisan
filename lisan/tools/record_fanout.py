@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -371,6 +372,76 @@ def apply_behavioral_contracts(vault, writer, *, source_ref: str = "") -> int:
     return added
 
 
+def sanitized_task_fields(entry: dict[str, Any], vault: Path | None = None) -> dict[str, Any]:
+    """WO-ADJUTANT writer v2: extract the optional `task` object from a
+    writer-emitted loop. The asymmetry rules the calibration (ratified
+    2026-07-24): a false tasking costs a wrong verdict, a missed tasking
+    costs the owner one command — so ANY malformed field drops the whole
+    task and the loop is created plain. The drop is logged, never silent."""
+    from .adjutant_common import TASK_KINDS
+
+    task = entry.get("task")
+    if not isinstance(task, dict) or not task:
+        return {}
+    kind = str(task.get("task_kind") or "").strip()
+    payload = task.get("task_payload")
+    due = str(task.get("due") or "").strip()
+    problems = []
+    if kind not in TASK_KINDS:
+        problems.append(f"task_kind {kind!r} not in {sorted(TASK_KINDS)}")
+    if payload is not None and not isinstance(payload, dict):
+        problems.append("task_payload is not an object")
+    if due:
+        try:
+            date.fromisoformat(due)
+        except ValueError:
+            problems.append(f"due {due!r} is not an ISO date")
+    if problems:
+        if vault is not None:
+            log_error(vault, "fanout.open_loop.task_dropped", ValueError("; ".join(problems)))
+        return {}
+    fields: dict[str, Any] = {
+        "task_kind": kind,
+        "task_payload": payload if isinstance(payload, dict) else {},
+        "execute_asap": bool(task.get("execute_asap", False)),
+    }
+    if due:
+        fields["due"] = due
+    return fields
+
+
+def sanitized_execution_steps(entry: dict[str, Any], vault: Path | None = None) -> list[dict[str, Any]]:
+    """Same asymmetry for decision steps: each malformed step is dropped
+    (logged); a decision whose steps all drop is created plain."""
+    from .adjutant_common import TASK_KINDS
+
+    steps = entry.get("execution_steps")
+    if not isinstance(steps, list):
+        return []
+    kept: list[dict[str, Any]] = []
+    dropped = []
+    for index, step in enumerate(steps):
+        if (
+            isinstance(step, dict)
+            and str(step.get("step") or "").strip()
+            and str(step.get("task_kind") or "") in TASK_KINDS
+            and (step.get("task_payload") is None or isinstance(step.get("task_payload"), dict))
+        ):
+            kept.append(
+                {
+                    "step": str(step["step"]).strip(),
+                    "task_kind": str(step["task_kind"]),
+                    "task_payload": step.get("task_payload") or {},
+                    "status": "pending",
+                }
+            )
+        else:
+            dropped.append(index)
+    if dropped and vault is not None:
+        log_error(vault, "fanout.decision.steps_dropped", ValueError(f"malformed execution_steps at {dropped}"))
+    return kept
+
+
 def fanout_open_loops(
     vault: Path,
     writer: dict[str, Any],
@@ -420,6 +491,7 @@ def fanout_open_loops(
                 confidence_basis=basis_or_default(loop, "Auto-extracted from conversation"),
                 disclosure=disclosure_or_default(loop, writer),
                 links=merge_links(loop.get("linked_claims"), loop.get("linked_episodes"), [draft_rel]),
+                **sanitized_task_fields(loop, vault),
             )
             index_created_record(vault, created, index_conn)
         except FileExistsError:
@@ -553,6 +625,7 @@ def fanout_decisions(
                 alternatives_considered=alternatives,
                 revisit_conditions=revisit,
                 supersedes=supersedes,
+                execution_steps=sanitized_execution_steps(entry, vault) or None,
                 disclosure=disclosure_or_default(entry, writer),
                 links=merge_links(
                     entry.get("linked_claims"),
