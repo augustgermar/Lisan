@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "confirmation",
+  "type": "object",
+  "required": [
+    "id", "type", "created", "updated", "status", "significance",
+    "domain_primary", "domain_secondary", "privacy", "summary", "links",
+    "confidence", "confidence_basis", "last_confirmed", "review_after",
+    "task_id", "task_summary", "planned_action", "risk", "expires"
+  ],
+  "properties": {
+    "id": {"type": "string"},
+    "type": {"type": "string", "enum": ["confirmation"]},
+    "created": {"type": "string"},
+    "updated": {"type": "string"},
+    "status": {"type": "string"},
+    "significance": {"type": "string"},
+    "domain_primary": {"type": "string"},
+    "domain_secondary": {"type": "array", "items": {"type": "string"}},
+    "arena_primary": {"type": "string"},
+    "arena_secondary": {"type": "array", "items": {"type": "string"}},
+    "privacy": {"type": "string"},
+    "disclosure": {
+      "type": "string",
+      "enum": ["private", "personal", "public"],
+      "description": "Default sharing posture. A prior for the future external disclosure gate, not a hard rule."
+    },
+    "summary": {"type": "string"},
+    "links": {"type": "array", "items": {"type": "string"}},
+    "confidence": {"type": "string"},
+    "confidence_basis": {"type": "string"},
+    "last_confirmed": {"type": "string"},
+    "review_after": {"type": "string"},
+    "task_id": {"type": "string", "description": "The record (open_loop, decision step, schedule) awaiting approval."},
+    "task_summary": {"type": "string"},
+    "planned_action": {
+      "type": "string",
+      "description": "Exactly what will happen on approval. For outbound messages this is the FULL outgoing content — the human approves the actual message, never a summary."
+    },
+    "risk": {"type": "string", "description": "Cost/risk statement shown to the human."},
+    "expires": {"type": "string", "description": "ISO date; past this the task moves to task_status: expired."},
+    "resolution": {"type": "string", "enum": ["approved", "denied", "expired"]},
+    "resolved_at": {"type": "string"},
+    "resolved_by": {"type": "string"}
+  }
+}

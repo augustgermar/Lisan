@@ -109,7 +109,12 @@ CREATE TABLE IF NOT EXISTS files (
     content_hash TEXT,
     word_count INTEGER,
     token_count_approx INTEGER,
-    embedding_status TEXT
+    embedding_status TEXT,
+    execute_asap INTEGER,
+    task_kind TEXT,
+    task_status TEXT,
+    next_run TEXT,
+    expires TEXT
 );
 
 CREATE TABLE IF NOT EXISTS links (
@@ -220,6 +225,40 @@ CREATE TABLE IF NOT EXISTS ingestion_batches (
     summary_json TEXT,
     error TEXT,
     notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS adjutant_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    arena TEXT,
+    capabilities TEXT,
+    verdict TEXT NOT NULL,
+    matched_rule TEXT,
+    intent_version INTEGER,
+    note TEXT
+);
+
+CREATE TABLE IF NOT EXISTS task_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    started TEXT NOT NULL,
+    finished TEXT,
+    exit_status TEXT,
+    error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS confirmations (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    record_path TEXT,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires TEXT NOT NULL,
+    resolution TEXT,
+    resolved_at TEXT,
+    resolved_by TEXT
 );
 
 CREATE TABLE IF NOT EXISTS jobs (
@@ -496,6 +535,11 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
         "word_count": word_count,
         "token_count_approx": token_count,
         "embedding_status": "pending",
+        "execute_asap": int(bool(fm.get("execute_asap"))) if fm.get("execute_asap") is not None else None,
+        "task_kind": str(fm.get("task_kind")) if fm.get("task_kind") is not None else None,
+        "task_status": str(fm.get("task_status")) if fm.get("task_status") is not None else None,
+        "next_run": str(fm.get("next_run")) if fm.get("next_run") is not None else None,
+        "expires": str(fm.get("expires")) if fm.get("expires") is not None else None,
     }
 
     conn.execute("DELETE FROM links WHERE source_id = ?", (file_id,))
@@ -523,7 +567,8 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
             reviewed_record_type, approved, risk, recommended_action, issues, priority_questions,
             alternative_hypotheses, claim_updates, confidence_adjustments,
             reasoning_errors, corrects, field_corrected, original_value, corrected_value, basis,
-            approved_by, content_hash, word_count, token_count_approx, embedding_status
+            approved_by, content_hash, word_count, token_count_approx, embedding_status,
+            execute_asap, task_kind, task_status, next_run, expires
         ) VALUES (
             :id, :type, :path, :created, :created_at, :updated, :status, :significance, :domain_primary,
             :domain_secondary, :arena, :privacy, :disclosure, :compartments, :allowed_contexts, :blocked_contexts,
@@ -538,7 +583,8 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
             :reviewed_record_type, :approved, :risk, :recommended_action, :issues, :priority_questions,
             :alternative_hypotheses, :claim_updates, :confidence_adjustments,
             :reasoning_errors, :corrects, :field_corrected, :original_value, :corrected_value, :basis,
-            :approved_by, :content_hash, :word_count, :token_count_approx, :embedding_status
+            :approved_by, :content_hash, :word_count, :token_count_approx, :embedding_status,
+            :execute_asap, :task_kind, :task_status, :next_run, :expires
         )
         """,
         row,
@@ -723,6 +769,21 @@ def _ensure_files_columns(conn: sqlite3.Connection) -> None:
             conn.execute("ALTER TABLE files ADD COLUMN embedding_status TEXT")
         except sqlite3.Error:
             pass
+    # WO-ADJUTANT task columns: the poller is pure SQL, so task fields must
+    # be queryable without opening files. Additive; NULL for everything that
+    # is not a task, which is the zero-migration guarantee.
+    for column, decl in [
+        ("execute_asap", "INTEGER"),
+        ("task_kind", "TEXT"),
+        ("task_status", "TEXT"),
+        ("next_run", "TEXT"),
+        ("expires", "TEXT"),
+    ]:
+        if column not in existing:
+            try:
+                conn.execute(f"ALTER TABLE files ADD COLUMN {column} {decl}")
+            except sqlite3.Error:
+                pass
 
 
 def _embed_and_write(

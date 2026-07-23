@@ -1,16 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "open_loop",
+  "title": "schedule",
   "type": "object",
   "required": [
     "id", "type", "created", "updated", "status", "significance",
     "domain_primary", "domain_secondary", "privacy", "summary", "links",
     "confidence", "confidence_basis", "last_confirmed", "review_after",
-    "priority", "owner", "next_action", "blocked_by"
+    "task_kind", "cron", "next_run", "payload"
   ],
   "properties": {
     "id": {"type": "string"},
-    "type": {"type": "string", "enum": ["open_loop"]},
+    "type": {"type": "string", "enum": ["schedule"]},
     "created": {"type": "string"},
     "updated": {"type": "string"},
     "status": {"type": "string"},
@@ -23,27 +23,21 @@
     "disclosure": {
       "type": "string",
       "enum": ["private", "personal", "public"],
-      "description": "Default sharing posture (private/personal/public). A prior for the future external disclosure gate, not a hard rule. Has no effect on internal retrieval."
+      "description": "Default sharing posture. A prior for the future external disclosure gate, not a hard rule."
     },
-    "compartments": {"type": "array", "items": {"type": "string"}, "deprecated": true},
-    "allowed_contexts": {"type": "array", "items": {"type": "string"}, "deprecated": true},
-    "blocked_contexts": {"type": "array", "items": {"type": "string"}, "deprecated": true},
     "summary": {"type": "string"},
     "links": {"type": "array", "items": {"type": "string"}},
     "confidence": {"type": "string"},
     "confidence_basis": {"type": "string"},
     "last_confirmed": {"type": "string"},
     "review_after": {"type": "string"},
-    "priority": {"type": "string"},
-    "owner": {"type": "string"},
-    "next_action": {"type": "string"},
-    "blocked_by": {},
-    "resolved_by": {"type": "string"},
-    "resolved_note": {"type": "string"},
-    "resolved_at": {"type": "string"},
-    "execute_asap": {"type": "boolean", "description": "WO-ADJUTANT: poller selects this loop regardless of due date. Optional, never required."},
     "task_kind": {"type": "string", "enum": ["run_script", "research", "collect", "draft", "notify"]},
-    "task_payload": {"type": "object", "description": "Executor arguments, verbatim from capture — never from generation."},
-    "task_status": {"type": "string", "enum": ["pending", "running", "blocked", "expired", "resolved"]}
+    "cron": {
+      "type": "string",
+      "description": "Cadence: every:<N><s|m|h|d|w>, daily@HH:MM, weekly:<mon..sun>@HH:MM, or monthly:<1-28>@HH:MM (local time)."
+    },
+    "next_run": {"type": "string", "description": "ISO timestamp of the next due firing; maintained by the jobs materializer."},
+    "payload": {"type": "object", "description": "task_payload handed to the executor verbatim."},
+    "materialized_job_id": {"type": "string", "description": "The jobs-table row this schedule currently drives (hybrid model)."}
   }
 }

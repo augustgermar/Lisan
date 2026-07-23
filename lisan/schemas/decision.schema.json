@@ -38,6 +38,20 @@
     "revisit_conditions": {"type": "array", "items": {"type": "string"}},
     "alternatives_considered": {"type": "array", "items": {"type": "string"}},
     "supersedes": {"type": "array", "items": {"type": "string"}},
-    "superseded_by": {"type": "string"}
+    "superseded_by": {"type": "string"},
+    "execution_steps": {
+      "type": "array",
+      "description": "WO-ADJUTANT: unexecuted implications of this decision. Optional, never required.",
+      "items": {
+        "type": "object",
+        "required": ["step", "task_kind", "status"],
+        "properties": {
+          "step": {"type": "string"},
+          "task_kind": {"type": "string", "enum": ["run_script", "research", "collect", "draft", "notify"]},
+          "task_payload": {"type": "object"},
+          "status": {"type": "string", "enum": ["pending", "running", "blocked", "expired", "resolved"]}
+        }
+      }
+    }
   }
 }

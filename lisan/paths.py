@@ -179,6 +179,8 @@ def ensure_vault_layout(vault: Path) -> None:
         "reviews",
         "decisions",
         "open_loops",
+        "schedules",
+        "confirmations",
         "contradictions",
         "transcripts",
         "transcripts/narrative",

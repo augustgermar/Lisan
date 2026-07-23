@@ -793,6 +793,10 @@ def _type_boost(record_type: str) -> float:
         "state": 1.0,
         "entity": 0.8,
         "knowledge": 0.7,
+        # WO-ADJUTANT operational records: findable, but never crowding out
+        # substantive memory in an assembled context.
+        "confirmation": 0.6,
+        "schedule": 0.4,
     }
     return boosts.get(record_type, 0.0)
 

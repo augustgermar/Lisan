@@ -148,6 +148,8 @@ TYPE_FIELDS = {
     "contradiction_log": set(),
     "self_episode": {"event_kind", "source_refs", "outcome"},
     "self_belief": {"belief_confidence", "evidence_refs", "revisions"},
+    "schedule": {"task_kind", "cron", "next_run", "payload"},
+    "confirmation": {"task_id", "task_summary", "planned_action", "risk", "expires"},
 }
 
 ENUMS = {
@@ -168,6 +170,8 @@ ENUMS = {
         "contradiction_log",
         "self_episode",
         "self_belief",
+        "schedule",
+        "confirmation",
     },
     "status": {
         "active",
@@ -191,6 +195,9 @@ ENUMS = {
         "failed",
         "skipped",
         "quarantined",
+        # WO-ADJUTANT: confirmations sit pending until resolved/expired.
+        "pending",
+        "expired",
     },
     "significance": {"high", "medium", "low"},
     "domain_primary": {
@@ -284,6 +291,21 @@ ENUMS = {
 # (null = default, [] = disabled — clinician mode, list = custom).
 from .epistemic import hypothesis_gate_terms as _hypothesis_gate_terms  # noqa: E402
 from .epistemic import BANNED_PATTERN_TERMS  # noqa: E402,F401  (back-compat re-export)
+from .adjutant_common import CONFIRMATION_RESOLUTIONS, TASK_KINDS, TASK_STATUSES, valid_cron  # noqa: E402
+
+# No secrets in the vault (WO-ADJUTANT §5): tokens live in env vars only.
+# High-precision prefixes of common credential formats — a warning, not an
+# error, because prose ABOUT a token format is legitimate knowledge.
+_CREDENTIAL_PATTERNS = [
+    re.compile(r"AKIA[0-9A-Z]{16}"),                      # AWS access key id
+    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    re.compile(r"\bghp_[A-Za-z0-9]{36}\b"),               # GitHub PAT
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{22,}\b"),
+    re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),      # Slack tokens
+    re.compile(r"\bsk-[A-Za-z0-9]{32,}\b"),               # OpenAI-style secret key
+    re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"),             # Google API key
+    re.compile(r"\b\d{8,10}:[A-Za-z0-9_-]{35}\b"),        # Telegram bot token
+]
 
 
 def validate_vault(vault: Path | None = None) -> ValidationReport:
@@ -321,6 +343,7 @@ def validate_vault(vault: Path | None = None) -> ValidationReport:
         _validate_type_specific(path, frontmatter, report)
         _validate_schema(path, frontmatter, schemas, report)
         _validate_frontmatter_consistency(path, doc.body, frontmatter, report)
+        _warn_credential_patterns(path, doc.body, frontmatter, report)
         file_id = str(frontmatter.get("id", ""))
         if file_id:
             # Archived snapshots (vault/archive/) legitimately share ids with
@@ -487,6 +510,66 @@ def _validate_type_specific(path: Path, frontmatter: dict[str, Any], report: Val
             report.add(path, "approved_for_dreamer must be boolean")
         if "counterexample_search" in frontmatter and not isinstance(frontmatter.get("counterexample_search"), dict):
             report.add(path, "counterexample_search must be an object")
+    elif file_type == "open_loop":
+        _validate_task_fields(path, frontmatter, report)
+    elif file_type == "decision":
+        steps = frontmatter.get("execution_steps")
+        if steps is not None:
+            if not isinstance(steps, list):
+                report.add(path, "execution_steps must be a list")
+            else:
+                for index, step in enumerate(steps):
+                    if not isinstance(step, dict):
+                        report.add(path, f"execution_steps[{index}] must be an object")
+                        continue
+                    if not str(step.get("step", "")).strip():
+                        report.add(path, f"execution_steps[{index}] missing step description")
+                    if step.get("task_kind") not in TASK_KINDS:
+                        report.add(path, f"execution_steps[{index}] invalid task_kind: {step.get('task_kind')}")
+                    if step.get("status") not in TASK_STATUSES:
+                        report.add(path, f"execution_steps[{index}] invalid status: {step.get('status')}")
+                    if "task_payload" in step and not isinstance(step.get("task_payload"), dict):
+                        report.add(path, f"execution_steps[{index}] task_payload must be an object")
+    elif file_type == "schedule":
+        if frontmatter.get("task_kind") not in TASK_KINDS:
+            report.add(path, f"Invalid task_kind: {frontmatter.get('task_kind')}")
+        if not valid_cron(str(frontmatter.get("cron", ""))):
+            report.add(
+                path,
+                f"Invalid cron: {frontmatter.get('cron')!r} (use every:<N><s|m|h|d|w>, daily@HH:MM, "
+                "weekly:<mon..sun>@HH:MM, or monthly:<1-28>@HH:MM)",
+            )
+        if not isinstance(frontmatter.get("payload"), dict):
+            report.add(path, "schedule payload must be an object")
+    elif file_type == "confirmation":
+        for field_name in ("task_id", "task_summary", "planned_action", "risk"):
+            if not str(frontmatter.get(field_name, "")).strip():
+                report.add(path, f"confirmation {field_name} must be non-empty")
+        try:
+            date.fromisoformat(str(frontmatter.get("expires", "")))
+        except ValueError:
+            report.add(path, f"Invalid ISO date in expires: {frontmatter.get('expires')!r}")
+        resolution = frontmatter.get("resolution")
+        if resolution is not None and resolution not in CONFIRMATION_RESOLUTIONS:
+            report.add(path, f"Invalid resolution: {resolution}")
+
+
+def _validate_task_fields(path: Path, frontmatter: dict[str, Any], report: ValidationReport) -> None:
+    """WO-ADJUTANT optional task fields on open_loops: allowed, never
+    required — but when present they must be well-formed, because the
+    poller and gate trust them."""
+    if "execute_asap" in frontmatter and not isinstance(frontmatter.get("execute_asap"), bool):
+        report.add(path, "execute_asap must be boolean")
+    task_kind = frontmatter.get("task_kind")
+    if task_kind is not None and task_kind not in TASK_KINDS:
+        report.add(path, f"Invalid task_kind: {task_kind}")
+    task_status = frontmatter.get("task_status")
+    if task_status is not None and task_status not in TASK_STATUSES:
+        report.add(path, f"Invalid task_status: {task_status}")
+    if "task_payload" in frontmatter and not isinstance(frontmatter.get("task_payload"), dict):
+        report.add(path, "task_payload must be an object")
+    if task_kind is not None and task_status is None:
+        report.add(path, "a task_kind without task_status is unpollable; set task_status")
 
 
 def _pattern_has_banned_language(frontmatter: dict[str, Any]) -> bool:
@@ -582,6 +665,17 @@ def _validate_frontmatter_consistency(path: Path, body: str, frontmatter: dict[s
                     path,
                     "High-significance episode needs a decision/open_loop/state link or significance_rationale",
                 )
+
+
+def _warn_credential_patterns(path: Path, body: str, frontmatter: dict[str, Any], report: ValidationReport) -> None:
+    haystack = body + "\n" + json.dumps(frontmatter, ensure_ascii=True)
+    for pattern in _CREDENTIAL_PATTERNS:
+        if pattern.search(haystack):
+            report.add(
+                path,
+                f"Possible credential in vault (matches {pattern.pattern!r}); tokens belong in env vars",
+                severity="warning",
+            )
 
 
 def _validate_intent(vault: Path, report: ValidationReport) -> None:
@@ -721,7 +815,7 @@ def _is_structured_record(path: Path, vault: Path) -> bool:
         return False
     if rel.name == "backup.md":
         return False
-    return rel.parts[0] in {"entities", "episodes", "knowledge", "evidence", "state", "decisions", "open_loops", "claims", "patterns", "reviews", "reports", "contradictions", "archive", "self"}
+    return rel.parts[0] in {"entities", "episodes", "knowledge", "evidence", "state", "decisions", "open_loops", "claims", "patterns", "reviews", "reports", "contradictions", "archive", "self", "schedules", "confirmations"}
 
 
 def format_report(report: ValidationReport) -> str:
