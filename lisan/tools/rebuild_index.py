@@ -307,7 +307,13 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
     conn.row_factory = sqlite3.Row
     try:
         ensure_index_schema(conn)
-        for table in ("files", "links", "claims", "entity_aliases", "entity_epochs"):
+        # confirmations is in this list by ruling (2026-07-23): it MIRRORS
+        # markdown records, so it is derived state — definition is memory,
+        # runtime is index. A mirror that survived rebuild could let a
+        # hand-edited or restored confirmation drift from its row, and this
+        # table gates real-world actions. adjutant_log and task_runs are
+        # pure runtime history (peers of retrieval_log) and survive.
+        for table in ("files", "links", "claims", "entity_aliases", "entity_epochs", "confirmations"):
             conn.execute(f"DELETE FROM {table}")
         try:
             conn.execute("DELETE FROM files_fts")
@@ -596,6 +602,29 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
         )
     except sqlite3.Error:
         pass
+
+    if file_type == "confirmation":
+        # Mirror row for fast polling — derived from the record, by ruling
+        # (see rebuild_index). The record is the truth; the row is a cache.
+        conn.execute("DELETE FROM confirmations WHERE id = ?", (file_id,))
+        conn.execute(
+            """
+            INSERT INTO confirmations (id, task_id, record_path, status, created_at, expires,
+                resolution, resolved_at, resolved_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                file_id,
+                str(fm.get("task_id", "")),
+                str(rel),
+                str(fm.get("status", "")),
+                str(fm.get("created", "")),
+                str(fm.get("expires", "")),
+                fm.get("resolution"),
+                fm.get("resolved_at"),
+                fm.get("resolved_by"),
+            ),
+        )
 
     # Archived entity snapshots (vault/archive/) stay searchable in files/FTS,
     # but must not feed alias resolution or epochs — a merged-away duplicate

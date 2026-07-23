@@ -284,6 +284,18 @@ actionable instructions; aspirational statements stay task-free.
 New SQLite tables: `adjutant_log`, `task_runs`, `confirmations` — all in
 `rebuild-index`.
 
+**[RESOLVED — table lifecycle ruling, 2026-07-23]** Definition is
+memory, runtime is index, applied per-table: `adjutant_log` and
+`task_runs` are pure runtime history (peers of `retrieval_log`) and
+**survive** rebuild. `confirmations` **mirrors markdown records**, so it
+is derived state: wiped and repopulated from records on every rebuild —
+a mirror that survived reindex could let a hand-edited or
+backup-restored confirmation drift from its row, in a table that gates
+real-world actions. Step 4's confirmation manager keeps the mirror
+synced incrementally between rebuilds; any state that turns out to be
+genuinely runtime-only (e.g. "notified owner at <time>") belongs in a
+runtime table or adjutant_log, never in the mirror.
+
 ## 4. Ingestion adapters (v1: minimal)
 
 `lisan/tools/` gains fswatch polling (configured dirs -> capture as

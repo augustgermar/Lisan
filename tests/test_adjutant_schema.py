@@ -225,6 +225,48 @@ def test_new_tables_exist(tmp_path):
     conn.close()
 
 
+def test_confirmations_mirror_rebuilds_from_records(vault, tmp_path):
+    """Ruling 2026-07-23: the mirror is derived state. A rebuild reflects
+    exactly what the records say — hand edits win, stale rows die."""
+    from lisan.tools.rebuild_index import rebuild_index
+
+    loop = new_open_loop(vault, "Anchor for mirror test")
+    loop_id = load_markdown(loop.path).frontmatter["id"]
+    created = new_confirmation(
+        vault, "Mirror me", task_id=loop_id, task_summary="s",
+        planned_action="do the thing", risk="low", expires="2026-07-30",
+    )
+    db = tmp_path / "mirror.sqlite"
+    emb = tmp_path / "emb.bin"
+    rebuild_index(vault, db, emb)
+    conn = db_connect(db)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM confirmations").fetchone()
+    assert row["status"] == "pending" and row["expires"] == "2026-07-30"
+
+    # A stale runtime-ish row injected by hand must not survive rebuild...
+    conn.execute(
+        "INSERT INTO confirmations (id, task_id, status, created_at, expires) "
+        "VALUES ('confirmation.ghost', 'open_loop.gone', 'pending', '2026-01-01', '2026-01-08')"
+    )
+    # ...and a record edited out-of-band (owner denies by hand) must win.
+    doc = load_markdown(created.path)
+    fm = dict(doc.frontmatter)
+    fm["status"] = "resolved"
+    fm["resolution"] = "denied"
+    write_markdown(created.path, fm, doc.body)
+    conn.commit()
+    conn.close()
+
+    rebuild_index(vault, db, emb)
+    conn = db_connect(db)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM confirmations").fetchall()
+    assert len(rows) == 1
+    assert rows[0]["resolution"] == "denied"
+    conn.close()
+
+
 def test_zero_migration_from_pre_adjutant_database(vault, tmp_path):
     """A database created before WO-ADJUTANT gains the new columns and
     tables from ensure_index_schema alone — no migration step, no data
