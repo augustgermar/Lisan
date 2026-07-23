@@ -152,6 +152,20 @@ def build_parser() -> argparse.ArgumentParser:
     adjutant_log_cmd.add_argument("limit", nargs="?", type=int, default=20)
     adjutant_log_cmd.add_argument("--db-path", type=Path, default=None)
 
+    confirm_cmd = subparsers.add_parser("confirm", help="Approve or deny pending Adjutant confirmations")
+    confirm_subparsers = confirm_cmd.add_subparsers(dest="confirm_command", required=True)
+    confirm_list = confirm_subparsers.add_parser("list", help="List pending confirmations")
+    confirm_list.add_argument("--vault", type=Path, default=vault_root())
+    confirm_list.add_argument("--db-path", type=Path, default=None)
+    confirm_approve = confirm_subparsers.add_parser("approve", help="Approve a confirmation by id")
+    confirm_approve.add_argument("id")
+    confirm_approve.add_argument("--vault", type=Path, default=vault_root())
+    confirm_approve.add_argument("--db-path", type=Path, default=None)
+    confirm_deny = confirm_subparsers.add_parser("deny", help="Deny a confirmation by id")
+    confirm_deny.add_argument("id")
+    confirm_deny.add_argument("--vault", type=Path, default=vault_root())
+    confirm_deny.add_argument("--db-path", type=Path, default=None)
+
     manifest = subparsers.add_parser("manifest", help="Generate derived manifests")
     manifest.add_argument("--vault", type=Path, default=vault_root())
     manifest.add_argument("--no-write", action="store_true")
@@ -963,6 +977,30 @@ def main(argv: list[str] | None = None) -> int:
         if args.adjutant_command == "log":
             print(format_log(tail_log(args.db_path, args.limit)))
             return 0
+
+    if args.command == "confirm":
+        from .tools.adjutant_confirmations import (
+            approve_confirmation,
+            deny_confirmation,
+            format_pending,
+            list_pending,
+        )
+
+        if args.confirm_command == "list":
+            print(format_pending(args.vault, list_pending(args.db_path)))
+            return 0
+        try:
+            if args.confirm_command == "approve":
+                outcome = approve_confirmation(args.vault, args.id, db_path=args.db_path)
+                print(f"Approved {outcome['id']} (task {outcome['task_id']}). It executes on the next cycle.")
+                return 0
+            if args.confirm_command == "deny":
+                outcome = deny_confirmation(args.vault, args.id, db_path=args.db_path)
+                print(f"Denied {outcome['id']} (task {outcome['task_id']}).")
+                return 0
+        except (KeyError, ValueError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
 
     if args.command == "intent":
         from .tools.intent import (

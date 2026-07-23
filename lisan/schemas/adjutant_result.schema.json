@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "adjutant_result",
+  "description": "v1. The structured result the Adjutant composes after executing (or failing) a task, before submitting it through the capture pipeline. Not a vault record type: this is the contract between executor and reporter. (Spec named this adjutant_result_v1.json; repo convention is *.schema.json with the version documented here.)",
+  "type": "object",
+  "required": ["task_id", "kind", "ok", "actions", "artifacts", "findings", "errors", "confidence"],
+  "properties": {
+    "task_id": {"type": "string"},
+    "kind": {"type": "string", "enum": ["run_script", "research", "collect", "draft", "notify"]},
+    "ok": {"type": "boolean"},
+    "verdict_path": {"type": "string", "description": "The gate rule chain that authorized this execution."},
+    "actions": {"type": "array", "items": {"type": "string"}},
+    "artifacts": {"type": "array", "items": {"type": "string"}},
+    "findings": {"type": "array", "items": {"type": "object"}},
+    "errors": {"type": "array", "items": {"type": "string"}},
+    "exit_code": {"type": "integer"},
+    "duration_seconds": {"type": "number"},
+    "confidence": {"type": "string", "enum": ["high", "medium", "low"]}
+  }
+}

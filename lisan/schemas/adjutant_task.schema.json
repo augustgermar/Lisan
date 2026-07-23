@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "adjutant_task",
+  "description": "v1. The shape of a task the poller hands the gate and executor: derived from an open_loop's task fields, a decision's execution step, or a schedule record. Not a vault record type. (Spec named this adjutant_task_v1.json; repo convention is *.schema.json with the version documented here.)",
+  "type": "object",
+  "required": ["task_id", "source", "arena", "task_kinds"],
+  "properties": {
+    "task_id": {"type": "string"},
+    "source": {"type": "string", "enum": ["open_loop", "decision", "schedule", "confirmation"]},
+    "arena": {"type": "string"},
+    "task_kinds": {
+      "type": "array",
+      "items": {"type": "string", "enum": ["run_script", "research", "collect", "draft", "notify"]}
+    },
+    "path": {"type": "string"},
+    "summary": {"type": "string"},
+    "due": {"type": "string"},
+    "blocked_contexts": {"type": "array", "items": {"type": "string"}},
+    "payload": {"type": "object", "description": "Executor arguments. Always copied from the task record — never authored by generation."}
+  }
+}

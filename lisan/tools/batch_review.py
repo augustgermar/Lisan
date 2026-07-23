@@ -58,7 +58,7 @@ def generate_batch_review(vault: Path | None = None, db_path: Path | None = None
     for item in items:
         grouped.setdefault(item.category, []).append(item)
 
-    order = ["state", "draft", "open_loop", "conversation", "claim"]
+    order = ["pending confirmation", "blocked task", "state", "draft", "open_loop", "conversation", "claim"]
     for category in order:
         if category not in grouped:
             continue
@@ -90,6 +90,71 @@ def _collect_items(vault: Path, db_path: Path) -> list[BatchReviewItem]:
     items.extend(_pending_drafts(vault))
     items.extend(_active_conversations(vault))
     items.extend(_stale_backup(vault))
+    items.extend(_pending_confirmations(db_path))
+    items.extend(_blocked_tasks(db_path))
+    return items
+
+
+def _pending_confirmations(db_path: Path) -> list[BatchReviewItem]:
+    """WO-ADJUTANT: confirmations awaiting the owner's yes/no."""
+    items: list[BatchReviewItem] = []
+    if not db_path.exists():
+        return items
+    import sqlite3
+
+    conn = _db_connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        try:
+            rows = conn.execute(
+                "SELECT id, task_id, expires, record_path FROM confirmations "
+                "WHERE status='pending' AND resolution IS NULL ORDER BY expires"
+            ).fetchall()
+        except sqlite3.Error:
+            return items
+    finally:
+        conn.close()
+    for row in rows:
+        items.append(
+            BatchReviewItem(
+                category="pending confirmation",
+                identifier=str(row["id"]),
+                summary=f"awaiting approval for {row['task_id']} (lisan confirm approve/deny)",
+                due=str(row["expires"] or ""),
+                path=str(row["record_path"] or ""),
+            )
+        )
+    return items
+
+
+def _blocked_tasks(db_path: Path) -> list[BatchReviewItem]:
+    """WO-ADJUTANT: tasks that failed twice (or expired) and need a human."""
+    items: list[BatchReviewItem] = []
+    if not db_path.exists():
+        return items
+    import sqlite3
+
+    conn = _db_connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        try:
+            rows = conn.execute(
+                "SELECT id, summary, path, task_status FROM files WHERE task_status IN ('blocked', 'expired')"
+            ).fetchall()
+        except sqlite3.Error:
+            return items
+    finally:
+        conn.close()
+    for row in rows:
+        items.append(
+            BatchReviewItem(
+                category="blocked task",
+                identifier=str(row["id"]),
+                summary=f"task_status={row['task_status']}: {row['summary']}",
+                due="",
+                path=str(row["path"] or ""),
+            )
+        )
     return items
 
 

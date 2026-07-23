@@ -1,9 +1,11 @@
-"""The Adjutant cycle: poll -> gate -> (execute) -> report.
+"""The Adjutant cycle: poll -> gate -> execute -> report.
 
-Step 3 of WO-ADJUTANT ships the cycle in dry-run: every verdict is
-logged to adjutant_log, nothing acts. Execution arrives in step 4 and
-stays behind config adjutant.enabled AND the per-arena authority in
-intent.md — two switches, both owner-held.
+Dry-run (config adjutant.enabled=false, the default) logs verdicts and
+touches nothing. Enabled, the cycle executes only what the gate says
+EXECUTE (or what the owner explicitly approved), through the local
+executor, and reports every outcome — success or failure — through the
+capture front door. The executor never writes memory; the reporter only
+speaks through capture.
 
 A halt is never silent (ratified 2026-07-23): any refusal to run lands
 in the audit log with its reason and shows in `lisan adjutant status`.
@@ -11,16 +13,33 @@ in the audit log with its reason and shows in `lisan adjutant status`.
 from __future__ import annotations
 
 import sqlite3
+import time
+from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..config import load_config
+from ..frontmatter import load_markdown, write_markdown
 from ..paths import sqlite_path, vault_root
+from .adjutant_confirmations import (
+    create_confirmation_for_task,
+    expire_stale_confirmations,
+    mark_executed,
+)
+from .adjutant_executor import (
+    ExecutionResult,
+    execute_task,
+    set_task_status,
+    task_payload_from_record,
+)
 from .adjutant_gate import gate, log_cycle_event, log_verdict, required_capabilities
-from .adjutant_poller import poll
+from .adjutant_poller import PolledTask, poll
+from .adjutant_reporter import report_result
 from .db import connect as _db_connect
-from .intent import IntentError, detect_out_of_band_edit, load_intent
-from .rebuild_index import ensure_index_schema
+from .intent import CONFIRM, DENY, EXECUTE, Intent, IntentError, detect_out_of_band_edit, load_intent
+from .rebuild_index import ensure_index_schema, reindex_record
+
+MAX_ATTEMPTS = 2  # a task that fails twice moves to blocked — no infinite retries
 
 
 def run_cycle(
@@ -28,11 +47,15 @@ def run_cycle(
     db_path: Path | None = None,
     *,
     config: dict[str, Any] | None = None,
+    complete: Callable[[str], str] | None = None,
+    capture: Callable[..., Any] | None = None,
+    scratch_root: Path | None = None,
 ) -> dict[str, Any]:
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
     config = config or load_config()
     enabled = bool((config.get("adjutant") or {}).get("enabled", False))
+    dry_run = not enabled
 
     conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -47,10 +70,17 @@ def run_cycle(
             # only product.
             log_cycle_event(conn, "halt", str(exc))
             conn.commit()
-            return {"halted": True, "reason": str(exc), "verdicts": [], "dry_run": True}
+            return {"halted": True, "reason": str(exc), "verdicts": [], "executed": [], "dry_run": dry_run}
+        conn.commit()
+
+        expired = expire_stale_confirmations(vault, db_path)
+        if expired:
+            log_cycle_event(conn, "confirmations_expired", ", ".join(e["id"] for e in expired))
 
         tasks = poll(conn, intent, vault)
+        wall_seconds = int((intent.delegations.get("global", {}) or {}).get("max_task_wall_seconds", 600) or 600)
         verdicts: list[dict[str, Any]] = []
+        executed: list[dict[str, Any]] = []
         for task in tasks:
             verdict = gate(task.as_gate_task(), intent)
             capabilities = required_capabilities(task.task_kinds)
@@ -75,15 +105,57 @@ def run_cycle(
                     "reasons": verdict.reasons,
                 }
             )
+            # Release the write lock before any helper opens its own
+            # connection (confirmations, reindex) — an uncommitted INSERT
+            # here would stall them into quiet lock timeouts.
+            conn.commit()
+            if dry_run:
+                continue
 
-        # Step 3: the cycle is verdicts-only regardless of the flag; the
-        # executor lands in step 4, gated on `enabled` (unused until then).
-        del enabled
-        dry_run = True
+            verdict_path = f"{verdict.rule} (intent v{intent.version})"
+            if task.source == "confirmation":
+                # Owner approval satisfies CONFIRM — but never-rules still
+                # outrank a stale approval.
+                if verdict.decision == DENY:
+                    log_cycle_event(
+                        conn, "approval_overridden", f"{task.task_id}: approved but now denied by {verdict.rule}"
+                    )
+                    continue
+                outcome = _execute_and_report(
+                    conn, vault, task, intent, config,
+                    verdict_path=f"owner approval + {verdict_path}",
+                    wall_seconds=wall_seconds, db_path=db_path,
+                    complete=complete, capture=capture, scratch_root=scratch_root,
+                )
+                if outcome["ok"]:
+                    mark_executed(vault, task.task_id, db_path)
+                executed.append(outcome)
+            elif verdict.decision == EXECUTE:
+                executed.append(
+                    _execute_and_report(
+                        conn, vault, task, intent, config,
+                        verdict_path=verdict_path, wall_seconds=wall_seconds, db_path=db_path,
+                        complete=complete, capture=capture, scratch_root=scratch_root,
+                    )
+                )
+            elif verdict.decision == CONFIRM:
+                created = create_confirmation_for_task(
+                    vault,
+                    task_id=task.task_id,
+                    task_summary=task.summary or task.task_id,
+                    planned_action=_planned_action(vault, task),
+                    risk="; ".join(verdict.reasons) or f"requires confirmation per {verdict.rule}",
+                    arena=task.arena,
+                    db_path=db_path,
+                )
+                if created:
+                    log_cycle_event(conn, "confirmation_created", f"{created} for {task.task_id}")
+
         log_cycle_event(
             conn,
             "cycle",
-            f"dry_run={dry_run} tasks={len(tasks)} " + " ".join(f"{v['task_id']}:{v['verdict']}" for v in verdicts),
+            f"dry_run={dry_run} tasks={len(tasks)} executed={len(executed)} "
+            + " ".join(f"{v['task_id']}:{v['verdict']}" for v in verdicts),
         )
         conn.commit()
         return {
@@ -91,9 +163,182 @@ def run_cycle(
             "intent_version": intent.version,
             "dry_run": dry_run,
             "verdicts": verdicts,
+            "executed": executed,
         }
     finally:
         conn.close()
+
+
+def _planned_action(vault: Path, task: PolledTask) -> str:
+    payload = task_payload_from_record(vault, task.path) if task.path else {}
+    return f"kind={'+'.join(task.task_kinds)} payload={payload!r} (task: {task.summary})"
+
+
+def _next_attempt(conn: sqlite3.Connection, task_id: str) -> int:
+    row = conn.execute("SELECT COUNT(*) FROM task_runs WHERE task_id = ?", (task_id,)).fetchone()
+    return int(row[0]) + 1
+
+
+def _execute_and_report(
+    conn: sqlite3.Connection,
+    vault: Path,
+    task: PolledTask,
+    intent: Intent,
+    config: dict[str, Any],
+    *,
+    verdict_path: str,
+    wall_seconds: int,
+    db_path: Path,
+    complete: Callable[[str], str] | None,
+    capture: Callable[..., Any] | None,
+    scratch_root: Path | None,
+) -> dict[str, Any]:
+    attempt = _next_attempt(conn, task.task_id)
+    started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    cursor = conn.execute(
+        "INSERT INTO task_runs (task_id, attempt, started) VALUES (?, ?, ?)",
+        (task.task_id, attempt, started),
+    )
+    run_row = cursor.lastrowid
+    conn.commit()
+
+    if task.source in {"open_loop", "confirmation"}:
+        _safe_set_task_status(vault, task.path, "running", db_path)
+
+    if complete is None:
+        complete = _default_complete(config, db_path)
+
+    if task.source == "decision":
+        results = _execute_decision_steps(
+            vault, task, config, wall_seconds=wall_seconds, complete=complete, scratch_root=scratch_root, db_path=db_path
+        )
+    else:
+        payload = task_payload_from_record(vault, task.path) if task.path else {}
+        kind = task.task_kinds[0] if task.task_kinds else ""
+        results = [
+            execute_task(
+                task.task_id, kind, payload,
+                vault=vault, config=config, timeout_seconds=wall_seconds,
+                complete=complete, scratch_root=scratch_root,
+            )
+        ]
+
+    ok = all(r.ok for r in results) and bool(results)
+    error_text = "; ".join(err for r in results for err in r.errors)[:500] or None
+    conn.execute(
+        "UPDATE task_runs SET finished = ?, exit_status = ?, error = ? WHERE id = ?",
+        (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "ok" if ok else "failed", error_text, run_row),
+    )
+    conn.commit()
+
+    for result in results:
+        try:
+            report_result(vault, result, verdict_path=verdict_path, db_path=db_path, capture=capture)
+        except Exception as exc:
+            log_cycle_event(conn, "report_failed", f"{task.task_id}: {exc}")
+
+    if task.source in {"open_loop", "confirmation"}:
+        if ok:
+            _safe_set_task_status(vault, task.path, "resolved", db_path)
+        elif attempt >= MAX_ATTEMPTS:
+            _safe_set_task_status(vault, task.path, "blocked", db_path)
+            log_cycle_event(conn, "task_blocked", f"{task.task_id} failed {attempt} time(s); moved to blocked")
+        else:
+            _safe_set_task_status(vault, task.path, "pending", db_path)
+    elif task.source == "schedule" and ok:
+        _advance_schedule(conn, vault, task, db_path)
+
+    return {
+        "task_id": task.task_id,
+        "attempt": attempt,
+        "ok": ok,
+        "kinds": task.task_kinds,
+        "errors": [err for r in results for err in r.errors],
+        "artifacts": [a for r in results for a in r.artifacts],
+    }
+
+
+def _execute_decision_steps(
+    vault: Path,
+    task: PolledTask,
+    config: dict[str, Any],
+    *,
+    wall_seconds: int,
+    complete: Callable[[str], str] | None,
+    scratch_root: Path | None,
+    db_path: Path,
+) -> list[ExecutionResult]:
+    """Execute a decision's pending steps in order; each successful step is
+    marked resolved in the record (payloads come from the record)."""
+    record = vault / task.path
+    doc = load_markdown(record)
+    fm = dict(doc.frontmatter)
+    steps = fm.get("execution_steps") or []
+    results: list[ExecutionResult] = []
+    changed = False
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict) or step.get("status") != "pending":
+            continue
+        payload = step.get("task_payload") or {}
+        result = execute_task(
+            f"{task.task_id}#step{index}", str(step.get("task_kind", "")), payload if isinstance(payload, dict) else {},
+            vault=vault, config=config, timeout_seconds=wall_seconds,
+            complete=complete, scratch_root=scratch_root,
+        )
+        results.append(result)
+        if result.ok:
+            step["status"] = "resolved"
+            changed = True
+        else:
+            break  # a failed step halts the sequence; retry picks it up
+    if changed:
+        fm["updated"] = date.today().isoformat()
+        write_markdown(record, fm, doc.body)
+        reindex_record(record, vault, db_path, quiet=True)
+    return results
+
+
+def _advance_schedule(conn: sqlite3.Connection, vault: Path, task: PolledTask, db_path: Path) -> None:
+    record = vault / task.path
+    doc = load_markdown(record)
+    fm = dict(doc.frontmatter)
+    cron = str(fm.get("cron", ""))
+    try:
+        from .scheduler import next_occurrence
+
+        fm["next_run"] = next_occurrence(cron).strftime("%Y-%m-%dT%H:%M:%S")
+    except (ValueError, KeyError):
+        # weekly:/monthly: cadences materialize via the jobs table in step 6;
+        # until then the fired schedule parks rather than refiring every cycle.
+        fm["next_run"] = ""
+        log_cycle_event(conn, "schedule_parked", f"{task.task_id}: cadence {cron!r} not yet materializable (step 6)")
+    fm["updated"] = date.today().isoformat()
+    write_markdown(record, fm, doc.body)
+    reindex_record(record, vault, db_path, quiet=True)
+
+
+def _safe_set_task_status(vault: Path, path: str, status: str, db_path: Path) -> None:
+    try:
+        set_task_status(vault, path, status, db_path)
+    except Exception:
+        pass
+
+
+def _default_complete(config: dict[str, Any], db_path: Path) -> Callable[[str], str] | None:
+    """A thin provider callable for draft tasks; None when unavailable so
+    the executor fails cleanly instead of hanging on a dead endpoint."""
+    try:
+        from ..providers.base import LisanLLM
+
+        llm = LisanLLM(config, db_path)
+
+        def _call(prompt: str) -> str:
+            response = llm.complete(prompt, agent="adjutant", significance="medium")
+            return str(getattr(response, "text", response))
+
+        return _call
+    except Exception:
+        return None
 
 
 def adjutant_status(vault: Path | None = None, db_path: Path | None = None) -> dict[str, Any]:
@@ -188,7 +433,7 @@ def format_cycle_result(result: dict[str, Any]) -> str:
         return f"HALTED: {result['reason']}"
     lines = [
         f"Cycle complete (dry-run={str(result['dry_run']).lower()}, intent v{result['intent_version']}): "
-        f"{len(result['verdicts'])} task(s)."
+        f"{len(result['verdicts'])} task(s), {len(result.get('executed', []))} executed."
     ]
     for v in result["verdicts"]:
         lines.append(
@@ -197,6 +442,11 @@ def format_cycle_result(result: dict[str, Any]) -> str:
         )
         for reason in v["reasons"]:
             lines.append(f"      - {reason}")
+    for outcome in result.get("executed", []):
+        status = "ok" if outcome["ok"] else "FAILED"
+        lines.append(f"  ran {outcome['task_id']} attempt {outcome['attempt']}: {status}")
+        for error in outcome["errors"]:
+            lines.append(f"      ! {error}")
     if not result["verdicts"]:
         lines.append("  nothing actionable.")
     return "\n".join(lines)
