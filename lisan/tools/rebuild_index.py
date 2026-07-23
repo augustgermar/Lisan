@@ -228,6 +228,9 @@ CREATE TABLE IF NOT EXISTS ingestion_batches (
     notes TEXT
 );
 
+-- adjutant_log: task_id='cycle' is reserved for cycle-level events
+-- (halt, cycle summary, intent_oob_edit; the verdict column carries the
+-- event name). Survives rebuild: runtime history, not derived state.
 CREATE TABLE IF NOT EXISTS adjutant_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts TEXT NOT NULL,

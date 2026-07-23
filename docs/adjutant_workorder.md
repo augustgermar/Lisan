@@ -201,6 +201,16 @@ The poller selects, via SQL against the existing index:
 Ordering: confirmations/escalations first, then (priority match against
 intent Priorities, due date, created date). Cap: `max_tasks_per_cycle`.
 
+**[RESOLVED — priority vocabulary, 2026-07-23]** Priority match is
+deterministic token overlap between the task **summary only** and the
+intent Priorities lines (first matching line wins; unmatched tasks rank
+after all matched ones, then by due date). Arena names are excluded from
+matching — they are everyday words ("work", "financial") and
+false-match priority prose. The owner steers ranking by writing
+priorities in the tasks' own vocabulary; no model opinion enters the
+ordering. A task with an approved confirmation rides the confirmation
+lane only (never double-selected as a pending loop).
+
 ### 2.3 The gate
 
 Pure function, no LLM. Wraps `intent.resolve_capabilities` with the
@@ -282,7 +292,10 @@ flag `adjutant.enabled`: populate task fields only for genuinely
 actionable instructions; aspirational statements stay task-free.
 
 New SQLite tables: `adjutant_log`, `task_runs`, `confirmations` — all in
-`rebuild-index`.
+`rebuild-index`. In `adjutant_log`, **`task_id = 'cycle'` is reserved**
+for cycle-level events (verdict column carries the event name: `halt`,
+`cycle`, `intent_oob_edit`) so `adjutant status` reads one log for both
+task verdicts and lifecycle; no record may use that id.
 
 **[RESOLVED — table lifecycle ruling, 2026-07-23]** Definition is
 memory, runtime is index, applied per-table: `adjutant_log` and

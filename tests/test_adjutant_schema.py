@@ -284,6 +284,7 @@ def test_zero_migration_from_pre_adjutant_database(vault, tmp_path):
         start = old_sql.index(f"CREATE TABLE IF NOT EXISTS {table} (")
         end = old_sql.index(");", start) + 2
         old_sql = old_sql[:start] + old_sql[end:]
+    old_sql = "\n".join(line for line in old_sql.splitlines() if not line.strip().startswith("--"))
     assert "task_kind" not in old_sql and "adjutant_log" not in old_sql
 
     db = tmp_path / "old.sqlite"

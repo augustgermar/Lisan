@@ -114,6 +114,11 @@ _One paragraph. What the whole system is for._
 1. _Highest priority first; ties are broken top-down._
 2. _Second priority._
 
+> The Adjutant ranks pollable tasks by word overlap between a task's
+> summary and these lines (first match wins; unmatched tasks rank last,
+> then by due date). Write priorities in the same vocabulary your tasks
+> use — "backups", "invoices", "the garden" — not abstractions.
+
 # Standing Delegations
 
 Every arena starts report-only. Widen authority per-arena, per-capability,
