@@ -1,7 +1,13 @@
 # docs/ — what is live and what is history
 
-Three documents are LIVE (unexecuted work orders; each states its own
-entry gate — read it before starting):
+Four documents are LIVE (work orders in flight or awaiting their entry
+gate — read the gate before starting):
+
+- `adjutant_workorder.md` — WO-ADJUTANT, the execution layer +
+  commander's intent. IN EXECUTION: Step 1 (intent.md) shipped
+  2026-07-23; steps 2–7 pending. The doc carries the resolved
+  delegation contract and the settled forks — it supersedes the
+  original draft spec.
 
 - `psyche_workorder.md` — WO-PSYCHE, the psychological pattern layer:
   three-tier provenance (facts / owner-ratified frameworks / earned
