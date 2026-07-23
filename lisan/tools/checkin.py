@@ -36,6 +36,23 @@ from .rebuild_index import reindex_record
 _OUTCOMES = {"worked", "didnt_work", "mixed"}
 
 
+def _refused(vault: Path, subject: str, error: str, *, candidates: list[str] | None = None) -> dict[str, Any]:
+    """A check-in that fails to record is never silent (failure policy):
+    it lands in the error log AND the tool reply instructs the model to
+    tell the user, so a dropped observation is a visible event, not a
+    quiet nothing (the 2026-07-23 nap check-in vanished without a trace)."""
+    from .log import log_error
+
+    try:
+        log_error(vault, "checkin.refused", ValueError(f"subject={subject!r}: {error}"))
+    except Exception:
+        pass
+    out: dict[str, Any] = {"ok": False, "recorded": False, "error": error, "known_people": _nearby_people(vault)}
+    if candidates:
+        out["did_you_mean"] = candidates
+    return out
+
+
 def _slug_key(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", str(text or "").lower()).strip("-")
 
@@ -56,6 +73,108 @@ def _nearby_people(vault: Path, limit: int = 8) -> list[str]:
         except Exception:
             continue
     return names[:limit]
+
+
+_SELF_WORDS = {"me", "myself", "i", "self"}
+
+
+def resolve_checkin_subject(
+    vault: Path, subject: str, db_path: Path | None = None
+) -> tuple[Path | None, list[str]]:
+    """Resolve a check-in subject the way the owner actually talks.
+
+    The exact matcher borrowed from entity_merge demanded merge-grade
+    precision from a thirty-second capture path — "August" and "me"
+    resolved to nothing while august-germar.md sat right there (the
+    2026-07-23 nap check-in was dropped exactly here). Order:
+
+    1. exact (canonical name / id / file stem / frontmatter aliases) —
+       unchanged behavior;
+    2. the entity_aliases index the rest of the system already maintains;
+    3. self-references (me/myself/I plus the primer's principal aliases)
+       resolve to the principal's person entity;
+    4. unique first-name match across person entities — and on a tie we
+       REFUSE with the candidates, never guess. A wrong subject on a
+       child's record is worse than a re-ask.
+
+    Returns (path, candidates): path on success; on failure, candidates
+    holds did-you-mean names when the miss was an ambiguity."""
+    subject = str(subject or "").strip()
+    if not subject:
+        return None, []
+    hit = _find_entity(vault, subject)
+    if hit is not None:
+        return hit, []
+
+    lowered = subject.lower()
+
+    # Alias index (case-insensitive). Distinct targets = ambiguity.
+    if db_path is None:
+        from ..paths import sqlite_path
+
+        db_path = sqlite_path()
+    if db_path and Path(db_path).exists():
+        try:
+            from .db import connect as _db_connect
+
+            conn = _db_connect(db_path)
+            try:
+                rows = conn.execute(
+                    "SELECT DISTINCT f.path, f.id FROM entity_aliases a "
+                    "JOIN files f ON f.id = a.entity_id "
+                    "WHERE a.alias = ? COLLATE NOCASE LIMIT 3",
+                    (subject,),
+                ).fetchall()
+            finally:
+                conn.close()
+            if len(rows) == 1:
+                candidate = vault / str(rows[0][0])
+                if candidate.exists():
+                    return candidate, []
+            elif len(rows) > 1:
+                return None, [str(r[1]) for r in rows]
+        except Exception:
+            pass  # a broken index degrades to the scans below, never blocks
+
+    # Self-references resolve to the principal's own person entity.
+    try:
+        from .primer_index import principal_aliases
+
+        principal = {a.lower() for a in principal_aliases(vault)}
+    except Exception:
+        principal = set()
+    if lowered in _SELF_WORDS or lowered in principal:
+        for name in sorted(principal) or [lowered]:
+            match, ambiguous = _first_name_match(vault, name)
+            if match is not None:
+                return match, []
+        return None, []
+
+    return _first_name_match(vault, lowered)
+
+
+def _first_name_match(vault: Path, lowered: str) -> tuple[Path | None, list[str]]:
+    """Unique first-token match over person entities; ties refuse loudly."""
+    matches: list[tuple[Path, str]] = []
+    people_root = vault / "entities"
+    if not people_root.exists():
+        return None, []
+    for p in sorted(people_root.rglob("*.md")):
+        try:
+            fm = load_markdown(p).frontmatter
+        except Exception:
+            continue
+        if str(fm.get("subtype") or fm.get("kind") or "") != "person":
+            continue
+        canonical = str(fm.get("canonical_name") or p.stem)
+        first = canonical.strip().split()[0].lower() if canonical.strip() else ""
+        if first == lowered:
+            matches.append((p, canonical))
+    if len(matches) == 1:
+        return matches[0][0], []
+    if len(matches) > 1:
+        return None, [canonical for _, canonical in matches]
+    return None, []
 
 
 def _append_link(record_path: Path, entity_id: str) -> None:
@@ -83,14 +202,23 @@ def record_checkin(
 
     note = str(note or "").strip()
     if not note:
-        return {"ok": False, "error": "empty note — a check-in records something observed"}
-    entity_path = _find_entity(vault, subject)
+        return _refused(vault, subject, "empty note — a check-in records something observed")
+    entity_path, candidates = resolve_checkin_subject(vault, subject, db_path)
     if entity_path is None:
-        return {
-            "ok": False,
-            "error": f"no entity found for {subject!r}",
-            "known_people": _nearby_people(vault),
-        }
+        if candidates:
+            return _refused(
+                vault,
+                subject,
+                f"{subject!r} is ambiguous — did you mean: {', '.join(candidates)}? "
+                "Re-ask the user; never guess the subject of a check-in.",
+                candidates=candidates,
+            )
+        return _refused(
+            vault,
+            subject,
+            f"no entity found for {subject!r} — tell the user the check-in was NOT recorded "
+            "and ask which person they meant",
+        )
     entity_id, canonical = _entity_identity(entity_path)
 
     observed = [note]
@@ -168,9 +296,14 @@ def support_note(
     strategy = str(strategy or "").strip()
     if not strategy:
         return {"ok": False, "error": "empty strategy"}
-    entity_path = _find_entity(vault, subject)
+    entity_path, candidates = resolve_checkin_subject(vault, subject)
     if entity_path is None:
-        return {"ok": False, "error": f"no entity found for {subject!r}", "known_people": _nearby_people(vault)}
+        error = (
+            f"{subject!r} is ambiguous — did you mean: {', '.join(candidates)}?"
+            if candidates
+            else f"no entity found for {subject!r}"
+        )
+        return _refused(vault, subject, error, candidates=candidates or None)
     entity_id, canonical = _entity_identity(entity_path)
 
     pattern_path = _find_support_pattern(vault, entity_id, strategy)
@@ -220,9 +353,14 @@ def support_note(
 def support_summary(vault: Path, subject: str) -> dict[str, Any]:
     """Every support strategy on record for a person, with tallies and the
     most recent outcomes — the 'what helps' view."""
-    entity_path = _find_entity(vault, subject)
+    entity_path, candidates = resolve_checkin_subject(vault, subject)
     if entity_path is None:
-        return {"ok": False, "error": f"no entity found for {subject!r}", "known_people": _nearby_people(vault)}
+        error = (
+            f"{subject!r} is ambiguous — did you mean: {', '.join(candidates)}?"
+            if candidates
+            else f"no entity found for {subject!r}"
+        )
+        return _refused(vault, subject, error, candidates=candidates or None)
     entity_id, canonical = _entity_identity(entity_path)
 
     strategies = []
