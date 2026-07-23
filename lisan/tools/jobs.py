@@ -53,6 +53,7 @@ JOB_TYPES = {
     "self.evaluate",
     "prediction.reconcile",
     "corpus.audit_priors",
+    "adjutant.cycle",
 }
 
 # Indexing/embedding jobs are deterministic and cheap (no LLM call). These are
@@ -1019,6 +1020,20 @@ def dispatch_job(
             model=model,
             send_fn=current_send_fn(),
         )
+
+    if job_type == "adjutant.cycle":
+        # The alarm clock for materialized schedule records: the job only
+        # says "check now" — the records decide what is actually due, the
+        # gate decides what may act, and the cycle advancing next_run
+        # re-materializes the next alarm. Cadence never lives in the DB.
+        from .adjutant_runner import run_cycle
+
+        result = run_cycle(vault, db_path)
+        return {
+            "halted": result.get("halted", False),
+            "verdicts": len(result.get("verdicts", [])),
+            "executed": len(result.get("executed", [])),
+        }
 
     if job_type in {"task.reminder", "task.prompt", "task.run_codex"}:
         from .scheduler import current_send_fn, run_task_job

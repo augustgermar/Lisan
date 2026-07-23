@@ -73,12 +73,14 @@ def run_cycle(
         ensure_index_schema(conn)
         if detect_out_of_band_edit(vault):
             log_cycle_event(conn, "intent_oob_edit", "intent.md edited out of band; snapshotted and version bumped")
+        if deliver is None:
+            deliver = _default_deliver(config)
         try:
             intent = load_intent(vault)
         except IntentError as exc:
             # Fail closed, loudly: the halt and its reason are the cycle's
             # only product.
-            log_cycle_event(conn, "halt", str(exc))
+            _log_halt(conn, str(exc), deliver)
             conn.commit()
             return {"halted": True, "reason": str(exc), "verdicts": [], "executed": [], "dry_run": dry_run}
         conn.commit()
@@ -91,12 +93,9 @@ def run_cycle(
                 "intent.md still carries the template's sentinel dates (1970-01-01) in "
                 "created/updated/review_after; customize and set real dates before enabling"
             )
-            log_cycle_event(conn, "halt", reason)
+            _log_halt(conn, reason, deliver)
             conn.commit()
             return {"halted": True, "reason": reason, "verdicts": [], "executed": [], "dry_run": dry_run}
-
-        if deliver is None:
-            deliver = _default_deliver(config)
 
         expired = expire_stale_confirmations(vault, db_path)
         if expired:
@@ -209,6 +208,24 @@ def _planned_action(vault: Path, task: PolledTask) -> str:
         message = str(payload.get("message", "")).strip() or "(payload carries no message — the task will fail)"
         return f"Send this exact message to the owner via telegram:\n\n{message}"
     return f"kind={'+'.join(task.task_kinds)} payload={payload!r} (task: {task.summary})"
+
+
+def _log_halt(conn: sqlite3.Connection, reason: str, deliver: Callable[[str], None] | None) -> None:
+    """A halt is never silent: log it always, and ping the owner on the
+    EDGE — the first halt after a non-halt — so a daemon halting every
+    interval sends one message, not one per cycle."""
+    previous = conn.execute(
+        "SELECT verdict, note FROM adjutant_log WHERE task_id='cycle' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    fresh = previous is None or str(previous["verdict"]) != "halt" or str(previous["note"]) != reason
+    log_cycle_event(conn, "halt", reason)
+    if fresh:
+        _ping_owner(
+            deliver,
+            f"Adjutant halted: {reason}\n"
+            f"(since {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}; "
+            "see `lisan adjutant status`. This message will not repeat for the same reason.)",
+        )
 
 
 def _ping_owner(deliver: Callable[[str], None] | None, text: str) -> None:
@@ -390,14 +407,14 @@ def _advance_schedule(conn: sqlite3.Connection, vault: Path, task: PolledTask, d
     fm = dict(doc.frontmatter)
     cron = str(fm.get("cron", ""))
     try:
-        from .scheduler import next_occurrence
+        from .adjutant_common import next_cron_stamp
 
-        fm["next_run"] = next_occurrence(cron).strftime("%Y-%m-%dT%H:%M:%S")
+        fm["next_run"] = next_cron_stamp(cron)
     except (ValueError, KeyError):
-        # weekly:/monthly: cadences materialize via the jobs table in step 6;
-        # until then the fired schedule parks rather than refiring every cycle.
+        # An unparseable cadence parks rather than refiring every cycle —
+        # and says so. The validator should have caught it upstream.
         fm["next_run"] = ""
-        log_cycle_event(conn, "schedule_parked", f"{task.task_id}: cadence {cron!r} not yet materializable (step 6)")
+        log_cycle_event(conn, "schedule_parked", f"{task.task_id}: cadence {cron!r} is not parseable")
     fm["updated"] = date.today().isoformat()
     write_markdown(record, fm, doc.body)
     reindex_record(record, vault, db_path, quiet=True)

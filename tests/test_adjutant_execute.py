@@ -406,7 +406,9 @@ def test_decision_steps_execute_in_order_and_halt_on_failure(world):
     assert not result["executed"][0]["ok"]
 
 
-def test_schedule_advances_or_parks_after_run(world):
+def test_schedule_advances_all_cadences_after_run(world):
+    """Step 6 un-parked the weekly/monthly forms: every valid cadence now
+    advances from its cron string after a successful run."""
     vault, db, conn, config, scripts, tmp = world
     _script(scripts, "tick.sh", "#!/bin/sh\necho tick\n")
     daily = new_schedule(
@@ -424,11 +426,11 @@ def test_schedule_advances_or_parks_after_run(world):
     spy = CaptureSpy()
     result = run_cycle(vault, db, config=config, capture=spy, scratch_root=tmp)
     assert len(result["executed"]) == 2 and all(o["ok"] for o in result["executed"])
-    daily_next = load_markdown(daily.path).frontmatter["next_run"]
-    assert daily_next > "2026-01-01"  # advanced into the future
-    assert load_markdown(weekly.path).frontmatter["next_run"] == ""  # parked until step 6
+    for record in (daily, weekly):
+        next_run = load_markdown(record.path).frontmatter["next_run"]
+        assert next_run > "2026-01-01"  # advanced into the future, not parked
     check = db_connect(db)
-    assert check.execute("SELECT 1 FROM adjutant_log WHERE verdict='schedule_parked'").fetchone()
+    assert check.execute("SELECT 1 FROM adjutant_log WHERE verdict='schedule_parked'").fetchone() is None
     check.close()
 
 

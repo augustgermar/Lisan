@@ -107,7 +107,9 @@
   "ingest": {
     "max_file_size_bytes": 5242880,
     "text_preview_chars": 4000,
-    "skip_if_inside_vault": true
+    "skip_if_inside_vault": true,
+    "fswatch_paths": [],
+    "__comment_fswatch": "Directories the fswatch adapter polls when the adjutant daemon runs; new/changed files become capture turns tagged conversation 'fswatch'. Empty list = adapter off."
   },
   "iip": {
     "validator_enabled": true,

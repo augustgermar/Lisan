@@ -151,6 +151,12 @@ def build_parser() -> argparse.ArgumentParser:
     adjutant_log_cmd = adjutant_subparsers.add_parser("log", help="Tail the adjutant audit log")
     adjutant_log_cmd.add_argument("limit", nargs="?", type=int, default=20)
     adjutant_log_cmd.add_argument("--db-path", type=Path, default=None)
+    adjutant_daemon_cmd = adjutant_subparsers.add_parser("daemon", help="Cycle on the configured interval; lockfile in the vault root")
+    adjutant_daemon_cmd.add_argument("--vault", type=Path, default=vault_root())
+    adjutant_daemon_cmd.add_argument("--db-path", type=Path, default=None)
+    adjutant_fswatch_cmd = adjutant_subparsers.add_parser("fswatch", help="One fswatch polling pass over ingest.fswatch_paths")
+    adjutant_fswatch_cmd.add_argument("--vault", type=Path, default=vault_root())
+    adjutant_fswatch_cmd.add_argument("--db-path", type=Path, default=None)
 
     confirm_cmd = subparsers.add_parser("confirm", help="Approve or deny pending Adjutant confirmations")
     confirm_subparsers = confirm_cmd.add_subparsers(dest="confirm_command", required=True)
@@ -976,6 +982,23 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if status["intent_valid"] and not status["halted"] else 1
         if args.adjutant_command == "log":
             print(format_log(tail_log(args.db_path, args.limit)))
+            return 0
+        if args.adjutant_command == "daemon":
+            from .tools.adjutant_daemon import DaemonLockError, run_daemon
+
+            try:
+                return run_daemon(args.vault, args.db_path)
+            except DaemonLockError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+        if args.adjutant_command == "fswatch":
+            from .tools.fswatch import fswatch_scan
+
+            captured = fswatch_scan(args.vault, args.db_path)
+            if captured:
+                print("\n".join(captured))
+            else:
+                print("Nothing new under the watched paths (or none configured).")
             return 0
 
     if args.command == "confirm":

@@ -99,6 +99,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_file_size_bytes": 5 * 1024 * 1024,
         "text_preview_chars": 4000,
         "skip_if_inside_vault": True,
+        # Directories the fswatch adapter polls; new/changed files become
+        # capture turns (conversation "fswatch"). Empty = adapter off.
+        "fswatch_paths": [],
     },
     "jobs": {
         # After a capture writes records it enqueues index.rebuild_record

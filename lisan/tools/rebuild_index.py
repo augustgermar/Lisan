@@ -330,6 +330,14 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
         embed_targets = _embed_targets_from_index(vault, conn)
         _embed_and_write(conn, embed_targets, embeddings_file)
         conn.commit()
+        # Post-commit (the lock is released): re-materialize every active
+        # schedule's alarm job from the freshly indexed records.
+        for row in conn.execute(
+            "SELECT id, status, next_run FROM files WHERE type = 'schedule'"
+        ).fetchall():
+            materialize_schedule_job(
+                {"status": row["status"], "next_run": row["next_run"]}, str(row["id"]), db_path
+            )
         counts = _index_counts(conn)
         clear_index_cache()
         return counts
@@ -367,6 +375,12 @@ def reindex_record(
             conn.commit()
         finally:
             conn.close()
+        try:
+            doc = load_markdown(path)
+            if str(doc.frontmatter.get("type")) == "schedule":
+                materialize_schedule_job(doc.frontmatter, str(doc.frontmatter.get("id", "")), db_path)
+        except FrontmatterError:
+            pass
     except Exception:
         if not quiet:
             raise
@@ -378,6 +392,9 @@ def ensure_index_schema(conn: sqlite3.Connection) -> None:
     ensure_jobs_table(conn)
     ensure_ingestion_manifest_table(conn)
     ensure_ingestion_batches_table(conn)
+    from .fswatch import ensure_fswatch_table
+
+    ensure_fswatch_table(conn)
     _maybe_create_fts(conn)
 
 
@@ -793,6 +810,40 @@ def _index_counts(conn: sqlite3.Connection) -> dict[str, int]:
         "aliases": int(conn.execute("SELECT COUNT(*) FROM entity_aliases").fetchone()[0]),
         "epochs": int(conn.execute("SELECT COUNT(*) FROM entity_epochs").fetchone()[0]),
     }
+
+
+def materialize_schedule_job(fm: dict[str, Any], file_id: str, db_path: Path | None) -> None:
+    """Hybrid schedule model (ruling 2026-07-23): the record is the
+    definition, the jobs table is runtime. Indexing a due-dated, active
+    schedule (re)materializes its alarm-clock job; the coalesce group
+    keeps it to one queued alarm per schedule. The job merely triggers a
+    cycle — the record's next_run and the gate decide what actually
+    happens. Called only AFTER the indexing connection commits (it opens
+    its own connection; an uncommitted writer would stall it — the
+    held-lock pattern). Failure is logged, never silent: a schedule
+    whose alarm quietly failed to materialize is a dead schedule."""
+    next_run = str(fm.get("next_run") or "")
+    if str(fm.get("status")) != "active" or not next_run:
+        return
+    try:
+        from .jobs import enqueue_job
+
+        enqueue_job(
+            "adjutant.cycle",
+            {"schedule_id": file_id},
+            scheduled_for=next_run,
+            coalesce_key=f"adjutant_schedule:{file_id}",
+            unique_group=f"adjutant_schedule:{file_id}",
+            db_path=db_path,
+        )
+    except Exception as exc:
+        try:
+            from ..paths import vault_root
+            from .log import log_error
+
+            log_error(vault_root(), "materialize_schedule_job", exc)
+        except Exception:
+            pass
 
 
 def _ensure_files_columns(conn: sqlite3.Connection) -> None:
