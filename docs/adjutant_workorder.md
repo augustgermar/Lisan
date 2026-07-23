@@ -1,6 +1,7 @@
 # WO-ADJUTANT: Adjutant Execution Layer + Commander's Intent
 
-Status: LIVE — in execution (Step 1 shipped 2026-07-23)
+Status: CODE COMPLETE 2026-07-24 (steps 1–7 shipped; the calibration
+soak below is the remaining gate before `enabled: true`)
 Binding spec for the execution layer. Amended from the original draft
 where the repo's reality or an implementation ruling superseded it; every
 amendment is marked **[RESOLVED]** with the ruling.
@@ -345,19 +346,28 @@ Config (`config.json`):
 - `lisan backup create` must include the new tables and
   `intent-history/`.
 
-## 6. Implementation order (each step leaves the repo shippable)
+## 6. Implementation order — ALL SHIPPED
 
-1. ~~intent.md: template, parser, validator, CLI, versioning~~ —
-   **shipped 2026-07-23**, commit 065fe2d.
-2. Schema additions; prove zero migration on an existing vault.
-3. Gate + poller + `adjutant run` dry-run: full cycle, logs verdicts,
-   executes nothing.
-4. Executor local kinds (`run_script`, `draft`, `collect`), reporter via
-   capture, confirmations queue + CLI.
-5. Executor `research`, `notify`; Telegram confirmation-id handling.
-6. `schedule` type (hybrid) + daemon mode + halt loudness, fswatch,
-   launchd doc.
-7. Writer v2 prompts behind `adjutant.enabled`; calibration pass.
+1. intent.md: template, parser, validator, CLI, versioning — 2026-07-23,
+   065fe2d (+ teaching template & sentinel gate, 22a18df).
+2. Schema additions, zero migration proven — 3b7be77 (+ mirror ruling,
+   239b436).
+3. Gate + poller + dry-run cycle — edd58a9.
+4. Executor local kinds, reporter via capture, confirmations — 39a7438.
+5. research + notify via the existing Telegram bot — d77a418.
+6. Schedules materialized through jobs, daemon + lock, fswatch,
+   launchd doc — 29fb5be.
+7. Writer v2 behind the flag; definition-of-done integration test
+   green — c39296f.
+
+**Remaining gate — the calibration soak (owner-run, not code):** run
+dry (enabled: false) with v2 writers on for a period, watching
+adjutant_log verdicts and which turns acquire task fields. The
+asymmetry to audit: false taskings (aspirations that got a task_kind)
+are the failure that matters; missed taskings cost one command. The
+audit trail from real days, not the test suite, is what earns
+`enabled: true` — and even then, execution starts at the arenas the
+owner has explicitly granted.
 
 ## 7. Testing requirements
 
