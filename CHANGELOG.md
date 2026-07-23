@@ -1,5 +1,46 @@
 # Changelog
 
+## 26.7.24 (2026-07-24)
+
+**WO-ADJUTANT: the execution layer + commander's intent, code
+complete.** One two-day build, nine commits, all seven steps:
+
+- **`primer/intent.md`** — the authority document: mission, priorities,
+  standing delegations, escalation rules, absolute prohibitions.
+  Versioned with snapshots (out-of-band edits detected by hash),
+  validated by `lisan validate`, resolved by pure code:
+  EXECUTE < CONFIRM < REPORT_ONLY < DENY, most restrictive wins;
+  never-rules outrank confirm_required grants and stale approvals. The
+  seed template teaches its own contract and ships with sentinel dates —
+  uncustomized authority is no authority. `lisan intent
+  show/init/edit/history/check`.
+- **The Adjutant** (`lisan adjutant run/status/log/daemon/fswatch`) — a
+  pure-SQL poller (tasked open loops, decisions with pending steps,
+  schedules, approved confirmations), a pure-code gate mapping task
+  kinds to capabilities against intent, an executor for run_script
+  (allowlisted, sandboxed, timed), draft, collect, research, and notify
+  (full outgoing text approved, always), and a reporter that can only
+  speak through the capture front door — the executor never writes
+  memory. Every verdict audited with its rule and intent version; two
+  failures block a task; halts are loud and edge-pinged.
+- **Confirmations** — records first, mirror derived (rebuilt on
+  reindex); deduped, expiring into batch review, double-expiry
+  escalated; approve/deny via CLI or Telegram, re-gated at execution
+  time. The owner's yes/no is itself memory.
+- **Schedules, hybrid** — the record is the definition, the jobs table
+  the runtime alarm; cadence (every/daily/weekly/monthly) always
+  computed from the record's cron. Daemon with vault lockfile; fswatch
+  feeds capture only.
+- **Writer v2 prompts** behind `adjutant.enabled` — task fields attach
+  only to explicit imperative instructions with user-stated payloads;
+  malformed taskings fail toward plain records (a false tasking costs a
+  wrong verdict; a missed one costs one command). The spec's
+  definition-of-done integration test passes end to end.
+
+Ships **off**: dry cycles until the owner turns both keys
+(`adjutant.enabled` + an adopted intent.md), after the calibration soak
+the work order prescribes. Suite: 983.
+
 ## 26.7.15 (2026-07-15)
 
 One day, one release. Everything below down to the 26.7.5 entries
