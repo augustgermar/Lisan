@@ -142,6 +142,12 @@ def write_seed_files(vault: Path) -> list[str]:
         vault / "primer" / "high-stakes.yaml": _HIGH_STAKES_TEMPLATE,
         vault / "backup.md": _BACKUP_LOG_TEMPLATE,
     }
+    # Commander's intent has generated frontmatter (dates, version), so its
+    # template lives with the intent tooling; imported lazily to keep paths
+    # free of tool dependencies at import time.
+    from .tools.intent import default_intent_document
+
+    seeds[vault / "primer" / "intent.md"] = default_intent_document()
     for path, content in seeds.items():
         if not path.exists():
             path.write_text(content, encoding="utf-8")

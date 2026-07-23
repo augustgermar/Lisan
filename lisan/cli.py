@@ -124,6 +124,22 @@ def build_parser() -> argparse.ArgumentParser:
     validate = subparsers.add_parser("validate", help="Validate vault files")
     validate.add_argument("--vault", type=Path, default=vault_root())
 
+    intent_cmd = subparsers.add_parser("intent", help="Commander's intent: the authority document for execution")
+    intent_subparsers = intent_cmd.add_subparsers(dest="intent_command", required=True)
+    intent_show = intent_subparsers.add_parser("show", help="Render current intent with version and validity")
+    intent_show.add_argument("--vault", type=Path, default=vault_root())
+    intent_init_cmd = intent_subparsers.add_parser("init", help="Create primer/intent.md from the template")
+    intent_init_cmd.add_argument("--vault", type=Path, default=vault_root())
+    intent_init_cmd.add_argument("--force", action="store_true", help="Overwrite an existing intent.md")
+    intent_edit = intent_subparsers.add_parser("edit", help="Open in $EDITOR; snapshot prior version and bump on save")
+    intent_edit.add_argument("--vault", type=Path, default=vault_root())
+    intent_history_cmd = intent_subparsers.add_parser("history", help="List intent snapshots")
+    intent_history_cmd.add_argument("--vault", type=Path, default=vault_root())
+    intent_check = intent_subparsers.add_parser("check", help="Dry-run the delegation gate for an arena + capability")
+    intent_check.add_argument("arena")
+    intent_check.add_argument("capability")
+    intent_check.add_argument("--vault", type=Path, default=vault_root())
+
     manifest = subparsers.add_parser("manifest", help="Generate derived manifests")
     manifest.add_argument("--vault", type=Path, default=vault_root())
     manifest.add_argument("--no-write", action="store_true")
@@ -913,6 +929,65 @@ def main(argv: list[str] | None = None) -> int:
         report = validate_vault(args.vault)
         print(format_report(report))
         return 0 if report.ok else 1
+
+    if args.command == "intent":
+        from .tools.intent import (
+            CAPABILITIES,
+            IntentError,
+            edit_intent,
+            format_intent,
+            format_intent_history,
+            init_intent,
+            load_intent,
+            resolve_delegation,
+        )
+
+        if args.intent_command == "show":
+            print(format_intent(args.vault))
+            return 0
+        if args.intent_command == "init":
+            try:
+                path = init_intent(args.vault, force=args.force)
+            except IntentError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            print(f"Created {path}. Edit it: lisan intent edit")
+            return 0
+        if args.intent_command == "edit":
+            try:
+                result = edit_intent(args.vault)
+            except IntentError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            if not result["changed"]:
+                print(f"No change. Version stays at {result['version']}.")
+                return 0
+            print(f"Snapshot: {result['snapshot']}")
+            print(f"Version bumped to {result['version']}.")
+            if result["issues"]:
+                print(f"WARNING: intent.md is now invalid ({len(result['issues'])} issue(s)); "
+                      "the Adjutant will refuse to start until fixed:", file=sys.stderr)
+                for issue in result["issues"]:
+                    print(f"  - {issue}", file=sys.stderr)
+                return 1
+            return 0
+        if args.intent_command == "history":
+            print(format_intent_history(args.vault))
+            return 0
+        if args.intent_command == "check":
+            if args.capability not in CAPABILITIES:
+                print(f"Unknown capability {args.capability!r}. Known: {', '.join(sorted(CAPABILITIES))}", file=sys.stderr)
+                return 1
+            try:
+                intent = load_intent(args.vault)
+            except IntentError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            verdict = resolve_delegation(intent.delegations, args.arena, args.capability)
+            print(f"{verdict.decision.upper()}  (rule: {verdict.rule}, intent version {intent.version})")
+            for reason in verdict.reasons:
+                print(f"  - {reason}")
+            return 0
 
     if args.command == "manifest":
         manifests = generate_manifests(args.vault, write=not args.no_write)

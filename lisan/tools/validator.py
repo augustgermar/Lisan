@@ -338,6 +338,7 @@ def validate_vault(vault: Path | None = None) -> ValidationReport:
             else:
                 seen_ids[file_id] = path
 
+    _validate_intent(vault, report)
     _validate_links(vault, seen_ids, report)
     _validate_episode_sources(vault, report)
     _validate_state_staleness(vault, report)
@@ -581,6 +582,18 @@ def _validate_frontmatter_consistency(path: Path, body: str, frontmatter: dict[s
                     path,
                     "High-significance episode needs a decision/open_loop/state link or significance_rationale",
                 )
+
+
+def _validate_intent(vault: Path, report: ValidationReport) -> None:
+    """primer/intent.md is excluded from record validation (all primer files
+    are) but is still an authority document: when present it must be valid,
+    because the Adjutant fails closed on an invalid intent."""
+    from .intent import intent_path, validate_intent_file
+
+    if not intent_path(vault).exists():
+        return
+    for issue in validate_intent_file(vault):
+        report.add(intent_path(vault), f"intent.md: {issue}")
 
 
 def _validate_links(vault: Path, seen_ids: dict[str, Path], report: ValidationReport) -> None:
