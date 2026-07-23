@@ -161,3 +161,96 @@ class ToolWiringTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SubjectResolutionTests(unittest.TestCase):
+    """The 2026-07-23 diagnosis: 'August' and 'me' resolved to nothing
+    while august-germar.md sat right there, and the drop was silent.
+    Resolution now speaks the owner's language; failure is never quiet."""
+
+    def setUp(self):
+        self.tmp, self.vault = _make_vault()
+        # Hermetic: never let the resolver reach the developer's real
+        # alias table through the ambient sqlite_path default.
+        self.db = self.vault.parent / "no-such-index.sqlite"
+        self._reset_logger()
+        _seed_person(self.vault, "august-germar", "August Germar")
+        _seed_person(self.vault, "wren", "Wren")
+        _seed_person(self.vault, "john-marsh", "John Marsh")
+        _seed_person(self.vault, "john-bracey", "John Bracey")
+        (self.vault / "primer").mkdir(parents=True, exist_ok=True)
+        (self.vault / "primer" / "identity.md").write_text(
+            "# identity\n\nthe principal is August.\n", encoding="utf-8"
+        )
+
+    def tearDown(self):
+        self._reset_logger()
+        self.tmp.cleanup()
+
+    @staticmethod
+    def _reset_logger():
+        import logging
+
+        import lisan.tools.log as log_mod
+
+        log_mod._logger = None
+        logger = logging.getLogger("lisan")
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+            handler.close()
+
+    def test_first_name_resolves_when_unique(self):
+        from lisan.tools.checkin import resolve_checkin_subject
+
+        path, candidates = resolve_checkin_subject(self.vault, "Wren", self.db)
+        self.assertIsNotNone(path)
+        self.assertEqual(candidates, [])
+        path, _ = resolve_checkin_subject(self.vault, "august", self.db)
+        self.assertIsNotNone(path)
+        self.assertTrue(path.name == "august-germar.md")
+
+    def test_ambiguous_first_name_refuses_with_candidates(self):
+        out = record_checkin(self.vault, "John", "seemed tired at practice", db_path=self.db)
+        self.assertFalse(out["ok"])
+        self.assertFalse(out["recorded"])
+        self.assertIn("did_you_mean", out)
+        self.assertEqual(sorted(out["did_you_mean"]), ["John Bracey", "John Marsh"])
+        # No record was minted for either John.
+        self.assertEqual(list((self.vault / "evidence" / "records").glob("*.md")), [])
+
+    def test_self_reference_resolves_to_principal(self):
+        import unittest.mock as mock
+
+        with mock.patch("lisan.tools.primer_index.principal_aliases", return_value=frozenset({"August"})):
+            out = record_checkin(self.vault, "me", "slept well after the show, energy back", db_path=self.db)
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["subject"], "August Germar")
+
+    def test_unknown_subject_refusal_is_logged_and_instructive(self):
+        out = record_checkin(self.vault, "Zorblatt", "was seen near the shed", db_path=self.db)
+        self.assertFalse(out["ok"])
+        self.assertIn("NOT recorded", out["error"])
+        self.assertIn("known_people", out)
+        errors_log = self.vault / "logs" / "errors.log"
+        self.assertTrue(errors_log.exists(), "refusal must land in the error log — never silent")
+        self.assertIn("checkin.refused", errors_log.read_text(encoding="utf-8"))
+
+    def test_exact_match_behavior_unchanged(self):
+        out = record_checkin(self.vault, "August Germar", "walked the long loop before work", db_path=self.db)
+        self.assertTrue(out["ok"])
+
+
+class ConversationPromptCheckinTests(unittest.TestCase):
+    """The 2026-07-24 diagnosis: check-in guidance lived only in the tool
+    description while the conversation prompt's remembering-is-automatic
+    rule taught the model AWAY from capture (0 natural fires in 165
+    turns). The carve-out is load-bearing; pin it."""
+
+    def test_prompt_carves_checkin_out_of_automatic_memory(self):
+        raw = (Path(__file__).resolve().parents[1] / "prompts" / "conversation_v1.md").read_text(encoding="utf-8")
+        self.assertIn("CHECK-INS ARE THE ONE EXCEPTION", raw)
+        self.assertIn("natural mentions too", raw)
+        self.assertIn("never interpretation", raw)  # neutrality survives here too
+        self.assertIn("SAY SO", raw)  # refusals are surfaced, not swallowed
+        # The exception must live AFTER the rule it carves out of.
+        self.assertGreater(raw.index("CHECK-INS ARE THE ONE EXCEPTION"), raw.index("REMEMBERING IS AUTOMATIC"))
