@@ -74,6 +74,71 @@ require confirmation of the exact action; every verdict is audited with
 the intent version that produced it. See `docs/adjutant_workorder.md`
 and `docs/adjutant_daemon.md`.
 
+## How it works
+
+Everything lives in **the vault** — a directory of markdown records with
+JSON frontmatter (entities, episodes, claims, evidence, state,
+knowledge, decisions, open loops, patterns, predictions, schedules,
+confirmations) plus a SQLite index and embeddings that can always be
+rebuilt from the files. The primer holds the standing documents: the
+identity kernel, operating style, and now `intent.md`, the commander's
+intent every execution decision answers to.
+
+**The capture pipeline** is a staff, not a single model call. The
+Listener classifies each turn (deterministic heuristics first — an LLM
+only for what code can't decide); the Writer distills it into typed,
+schema-validated records; the Skeptic reviews what was written for
+overclaiming, missing counterexamples, and interpretation risk before
+anything durable lands; the Interlocutor speaks back to you. In chat the
+whole pipeline runs as a background observer, never between you and the
+reply. Records fan out from approved drafts: entity stubs, open loops,
+decisions, claims with their evidence, state updates — each through its
+own validator gates.
+
+**Retrieval** fuses three lanes — SQL over structured fields, FTS5
+full-text, and embedding similarity — with reciprocal-rank fusion,
+compartment enforcement, association edges mined from usage, and a
+serendipity slot. Context assembly is budgeted and logged; every
+retrieval decision is auditable after the fact.
+
+**Maintenance runs as organs on a jobs queue**: the Dreamer compacts,
+reconciles contradictions, and decays stale confidence; the Analyst
+scans for behavioral patterns behind an evidence gate; deviation scans
+hunt the system's own defects; a weekly self-evaluation judges real
+transcripts against a rubric derived from the identity kernel (examiner
+≠ examinee); a prediction ledger scores the system's interpretive
+frameworks against what actually happened.
+
+**The execution layer** closes the loop between remembering and doing:
+
+```
+capture ──> open_loop / decision / schedule records (writer v2 may
+   │        attach task fields — only for explicit instructions)
+   ▼
+poller (pure SQL) ──> gate (task kind ─> capabilities ─> intent.md)
+   │                     EXECUTE / CONFIRM / REPORT_ONLY / DENY,
+   │                     every verdict audited with its rule
+   ▼
+executor (run_script / draft / collect / research / notify)
+   │        allowlists, scratch dirs, timeouts, no memory access
+   ▼
+reporter ──> the same capture pipeline as everything else
+             (the Skeptic reads the Adjutant's claims too)
+```
+
+Confirmations are approved or denied by you — CLI or Telegram, with the
+full outgoing content shown, never a summary — and re-checked against
+current intent at execution time: a stale approval loses to a new
+never-rule. Schedules are owner-editable records; the jobs table is
+just their alarm clock. `lisan adjutant daemon` runs the cycle on an
+interval, one lockfile per vault, and every halt says why, loudly.
+
+**Inputs beyond chat**: Telegram (an always-on service with the same
+memory behind it), reference-document ingestion with sensitivity
+quarantine, and an fswatch adapter that turns new files in watched
+directories into evidence candidates — through the front door, tagged
+as data, never as instructions.
+
 ## Design principles
 
 1. **Deterministic first.** An LLM is the last resort, never the first.
@@ -114,6 +179,19 @@ lisan self state           # what the agent knows about its own health
 lisan --help               # the full CLI (also the agent's own manifest)
 ```
 
+When you're ready to let it act (everything runs dry until you are):
+
+```bash
+lisan intent edit          # adopt the authority document: mission,
+                           #   priorities, per-arena delegations
+lisan intent check work run_local_scripts   # dry-run any gate decision
+lisan adjutant run         # one cycle: poll -> gate -> log verdicts
+lisan adjutant status      # last cycle, halts, pending confirmations
+lisan confirm list         # approve/deny what's waiting on you
+lisan adjutant daemon      # the cycle on an interval (launchd example
+                           #   in docs/adjutant_daemon.md)
+```
+
 Configuration lives in `config.json` (see `config.example.json`);
 providers are pluggable — hosted APIs, a local HTTP endpoint, or a
 coding-agent CLI as the executor.
@@ -121,6 +199,10 @@ coding-agent CLI as the executor.
 ## Going deeper
 
 - `SPEC.md` — the memory system's binding specification.
+- `docs/adjutant_workorder.md` — the execution layer's binding spec:
+  the delegation contract, every settled ruling, and the calibration
+  soak that stands between dry-run and `enabled: true`.
+- `docs/adjutant_daemon.md` — running the Adjutant as a service.
 - `docs/README.md` — what is live (sealed work orders for the system's
   next stages, including its self-repair loop) and what is history.
 - `CHANGELOG.md` and the git log — the project thinks in granular,
@@ -129,7 +211,7 @@ coding-agent CLI as the executor.
   README used to be.
 
 Development follows the repo conventions: `python3 -m pytest tests/`
-(737 tests, green is the floor), deterministic logic in `lisan/tools/`,
+(983 tests, green is the floor), deterministic logic in `lisan/tools/`,
 schema changes with their gates, prompts under version control in
 `prompts/`.
 
