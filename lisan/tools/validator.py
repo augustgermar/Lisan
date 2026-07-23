@@ -570,6 +570,12 @@ def _validate_task_fields(path: Path, frontmatter: dict[str, Any], report: Valid
         report.add(path, "task_payload must be an object")
     if task_kind is not None and task_status is None:
         report.add(path, "a task_kind without task_status is unpollable; set task_status")
+    due = frontmatter.get("due")
+    if due:
+        try:
+            date.fromisoformat(str(due))
+        except ValueError:
+            report.add(path, f"Invalid ISO date in due: {due!r}")
 
 
 def _pattern_has_banned_language(frontmatter: dict[str, Any]) -> bool:

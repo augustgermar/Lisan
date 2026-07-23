@@ -42,6 +42,7 @@
     "resolved_note": {"type": "string"},
     "resolved_at": {"type": "string"},
     "execute_asap": {"type": "boolean", "description": "WO-ADJUTANT: poller selects this loop regardless of due date. Optional, never required."},
+    "due": {"type": "string", "description": "WO-ADJUTANT: ISO date; a tasked loop becomes pollable when due is now-or-past. Distinct from review_after, which is a review cadence, not an execution trigger."},
     "task_kind": {"type": "string", "enum": ["run_script", "research", "collect", "draft", "notify"]},
     "task_payload": {"type": "object", "description": "Executor arguments, verbatim from capture — never from generation."},
     "task_status": {"type": "string", "enum": ["pending", "running", "blocked", "expired", "resolved"]}

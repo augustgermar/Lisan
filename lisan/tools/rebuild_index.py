@@ -114,7 +114,8 @@ CREATE TABLE IF NOT EXISTS files (
     task_kind TEXT,
     task_status TEXT,
     next_run TEXT,
-    expires TEXT
+    expires TEXT,
+    due TEXT
 );
 
 CREATE TABLE IF NOT EXISTS links (
@@ -546,7 +547,16 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
         "task_status": str(fm.get("task_status")) if fm.get("task_status") is not None else None,
         "next_run": str(fm.get("next_run")) if fm.get("next_run") is not None else None,
         "expires": str(fm.get("expires")) if fm.get("expires") is not None else None,
+        "due": str(fm.get("due")) if fm.get("due") is not None else None,
     }
+    # A decision whose execution_steps still hold a pending step is pollable;
+    # surface that in task_status so the poller stays pure SQL.
+    if file_type == "decision" and row["task_status"] is None:
+        steps = fm.get("execution_steps") or []
+        if isinstance(steps, list) and any(
+            isinstance(step, dict) and step.get("status") == "pending" for step in steps
+        ):
+            row["task_status"] = "pending"
 
     conn.execute("DELETE FROM links WHERE source_id = ?", (file_id,))
     conn.execute("DELETE FROM links WHERE target_id = ? AND relationship_type = ?", (file_id, "artifact_provenance"))
@@ -574,7 +584,7 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
             alternative_hypotheses, claim_updates, confidence_adjustments,
             reasoning_errors, corrects, field_corrected, original_value, corrected_value, basis,
             approved_by, content_hash, word_count, token_count_approx, embedding_status,
-            execute_asap, task_kind, task_status, next_run, expires
+            execute_asap, task_kind, task_status, next_run, expires, due
         ) VALUES (
             :id, :type, :path, :created, :created_at, :updated, :status, :significance, :domain_primary,
             :domain_secondary, :arena, :privacy, :disclosure, :compartments, :allowed_contexts, :blocked_contexts,
@@ -590,7 +600,7 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
             :alternative_hypotheses, :claim_updates, :confidence_adjustments,
             :reasoning_errors, :corrects, :field_corrected, :original_value, :corrected_value, :basis,
             :approved_by, :content_hash, :word_count, :token_count_approx, :embedding_status,
-            :execute_asap, :task_kind, :task_status, :next_run, :expires
+            :execute_asap, :task_kind, :task_status, :next_run, :expires, :due
         )
         """,
         row,
@@ -807,6 +817,7 @@ def _ensure_files_columns(conn: sqlite3.Connection) -> None:
         ("task_status", "TEXT"),
         ("next_run", "TEXT"),
         ("expires", "TEXT"),
+        ("due", "TEXT"),
     ]:
         if column not in existing:
             try:

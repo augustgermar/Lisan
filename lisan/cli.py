@@ -140,6 +140,18 @@ def build_parser() -> argparse.ArgumentParser:
     intent_check.add_argument("capability")
     intent_check.add_argument("--vault", type=Path, default=vault_root())
 
+    adjutant_cmd = subparsers.add_parser("adjutant", help="The execution layer: poll, gate, execute against intent")
+    adjutant_subparsers = adjutant_cmd.add_subparsers(dest="adjutant_command", required=True)
+    adjutant_run = adjutant_subparsers.add_parser("run", help="One cycle: poll -> gate -> log verdicts (dry-run until enabled)")
+    adjutant_run.add_argument("--vault", type=Path, default=vault_root())
+    adjutant_run.add_argument("--db-path", type=Path, default=None)
+    adjutant_status_cmd = adjutant_subparsers.add_parser("status", help="Last cycle, halts, pending confirmations, blocked tasks")
+    adjutant_status_cmd.add_argument("--vault", type=Path, default=vault_root())
+    adjutant_status_cmd.add_argument("--db-path", type=Path, default=None)
+    adjutant_log_cmd = adjutant_subparsers.add_parser("log", help="Tail the adjutant audit log")
+    adjutant_log_cmd.add_argument("limit", nargs="?", type=int, default=20)
+    adjutant_log_cmd.add_argument("--db-path", type=Path, default=None)
+
     manifest = subparsers.add_parser("manifest", help="Generate derived manifests")
     manifest.add_argument("--vault", type=Path, default=vault_root())
     manifest.add_argument("--no-write", action="store_true")
@@ -929,6 +941,28 @@ def main(argv: list[str] | None = None) -> int:
         report = validate_vault(args.vault)
         print(format_report(report))
         return 0 if report.ok else 1
+
+    if args.command == "adjutant":
+        from .tools.adjutant_runner import (
+            adjutant_status,
+            format_cycle_result,
+            format_log,
+            format_status,
+            run_cycle,
+            tail_log,
+        )
+
+        if args.adjutant_command == "run":
+            result = run_cycle(args.vault, args.db_path)
+            print(format_cycle_result(result))
+            return 1 if result["halted"] else 0
+        if args.adjutant_command == "status":
+            status = adjutant_status(args.vault, args.db_path)
+            print(format_status(status))
+            return 0 if status["intent_valid"] and not status["halted"] else 1
+        if args.adjutant_command == "log":
+            print(format_log(tail_log(args.db_path, args.limit)))
+            return 0
 
     if args.command == "intent":
         from .tools.intent import (

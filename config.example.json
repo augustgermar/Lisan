@@ -114,6 +114,13 @@
     "max_regenerations": 1,
     "__comment": "Interpersonal Interpretation Protocol: deterministic validator on interpret-a-person turns. validator_enabled=false disables enforcement at runtime (detector fires still log); max_regenerations bounds the retry cost per turn."
   },
+  "adjutant": {
+    "enabled": false,
+    "interval_minutes": 15,
+    "script_dirs": [],
+    "collect_paths": [],
+    "__comment": "WO-ADJUTANT execution layer. enabled=false keeps `lisan adjutant run` in dry-run: the poller and gate run, verdicts land in adjutant_log, nothing executes. script_dirs is the allowlist for run_script tasks; collect_paths for collect tasks. Authority itself lives in the vault: primer/intent.md."
+  },
   "psyche": {
     "banned_hypothesis_terms": null,
     "__comment": "Language gate on MACHINE-AUTHORED psychology only (analyst-minted patterns, prediction expectations); user notes are always stored verbatim. null = built-in defaults; [] = gate fully disabled (e.g. a clinician's practice, where the operator mints diagnostic language professionally); a list of terms replaces the default."

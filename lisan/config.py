@@ -83,6 +83,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "psyche": {
         "banned_hypothesis_terms": None,
     },
+    "adjutant": {
+        # Master switch (WO-ADJUTANT). False = `adjutant run` is dry-run:
+        # verdicts are logged, nothing executes. Only the owner flips this,
+        # after watching the dry-run audit trail — the same graduated-
+        # autonomy posture as action_policy tiers.
+        "enabled": False,
+        "interval_minutes": 15,
+        # Allowlist of directories run_script tasks may execute from.
+        "script_dirs": [],
+        # Allowlist of paths collect tasks may scan.
+        "collect_paths": [],
+    },
     "ingest": {
         "max_file_size_bytes": 5 * 1024 * 1024,
         "text_preview_chars": 4000,

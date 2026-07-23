@@ -435,7 +435,13 @@ def resolve_capabilities(delegations: dict[str, Any], arena: str, capabilities: 
         return Verdict(REPORT_ONLY, "no capabilities required")
     verdicts = [resolve_delegation(delegations, arena, cap) for cap in capabilities]
     worst = max(verdicts, key=lambda v: _RESTRICTIVENESS[v.decision])
-    reasons = [reason for v in verdicts if v.decision == worst.decision for reason in v.reasons]
+    reasons: list[str] = []
+    for v in verdicts:
+        if v.decision != worst.decision:
+            continue
+        for reason in v.reasons:
+            if reason not in reasons:
+                reasons.append(reason)
     return Verdict(worst.decision, worst.rule, reasons)
 
 
