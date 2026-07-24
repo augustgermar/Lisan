@@ -64,8 +64,15 @@ def run_cycle(
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
     config = config or load_config()
-    enabled = bool((config.get("adjutant") or {}).get("enabled", False))
-    dry_run = not enabled
+    adjutant_cfg = config.get("adjutant") or {}
+    enabled = bool(adjutant_cfg.get("enabled", False))
+    calibration = bool(adjutant_cfg.get("calibration", False))
+    # Calibration outranks enabled, unconditionally: the soak posture means
+    # v2 writers may mint task fields while execution stays impossible.
+    # There is deliberately NO combination of config values that both
+    # selects v2 writers and executes, except the owner's explicit
+    # key-turn: calibration off, enabled on.
+    dry_run = calibration or not enabled
 
     conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -85,10 +92,11 @@ def run_cycle(
             return {"halted": True, "reason": str(exc), "verdicts": [], "executed": [], "dry_run": dry_run}
         conn.commit()
 
-        if enabled and has_sentinel_dates(intent):
+        if not dry_run and has_sentinel_dates(intent):
             # Uncustomized authority is no authority: the template's
             # sentinel dates mean nobody has adopted this document yet.
-            # Dry-run may proceed (it acts on nothing); execution may not.
+            # Dry-run (including calibration) may proceed — it acts on
+            # nothing; execution may not.
             reason = (
                 "intent.md still carries the template's sentinel dates (1970-01-01) in "
                 "created/updated/review_after; customize and set real dates before enabling"
@@ -186,7 +194,8 @@ def run_cycle(
         log_cycle_event(
             conn,
             "cycle",
-            f"dry_run={dry_run} tasks={len(tasks)} executed={len(executed)} "
+            f"dry_run={dry_run}{' calibration' if calibration else ''} "
+            f"tasks={len(tasks)} executed={len(executed)} "
             + " ".join(f"{v['task_id']}:{v['verdict']}" for v in verdicts),
         )
         conn.commit()

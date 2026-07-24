@@ -497,3 +497,58 @@ def test_dry_run_still_executes_nothing(world):
     assert result["dry_run"] is True
     assert result["executed"] == []
     assert spy.calls == []
+
+
+def test_calibration_forces_dry_regardless_of_enabled(world):
+    """The soak posture (2026-07-24): calibration outranks enabled,
+    unconditionally. There is NO config combination that both selects v2
+    writers and executes — except the explicit key-turn (calibration
+    off, enabled on)."""
+    vault, db, conn, config, scripts, tmp = world
+    _script(scripts, "echo.sh", "#!/bin/sh\necho did the thing\n")
+    loop_id, loop_path = _task_loop(vault, conn, "Run the echo", payload={"script": "echo.sh"})
+    conn.close()
+    spy = CaptureSpy()
+    for enabled in (True, False):
+        cal_config = {"adjutant": {**config["adjutant"], "enabled": enabled, "calibration": True}}
+        result = run_cycle(vault, db, config=cal_config, capture=spy, scratch_root=tmp)
+        assert result["dry_run"] is True
+        assert result["executed"] == []
+        assert result["verdicts"], "calibration still polls and gates — the audit trail fills"
+    assert spy.calls == []  # nothing reported because nothing ran
+    assert load_markdown(loop_path).frontmatter["task_status"] == "pending"
+    # The cycle log names the posture, so the audit reads unambiguously.
+    check = db_connect(db)
+    row = check.execute("SELECT note FROM adjutant_log WHERE verdict='cycle' ORDER BY id DESC LIMIT 1").fetchone()
+    assert "calibration" in row[0]
+    check.close()
+
+
+def test_calibration_selects_v2_writers(world, monkeypatch):
+    vault, db, conn, config, scripts, tmp = world
+    from lisan.agents.base import PromptAgent
+    from lisan.agents.writer import WriterAgent
+
+    chosen = []
+    monkeypatch.setattr(PromptAgent, "run_json", lambda self, ui, **kw: chosen.append(self.prompt_file) or {})
+    WriterAgent(vault=vault, config={"adjutant": {"calibration": True}}).run_json("x", task="open_loop")
+    WriterAgent(vault=vault, config={"adjutant": {"calibration": True, "enabled": False}}).run_json("x", task="decision")
+    WriterAgent(vault=vault, config={"adjutant": {"calibration": False}}).run_json("x", task="open_loop")
+    assert chosen == ["writer_open_loop_v2", "writer_decision_v2", "writer_open_loop_v1"]
+
+
+def test_calibration_permits_sentinel_intent(world, tmp_path):
+    """An unadopted (sentinel) intent may soak in calibration — dry cycles
+    act on nothing — while plain enabled still halts on sentinels."""
+    from lisan.paths import ensure_vault_layout as _evl
+
+    vault2 = tmp_path / "vault-sentinel"
+    _evl(vault2)
+    from lisan.tools.intent import init_intent
+
+    init_intent(vault2)
+    db2 = tmp_path / "sentinel.sqlite"
+    result = run_cycle(vault2, db2, config={"adjutant": {"enabled": True, "calibration": True}}, capture=CaptureSpy())
+    assert not result["halted"] and result["dry_run"] is True
+    result = run_cycle(vault2, db2, config={"adjutant": {"enabled": True, "calibration": False}}, capture=CaptureSpy())
+    assert result["halted"] and "sentinel" in result["reason"]

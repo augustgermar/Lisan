@@ -89,6 +89,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # after watching the dry-run audit trail — the same graduated-
         # autonomy posture as action_policy tiers.
         "enabled": False,
+        # Calibration posture (the soak): v2 writers ON so turns may acquire
+        # task fields, and every cycle FORCED dry regardless of `enabled` —
+        # the audit trail fills while execution stays impossible. The
+        # key-turn sequence is: calibration on -> audit the log -> then
+        # calibration off, enabled on.
+        "calibration": False,
         "interval_minutes": 15,
         # Allowlist of directories run_script tasks may execute from.
         "script_dirs": [],

@@ -360,13 +360,25 @@ Config (`config.json`):
 7. Writer v2 behind the flag; definition-of-done integration test
    green — c39296f.
 
-**Remaining gate — the calibration soak (owner-run, not code):** run
-dry (enabled: false) with v2 writers on for a period, watching
-adjutant_log verdicts and which turns acquire task fields. The
-asymmetry to audit: false taskings (aspirations that got a task_kind)
-are the failure that matters; missed taskings cost one command. The
-audit trail from real days, not the test suite, is what earns
-`enabled: true` — and even then, execution starts at the arenas the
+**Remaining gate — the calibration soak (owner-run, not code):** set
+`adjutant.calibration: true` and run the daemon for a period, watching
+adjutant_log verdicts and which turns acquire task fields.
+
+**[RESOLVED — calibration posture, 2026-07-24]** The original
+prescription ("enabled: false with v2 writers on") was unconfigurable:
+v2 writer selection was gated on `enabled`, and flipping `enabled`
+would not have been dry. `adjutant.calibration` is the named posture:
+v2 writers ON, every cycle FORCED dry regardless of `enabled` —
+calibration outranks enabled unconditionally, pinned by test. There is
+no combination of config values that both mints task fields and
+executes, except the owner's explicit key-turn: calibration off,
+enabled on. (Calibration also soaks on an unadopted sentinel intent —
+dry cycles act on nothing; plain enabled still halts on sentinels.)
+
+The asymmetry to audit: false taskings (aspirations that got a
+task_kind) are the failure that matters; missed taskings cost one
+command. The audit trail from real days, not the test suite, is what
+earns the key-turn — and even then, execution starts at the arenas the
 owner has explicitly granted.
 
 ## 7. Testing requirements

@@ -118,10 +118,11 @@
   },
   "adjutant": {
     "enabled": false,
+    "calibration": false,
     "interval_minutes": 15,
     "script_dirs": [],
     "collect_paths": [],
-    "__comment": "WO-ADJUTANT execution layer. enabled=false keeps `lisan adjutant run` in dry-run: the poller and gate run, verdicts land in adjutant_log, nothing executes. script_dirs is the allowlist for run_script tasks; collect_paths for collect tasks. Authority itself lives in the vault: primer/intent.md."
+    "__comment": "WO-ADJUTANT execution layer. enabled=false keeps `lisan adjutant run` in dry-run: the poller and gate run, verdicts land in adjutant_log, nothing executes. calibration=true is the soak posture: v2 writers on (turns may acquire task fields) while every cycle is FORCED dry regardless of enabled — audit the log, then flip calibration off and enabled on. script_dirs is the allowlist for run_script tasks; collect_paths for collect tasks. Authority itself lives in the vault: primer/intent.md."
   },
   "psyche": {
     "banned_hypothesis_terms": null,
