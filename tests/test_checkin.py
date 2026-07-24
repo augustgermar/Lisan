@@ -164,9 +164,10 @@ if __name__ == "__main__":
 
 
 class SubjectResolutionTests(unittest.TestCase):
-    """The 2026-07-23 diagnosis: 'August' and 'me' resolved to nothing
-    while august-germar.md sat right there, and the drop was silent.
-    Resolution now speaks the owner's language; failure is never quiet."""
+    """The 2026-07-24 diagnosis: 'August' and 'me' resolved to nothing
+    while august-germar.md sat right there — a live check-in survived
+    only because the model happened to pass the full name. Resolution
+    now speaks the owner's language; failure is never quiet."""
 
     def setUp(self):
         self.tmp, self.vault = _make_vault()

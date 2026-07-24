@@ -40,7 +40,8 @@ def _refused(vault: Path, subject: str, error: str, *, candidates: list[str] | N
     """A check-in that fails to record is never silent (failure policy):
     it lands in the error log AND the tool reply instructs the model to
     tell the user, so a dropped observation is a visible event, not a
-    quiet nothing (the 2026-07-23 nap check-in vanished without a trace)."""
+    quiet nothing. (Found as a latent gap in the 2026-07-24 diagnosis:
+    a refusal returned to the model as quiet JSON, logged nowhere.)"""
     from .log import log_error
 
     try:
@@ -85,8 +86,10 @@ def resolve_checkin_subject(
 
     The exact matcher borrowed from entity_merge demanded merge-grade
     precision from a thirty-second capture path — "August" and "me"
-    resolved to nothing while august-germar.md sat right there (the
-    2026-07-23 nap check-in was dropped exactly here). Order:
+    resolved to nothing while august-germar.md sat right there. (The
+    2026-07-23 nap check-in survived only because the model happened to
+    pass the full name; a first-name or self reference would have been
+    refused.) Order:
 
     1. exact (canonical name / id / file stem / frontmatter aliases) —
        unchanged behavior;
