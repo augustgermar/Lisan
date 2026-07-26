@@ -421,6 +421,19 @@ def _deliver_owner_message(text: str, *, chat_id: int | None = None, config: dic
     channel scheduled tasks can use (see the disclosure-gate roadmap)."""
     from .telegram_bot import _chunk, _resolve_settings, _telegram_api
 
+    import os
+
+    if os.environ.get("LISAN_NO_OUTBOUND"):
+        # The hard kill switch for every owner-bound message. Set by the
+        # test suite (tests/__init__.py, so unittest AND pytest runs are
+        # covered): escalation fires from deep inside the job worker and
+        # reads the developer's real config.json if nothing intervenes —
+        # on 2026-07-26 three full-suite runs paged the owner's phone six
+        # times with a test fixture's deliberate parse failure. Raising
+        # (not silently succeeding) keeps the caller's books honest: the
+        # message was NOT delivered.
+        raise RuntimeError("outbound delivery disabled by LISAN_NO_OUTBOUND")
+
     config = config or load_config()
     token, allowed = _resolve_settings(config)
     if not token or not allowed:

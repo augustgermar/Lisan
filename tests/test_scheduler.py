@@ -177,6 +177,10 @@ class TaskExecutionTests(unittest.TestCase):
 
             os.environ.pop("LISAN_TELEGRAM_TOKEN", None)
             os.environ.pop("LISAN_TELEGRAM_ALLOWED", None)
+            # This test is about the UNCONFIGURED error, which sits below the
+            # suite-wide outbound kill switch — lift the switch so the config
+            # path runs. load_config is patched to {}, so nothing can send.
+            os.environ.pop("LISAN_NO_OUTBOUND", None)
             summary = run_jobs_worker(vault=self.vault, db_path=self.db)
         # the worker exhausts max_attempts within one drain (retry_wait
         # promotes immediately when scheduled_for is now), then escalation
@@ -364,6 +368,23 @@ class SchedulerLoopTests(unittest.TestCase):
         self.assertEqual(ticks, 1)
         self.assertEqual(len(sent), 1)
         self.assertIn("loop check", sent[0])
+
+    def test_outbound_kill_switch_blocks_owner_delivery(self):
+        """LISAN_NO_OUTBOUND must stop _deliver_owner_message before it can
+        touch config or the network — and it must FAIL, not fake success:
+        escalation's books have to show the owner was not notified. The
+        test suite sets this in tests/__init__.py so unittest runs are as
+        covered as pytest runs; on 2026-07-26 three unittest full-suite
+        runs paged the owner's real phone through this exact seam."""
+        import os
+        from unittest.mock import patch
+
+        from lisan.tools.scheduler import _deliver_owner_message
+
+        with patch.dict(os.environ, {"LISAN_NO_OUTBOUND": "1"}):
+            with self.assertRaises(RuntimeError) as ctx:
+                _deliver_owner_message("test ping")
+        self.assertIn("LISAN_NO_OUTBOUND", str(ctx.exception))
 
     def test_list_and_format_tasks(self):
         schedule_task(kind="reminder", text="visible task", when="2030-06-01 15:00", db_path=self.db)
