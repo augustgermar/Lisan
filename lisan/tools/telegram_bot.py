@@ -40,6 +40,8 @@ _API_URL = "https://api.telegram.org/bot{token}/{method}"
 _MSG_LIMIT = 4096          # Telegram hard limit per message
 _POLL_TIMEOUT = 50         # long-poll seconds (server holds the request)
 _HTTP_MARGIN = 15          # socket timeout beyond the long-poll window
+_SPLIT_THRESHOLD = 3500    # a text this close to the 4096 cap is likely a client-split fragment
+_SPLIT_FOLLOWUP_SECONDS = 8.0  # how long to wait for the rest of a split message
 
 _HELP_TEXT = (
     "Lisan over Telegram.\n\n"
@@ -72,6 +74,46 @@ class _ChatState:
         self.advice_context_active = False
         self.advice_topic: str | None = None
         self.domain_override: str | None = None
+
+
+def _fragment_key(update: dict[str, Any]) -> tuple[int, int] | None:
+    """(chat_id, user_id) for a plain text message update, else None.
+    Only these are candidates for split-message coalescing."""
+    message = update.get("message")
+    if not isinstance(message, dict):
+        return None
+    text = message.get("text")
+    if not isinstance(text, str) or not text.strip():
+        return None
+    chat_id = (message.get("chat") or {}).get("id")
+    user_id = (message.get("from") or {}).get("id")
+    if chat_id is None or user_id is None:
+        return None
+    return int(chat_id), int(user_id)
+
+
+def _coalesce_split_messages(updates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Rejoin messages the sender's Telegram client split at the 4096-char cap.
+
+    A long paste arrives as back-to-back fragments, each its own update; left
+    alone, each becomes a separate turn — and an instruction like "save all of
+    this" lands in a turn that no longer contains the "this" (2026-07-25: a
+    three-part brief lost two parts exactly this way). A fragment is recognized
+    by running up against the message limit: only a text message of
+    _SPLIT_THRESHOLD chars or more absorbs the next text message from the same
+    chat and sender. Normal rapid-fire messages stay separate turns."""
+    out: list[dict[str, Any]] = []
+    last_fragment_len = 0
+    for update in updates:
+        key = _fragment_key(update)
+        if key is not None and out and _fragment_key(out[-1]) == key and last_fragment_len >= _SPLIT_THRESHOLD:
+            text = update["message"]["text"]
+            out[-1]["message"]["text"] += "\n" + text
+            last_fragment_len = len(text)
+            continue
+        out.append(update)
+        last_fragment_len = len(update["message"]["text"]) if key is not None else 0
+    return out
 
 
 def _chunk(text: str, limit: int = _MSG_LIMIT) -> list[str]:
@@ -379,23 +421,52 @@ class TelegramBot:
         # Messages that arrived while we were waiting on an approval reply
         # were buffered; they are part of the conversation and go first.
         while self._pending_updates:
-            update = self._pending_updates.pop(0)
-            try:
-                self.handle_update(update)
-            except Exception as exc:
-                log_error(self.vault, "telegram pending update error", exc)
+            pending, self._pending_updates = self._pending_updates, []
+            for update in _coalesce_split_messages(pending):
+                try:
+                    self.handle_update(update)
+                except Exception as exc:
+                    log_error(self.vault, "telegram pending update error", exc)
         params: dict[str, Any] = {"timeout": _POLL_TIMEOUT}
         if self._offset is not None:
             params["offset"] = self._offset
         payload = self._call_api("getUpdates", params, timeout=_POLL_TIMEOUT + _HTTP_MARGIN)
-        updates = payload.get("result") or []
+        updates = list(payload.get("result") or [])
         for update in updates:
             self._offset = int(update["update_id"]) + 1
+        updates.extend(self._collect_split_continuations(updates))
+        for update in _coalesce_split_messages(updates):
             try:
                 self.handle_update(update)
             except Exception as exc:  # one bad update must not kill the loop
                 log_error(self.vault, "telegram handle_update error", exc)
         return len(updates)
+
+    def _collect_split_continuations(self, updates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """When a batch ends in a limit-sized text fragment, the rest of the
+        split message is still in flight — poll briefly for it so the whole
+        instruction lands as one turn. Waiting a few seconds here is cheap
+        next to the 8-25s turn that would otherwise run on half a message."""
+        tail: list[dict[str, Any]] = []
+        deadline = time.monotonic() + _SPLIT_FOLLOWUP_SECONDS
+        while time.monotonic() < deadline:
+            batch = tail or updates
+            if not batch:
+                break
+            last = batch[-1]
+            if _fragment_key(last) is None or len(last["message"]["text"]) < _SPLIT_THRESHOLD:
+                break
+            params: dict[str, Any] = {"timeout": 2}
+            if self._offset is not None:
+                params["offset"] = self._offset
+            try:
+                payload = self._call_api("getUpdates", params, timeout=2 + _HTTP_MARGIN)
+            except Exception:
+                break  # transport hiccup: dispatch what we have
+            for update in payload.get("result") or []:
+                self._offset = int(update["update_id"]) + 1
+                tail.append(update)
+        return tail
 
     def run(self, *, _forever: bool = True, _on_idle: Callable[[], None] | None = None) -> int:
         backoff = 1

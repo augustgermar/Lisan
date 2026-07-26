@@ -49,6 +49,105 @@ class ChunkTests(unittest.TestCase):
         self.assertTrue(all(len(c) <= telegram_bot._MSG_LIMIT for c in chunks))
 
 
+class SplitMessageTests(unittest.TestCase):
+    """A long paste arrives as back-to-back fragments, each capped at 4096
+    chars. They must rejoin into one turn — an instruction near the end of
+    the paste ("save all of this") is meaningless without its beginning."""
+
+    def test_limit_sized_fragments_rejoin(self):
+        frags = [
+            _update("a" * 4000, update_id=1),
+            _update("b" * 4000, update_id=2),
+            _update("the end", update_id=3),
+        ]
+        out = telegram_bot._coalesce_split_messages(frags)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["message"]["text"], "a" * 4000 + "\n" + "b" * 4000 + "\nthe end")
+
+    def test_short_rapid_messages_stay_separate_turns(self):
+        out = telegram_bot._coalesce_split_messages([
+            _update("first thought", update_id=1),
+            _update("second thought", update_id=2),
+        ])
+        self.assertEqual(len(out), 2)
+
+    def test_tail_after_a_completed_merge_is_not_absorbed(self):
+        # A(4000)+B(short) is one message; C(short) right after is a new one.
+        out = telegram_bot._coalesce_split_messages([
+            _update("a" * 4000, update_id=1),
+            _update("tail", update_id=2),
+            _update("new message", update_id=3),
+        ])
+        self.assertEqual(len(out), 2)
+        self.assertEqual(out[1]["message"]["text"], "new message")
+
+    def test_fragments_from_different_senders_never_merge(self):
+        out = telegram_bot._coalesce_split_messages([
+            _update("a" * 4000, user_id=1, update_id=1),
+            _update("b" * 100, user_id=2, update_id=2),
+        ])
+        self.assertEqual(len(out), 2)
+
+    def test_non_text_updates_pass_through_untouched(self):
+        callback = {"update_id": 2, "callback_query": {"data": "approve:x"}}
+        out = telegram_bot._coalesce_split_messages([
+            _update("a" * 4000, update_id=1),
+            callback,
+            _update("b" * 100, update_id=3),
+        ])
+        self.assertEqual(len(out), 3)
+
+
+class SplitMessagePollTests(unittest.TestCase):
+    """poll_once must deliver a split message as a single pipeline turn,
+    including when the fragments straddle a getUpdates batch boundary."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        ensure_repo_layout(self.root)
+        self.vault = vault_root(self.root)
+        self.bot = TelegramBot(token="TEST", allowed_user_ids={1}, vault=self.vault, config={})
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _wire_getupdates(self, batches: list[list[dict]]):
+        """Feed successive getUpdates calls from a queue; other methods no-op."""
+        def call_api(method, params, *, timeout=0):
+            if method == "getUpdates" and batches:
+                return {"ok": True, "result": batches.pop(0)}
+            return {"ok": True, "result": []}
+        self.bot._call_api = call_api
+
+    def test_same_batch_fragments_become_one_turn(self):
+        self._wire_getupdates([[
+            _update("a" * 4000, update_id=10),
+            _update("save all of this", update_id=11),
+        ]])
+        with patch.object(
+            telegram_bot, "_process_chat_turn",
+            return_value={"response": "ok", "route": "memory", "content_text": "x"},
+        ) as proc:
+            self.bot.poll_once()
+        proc.assert_called_once()
+        self.assertEqual(proc.call_args.kwargs["text"], "a" * 4000 + "\nsave all of this")
+
+    def test_fragments_straddling_batches_become_one_turn(self):
+        self._wire_getupdates([
+            [_update("a" * 4000, update_id=10)],
+            [_update("save all of this", update_id=11)],
+        ])
+        with patch.object(
+            telegram_bot, "_process_chat_turn",
+            return_value={"response": "ok", "route": "memory", "content_text": "x"},
+        ) as proc:
+            self.bot.poll_once()
+        proc.assert_called_once()
+        self.assertEqual(proc.call_args.kwargs["text"], "a" * 4000 + "\nsave all of this")
+        self.assertEqual(self.bot._offset, 12)  # both fragments acknowledged
+
+
 class BotDispatchTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
