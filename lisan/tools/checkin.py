@@ -76,7 +76,11 @@ def _nearby_people(vault: Path, limit: int = 8) -> list[str]:
     return names[:limit]
 
 
-_SELF_WORDS = {"me", "myself", "i", "self"}
+# The system's own dialect belongs here too: transcripts label the owner
+# USER:, so machine-authored check-ins arrive with subject 'user' — on
+# 2026-07-26 one was refused as unresolvable while the owner's entity sat
+# right there. In Lisan's vocabulary these words mean the principal.
+_SELF_WORDS = {"me", "myself", "i", "self", "user", "the user", "owner", "the owner"}
 
 
 def resolve_checkin_subject(

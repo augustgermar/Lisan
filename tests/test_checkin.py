@@ -227,6 +227,24 @@ class SubjectResolutionTests(unittest.TestCase):
         self.assertTrue(out["ok"], out)
         self.assertEqual(out["subject"], "August Germar")
 
+    def test_the_systems_own_dialect_resolves_to_principal(self):
+        """Transcripts label the owner USER:, so machine-authored check-ins
+        say 'user' — that must land on the principal, not be refused
+        (2026-07-26: a real check-in bounced exactly this way)."""
+        import unittest.mock as mock
+
+        from lisan.tools.checkin import resolve_checkin_subject
+
+        with mock.patch("lisan.tools.primer_index.principal_aliases", return_value=frozenset({"August"})):
+            for subject in ("user", "The User", "owner", "the owner"):
+                path, candidates = resolve_checkin_subject(self.vault, subject, self.db)
+                self.assertIsNotNone(path, subject)
+                self.assertEqual(path.name, "august-germar.md", subject)
+                self.assertEqual(candidates, [])
+            out = record_checkin(self.vault, "user", "checked in after the nap", db_path=self.db)
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["subject"], "August Germar")
+
     def test_unknown_subject_refusal_is_logged_and_instructive(self):
         out = record_checkin(self.vault, "Zorblatt", "was seen near the shed", db_path=self.db)
         self.assertFalse(out["ok"])
