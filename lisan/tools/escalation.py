@@ -50,14 +50,39 @@ def failure_fingerprint(job_type: str, error: str) -> str:
 
 
 def _notify_owner(text: str, *, chat_id: int | None, vault: Path) -> bool:
-    from .log import log_error
+    from .log import get_logger, log_error
     from .scheduler import _deliver_owner_message
 
+    if not _is_resident_vault(vault):
+        # Only the resident install's own vault may page the owner. The
+        # telegram transport below is resolved ambiently (the developer's
+        # real config.json and bot token), so a job living in any OTHER
+        # vault — above all a test's TemporaryDirectory — must never reach
+        # it. Twice on 2026-07-26 the suite paged the owner's real phone
+        # with a fixture's deliberate parse failure: an env kill switch
+        # didn't hold because `unittest discover` imports test modules
+        # top-level and never loads tests/__init__.py. This check is
+        # structural — it works under every runner, because it asks whose
+        # vault is escalating, not how the process was started. The ladder
+        # continues: the investigation is still filed in the job's own
+        # vault, and this suppression is logged there.
+        get_logger(vault).info(
+            "escalation.notify suppressed: %s is not the resident vault", vault
+        )
+        return False
     try:
         _deliver_owner_message(text, chat_id=chat_id)
         return True
     except Exception as exc:
         log_error(vault, "escalation.notify", exc)
+        return False
+
+
+def _is_resident_vault(vault: Path) -> bool:
+    """True when ``vault`` is the vault this install actually lives in."""
+    try:
+        return Path(vault).resolve() == vault_root().resolve()
+    except OSError:
         return False
 
 

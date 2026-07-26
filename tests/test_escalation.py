@@ -48,10 +48,24 @@ class EscalationLadderTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _notify_patch(self):
+        """Record deliveries — and declare this test vault resident, since
+        _notify_owner only pages the owner for the install's own vault."""
         def _record(text, *, chat_id=None, config=None):
             self.sent.append(text)
 
-        return patch("lisan.tools.scheduler._deliver_owner_message", _record)
+        deliver = patch("lisan.tools.scheduler._deliver_owner_message", _record)
+        resident = patch("lisan.tools.escalation.vault_root", return_value=self.vault)
+
+        class _Both:
+            def __enter__(_self):
+                resident.__enter__()
+                return deliver.__enter__()
+
+            def __exit__(_self, *exc):
+                deliver.__exit__(*exc)
+                return resident.__exit__(*exc)
+
+        return _Both()
 
     def _failed_job(self, **payload_extra) -> dict:
         job_id = enqueue_job(
@@ -101,6 +115,28 @@ class EscalationLadderTests(unittest.TestCase):
         self.assertIsNone(second["investigation"])
         loops = list((self.vault / "open_loops").glob("*investigate*"))
         self.assertEqual(len(loops), 1)
+
+    def test_foreign_vault_never_pages_the_owner(self):
+        """Only the resident vault may use the owner channel. A job escalating
+        from any other vault — above all a test's TemporaryDirectory — files
+        its investigation but must not reach the ambient Telegram transport.
+        This is the structural guard; the env kill switch alone failed
+        because `unittest discover` never imports tests/__init__.py, and the
+        suite paged the owner's real phone twice more on 2026-07-26."""
+        def _forbidden(text, *, chat_id=None, config=None):
+            raise AssertionError("a foreign vault reached the owner transport")
+
+        job = self._failed_job()
+        # No vault_root patch here: self.vault is a temp dir, genuinely foreign.
+        with patch("lisan.tools.scheduler._deliver_owner_message", _forbidden):
+            first = escalate_terminal_failure(job, "boom", vault=self.vault, db_path=self.db)
+            clone = get_job(first["second_chance_id"], db_path=self.db)
+            second = escalate_terminal_failure(clone, "boom again", vault=self.vault, db_path=self.db)
+        self.assertFalse(first["notified"])
+        self.assertFalse(second["notified"])
+        # The ladder itself still ran: one second chance, then an investigation.
+        self.assertIsNotNone(first["second_chance_id"])
+        self.assertIsNotNone(second["investigation"])
 
     def test_unreenqueueable_payload_goes_straight_to_investigation(self):
         # A bodyless task payload cannot pass enqueue validation: the ladder
