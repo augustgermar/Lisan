@@ -197,6 +197,10 @@ def test_interlocutor_prompt_strongly_prefers_action_first_rules() -> None:
     assert "CRITICAL RESPONSE RULE" in text
     assert "When the user asks you to SHOW, READ, LIST, or DISPLAY a file or directory" in text
     assert "You can run ANY Lisan CLI command via run_codex" in text
+    # Stale-memory refusals: a remembered restriction must never preempt a
+    # live attempt (2026-07-26: a mkdir was refused from a superseded July 18
+    # "sandbox" claim the owner had already lifted).
+    assert "Never refuse an action on memory alone" in text
 
 
 def test_interlocutor_tool_loop_executes_tool_and_returns_final_response(tmp_path: Path, monkeypatch) -> None:
