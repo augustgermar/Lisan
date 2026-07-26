@@ -110,10 +110,21 @@ class TelegramApprovalTests(unittest.TestCase):
         self.assertIn("approval", self.sent[0].lower())
         self.assertTrue(any("Approved" in s for s in self.sent))
 
-    def test_anything_else_declines(self):
-        self.replies = [self._reply("hmm not now")]
+    def test_explicit_no_declines(self):
+        self.replies = [self._reply("no")]
         approve = self.bot._approval_fn_for(7)
         self.assertFalse(approve("run_codex", {"task": "ingest the folder"}))
+
+    def test_conversation_mid_prompt_buffers_then_times_out(self):
+        """A non-verdict message is conversation, not a decline: it buffers,
+        the wait continues, and with no verdict the prompt times out."""
+        self.bot.approval_timeout_seconds = 0.05
+        chatter = self._reply("hmm not now, tell me about the weather")
+        self.replies = [chatter]
+        approve = self.bot._approval_fn_for(7)
+        self.assertFalse(approve("run_codex", {"task": "ingest the folder"}))
+        self.assertIn(chatter, self.bot._pending_updates)
+        self.assertTrue(any("No reply in time" in s for s in self.sent))
 
     def test_unrelated_chat_message_is_buffered_not_consumed(self):
         other = self._reply("what's the weather", chat_id=99, update_id=5)
@@ -152,14 +163,6 @@ class TelegramApprovalTests(unittest.TestCase):
         self.replies = [stale, yes]
         approve = self.bot._approval_fn_for(7)
         self.assertTrue(approve("run_codex", {"task": "x"}))
-
-    def test_ordinary_message_declines_but_survives(self):
-        msg = self._reply("actually tell me about the weather", update_id=11)
-        self.replies = [msg]
-        approve = self.bot._approval_fn_for(7)
-        self.assertFalse(approve("run_codex", {"task": "x"}))
-        self.assertIn(msg, self.bot._pending_updates)
-
 
 if __name__ == "__main__":
     unittest.main()

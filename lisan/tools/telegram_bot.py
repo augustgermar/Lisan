@@ -372,6 +372,7 @@ class TelegramBot:
     # ── Interactive approval over chat ──────────────────────────────────────
     _APPROVE_WORDS = {"yes", "y", "approve", "approved", "go", "go ahead", "do it", "ok", "okay", "sure", "yep"}
     _DENY_WORDS = {"no", "n", "deny", "denied", "nope", "stop", "cancel", "don't", "dont", "do not", "skip", "skip it"}
+    approval_timeout_seconds = 180.0
 
     def _approval_fn_for(self, chat_id: int):
         """Ask the owner in-chat and wait for their reply. This is the
@@ -408,7 +409,7 @@ class TelegramBot:
             except Exception as exc:
                 log_error(self.vault, "telegram approval prompt failed", exc)
                 return False
-            verdict = self._await_approval(chat_id, nonce, timeout=180.0)
+            verdict = self._await_approval(chat_id, nonce, timeout=float(self.approval_timeout_seconds))
             if verdict is None:
                 self._send_message(chat_id, "No reply in time — skipping it. Ask again when you're ready.")
                 return False
