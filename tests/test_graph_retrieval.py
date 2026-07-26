@@ -481,3 +481,50 @@ class GraphRetrievalTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SettledHistoryDemotionTests(unittest.TestCase):
+    """A superseded/rejected/stale record must lose the retrieval lottery to
+    the current answer. On 2026-07-26 a superseded 'sandbox' claim outranked
+    the live capability claim twice, and the agent refused an action it
+    could perform."""
+
+    _COLUMNS = [
+        "id", "path", "type", "summary", "domain_primary", "arena", "updated",
+        "status", "significance", "claim_class", "owner", "pattern_type",
+        "source_type", "source_path", "file_name", "file_ext", "mime_type",
+        "ingestion_status", "hypothesis", "risk", "recommended_action",
+        "reviewed_record_id", "reviewed_record_type", "actors", "compartments",
+        "linked_claims", "linked_episodes", "supporting_evidence",
+        "contradicting_evidence", "linked_patterns", "reasoning_errors",
+        "supporting_records", "counterexamples", "alternative_explanations",
+        "predictions", "linked_evidence", "parse_errors", "confidence_score",
+    ]
+
+    def _row(self, *, status: str):
+        import sqlite3
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute(f"CREATE TABLE files ({', '.join(self._COLUMNS)})")
+        values = {c: "" for c in self._COLUMNS}
+        values.update(
+            id="claim.write-access", path="claims/x.md", type="claim",
+            summary="write access to the filesystem", domain_primary="work",
+            arena="work", status=status, significance="medium",
+            claim_class="observation", owner="agent", confidence_score=1.0,
+        )
+        conn.execute(
+            f"INSERT INTO files VALUES ({', '.join('?' for _ in self._COLUMNS)})",
+            [values[c] for c in self._COLUMNS],
+        )
+        return conn.execute("SELECT * FROM files").fetchone()
+
+    def test_superseded_scores_below_confirmed_all_else_equal(self):
+        from lisan.tools.retrieval_layers import _sql_metadata_score
+
+        query = "can you write a folder to the filesystem"
+        confirmed = _sql_metadata_score(self._row(status="confirmed"), "work", query)
+        for dead in ("superseded", "rejected", "stale", "retired"):
+            demoted = _sql_metadata_score(self._row(status=dead), "work", query)
+            self.assertLess(demoted, confirmed, dead)

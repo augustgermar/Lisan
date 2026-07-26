@@ -74,6 +74,28 @@ class ConversationTurnTests(unittest.TestCase):
         self.assertIn("CAPABILITIES", self.prompts[-1])
 
 
+class ConversationPromptTests(unittest.TestCase):
+    """The LIVE chat path loads conversation_v1.md — NOT interlocutor_v1.md.
+    On 2026-07-26 an action-attempt rule added only to the interlocutor
+    prompt changed nothing on Telegram; the agent kept refusing a mkdir
+    from a superseded 'sandbox' claim and its own prior refusal."""
+
+    def _prompt(self) -> str:
+        from pathlib import Path as _P
+
+        return (_P(__file__).resolve().parents[1] / "prompts" / "conversation_v1.md").read_text(encoding="utf-8")
+
+    def test_commands_demand_a_live_attempt_not_a_remembered_refusal(self):
+        text = self._prompt()
+        self.assertIn("WHEN THE USER COMMANDS AN ACTION", text)
+        self.assertIn("records of the PAST, not instruments of the present", text)
+        self.assertIn("Your OWN earlier refusals", text)
+        self.assertIn("Only a live tool result from THIS turn may be reported as the outcome", text)
+
+    def test_superseded_records_are_dead_facts(self):
+        self.assertIn("superseded, stale, or rejected is a DEAD fact", self._prompt())
+
+
 class TelegramApprovalTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

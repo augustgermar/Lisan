@@ -539,6 +539,13 @@ def _sql_metadata_score(
         score += 0.5
     elif str(row["status"]) in {"confirmed", "disputed"}:
         score += 0.2
+    elif str(row["status"]) in {"superseded", "rejected", "stale", "retired"}:
+        # Settled history must lose the retrieval lottery to the current
+        # answer. On 2026-07-26 a superseded "sandbox" claim outranked the
+        # live capability claim twice and the agent refused an action it
+        # could perform. Demoted, not hidden: still findable when asked
+        # about directly, still rendered with its status banner.
+        score -= 1.5
     if str(row["significance"]) == "high":
         score += 0.7
     confidence_score = row["confidence_score"] if "confidence_score" in row.keys() else None
@@ -677,6 +684,13 @@ def _score_row(
         score += 0.5
     elif str(row["status"]) in {"confirmed", "disputed"}:
         score += 0.2
+    elif str(row["status"]) in {"superseded", "rejected", "stale", "retired"}:
+        # Settled history must lose the retrieval lottery to the current
+        # answer. On 2026-07-26 a superseded "sandbox" claim outranked the
+        # live capability claim twice and the agent refused an action it
+        # could perform. Demoted, not hidden: still findable when asked
+        # about directly, still rendered with its status banner.
+        score -= 1.5
     if str(row["significance"]) == "high":
         score += 0.7
     confidence_score = row["confidence_score"] if "confidence_score" in row.keys() else None
