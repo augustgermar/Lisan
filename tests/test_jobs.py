@@ -247,6 +247,34 @@ class JobQueueTests(unittest.TestCase):
         self.assertEqual(result["reaped_count"], 1)
         self.assertEqual(get_job(job_id, db_path=self.db_path)["status"], "retry_wait")
 
+    def test_archive_stale_failures_retires_old_terminal_rows_only(self) -> None:
+        from lisan.tools.jobs import archive_stale_failures
+
+        old_failed = enqueue_job("analyst.scan", {"vault": str(self.vault)}, coalesce_key="old", db_path=self.db_path)
+        fresh_failed = enqueue_job("analyst.scan", {"vault": str(self.vault)}, coalesce_key="fresh", db_path=self.db_path)
+        queued = enqueue_job("analyst.scan", {"vault": str(self.vault)}, db_path=self.db_path)
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                "UPDATE jobs SET status = 'failed', created_at = '2026-01-01T00:00:00Z' WHERE id = ?",
+                (old_failed,),
+            )
+            conn.execute("UPDATE jobs SET status = 'failed' WHERE id = ?", (fresh_failed,))
+            conn.commit()
+        finally:
+            conn.close()
+
+        result = archive_stale_failures(older_than_days=14, db_path=self.db_path)
+        self.assertEqual(result["archived_count"], 1)
+        self.assertEqual(result["archived"][0]["id"], old_failed)
+        self.assertEqual(get_job(old_failed, db_path=self.db_path)["status"], "archived")
+        # A live failure and a queued job are untouched.
+        self.assertEqual(get_job(fresh_failed, db_path=self.db_path)["status"], "failed")
+        self.assertEqual(get_job(queued, db_path=self.db_path)["status"], "queued")
+        # An archived job can still be brought back by hand.
+        retry_job(old_failed, db_path=self.db_path)
+        self.assertEqual(get_job(old_failed, db_path=self.db_path)["status"], "queued")
+
     def test_list_jobs_includes_payload_and_retry_state(self) -> None:
         job_id = enqueue_job(
             "index.rebuild_record",

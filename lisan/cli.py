@@ -668,6 +668,11 @@ def build_parser() -> argparse.ArgumentParser:
     jobs_reap.add_argument("--db-path", type=Path, default=None)
     jobs_reap.add_argument("--timeout-minutes", type=int, default=15)
     jobs_reap.add_argument("--fail", action="store_true")
+    jobs_archive = jobs_subparsers.add_parser(
+        "archive-failures", help="Archive old terminal failures so deviation scans stop counting settled history"
+    )
+    jobs_archive.add_argument("--db-path", type=Path, default=None)
+    jobs_archive.add_argument("--older-than-days", type=int, default=14)
 
     provider_cmd = subparsers.add_parser("provider", help="Inspect provider readiness and diagnostics")
     provider_subparsers = provider_cmd.add_subparsers(dest="provider_command", required=True)
@@ -2129,6 +2134,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.jobs_command == "reap-stuck":
             report = reap_stuck_jobs(db_path=args.db_path, timeout_minutes=args.timeout_minutes, retry=not args.fail)
+            print(json.dumps(report, indent=2, default=str))
+            return 0
+        if args.jobs_command == "archive-failures":
+            from .tools.jobs import archive_stale_failures
+
+            report = archive_stale_failures(older_than_days=args.older_than_days, db_path=args.db_path)
             print(json.dumps(report, indent=2, default=str))
             return 0
 

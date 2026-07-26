@@ -690,6 +690,47 @@ def cancel_job(job_id: str, db_path: Path | None = None) -> dict[str, Any] | Non
         conn.close()
 
 
+def archive_stale_failures(older_than_days: int = 14, db_path: Path | None = None) -> dict[str, Any]:
+    """Move old terminal failures out of the interoceptive field of view.
+
+    A failed row is evidence while the failure is live; once the cause is
+    fixed (or the job superseded), the row is history — but the deviation
+    scan counts status='failed' forever, so Jake keeps reporting a nine-day
+    outage that ended on 2026-07-15 as if it were current. Archiving flips
+    the status to 'archived': the record and its error stay intact and
+    queryable (`jobs list --status archived`), while audits, deviation
+    scans, and self-reports stop treating settled history as a live wound.
+    Only terminal states age out; queued/running/retry_wait are never
+    touched, and `retry` still accepts a job that was archived by mistake."""
+    days = max(int(older_than_days), 1)
+    cutoff = _iso(_now() - timedelta(days=days))
+    conn = _connect(db_path)
+    try:
+        ensure_jobs_table(conn)
+        rows = conn.execute(
+            """
+            SELECT id, job_type, status, created_at FROM jobs
+            WHERE status IN ('failed', 'canceled') AND created_at < ?
+            ORDER BY created_at
+            """,
+            (cutoff,),
+        ).fetchall()
+        conn.execute(
+            "UPDATE jobs SET status = 'archived' WHERE status IN ('failed', 'canceled') AND created_at < ?",
+            (cutoff,),
+        )
+        conn.commit()
+        return {
+            "archived_count": len(rows),
+            "cutoff": cutoff,
+            "archived": [
+                {"id": r[0], "job_type": r[1], "was_status": r[2], "created_at": r[3]} for r in rows
+            ],
+        }
+    finally:
+        conn.close()
+
+
 def retry_job(job_id: str, db_path: Path | None = None) -> dict[str, Any] | None:
     conn = _connect(db_path)
     try:
@@ -704,7 +745,7 @@ def retry_job(job_id: str, db_path: Path | None = None) -> dict[str, Any] | None
                 error = NULL,
                 started_at = NULL,
                 worker_id = NULL
-            WHERE id = ? AND status IN ('failed', 'retry_wait', 'canceled')
+            WHERE id = ? AND status IN ('failed', 'retry_wait', 'canceled', 'archived')
             """,
             (now_iso, job_id),
         )
