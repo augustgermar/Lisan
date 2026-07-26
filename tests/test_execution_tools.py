@@ -171,5 +171,10 @@ def test_codex_briefing_declares_write_boundary():
         ensure_repo_layout(root)
         with patch.object(execution_tools, "assemble_context", return_value="(ctx)"):
             prompt = _build_codex_prompt(task="t", working_directory=root, vault=vault_root(root), db_path=root / "x.sqlite")
-    assert "HARD WRITE BOUNDARY" in prompt
+    # Owner decision 2026-07-25: full filesystem access, with two standing
+    # rules — memory updates mean Lisan's own records, and the identity
+    # kernel stays read-only outside the ratification ceremony.
+    assert "FILESYSTEM ACCESS" in prompt
+    assert "full read and write access" in prompt
+    assert "identity-core.md" in prompt
     assert "READ-ONLY" in prompt
