@@ -53,7 +53,10 @@ def test_v1_default_v2_only_when_enabled(monkeypatch, vault):
 
     monkeypatch.setattr(PromptAgent, "run_json", fake_run_json)
     WriterAgent(vault=vault, config={"adjutant": {"enabled": False}}).run_json("x", task="open_loop")
-    WriterAgent(vault=vault, config={}).run_json("x", task="decision")
+    # NOT config={}: an empty dict is falsy, and PromptAgent falls back to
+    # load_config() — the developer's LIVE config.json. This test failed for
+    # the whole calibration soak because the real config had calibration on.
+    WriterAgent(vault=vault, config={"providers": {}}).run_json("x", task="decision")
     WriterAgent(vault=vault, config={"adjutant": {"enabled": True}}).run_json("x", task="open_loop")
     WriterAgent(vault=vault, config={"adjutant": {"enabled": True}}).run_json("x", task="decision")
     WriterAgent(vault=vault, config={"adjutant": {"enabled": True}}).run_json("x", task="episode")

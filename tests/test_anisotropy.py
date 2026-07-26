@@ -10,6 +10,17 @@ import tempfile
 import unittest
 from pathlib import Path
 
+try:
+    import numpy  # noqa: F401  — the correction itself is numpy-gated
+    _HAS_NUMPY = True
+except ImportError:
+    _HAS_NUMPY = False
+
+# Without numpy the module degrades by design (correction skipped silently);
+# these tests exercise the corrected path, so an environment without numpy
+# should SKIP them, not report the degradation as five failures.
+requires_numpy = unittest.skipUnless(_HAS_NUMPY, "numpy not installed; anisotropy correction inactive")
+
 from lisan.tools.anisotropy import Calibration, apply_correction, compute_calibration
 from lisan.tools.vector_store import build_query_scorer, clear_index_cache, cosine_similarity, load_index
 
@@ -26,6 +37,7 @@ def _cone_corpus(n: int = 40, dim: int = 16, seed: int = 7) -> list[list[float]]
     return vectors
 
 
+@requires_numpy
 class CalibrationTests(unittest.TestCase):
     def test_correction_restores_spread(self) -> None:
         corpus = _cone_corpus()
@@ -60,6 +72,7 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(apply_correction([1.0, 2.0, 3.0], calibration), [1.0, 2.0, 3.0])
 
 
+@requires_numpy
 class IndexIntegrationTests(unittest.TestCase):
     def _write_index(self, path: Path, vectors: list[list[float]], model: str) -> None:
         lines = [json.dumps({"__meta__": {"model": model, "dimension": len(vectors[0]), "version": 1}})]
