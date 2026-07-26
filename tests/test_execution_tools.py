@@ -73,6 +73,118 @@ def test_run_codex_respects_approval_gate(tmp_path: Path, monkeypatch) -> None:
     assert called["complete"] == 1
 
 
+class _FakeCodex:
+    def __init__(self, config):
+        self.config = config
+
+    def complete(self, *args, **kwargs):
+        return LLMResponse(text="ok", provider="codex", model="fake")
+
+
+def _never_ask(*_args) -> bool:
+    raise AssertionError("approval_fn must not be consulted on this path")
+
+
+def _write_chat_intent(vault: Path, *, json_patch: dict[str, str]) -> None:
+    """A customized (non-sentinel) intent.md with the template's delegations
+    JSON edited via literal string replacement."""
+    from lisan.tools.intent import default_intent_document, intent_path
+
+    text = default_intent_document(today="2026-07-26")
+    for old, new in json_patch.items():
+        assert old in text, f"template drifted: {old!r} not found"
+        text = text.replace(old, new)
+    path = intent_path(vault)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def test_run_codex_trusted_path_skips_the_prompt(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(execution_tools, "CodexClient", _FakeCodex)
+    config = {"providers": {}, "approvals": {"trusted_paths": [str(tmp_path)]}}
+    result = run_codex(
+        "fix the config",
+        working_directory=str(tmp_path / "sub"),
+        vault=tmp_path,
+        config=config,
+        approval_fn=_never_ask,
+    )
+    assert result == "ok"
+
+
+def test_run_codex_outside_trusted_paths_still_asks(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(execution_tools, "CodexClient", _FakeCodex)
+    config = {"providers": {}, "approvals": {"trusted_paths": [str(tmp_path / "elsewhere")]}}
+    asked = {"n": 0}
+
+    def ask(*_args) -> bool:
+        asked["n"] += 1
+        return False
+
+    result = run_codex(
+        "fix the config", working_directory=str(tmp_path), vault=tmp_path, config=config, approval_fn=ask
+    )
+    assert asked["n"] == 1
+    assert "Approval was not granted" in result
+
+
+def test_run_codex_intent_execute_grant_skips_the_prompt(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(execution_tools, "CodexClient", _FakeCodex)
+    _write_chat_intent(tmp_path, json_patch={
+        '"arenas": {': (
+            '"arenas": { "chat": {"mode": "execute", '
+            '"capabilities": ["read_files", "write_files", "run_local_scripts"]},'
+        ),
+    })
+    result = run_codex(
+        "fix the config", working_directory=str(tmp_path), vault=tmp_path,
+        config={"providers": {}}, approval_fn=_never_ask,
+    )
+    assert result == "ok"
+
+
+def test_run_codex_intent_never_rule_is_final_no_prompt(tmp_path: Path, monkeypatch) -> None:
+    called = {"complete": 0}
+
+    class Codex(_FakeCodex):
+        def complete(self, *args, **kwargs):
+            called["complete"] += 1
+            return LLMResponse(text="ok", provider="codex", model="fake")
+
+    monkeypatch.setattr(execution_tools, "CodexClient", Codex)
+    _write_chat_intent(tmp_path, json_patch={
+        '"spend_money": "confirm_always"': '"run_local_scripts": "never", "spend_money": "confirm_always"',
+    })
+    result = run_codex(
+        "fix the config", working_directory=str(tmp_path), vault=tmp_path,
+        config={"providers": {}}, approval_fn=_never_ask,
+    )
+    assert "intent.md" in result and "forbids" in result
+    assert called["complete"] == 0
+
+
+def test_run_codex_uncustomized_intent_grants_nothing(tmp_path: Path, monkeypatch) -> None:
+    """Sentinel dates = no standing authority: the live gate decides alone."""
+    from lisan.tools.intent import default_intent_document, intent_path
+
+    monkeypatch.setattr(execution_tools, "CodexClient", _FakeCodex)
+    path = intent_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(default_intent_document(), encoding="utf-8")  # sentinel dates
+    asked = {"n": 0}
+
+    def ask(*_args) -> bool:
+        asked["n"] += 1
+        return True
+
+    result = run_codex(
+        "fix the config", working_directory=str(tmp_path), vault=tmp_path,
+        config={"providers": {}}, approval_fn=ask,
+    )
+    assert asked["n"] == 1
+    assert result == "ok"
+
+
 def test_run_codex_tool_description_mentions_lisan_cli_commands() -> None:
     description = next(tool["description"] for tool in execution_tools.TOOLS if tool["name"] == "run_codex")
     assert "run Lisan CLI commands" in description

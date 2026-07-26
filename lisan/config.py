@@ -83,6 +83,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "psyche": {
         "banned_hypothesis_terms": None,
     },
+    "approvals": {
+        # Directories where run_codex skips the per-call approval prompt:
+        # a task whose working directory sits inside one of these paths is
+        # auto-approved (still logged, still announced in chat). Empty =
+        # every codex run asks. Chat-side DENY from primer/intent.md still
+        # outranks a trusted path — never-rules beat convenience.
+        "trusted_paths": [],
+    },
     "adjutant": {
         # Master switch (WO-ADJUTANT). False = `adjutant run` is dry-run:
         # verdicts are logged, nothing executes. Only the owner flips this,

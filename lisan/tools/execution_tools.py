@@ -451,6 +451,48 @@ def codex_workspace() -> str:
     return str(common)
 
 
+def _chat_intent_verdict(vault: Path) -> tuple[Any, int] | None:
+    """Chat-side codex runs answer to the same authority document as the
+    Adjutant: primer/intent.md, arena ``chat``, the run_script capability
+    set. Returns (verdict, intent_version), or None when intent is absent,
+    invalid, or uncustomized (sentinel dates) — no standing authority either
+    way, so the live approval gate decides alone. A DENY here is final:
+    never-rules outrank even the owner's in-chat yes, exactly as they
+    outrank stale approvals in the Adjutant. EXECUTE skips the prompt.
+    confirm/report_only fall through to the prompt — in conversation the
+    owner is present, and asking them IS the confirmation."""
+    try:
+        from .adjutant_gate import TASK_KIND_CAPABILITIES
+        from .intent import has_sentinel_dates, load_intent, resolve_capabilities
+
+        intent = load_intent(vault)
+        if has_sentinel_dates(intent):
+            return None
+        verdict = resolve_capabilities(
+            intent.delegations, "chat", TASK_KIND_CAPABILITIES["run_script"]
+        )
+        return verdict, intent.version
+    except Exception:
+        return None
+
+
+def _is_trusted_path(wd: Path, config: dict[str, Any]) -> bool:
+    """True when wd sits inside a config approvals.trusted_paths directory."""
+    raw = (config.get("approvals") or {}).get("trusted_paths") or []
+    try:
+        resolved = wd.expanduser().resolve()
+    except OSError:
+        return False
+    for item in raw:
+        try:
+            trusted = Path(str(item)).expanduser().resolve()
+        except OSError:
+            continue
+        if resolved == trusted or trusted in resolved.parents:
+            return True
+    return False
+
+
 def run_codex(
     task: str,
     *,
@@ -469,13 +511,34 @@ def run_codex(
     if not wd.is_absolute():
         wd = repo_root()
 
-    approved = approval_fn("run_codex", {"task": task, "working_directory": str(wd)})
-    if not approved:
+    intent_ruling = _chat_intent_verdict(vault)
+    if intent_ruling is not None and intent_ruling[0].decision == "deny":
+        verdict, version = intent_ruling
+        reasons = "; ".join(verdict.reasons or ["denied"])
         return (
-            "Approval was not granted, so I did not run this. On Telegram I ask for approval "
-            "with a message you answer 'yes' to; in the CLI I prompt interactively. This is the "
-            "approval gate — not a permissions or system error."
+            f"Your intent.md (v{version}) forbids this: {verdict.rule} — {reasons}. "
+            "I didn't run it and didn't ask, because never-rules outrank in-chat approval. "
+            "Change the standing rule with `lisan intent edit` if you want this allowed."
         )
+
+    auto_approved_by: str | None = None
+    if intent_ruling is not None and intent_ruling[0].decision == "execute":
+        auto_approved_by = f"intent.md v{intent_ruling[1]} ({intent_ruling[0].rule})"
+    elif _is_trusted_path(wd, config):
+        auto_approved_by = f"trusted path ({wd})"
+
+    if auto_approved_by is not None:
+        from .log import get_logger
+
+        get_logger(vault).info("run_codex auto-approved by %s: %s", auto_approved_by, task[:200])
+    else:
+        approved = approval_fn("run_codex", {"task": task, "working_directory": str(wd)})
+        if not approved:
+            return (
+                "Approval was not granted, so I did not run this. On Telegram I ask for approval "
+                "with a message you answer 'yes' to; in the CLI I prompt interactively. This is the "
+                "approval gate — not a permissions or system error."
+            )
 
     prompt = _build_codex_prompt(task=task, working_directory=wd, vault=vault, db_path=db_path)
     try:

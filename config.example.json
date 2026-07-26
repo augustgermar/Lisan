@@ -116,6 +116,10 @@
     "max_regenerations": 1,
     "__comment": "Interpersonal Interpretation Protocol: deterministic validator on interpret-a-person turns. validator_enabled=false disables enforcement at runtime (detector fires still log); max_regenerations bounds the retry cost per turn."
   },
+  "approvals": {
+    "trusted_paths": [],
+    "__comment": "Directories where run_codex skips the per-call approval prompt; runs are still logged and announced. Empty list = every codex run asks. A DENY from primer/intent.md (arena 'chat') still outranks a trusted path."
+  },
   "adjutant": {
     "enabled": false,
     "calibration": false,
