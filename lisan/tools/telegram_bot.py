@@ -49,6 +49,7 @@ _HELP_TEXT = (
     "Commands:\n"
     "/new — start a fresh conversation\n"
     "/domain <name> — pin the retrieval domain (no arg clears it)\n"
+    "/trust 30m — run approval-gated actions without asking, for a while (/trust off to end)\n"
     "/logs [N] [errors] — recent log lines; 'errors' shows only warnings/errors\n"
     "/confirmations — pending Adjutant confirmations\n"
     "approve <id> / deny <id> — resolve a confirmation\n"
@@ -74,6 +75,7 @@ class _ChatState:
         self.advice_context_active = False
         self.advice_topic: str | None = None
         self.domain_override: str | None = None
+        self.trust_until: float = 0.0  # /trust — standing approval expiry (epoch seconds)
 
 
 def _fragment_key(update: dict[str, Any]) -> tuple[int, int] | None:
@@ -245,6 +247,7 @@ class TelegramBot:
             state.advice_history = []
             state.advice_context_active = False
             state.advice_topic = None
+            state.trust_until = 0.0  # standing trust does not survive a conversation reset
             self._send_message(chat_id, "Started a fresh conversation.")
             return
         if lowered.startswith("/domain") or lowered.startswith("/arena"):
@@ -252,6 +255,9 @@ class TelegramBot:
             state.domain_override = parts[1].strip().lower() if len(parts) > 1 and parts[1].strip() else None
             msg = f"Domain set to: {state.domain_override}" if state.domain_override else "Domain cleared (auto-detect)."
             self._send_message(chat_id, msg)
+            return
+        if lowered.startswith("/trust"):
+            self._send_message(chat_id, self._trust_command(state, text))
             return
         # Adjutant confirmations: approve/deny/list, handled before the
         # model ever sees the text — authority decisions are deterministic.
@@ -327,8 +333,45 @@ class TelegramBot:
             if result.get("route") != "advice":
                 state.advice_topic = None
 
+    # ── Standing trust (/trust) ─────────────────────────────────────────────
+    _TRUST_MAX_SECONDS = 8 * 3600.0
+    _TRUST_ARG_RE = re.compile(r"^(\d+)\s*(s|sec|secs|m|min|mins|h|hr|hrs)?$")
+
+    def _trust_command(self, state: _ChatState, text: str) -> str:
+        """Session-scoped standing approval: while active, approval-gated
+        actions run without the per-step prompt, each one announced. Expires
+        on its own, on /trust off, and on /new — trust is a window the owner
+        opens, never a switch that stays flipped."""
+        parts = text.split(maxsplit=1)
+        arg = parts[1].strip().lower() if len(parts) > 1 else ""
+        now = time.time()
+        if not arg:
+            if state.trust_until > now:
+                minutes = int((state.trust_until - now) // 60) + 1
+                return (
+                    f"Standing trust is ON for another ~{minutes} min — gated actions run "
+                    "without asking (I announce each one). /trust off to end it."
+                )
+            return "Standing trust is off — every gated action asks first. /trust 30m or /trust 2h to open a window."
+        if arg in ("off", "stop", "end", "0"):
+            state.trust_until = 0.0
+            return "Standing trust ended — back to per-action approvals."
+        match = self._TRUST_ARG_RE.match(arg)
+        if not match:
+            return "I didn't understand that window. Try /trust 30m, /trust 2h, or /trust off."
+        value, unit = int(match.group(1)), (match.group(2) or "m")
+        seconds = value * (3600.0 if unit.startswith("h") else 1.0 if unit.startswith("s") else 60.0)
+        seconds = min(seconds, self._TRUST_MAX_SECONDS)
+        state.trust_until = now + seconds
+        get_logger(self.vault).info("telegram: standing trust granted for %ds", int(seconds))
+        return (
+            f"Standing trust ON for the next {int(seconds // 60)} min: I'll run gated actions "
+            "without asking and tell you each time. /trust off ends it early."
+        )
+
     # ── Interactive approval over chat ──────────────────────────────────────
     _APPROVE_WORDS = {"yes", "y", "approve", "approved", "go", "go ahead", "do it", "ok", "okay", "sure", "yep"}
+    _DENY_WORDS = {"no", "n", "deny", "denied", "nope", "stop", "cancel", "don't", "dont", "do not", "skip", "skip it"}
 
     def _approval_fn_for(self, chat_id: int):
         """Ask the owner in-chat and wait for their reply. This is the
@@ -338,8 +381,14 @@ class TelegramBot:
         def approve(tool_name: str, args: dict[str, Any]) -> bool:
             import uuid
 
-            nonce = uuid.uuid4().hex[:10]
             description = str(args.get("task") or json.dumps(args, ensure_ascii=True)[:400])
+            state = self._state_for(chat_id)
+            if time.time() < state.trust_until:
+                get_logger(self.vault).info("telegram: %s auto-approved (standing trust): %s", tool_name, description[:200])
+                self._send_message(chat_id, f"⚙️ Auto-approved (standing trust): {description[:300]}")
+                return True
+
+            nonce = uuid.uuid4().hex[:10]
             keyboard = {
                 "inline_keyboard": [[
                     {"text": "✅ Approve", "callback_data": f"approve:{nonce}"},
@@ -407,11 +456,15 @@ class TelegramBot:
                     lowered = text.strip().lower().rstrip(".!")
                     if lowered in self._APPROVE_WORDS:
                         return True
-                    # Anything else from the owner is a decline — and still a
-                    # real message: buffer it so the conversation carries on
-                    # instead of stalling behind the approval timeout.
+                    if lowered in self._DENY_WORDS:
+                        return False
+                    # Anything else from the owner is conversation, not a
+                    # verdict: buffer it and keep waiting for the buttons or
+                    # a yes/no. (Until 2026-07-26 any non-yes text counted as
+                    # a decline — a split-message fragment landing mid-prompt
+                    # silently vetoed the action.)
                     self._pending_updates.append(update)
-                    return False
+                    continue
                 self._pending_updates.append(update)
         return None
 

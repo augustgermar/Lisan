@@ -148,6 +148,104 @@ class SplitMessagePollTests(unittest.TestCase):
         self.assertEqual(self.bot._offset, 12)  # both fragments acknowledged
 
 
+class ApprovalWaitTests(unittest.TestCase):
+    """While an approval prompt is pending, only an explicit yes/no decides.
+    Conversation landing mid-prompt buffers and the wait continues — before
+    2026-07-26 any non-yes text counted as a decline, so a split-message
+    fragment arriving mid-prompt silently vetoed the action."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        ensure_repo_layout(self.root)
+        self.vault = vault_root(self.root)
+        self.bot = TelegramBot(token="TEST", allowed_user_ids={1}, vault=self.vault, config={})
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _wire(self, batches: list[list[dict]]):
+        def call_api(method, params, *, timeout=0):
+            if method == "getUpdates" and batches:
+                return {"ok": True, "result": batches.pop(0)}
+            return {"ok": True, "result": []}
+        self.bot._call_api = call_api
+
+    def test_conversation_mid_prompt_buffers_and_wait_continues(self):
+        approve_tap = {"update_id": 3, "callback_query": {"id": "cb", "from": {"id": 1}, "data": "approve:abc"}}
+        self._wire([
+            [_update("by the way, one more thought", update_id=2)],
+            [approve_tap],
+        ])
+        verdict = self.bot._await_approval(99, "abc", timeout=5.0)
+        self.assertTrue(verdict)
+        self.assertEqual(len(self.bot._pending_updates), 1)  # the thought survives as conversation
+
+    def test_explicit_no_denies(self):
+        self._wire([[_update("no", update_id=2)]])
+        self.assertFalse(self.bot._await_approval(99, "abc", timeout=5.0))
+
+    def test_timeout_returns_none(self):
+        self._wire([])
+        self.assertIsNone(self.bot._await_approval(99, "abc", timeout=0.05))
+
+
+class TrustWindowTests(unittest.TestCase):
+    """/trust opens a bounded window in which gated actions run without the
+    per-step prompt, each announced. It expires, ends on /trust off, and
+    does not survive /new."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        ensure_repo_layout(self.root)
+        self.vault = vault_root(self.root)
+        self.calls: list[tuple[str, dict]] = []
+        self.bot = TelegramBot(token="TEST", allowed_user_ids={1}, vault=self.vault, config={})
+        self.bot._call_api = lambda method, params, *, timeout=0: (
+            self.calls.append((method, params)) or {"ok": True, "result": []}
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _sent(self) -> list[str]:
+        return [p["text"] for m, p in self.calls if m == "sendMessage"]
+
+    def test_trust_window_auto_approves_and_announces(self):
+        self.bot.handle_update(_update("/trust 30m"))
+        self.assertGreater(self.bot._state_for(99).trust_until, time.time())
+        approve = self.bot._approval_fn_for(99)
+        self.assertTrue(approve("run_codex", {"task": "touch a file"}))
+        self.assertTrue(any("Auto-approved (standing trust)" in s for s in self._sent()))
+        # no approval keyboard was ever shown
+        self.assertFalse(any("I need your approval" in s for s in self._sent()))
+
+    def test_trust_off_restores_prompting(self):
+        self.bot.handle_update(_update("/trust 30m"))
+        self.bot.handle_update(_update("/trust off"))
+        self.assertEqual(self.bot._state_for(99).trust_until, 0.0)
+
+    def test_new_conversation_drops_trust(self):
+        self.bot.handle_update(_update("/trust 30m"))
+        with patch.object(telegram_bot, "_process_chat_turn"):
+            self.bot.handle_update(_update("/new"))
+        self.assertEqual(self.bot._state_for(99).trust_until, 0.0)
+
+    def test_expired_trust_asks_again(self):
+        state = self.bot._state_for(99)
+        state.trust_until = time.time() - 1
+        approve = self.bot._approval_fn_for(99)
+        # No reply queued: prompt goes out, wait times out quickly via patch
+        with patch.object(self.bot, "_await_approval", return_value=None):
+            self.assertFalse(approve("run_codex", {"task": "touch a file"}))
+        self.assertTrue(any("I need your approval" in s for s in self._sent()))
+
+    def test_trust_cap_is_eight_hours(self):
+        self.bot.handle_update(_update("/trust 99h"))
+        self.assertLessEqual(self.bot._state_for(99).trust_until, time.time() + 8 * 3600 + 5)
+
+
 class BotDispatchTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
