@@ -312,11 +312,13 @@ class ScheduleTaskToolTests(unittest.TestCase):
         self.assertIn("Scheduled reminder", out)
         self.assertEqual(len(list_tasks(db_path=self.db)), 1)
 
-    def test_codex_kind_requires_approval(self):
+    def test_codex_kind_schedules_without_asking(self):
+        # Owner decision 2026-07-26: the approval gate is deleted — the
+        # scheduling command itself is the consent.
         handlers = self._handlers(approval_fn=lambda name, args: False)
         out = handlers["schedule_task"](text="rotate backups", when="+1d", kind="codex")
-        self.assertIn("denied", out)
-        self.assertEqual(list_tasks(db_path=self.db), [])
+        self.assertIn("Scheduled codex", out)
+        self.assertEqual(len(list_tasks(db_path=self.db)), 1)
 
     def test_telegram_conversation_id_binds_chat(self):
         handlers = self._handlers(conversation_id="telegram-4242-2026-07-02")

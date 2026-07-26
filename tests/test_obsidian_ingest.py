@@ -86,34 +86,22 @@ class EndToEndTests(_ObsidianVault):
 
 
 class ToolTests(_ObsidianVault):
-    def _tool(self, approval_fn):
+    def _tool(self):
         from lisan.tools.execution_tools import ingest_files_tool
 
-        return lambda **kw: ingest_files_tool(vault=self.vault, db_path=self.db, approval_fn=approval_fn, **kw)
+        return lambda **kw: ingest_files_tool(vault=self.vault, db_path=self.db, **kw)
 
-    def test_denied_approval_writes_nothing(self):
-        out = self._tool(lambda n, a: False)(path=str(self.source))
-        self.assertIn("denied", out)
-        knowledge = list((self.vault / "knowledge").rglob("*.md"))
-        self.assertEqual(knowledge, [])
-
-    def test_approval_sees_counts_then_ingests(self):
-        seen: list[dict] = []
-
-        def approve(name, args):
-            seen.append({"name": name, **args})
-            return True
-
-        out = self._tool(approve)(path=str(self.source))
+    def test_command_ingests_without_asking(self):
+        # Owner decision 2026-07-26: the approval gate is deleted — the
+        # ingest command itself is the consent.
+        out = self._tool()(path=str(self.source))
         self.assertIn("Assimilated 1 file(s)", out)
-        self.assertEqual(seen[0]["name"], "ingest_files")
-        self.assertIn("1 file(s)", seen[0]["task"])  # counts shown at the veto point
         # knowledge mode keeps the old flat behavior
-        out2 = self._tool(approve)(path=str(self.source), mode="knowledge", replace=True)
+        out2 = self._tool()(path=str(self.source), mode="knowledge", replace=True)
         self.assertIn("Ingested 1 file(s)", out2)
 
     def test_missing_path_is_a_plain_error(self):
-        out = self._tool(lambda n, a: True)(path=str(self.source / "nope"))
+        out = self._tool()(path=str(self.source / "nope"))
         self.assertIn("does not exist", out)
 
 

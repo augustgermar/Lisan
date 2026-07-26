@@ -39,7 +39,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "run_codex",
-        "description": "Delegate a coding, system administration, or file-editing task to the codex agent. Codex can read/write files, run shell commands, run Lisan CLI commands, and fix errors. Describe the task clearly; codex executes and returns the result. Requires user approval for write operations.",
+        "description": "Delegate a coding, system administration, or file-editing task to the codex agent. Codex can read/write files, run shell commands, run Lisan CLI commands, and fix errors. Describe the task clearly; codex executes immediately and returns the result.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -334,7 +334,6 @@ def build_tool_handlers(
             vault=vault,
             config=config,
             db_path=db_path,
-            approval_fn=approval_fn,
         ),
         "self_state": lambda: self_state(vault=vault, db_path=db_path),
         "browser": lambda action, **kw: _browser_tool(action, **kw),
@@ -355,14 +354,12 @@ def build_tool_handlers(
             mode=str(mode or "life"),
             vault=vault,
             db_path=db_path,
-            approval_fn=approval_fn,
         ),
         "create_plan": lambda goal, steps: create_plan_tool(
             goal=goal,
             steps=steps,
             db_path=db_path,
             conversation_id=conversation_id,
-            approval_fn=approval_fn,
         ),
         "schedule_task": lambda text, when=None, kind="reminder", recurrence=None: schedule_task_tool(
             text=text,
@@ -371,7 +368,6 @@ def build_tool_handlers(
             recurrence=recurrence,
             db_path=db_path,
             conversation_id=conversation_id,
-            approval_fn=approval_fn,
         ),
     }
     handlers.update(
@@ -455,12 +451,11 @@ def _chat_intent_verdict(vault: Path) -> tuple[Any, int] | None:
     """Chat-side codex runs answer to the same authority document as the
     Adjutant: primer/intent.md, arena ``chat``, the run_script capability
     set. Returns (verdict, intent_version), or None when intent is absent,
-    invalid, or uncustomized (sentinel dates) — no standing authority either
-    way, so the live approval gate decides alone. A DENY here is final:
-    never-rules outrank even the owner's in-chat yes, exactly as they
-    outrank stale approvals in the Adjutant. EXECUTE skips the prompt.
-    confirm/report_only fall through to the prompt — in conversation the
-    owner is present, and asking them IS the confirmation."""
+    invalid, or uncustomized (sentinel dates). Since the owner deleted the
+    per-action approval gate (2026-07-26), only a DENY matters here — and
+    it is final: never-rules outrank even the owner's in-chat command,
+    exactly as they outrank stale approvals in the Adjutant. Everything
+    short of DENY executes; the owner's command is the consent."""
     try:
         from .adjutant_gate import TASK_KIND_CAPABILITIES
         from .intent import has_sentinel_dates, load_intent, resolve_capabilities
@@ -476,23 +471,6 @@ def _chat_intent_verdict(vault: Path) -> tuple[Any, int] | None:
         return None
 
 
-def _is_trusted_path(wd: Path, config: dict[str, Any]) -> bool:
-    """True when wd sits inside a config approvals.trusted_paths directory."""
-    raw = (config.get("approvals") or {}).get("trusted_paths") or []
-    try:
-        resolved = wd.expanduser().resolve()
-    except OSError:
-        return False
-    for item in raw:
-        try:
-            trusted = Path(str(item)).expanduser().resolve()
-        except OSError:
-            continue
-        if resolved == trusted or trusted in resolved.parents:
-            return True
-    return False
-
-
 def run_codex(
     task: str,
     *,
@@ -502,10 +480,8 @@ def run_codex(
     db_path: Path | None = None,
     provider: str | None = None,
     model: str | None = None,
-    approval_fn: Callable[[str, dict[str, Any]], bool] | None = None,
 ) -> str:
     config = config or load_config()
-    approval_fn = approval_fn or _approve_action
 
     wd = Path(working_directory).expanduser() if working_directory else Path(codex_workspace())
     if not wd.is_absolute():
@@ -517,28 +493,16 @@ def run_codex(
         reasons = "; ".join(verdict.reasons or ["denied"])
         return (
             f"Your intent.md (v{version}) forbids this: {verdict.rule} — {reasons}. "
-            "I didn't run it and didn't ask, because never-rules outrank in-chat approval. "
+            "I didn't run it, because never-rules outrank an in-chat command. "
             "Change the standing rule with `lisan intent edit` if you want this allowed."
         )
 
-    auto_approved_by: str | None = None
-    if intent_ruling is not None and intent_ruling[0].decision == "execute":
-        auto_approved_by = f"intent.md v{intent_ruling[1]} ({intent_ruling[0].rule})"
-    elif _is_trusted_path(wd, config):
-        auto_approved_by = f"trusted path ({wd})"
+    # Owner decision 2026-07-26: the per-action approval gate is gone. The
+    # owner's command is the consent; every run is still logged, and
+    # intent.md never-rules above remain the one hard rail.
+    from .log import get_logger
 
-    if auto_approved_by is not None:
-        from .log import get_logger
-
-        get_logger(vault).info("run_codex auto-approved by %s: %s", auto_approved_by, task[:200])
-    else:
-        approved = approval_fn("run_codex", {"task": task, "working_directory": str(wd)})
-        if not approved:
-            return (
-                "Approval was not granted, so I did not run this. On Telegram I ask for approval "
-                "with a message you answer 'yes' to; in the CLI I prompt interactively. This is the "
-                "approval gate — not a permissions or system error."
-            )
+    get_logger(vault).info("run_codex executing: %s (wd=%s)", task[:200], wd)
 
     prompt = _build_codex_prompt(task=task, working_directory=wd, vault=vault, db_path=db_path)
     try:
@@ -647,11 +611,10 @@ def ingest_files_tool(
     mode: str = "life",
     vault: Path,
     db_path: Path | None = None,
-    approval_fn: Callable[[str, dict[str, Any]], bool] | None = None,
 ) -> str:
     """Conversational ingestion. Plans first (counting and classifying with
-    zero writes), puts that plan in front of the user as the approval, then
-    assimilates. Life mode routes person/place/project notes into entity
+    zero writes) so empty or already-ingested sources exit early, then
+    assimilates — the owner's command is the consent (2026-07-26). Life mode routes person/place/project notes into entity
     narratives and dated notes into episodes; knowledge mode stores
     everything as reference chunks. Reads sources; never writes to them."""
     from .ingest import ingest_reference_sources
@@ -674,13 +637,6 @@ def ingest_files_tool(
         documents = plan.get("documents") or []
         if not documents:
             return f"Nothing ingestible found at {source} (markdown, text, PDF, json, csv)."
-        approved = (approval_fn or _approve_action)(
-            "ingest_files",
-            {"task": f"ingest {len(documents)} file(s) (~{int(plan.get('total_chunks') or 0)} knowledge records) from {source}"
-                     + (", replacing previous versions" if replace else "")},
-        )
-        if not approved:
-            return "User denied the ingestion"
         try:
             result = ingest_reference_sources(
                 [source], vault=vault, db_path=db_path,
@@ -715,10 +671,6 @@ def ingest_files_tool(
         f"{counts.get('skipped_empty', 0)} empty skipped"
         + (", replacing previous versions" if replace else "")
     )
-    approved = (approval_fn or _approve_action)("ingest_files", {"task": task})
-    if not approved:
-        return "User denied the ingestion"
-
     try:
         result = ingest_life_sources([source], vault=vault, db_path=db_path, replace=replace, plan_only=False)
     except Exception as exc:
@@ -746,19 +698,14 @@ def create_plan_tool(
     steps: list[dict[str, str]],
     db_path: Path | None = None,
     conversation_id: str | None = None,
-    approval_fn: Callable[[str, dict[str, Any]], bool] | None = None,
 ) -> str:
-    """Conversational plan creation. The approval here covers every codex
-    step — the plan runs unattended, so creation is the only veto point."""
+    """Conversational plan creation. The plan runs unattended after this
+    call; the owner's command that asked for it is the consent
+    (2026-07-26 — the per-step approval gate is gone)."""
     from .plans import create_plan
 
     if not isinstance(steps, list):
         return "Error: steps must be a list of {kind, description} objects"
-    if any(str(s.get("kind") or "codex").lower() == "codex" for s in steps if isinstance(s, dict)):
-        rendered = "; ".join(str(s.get("description") or "") for s in steps if isinstance(s, dict))
-        approved = (approval_fn or _approve_action)("create_plan", {"task": f"{goal} — steps: {rendered}"})
-        if not approved:
-            return "User denied the plan"
 
     chat_id: int | None = None
     match = _TELEGRAM_CONVERSATION_RE.match(str(conversation_id or ""))
@@ -788,19 +735,11 @@ def schedule_task_tool(
     recurrence: str | None = None,
     db_path: Path | None = None,
     conversation_id: str | None = None,
-    approval_fn: Callable[[str, dict[str, Any]], bool] | None = None,
 ) -> str:
-    """Conversational entry point for scheduling. Codex tasks get the approval
-    gate *now* — the future firing runs unattended, so scheduling is the only
-    moment the owner can say no."""
+    """Conversational entry point for scheduling. The future firing runs
+    unattended; the owner's command that scheduled it is the consent
+    (2026-07-26 — the scheduling-time approval gate is gone)."""
     from .scheduler import schedule_task
-
-    if str(kind).strip().lower() == "codex":
-        approved = (approval_fn or _approve_action)(
-            "schedule_task", {"task": text, "when": str(when or recurrence or "")}
-        )
-        if not approved:
-            return "User denied scheduling the task"
 
     chat_id: int | None = None
     match = _TELEGRAM_CONVERSATION_RE.match(str(conversation_id or ""))

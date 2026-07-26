@@ -376,8 +376,9 @@ def run_task_job(
         task = task_body(job_type, payload)
         if not task:
             raise ValueError("task.run_codex requires a task")
-        # The owner approved this task when scheduling it; firing later must
-        # not block on an interactive prompt that has nobody at the keyboard.
+        # The owner's command created this task (the per-action approval
+        # gate was deleted 2026-07-26); intent.md never-rules still apply
+        # inside run_codex.
         result_text = run_codex(
             task,
             working_directory=payload.get("working_directory") or None,
@@ -386,7 +387,6 @@ def run_task_job(
             db_path=db_path,
             provider=provider,
             model=model,
-            approval_fn=lambda _name, _args: True,
         )
         summary = result_text if len(result_text) <= 2000 else result_text[:1997] + "..."
         delivered = _best_effort_deliver(deliver, _with_late_note(f"⏰ Scheduled codex task: {task}\n\n{summary}", payload), chat_id)

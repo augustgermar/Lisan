@@ -147,16 +147,13 @@ class PlanToolTests(_Env):
 
         return build_tool_handlers(vault=self.vault, db_path=self.db, config={}, approval_fn=approval_fn)
 
-    def test_note_only_plan_needs_no_approval(self):
-        handlers = self._handlers(approval_fn=lambda n, a: False)
-        out = handlers["create_plan"](goal="g", steps=[{"kind": "note", "description": "x"}])
-        self.assertIn("Plan created", out)
-
-    def test_codex_plan_requires_approval(self):
+    def test_codex_plan_creates_without_asking(self):
+        # Owner decision 2026-07-26: the approval gate is deleted — the
+        # command that asked for the plan is the consent.
         handlers = self._handlers(approval_fn=lambda n, a: False)
         out = handlers["create_plan"](goal="g", steps=[{"kind": "codex", "description": "x"}])
-        self.assertIn("denied", out)
-        self.assertEqual(list_plans(db_path=self.db), [])
+        self.assertIn("Plan created", out)
+        self.assertEqual(len(list_plans(db_path=self.db)), 1)
 
 
 class PromptStepSignatureTests(_Env):

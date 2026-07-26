@@ -42,7 +42,9 @@ def test_read_file_validates_path_and_size(tmp_path: Path) -> None:
     assert "exceeds size limit" in too_large.lower()
 
 
-def test_run_codex_respects_approval_gate(tmp_path: Path, monkeypatch) -> None:
+def test_run_codex_executes_without_asking(tmp_path: Path, monkeypatch) -> None:
+    """Owner decision 2026-07-26: the per-action approval gate is deleted.
+    The owner's command is the consent; the run executes immediately."""
     called = {"complete": 0}
 
     class FakeCodex:
@@ -54,22 +56,13 @@ def test_run_codex_respects_approval_gate(tmp_path: Path, monkeypatch) -> None:
             return LLMResponse(text="ok", provider="codex", model="fake")
 
     monkeypatch.setattr(execution_tools, "CodexClient", FakeCodex)
-    denied = run_codex(
+    result = run_codex(
         "fix the config",
         working_directory=str(tmp_path),
         vault=tmp_path,
-        approval_fn=lambda *_: False,
+        config={"providers": {}},
     )
-    assert "Approval was not granted" in denied
-    assert called["complete"] == 0
-
-    approved = run_codex(
-        "fix the config",
-        working_directory=str(tmp_path),
-        vault=tmp_path,
-        approval_fn=lambda *_: True,
-    )
-    assert approved == "ok"
+    assert result == "ok"
     assert called["complete"] == 1
 
 
@@ -79,10 +72,6 @@ class _FakeCodex:
 
     def complete(self, *args, **kwargs):
         return LLMResponse(text="ok", provider="codex", model="fake")
-
-
-def _never_ask(*_args) -> bool:
-    raise AssertionError("approval_fn must not be consulted on this path")
 
 
 def _write_chat_intent(vault: Path, *, json_patch: dict[str, str]) -> None:
@@ -99,51 +88,9 @@ def _write_chat_intent(vault: Path, *, json_patch: dict[str, str]) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def test_run_codex_trusted_path_skips_the_prompt(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(execution_tools, "CodexClient", _FakeCodex)
-    config = {"providers": {}, "approvals": {"trusted_paths": [str(tmp_path)]}}
-    result = run_codex(
-        "fix the config",
-        working_directory=str(tmp_path / "sub"),
-        vault=tmp_path,
-        config=config,
-        approval_fn=_never_ask,
-    )
-    assert result == "ok"
-
-
-def test_run_codex_outside_trusted_paths_still_asks(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(execution_tools, "CodexClient", _FakeCodex)
-    config = {"providers": {}, "approvals": {"trusted_paths": [str(tmp_path / "elsewhere")]}}
-    asked = {"n": 0}
-
-    def ask(*_args) -> bool:
-        asked["n"] += 1
-        return False
-
-    result = run_codex(
-        "fix the config", working_directory=str(tmp_path), vault=tmp_path, config=config, approval_fn=ask
-    )
-    assert asked["n"] == 1
-    assert "Approval was not granted" in result
-
-
-def test_run_codex_intent_execute_grant_skips_the_prompt(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(execution_tools, "CodexClient", _FakeCodex)
-    _write_chat_intent(tmp_path, json_patch={
-        '"arenas": {': (
-            '"arenas": { "chat": {"mode": "execute", '
-            '"capabilities": ["read_files", "write_files", "run_local_scripts"]},'
-        ),
-    })
-    result = run_codex(
-        "fix the config", working_directory=str(tmp_path), vault=tmp_path,
-        config={"providers": {}}, approval_fn=_never_ask,
-    )
-    assert result == "ok"
-
-
-def test_run_codex_intent_never_rule_is_final_no_prompt(tmp_path: Path, monkeypatch) -> None:
+def test_run_codex_intent_never_rule_is_final(tmp_path: Path, monkeypatch) -> None:
+    """With the approval gate gone, intent.md never-rules are the ONE hard
+    rail left: a global 'never' must block execution outright."""
     called = {"complete": 0}
 
     class Codex(_FakeCodex):
@@ -157,31 +104,25 @@ def test_run_codex_intent_never_rule_is_final_no_prompt(tmp_path: Path, monkeypa
     })
     result = run_codex(
         "fix the config", working_directory=str(tmp_path), vault=tmp_path,
-        config={"providers": {}}, approval_fn=_never_ask,
+        config={"providers": {}},
     )
     assert "intent.md" in result and "forbids" in result
     assert called["complete"] == 0
 
 
-def test_run_codex_uncustomized_intent_grants_nothing(tmp_path: Path, monkeypatch) -> None:
-    """Sentinel dates = no standing authority: the live gate decides alone."""
+def test_run_codex_uncustomized_intent_still_executes(tmp_path: Path, monkeypatch) -> None:
+    """Sentinel dates = no standing authority either way: with the gate
+    deleted, the command simply executes."""
     from lisan.tools.intent import default_intent_document, intent_path
 
     monkeypatch.setattr(execution_tools, "CodexClient", _FakeCodex)
     path = intent_path(tmp_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(default_intent_document(), encoding="utf-8")  # sentinel dates
-    asked = {"n": 0}
-
-    def ask(*_args) -> bool:
-        asked["n"] += 1
-        return True
-
     result = run_codex(
         "fix the config", working_directory=str(tmp_path), vault=tmp_path,
-        config={"providers": {}}, approval_fn=ask,
+        config={"providers": {}},
     )
-    assert asked["n"] == 1
     assert result == "ok"
 
 
