@@ -545,7 +545,13 @@ def install_scheduler_service(*, vault: Path) -> int:
         unit_name=_SCHEDULER_UNIT,
         description="Lisan task scheduler",
         program_args=[sys.executable, "-m", "lisan", "scheduler", "run", "--vault", str(vault)],
-        environment={"LISAN_VAULT": str(vault), "PATH": service_path_env()},
+        environment={
+            "LISAN_VAULT": str(vault),
+            "PATH": service_path_env(),
+            # See telegram_bot: unbuffered so service logs are readable now,
+            # not whenever a 4KB block happens to fill.
+            "PYTHONUNBUFFERED": "1",
+        },
         working_directory=repo_root(),
         out_log=logs / "scheduler-service.out.log",
         err_log=logs / "scheduler-service.err.log",

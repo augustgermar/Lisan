@@ -841,7 +841,14 @@ def _service_spec(*, python: str, vault: Path, repo_dir: Path, out_log: Path, er
         unit_name=_SYSTEMD_UNIT,
         description="Lisan Telegram bot",
         program_args=[python, "-m", "lisan", "telegram", "run", "--vault", str(vault)],
-        environment={"LISAN_VAULT": str(vault), "PATH": service_path_env(path_env)},
+        environment={
+            "LISAN_VAULT": str(vault),
+            "PATH": service_path_env(path_env),
+            # launchd/systemd give stdout a file, so Python block-buffers it and
+            # service logs lag by hours. Diagnostics you cannot read on time are
+            # not diagnostics (2026-07-27).
+            "PYTHONUNBUFFERED": "1",
+        },
         working_directory=repo_dir,
         out_log=out_log,
         err_log=err_log,

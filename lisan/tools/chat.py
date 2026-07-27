@@ -54,6 +54,14 @@ def startup_check(vault: Path, config: dict[str, Any]) -> bool:
             print("    Set CODEX_BIN or add an API key, then update routing in config.json")
 
     print()
+    # Under launchd/systemd stdout is a file, so Python block-buffers it and
+    # this checklist can sit unwritten for hours (2026-07-27: a service log's
+    # last line was three hours stale while the process ran fine). A startup
+    # diagnostic nobody can read is not a diagnostic — flush it now.
+    try:
+        sys.stdout.flush()
+    except Exception:
+        pass
     return vault_ok and index_ok and provider_ok
 
 
