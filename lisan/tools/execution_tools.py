@@ -522,6 +522,15 @@ def run_codex(
 _TELEGRAM_CONVERSATION_RE = re.compile(r"^telegram-(\d+)\b")
 
 
+def _inside_a_plan(conversation_id: str | None) -> bool:
+    """True when this turn is a plan step executing (``plan-<plan_id>``).
+
+    Plan steps run the full conversation agent, tools and all. Anything that
+    schedules more unattended work must refuse from in here, or the system
+    can amplify one request without bound."""
+    return str(conversation_id or "").startswith("plan-")
+
+
 def _checkin_tool(person: str, note: str, *, tags=None, quote=None, vault: Path, db_path: Path | None) -> str:
     import json as _json
 
@@ -706,6 +715,19 @@ def create_plan_tool(
 
     if not isinstance(steps, list):
         return "Error: steps must be a list of {kind, description} objects"
+    if _inside_a_plan(conversation_id):
+        # A plan's `prompt` step runs the full conversation agent, which
+        # carries this very tool. Told "this is one step of a larger plan,"
+        # the model reasonably reaches for create_plan — and each child plan
+        # does it again. On 2026-07-27 that recursion produced 234 plans and
+        # ~200 queued jobs overnight from one research request, until it hit
+        # the provider usage limit. Plans do not get to make plans.
+        return (
+            "I'm already executing inside a plan, so I can't create another one from here "
+            "(that recursion is how a single request became hundreds of jobs on 2026-07-27). "
+            "Do this step's work directly with your other tools, or report what you found and "
+            "let the owner decide whether a follow-up plan is warranted."
+        )
 
     chat_id: int | None = None
     match = _TELEGRAM_CONVERSATION_RE.match(str(conversation_id or ""))
@@ -740,6 +762,14 @@ def schedule_task_tool(
     unattended; the owner's command that scheduled it is the consent
     (2026-07-26 — the scheduling-time approval gate is gone)."""
     from .scheduler import schedule_task
+
+    if _inside_a_plan(conversation_id):
+        # Same containment rule as create_plan: a plan step must not be able
+        # to queue further unattended work. See _inside_a_plan.
+        return (
+            "I'm executing inside a plan, so I can't schedule background work from here. "
+            "Report what this step found and let the owner schedule any follow-up."
+        )
 
     chat_id: int | None = None
     match = _TELEGRAM_CONVERSATION_RE.match(str(conversation_id or ""))

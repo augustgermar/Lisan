@@ -267,3 +267,43 @@ class SummaryMessageTests(_Env):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlanRecursionContainmentTests(_Env):
+    """A plan's `prompt` step runs the full conversation agent, tools and
+    all — including create_plan. Told "this is one step of a larger plan,"
+    the model reaches for it, and each child plan does the same. On
+    2026-07-27 that produced 234 plans and ~200 queued jobs overnight from
+    a single research request, until it hit the provider usage limit.
+    Plans must not be able to make plans, or schedule background work."""
+
+    def _handlers_for(self, conversation_id):
+        from lisan.tools.execution_tools import build_tool_handlers
+
+        return build_tool_handlers(
+            vault=self.vault, db_path=self.db, config={}, conversation_id=conversation_id
+        )
+
+    def test_plan_step_cannot_create_a_nested_plan(self):
+        handlers = self._handlers_for("plan-plan.abc123")
+        out = handlers["create_plan"](
+            goal="research everything",
+            steps=[{"kind": "prompt", "description": "search"},
+                   {"kind": "codex", "description": "write it up"}],
+        )
+        self.assertIn("already executing inside a plan", out)
+        self.assertEqual(list_plans(db_path=self.db), [])
+
+    def test_plan_step_cannot_schedule_background_work(self):
+        handlers = self._handlers_for("plan-plan.abc123")
+        out = handlers["schedule_task"](text="do it again", when="+1h", kind="codex")
+        self.assertIn("inside a plan", out)
+
+    def test_ordinary_conversation_still_creates_plans(self):
+        handlers = self._handlers_for("telegram-1058643775-2026-07-27")
+        out = handlers["create_plan"](
+            goal="research everything",
+            steps=[{"kind": "codex", "description": "write it up"}],
+        )
+        self.assertIn("Plan created", out)
+        self.assertEqual(len(list_plans(db_path=self.db)), 1)
