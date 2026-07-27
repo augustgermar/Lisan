@@ -43,7 +43,7 @@ class SelfReportBannerTests(unittest.TestCase):
 
     def test_reseeded_poison_claim_arrives_wearing_the_banner(self):
         self._seed_poison_claim()
-        rebuild_index(vault=self.vault, db_path=self.db)
+        rebuild_index(vault=self.vault, db_path=self.db, embeddings_file=self.root / "embeddings.bin")
         context = assemble_context(
             "is the task processor stalled? reminder failure database",
             vault=self.vault,
@@ -62,7 +62,7 @@ class SelfReportBannerTests(unittest.TestCase):
         fm = dict(doc.frontmatter)
         fm["claim_class"] = "observation"  # simulate the pre-fix vault
         write_markdown(path, fm, doc.body)
-        rebuild_index(vault=self.vault, db_path=self.db)
+        rebuild_index(vault=self.vault, db_path=self.db, embeddings_file=self.root / "embeddings.bin")
         context = assemble_context(
             "is the task processor stalled? reminder failure database",
             vault=self.vault,
@@ -79,7 +79,7 @@ class SelfReportBannerTests(unittest.TestCase):
             claim_class="observation",
             confidence=0.9,
         )
-        rebuild_index(vault=self.vault, db_path=self.db)
+        rebuild_index(vault=self.vault, db_path=self.db, embeddings_file=self.root / "embeddings.bin")
         context = assemble_context(
             "coffee serious conversation preference",
             vault=self.vault,

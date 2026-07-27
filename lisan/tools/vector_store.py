@@ -23,6 +23,14 @@ META_KEY = "__meta__"
 EMB_VERSION = 1
 
 
+class EmptyIndexOverwrite(RuntimeError):
+    """Raised when a zero-vector index would replace a populated one on disk.
+
+    Loud by design: an empty index is indistinguishable from a working one at
+    every layer above this, so the only moment the mistake is visible is the
+    write itself."""
+
+
 @dataclass(slots=True)
 class EmbeddingIndex:
     model: str
@@ -57,10 +65,40 @@ def write_embeddings(
     embedder was unreachable under ``unreachable_policy: skip``) are omitted —
     no vector is written for them."""
     lines = [json.dumps({META_KEY: {"model": model, "dimension": int(dimension), "version": EMB_VERSION}})]
+    written = 0
     for record_id, vector in records:
         if vector is None:
             continue
         lines.append(json.dumps({"id": record_id, "embedding": vector}))
+        written += 1
+
+    # Never let an empty index quietly replace a populated one.
+    #
+    # An index with zero vectors is what you get when the embedder is
+    # unreachable under `unreachable_policy: skip` — a legitimate state for a
+    # fresh install, and a catastrophe on top of a real one. On 2026-07-27 a
+    # test run resolved this path ambiently and replaced 971 production vectors
+    # with a 62-byte stub; retrieval silently lost its semantic lane and
+    # nothing reported it. The guard is here, at the write, rather than in the
+    # callers, because the callers are the part that keeps being wrong: a test,
+    # a stray script, a future agent rebuilding with a broken embedder. Losing
+    # an index costs a full re-embed of the corpus; refusing costs a log line.
+    if written == 0 and path.exists():
+        try:
+            existing = sum(
+                1 for line in path.read_text(encoding="utf-8").splitlines()
+                if line.strip() and META_KEY not in line
+            )
+        except Exception:
+            existing = 0
+        if existing:
+            raise EmptyIndexOverwrite(
+                f"refusing to overwrite {path} ({existing} vectors) with an empty index. "
+                f"The embedder produced nothing — check that it is reachable "
+                f"(`lisan health`), then re-run. To discard the index deliberately, "
+                f"delete the file first."
+            )
+
     # Atomic replace: a concurrent reader never sees a half-written index.
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")

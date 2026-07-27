@@ -41,7 +41,9 @@ class _Env(unittest.TestCase):
     def _index(self):
         from lisan.tools.rebuild_index import rebuild_index
 
-        rebuild_index(self.vault, db_path=self.db)
+        # Explicit embeddings path: an ambient one resolves into the live
+        # install and shares state across tests (2026-07-27).
+        rebuild_index(self.vault, db_path=self.db, embeddings_file=self.root / "embeddings.bin")
 
 
 class DetectorTests(_Env):

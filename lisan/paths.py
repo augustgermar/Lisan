@@ -36,12 +36,34 @@ def config_path(base: Path | None = None) -> Path:
     return primary
 
 
+def data_root() -> Path:
+    """Where MUTABLE state lives — the index and the embedding store.
+
+    Deliberately separate from :func:`repo_root`, which also locates read-only
+    package resources (prompts, schemas). Both defaulted to the install
+    directory, so any process that resolved a data path ambiently wrote into
+    the developer's live install: on 2026-07-27 a test run silently replaced a
+    populated production ``embeddings.bin`` with an empty stub, and the same
+    ambient ``sqlite_path`` had already been logged as a deviation candidate.
+
+    ``LISAN_DATA_HOME`` redirects only the mutable paths, so a test run (or any
+    sandboxed process) can be pointed somewhere harmless without breaking
+    prompt and schema loading.
+    """
+    env_value = os.environ.get("LISAN_DATA_HOME")
+    if env_value:
+        root = Path(env_value).expanduser()
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+    return repo_root()
+
+
 def sqlite_path(base: Path | None = None) -> Path:
-    return (base or repo_root()) / "lisan.sqlite"
+    return (base or data_root()) / "lisan.sqlite"
 
 
 def embeddings_path(base: Path | None = None) -> Path:
-    return (base or repo_root()) / "embeddings.bin"
+    return (base or data_root()) / "embeddings.bin"
 
 
 def skills_root(base: Path | None = None) -> Path:

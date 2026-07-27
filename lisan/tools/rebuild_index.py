@@ -302,11 +302,21 @@ CREATE INDEX IF NOT EXISTS idx_jobs_coalesce
 def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embeddings_file: Path | None = None) -> dict[str, int]:
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
-    embeddings_file = embeddings_file or embeddings_path()
+    # The embedding store belongs NEXT TO the SQLite index it mirrors — the two
+    # are one index in two files, and resolving them independently let a caller
+    # that passed an explicit db_path still write embeddings into the live
+    # install (that is how tests with temp vaults reached production on
+    # 2026-07-27). Identical to embeddings_path() in the default case.
+    embeddings_file = embeddings_file or (Path(db_path).parent / "embeddings.bin")
 
-    if embeddings_file.exists():
-        embeddings_file.unlink()
-
+    # Deliberately NOT unlinked here. write_embeddings() replaces the file
+    # atomically (tmp + rename), so deleting up front bought nothing and cost
+    # two things: a window where the index simply does not exist (a rebuild
+    # that dies partway leaves no index at all), and — because the old file
+    # was already gone by write time — it disarmed the guard that refuses to
+    # replace a populated index with an empty one. That is how a test run
+    # destroyed 971 production vectors on 2026-07-27: unlink first, then write
+    # nothing, and no layer in between could tell it had happened.
     conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
@@ -937,7 +947,12 @@ def embed_pending_records(
     sync sweep can recover semantic coverage incrementally."""
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
-    embeddings_file = embeddings_file or embeddings_path()
+    # The embedding store belongs NEXT TO the SQLite index it mirrors — the two
+    # are one index in two files, and resolving them independently let a caller
+    # that passed an explicit db_path still write embeddings into the live
+    # install (that is how tests with temp vaults reached production on
+    # 2026-07-27). Identical to embeddings_path() in the default case.
+    embeddings_file = embeddings_file or (Path(db_path).parent / "embeddings.bin")
 
     conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
