@@ -515,3 +515,59 @@ class ChatPerformanceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EmbedderStartupNoticeTests(unittest.TestCase):
+    """`unreachable_policy: skip` degrades retrieval silently by design. That
+    silence let this install run keyword-only for its entire life (2026-07-27:
+    venv predated the fastembed dependency, embed jobs reported *succeeded*
+    while embedding nothing). A degraded lane is a fine fallback and a terrible
+    secret — startup must say so."""
+
+    def _run(self, *, reachable: bool, policy: str = "skip", mode: str = "auto"):
+        from lisan.tools import chat as chat_mod
+
+        settings = {
+            "mode": mode, "provider": "fastembed", "unreachable_policy": policy,
+            "model": "BAAI/bge-small-en-v1.5",
+        }
+        probe = SimpleNamespace(reachable=reachable, dimension=384 if reachable else 0)
+        buf = io.StringIO()
+        with (
+            patch.object(chat_mod, "embedding_settings", create=True, return_value=settings),
+            patch("lisan.config.embedding_settings", return_value=settings),
+            patch("lisan.providers.embeddings.EmbeddingProvider") as Prov,
+            redirect_stdout(buf),
+        ):
+            Prov.return_value.embed_query.return_value = probe
+            ok = chat_mod._check_embedder({})
+        return ok, buf.getvalue()
+
+    def test_live_lane_is_reported(self):
+        ok, out = self._run(reachable=True)
+        self.assertTrue(ok)
+        self.assertIn("semantic lane live", out)
+        self.assertIn("384d", out)
+
+    def test_dead_lane_is_loud_and_actionable(self):
+        ok, out = self._run(reachable=False)
+        self.assertFalse(ok)
+        self.assertIn("semantic lane DOWN", out)
+        self.assertIn("keyword only", out)
+        self.assertIn("pip install fastembed", out)
+
+    def test_hash_policy_names_the_degraded_mode(self):
+        _, out = self._run(reachable=False, policy="hash")
+        self.assertIn("hash vectors", out)
+
+    def test_probe_failure_never_blocks_startup(self):
+        from lisan.tools import chat as chat_mod
+
+        buf = io.StringIO()
+        with (
+            patch("lisan.config.embedding_settings", side_effect=RuntimeError("boom")),
+            redirect_stdout(buf),
+        ):
+            ok = chat_mod._check_embedder({})   # must not raise
+        self.assertFalse(ok)
+        self.assertIn("could not check the embedder", buf.getvalue())

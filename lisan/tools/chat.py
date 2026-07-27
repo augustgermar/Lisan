@@ -37,6 +37,7 @@ def startup_check(vault: Path, config: dict[str, Any]) -> bool:
 
     vault_ok = _check_vault(vault)
     index_ok = _check_index(vault)
+    _check_embedder(config)
     provider_name, provider_ok, provider_diagnostic = _check_provider(config)
 
     if provider_ok:
@@ -54,6 +55,50 @@ def startup_check(vault: Path, config: dict[str, Any]) -> bool:
 
     print()
     return vault_ok and index_ok and provider_ok
+
+
+def _check_embedder(config: dict[str, Any]) -> bool:
+    """Say out loud whether the semantic retrieval lane is actually alive.
+
+    ``unreachable_policy: skip`` degrades silently by design — retrieval just
+    drops the vector leg and keeps working on SQL + FTS. That silence is why
+    this install ran keyword-only for its entire life without anyone noticing
+    (2026-07-27: the venv predated the fastembed dependency; embed jobs kept
+    reporting *succeeded* while embedding nothing). A degraded lane is a fine
+    fallback and a terrible secret, so it gets a line in the startup checklist
+    next to vault, index, and provider.
+
+    The probe is a real one-string embed rather than an import check, because
+    only an embed proves the backend works. On the long-lived services that is
+    also free: it warms the in-process model that the first real query would
+    have paid for anyway. Never raises — a broken probe must not stop startup.
+    """
+    from ..config import embedding_settings
+
+    try:
+        settings = embedding_settings(config)
+        mode = str(settings.get("mode", "auto"))
+        policy = str(settings.get("unreachable_policy", "skip"))
+        if mode == "hash":
+            print(color('  ✓ ', GREEN) + color('retrieval  keyword + hash vectors (mode=hash, semantic off by config)', GREY))
+            return True
+
+        from ..providers.embeddings import EmbeddingProvider
+
+        probe = EmbeddingProvider(config).embed_query("healthcheck")
+        if probe.reachable:
+            model = settings.get("model") or "unknown"
+            print(color('  ✓ ', GREEN) + color(f'retrieval  semantic lane live  {model} ({probe.dimension}d)', GREY))
+            return True
+
+        lane = "hash vectors" if policy == "hash" else "keyword only"
+        print(f"  {color('!', YELLOW)} Retrieval: semantic lane DOWN — running {lane}")
+        print(f"    provider={settings.get('provider')} unreachable_policy={policy}")
+        print("    fix: pip install fastembed  (then: lisan rebuild-index)")
+        return False
+    except Exception as exc:  # a health probe must never block startup
+        print(f"  {color('!', YELLOW)} Retrieval: could not check the embedder ({exc.__class__.__name__}: {exc})")
+        return False
 
 
 def _check_vault(vault: Path) -> bool:
