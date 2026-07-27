@@ -1,5 +1,59 @@
 # Changelog
 
+## 26.7.26 (2026-07-26)
+
+**Containment release.** Two days of soak found four ways the system
+could harm itself quietly. Each fix is placed at the seam that fails,
+not at the caller that happened to trigger it.
+
+- **Plans cannot make plans.** A plan's `prompt` step runs the full
+  conversation agent — tools included — so briefed with "this is one
+  step of a larger plan," the model created another plan, and each child
+  did it again. One research request became 234 plans and ~200 queued
+  jobs overnight before the provider usage limit stopped it. `create_plan`
+  and `schedule_task` now refuse when the conversation id is `plan-*`.
+  The recursion was survivable until the per-action approval gate was
+  removed: every nested plan carried a codex step, and `_approve_action`
+  returns False on a non-tty, so a headless worker had been silently
+  denying them. Removing a gate removes whatever it was incidentally
+  load-bearing for.
+
+- **Only the resident vault may page the owner.** Terminal-failure
+  escalation resolved its Telegram transport ambiently — the live
+  config, the real token — so a test fixture's deliberate failure
+  messaged the owner's phone. An env kill switch (`LISAN_NO_OUTBOUND`)
+  did not hold, because `unittest discover` never imports
+  `tests/__init__.py`. `_notify_owner` now refuses for any vault that is
+  not the install's own. Runner-independent, because the guard asks
+  whose vault is escalating rather than how the process started.
+
+- **The semantic retrieval lane is alive again — and says so.** This
+  install had run keyword-only for its entire life: the venv predated the
+  (already declared) `fastembed` dependency, `embeddings.bin` was a
+  62-byte stub, and `index.embed_pending` reported *succeeded* while
+  embedding nothing, because `unreachable_policy: skip` degrades in
+  silence. `startup_check` now reports the embedder beside vault, index
+  and provider — live model and dimension, or which degraded lane is
+  running and the command that fixes it. Services set
+  `PYTHONUNBUFFERED=1` and the checklist flushes, since launchd
+  block-buffers stdout and the notice was otherwise hours late.
+
+- **The index cannot be lost by accident.** `rebuild_index` unlinked
+  `embeddings.bin` before rebuilding, which bought nothing (writes are
+  already atomic) and cost a window with no index at all. It also
+  resolved the embedding store independently of `db_path`, so callers
+  passing a temp database still wrote into the live install — that is how
+  a routine test run replaced 971 production vectors with an empty stub.
+  The store now follows its database, and `write_embeddings` raises
+  rather than let an empty index replace a populated one.
+
+Also: Telegram messages split at the 4096-char cap rejoin into one turn;
+only an explicit no declines a pending approval (conversation buffers
+instead of vetoing); `lisan jobs archive-failures` retires settled
+failures so deviation scans stop counting them; check-ins resolve the
+system's own dialect (`user`, `owner`) to the principal; retrieval
+demotes superseded/rejected/stale records so the current answer wins.
+
 ## 26.7.24 (2026-07-24)
 
 **WO-ADJUTANT: the execution layer + commander's intent, code

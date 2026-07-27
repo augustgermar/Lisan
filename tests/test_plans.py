@@ -300,7 +300,7 @@ class PlanRecursionContainmentTests(_Env):
         self.assertIn("inside a plan", out)
 
     def test_ordinary_conversation_still_creates_plans(self):
-        handlers = self._handlers_for("telegram-1058643775-2026-07-27")
+        handlers = self._handlers_for("telegram-4242-2026-07-27")
         out = handlers["create_plan"](
             goal="research everything",
             steps=[{"kind": "codex", "description": "write it up"}],
