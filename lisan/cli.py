@@ -1407,8 +1407,6 @@ def main(argv: list[str] | None = None) -> int:
 
             env = dict(_os.environ)
             try:
-                from .config import load_config
-
                 cred_dir = str(((load_config().get("skills") or {}).get("google") or {}).get("credentials_dir") or "")
                 if cred_dir:
                     # the app's config is authoritative; the standalone broker
@@ -1651,7 +1649,6 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     if args.command == "deviations":
-        from .config import load_config
         from .tools.deviations import scan_deviations, _self_loops
 
         vault = vault_root()
@@ -1671,7 +1668,6 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
     if args.command == "self" and getattr(args, "self_command", "") == "evaluate":
-        from .config import load_config
         from .tools.self_eval import run_self_evaluation
 
         result = run_self_evaluation(vault_root(), db_path=sqlite_path(), config=load_config())
