@@ -122,6 +122,41 @@ class SelfStateTests(unittest.TestCase):
         self.assertIn("last slept 2026-07-06 09:32 PDT", rendered)
         self.assertIn("not a service failure", rendered)
 
+    def test_epoch_zero_sleeptime_is_not_reported_as_1969(self):
+        """`sec = 0` means the kernel has no record, not midnight 1970.
+
+        On Darwin 24.6 both kern.sleeptime and kern.waketime read
+        `{ sec = 0, usec = 0 }`, and the instrument dutifully rendered "last
+        slept 1969-12-31 16:00 PST" beside its own sentence telling the reader
+        to treat that interval as sleep rather than a service failure. The
+        instrument built to stop a confabulation was producing one; a missing
+        measurement must read as missing."""
+        import subprocess
+        from unittest.mock import patch
+
+        from lisan.tools import self_model
+
+        completed = subprocess.CompletedProcess(
+            args=["sysctl"], returncode=0, stdout="{ sec = 0, usec = 0 } Wed Dec 31 16:00:00 1969\n"
+        )
+        with patch("platform.system", return_value="Darwin"), patch.object(
+            self_model.subprocess, "run", return_value=completed
+        ):
+            machine = self_model._machine_sleep_status()
+
+        self.assertEqual(machine, {}, "epoch-zero sentinel must not become a timestamp")
+
+        # ... and with no data, the snapshot makes no sleep claim at all.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ensure_repo_layout(root)
+            with patch.object(self_model, "_machine_sleep_status", return_value={}):
+                state = snapshot_self_state(vault=vault_root(root), db_path=root / "jobs.sqlite")
+                rendered = render_self_state(state)
+        self.assertNotIn("1969", rendered)
+        self.assertNotIn("Machine: last slept", rendered)
+        self.assertNotIn("not a service failure", rendered)
+
     def test_log_tail_keeps_only_whole_timestamped_lines(self):
         """The tail of a multi-line traceback is a context-free shard the
         model narrates into a story; only stamped log lines may surface."""

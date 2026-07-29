@@ -411,9 +411,24 @@ def _machine_sleep_status() -> dict[str, str]:
         try:
             result = subprocess.run(["sysctl", "-n", name], capture_output=True, text=True, timeout=5)
             match = _re.search(r"sec = (\d+)", result.stdout)
-            if match:
-                stamp = datetime.fromtimestamp(int(match.group(1)), tz=timezone.utc).astimezone()
-                out[key] = stamp.strftime("%Y-%m-%d %H:%M %Z")
+            if not match:
+                continue
+            seconds = int(match.group(1))
+            # `sec = 0` is the kernel saying it has no record to give — a machine
+            # that has not slept since boot, or a platform that stopped
+            # populating these sysctls at all (observed on Darwin 24.6, where
+            # both read `{ sec = 0, usec = 0 }` on a box that had certainly
+            # slept). Zero is a sentinel, not a timestamp: formatting it printed
+            # "last slept 1969-12-31 16:00 PST" directly beside a sentence
+            # telling the reader to treat the interval between those times as
+            # sleep rather than a service failure. That is the exact
+            # confabulation this instrument exists to prevent — an instrument
+            # that invents a measurement is worse than one that reports nothing.
+            # Omit the key so the renderer says "unknown", or drops the claim.
+            if seconds <= 0:
+                continue
+            stamp = datetime.fromtimestamp(seconds, tz=timezone.utc).astimezone()
+            out[key] = stamp.strftime("%Y-%m-%d %H:%M %Z")
         except Exception:
             continue
     return out
