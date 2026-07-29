@@ -383,6 +383,20 @@ def sanitized_task_fields(entry: dict[str, Any], vault: Path | None = None) -> d
     task = entry.get("task")
     if not isinstance(task, dict) or not task:
         return {}
+    # A writer-proposed `scope` is dropped on the floor, deliberately and
+    # without apology. The delegation axis is owner-assigned only: a model
+    # inferring areas of responsibility is precisely how intent.md came to
+    # declare eight scopes that matched zero records. The task fields below
+    # decide *what* the work is; only the owner decides what authority it
+    # runs under (lisan/tools/scope.py rule 2). Note the drop so a prompt
+    # that starts emitting scopes is visible rather than silently ignored.
+    if task.get("scope") or entry.get("scope"):
+        if vault is not None:
+            log_error(
+                vault,
+                "fanout.open_loop.scope_ignored",
+                ValueError("writer proposed a delegation scope; dropped (owner-assigned only)"),
+            )
     kind = str(task.get("task_kind") or "").strip()
     payload = task.get("task_payload")
     due = str(task.get("due") or "").strip()

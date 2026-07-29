@@ -576,6 +576,23 @@ def _validate_task_fields(path: Path, frontmatter: dict[str, Any], report: Valid
             date.fromisoformat(str(due))
         except ValueError:
             report.add(path, f"Invalid ISO date in due: {due!r}")
+    # Delegation scope: optional, but a malformed one silently costs the
+    # record its authority — it would normalize to "" and resolve as
+    # no_scope, which looks identical to never having declared one.
+    if "scope" in frontmatter:
+        scope = frontmatter.get("scope")
+        if not isinstance(scope, str):
+            report.add(path, f"scope must be a string, got {type(scope).__name__}")
+        elif not scope.strip():
+            report.add(path, "scope is present but empty; omit the field or name a real scope")
+        elif scope != scope.strip().lower():
+            # Canonical form is stripped + lowercased. A record carrying
+            # "Lisan System" resolves as "lisan system" and will not match a
+            # rule written as "lisan-system" — the casing-drift class.
+            report.add(
+                path,
+                f"scope {scope!r} is not in canonical form; use {scope.strip().lower()!r}",
+            )
 
 
 def _pattern_has_banned_language(frontmatter: dict[str, Any]) -> bool:

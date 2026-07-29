@@ -3,55 +3,186 @@
   "title": "decision",
   "type": "object",
   "required": [
-    "id", "type", "created", "updated", "status", "significance",
-    "domain_primary", "domain_secondary", "privacy", "summary", "links",
-    "confidence", "confidence_basis", "last_confirmed", "review_after",
-    "revisit_after", "revisit_conditions", "alternatives_considered"
+    "id",
+    "type",
+    "created",
+    "updated",
+    "status",
+    "significance",
+    "domain_primary",
+    "domain_secondary",
+    "privacy",
+    "summary",
+    "links",
+    "confidence",
+    "confidence_basis",
+    "last_confirmed",
+    "review_after",
+    "revisit_after",
+    "revisit_conditions",
+    "alternatives_considered"
   ],
   "properties": {
-    "id": {"type": "string"},
-    "type": {"type": "string", "enum": ["decision"]},
-    "created": {"type": "string"},
-    "updated": {"type": "string"},
-    "status": {"type": "string"},
-    "significance": {"type": "string"},
-    "domain_primary": {"type": "string"},
-    "domain_secondary": {"type": "array", "items": {"type": "string"}},
-    "arena_primary": {"type": "string"},
-    "arena_secondary": {"type": "array", "items": {"type": "string"}},
-    "privacy": {"type": "string"},
+    "id": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "decision"
+      ]
+    },
+    "created": {
+      "type": "string"
+    },
+    "updated": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "significance": {
+      "type": "string"
+    },
+    "domain_primary": {
+      "type": "string"
+    },
+    "domain_secondary": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "arena_primary": {
+      "type": "string"
+    },
+    "arena_secondary": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "privacy": {
+      "type": "string"
+    },
     "disclosure": {
       "type": "string",
-      "enum": ["private", "personal", "public"],
+      "enum": [
+        "private",
+        "personal",
+        "public"
+      ],
       "description": "Default sharing posture (private/personal/public). A prior for the future external disclosure gate, not a hard rule. Has no effect on internal retrieval."
     },
-    "compartments": {"type": "array", "items": {"type": "string"}, "deprecated": true},
-    "allowed_contexts": {"type": "array", "items": {"type": "string"}, "deprecated": true},
-    "blocked_contexts": {"type": "array", "items": {"type": "string"}, "deprecated": true},
-    "summary": {"type": "string"},
-    "links": {"type": "array", "items": {"type": "string"}},
-    "confidence": {"type": "string"},
-    "confidence_basis": {"type": "string"},
-    "last_confirmed": {"type": "string"},
-    "review_after": {"type": "string"},
-    "revisit_after": {"type": "string"},
-    "revisit_conditions": {"type": "array", "items": {"type": "string"}},
-    "alternatives_considered": {"type": "array", "items": {"type": "string"}},
-    "supersedes": {"type": "array", "items": {"type": "string"}},
-    "superseded_by": {"type": "string"},
+    "compartments": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "deprecated": true
+    },
+    "allowed_contexts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "deprecated": true
+    },
+    "blocked_contexts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "deprecated": true
+    },
+    "summary": {
+      "type": "string"
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "confidence": {
+      "type": "string"
+    },
+    "confidence_basis": {
+      "type": "string"
+    },
+    "last_confirmed": {
+      "type": "string"
+    },
+    "review_after": {
+      "type": "string"
+    },
+    "revisit_after": {
+      "type": "string"
+    },
+    "revisit_conditions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "alternatives_considered": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "supersedes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "superseded_by": {
+      "type": "string"
+    },
     "execution_steps": {
       "type": "array",
       "description": "WO-ADJUTANT: unexecuted implications of this decision. Optional, never required.",
       "items": {
         "type": "object",
-        "required": ["step", "task_kind", "status"],
+        "required": [
+          "step",
+          "task_kind",
+          "status"
+        ],
         "properties": {
-          "step": {"type": "string"},
-          "task_kind": {"type": "string", "enum": ["run_script", "research", "collect", "draft", "notify"]},
-          "task_payload": {"type": "object"},
-          "status": {"type": "string", "enum": ["pending", "running", "blocked", "expired", "resolved"]}
+          "step": {
+            "type": "string"
+          },
+          "task_kind": {
+            "type": "string",
+            "enum": [
+              "run_script",
+              "research",
+              "collect",
+              "draft",
+              "notify"
+            ]
+          },
+          "task_payload": {
+            "type": "object"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "blocked",
+              "expired",
+              "resolved"
+            ]
+          }
         }
       }
+    },
+    "scope": {
+      "type": "string",
+      "description": "Delegation scope: the owner-defined area of responsibility this record acts under. The only axis intent.md is resolved against, and distinct from domain_primary (life dimension, for retrieval). Owner-assigned only \u2014 the capture pipeline never sets it. Absent means no delegation applies, so the record can be reported but never executed unattended."
     }
   }
 }

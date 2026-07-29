@@ -3,41 +3,128 @@
   "title": "schedule",
   "type": "object",
   "required": [
-    "id", "type", "created", "updated", "status", "significance",
-    "domain_primary", "domain_secondary", "privacy", "summary", "links",
-    "confidence", "confidence_basis", "last_confirmed", "review_after",
-    "task_kind", "cron", "next_run", "payload"
+    "id",
+    "type",
+    "created",
+    "updated",
+    "status",
+    "significance",
+    "domain_primary",
+    "domain_secondary",
+    "privacy",
+    "summary",
+    "links",
+    "confidence",
+    "confidence_basis",
+    "last_confirmed",
+    "review_after",
+    "task_kind",
+    "cron",
+    "next_run",
+    "payload"
   ],
   "properties": {
-    "id": {"type": "string"},
-    "type": {"type": "string", "enum": ["schedule"]},
-    "created": {"type": "string"},
-    "updated": {"type": "string"},
-    "status": {"type": "string"},
-    "significance": {"type": "string"},
-    "domain_primary": {"type": "string"},
-    "domain_secondary": {"type": "array", "items": {"type": "string"}},
-    "arena_primary": {"type": "string"},
-    "arena_secondary": {"type": "array", "items": {"type": "string"}},
-    "privacy": {"type": "string"},
+    "id": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "schedule"
+      ]
+    },
+    "created": {
+      "type": "string"
+    },
+    "updated": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "significance": {
+      "type": "string"
+    },
+    "domain_primary": {
+      "type": "string"
+    },
+    "domain_secondary": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "arena_primary": {
+      "type": "string"
+    },
+    "arena_secondary": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "privacy": {
+      "type": "string"
+    },
     "disclosure": {
       "type": "string",
-      "enum": ["private", "personal", "public"],
+      "enum": [
+        "private",
+        "personal",
+        "public"
+      ],
       "description": "Default sharing posture. A prior for the future external disclosure gate, not a hard rule."
     },
-    "summary": {"type": "string"},
-    "links": {"type": "array", "items": {"type": "string"}},
-    "confidence": {"type": "string"},
-    "confidence_basis": {"type": "string"},
-    "last_confirmed": {"type": "string"},
-    "review_after": {"type": "string"},
-    "task_kind": {"type": "string", "enum": ["run_script", "research", "collect", "draft", "notify"]},
+    "summary": {
+      "type": "string"
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "confidence": {
+      "type": "string"
+    },
+    "confidence_basis": {
+      "type": "string"
+    },
+    "last_confirmed": {
+      "type": "string"
+    },
+    "review_after": {
+      "type": "string"
+    },
+    "task_kind": {
+      "type": "string",
+      "enum": [
+        "run_script",
+        "research",
+        "collect",
+        "draft",
+        "notify"
+      ]
+    },
     "cron": {
       "type": "string",
       "description": "Cadence: every:<N><s|m|h|d|w>, daily@HH:MM, weekly:<mon..sun>@HH:MM, or monthly:<1-28>@HH:MM (local time)."
     },
-    "next_run": {"type": "string", "description": "ISO timestamp of the next due firing; maintained by the jobs materializer."},
-    "payload": {"type": "object", "description": "task_payload handed to the executor verbatim."},
-    "materialized_job_id": {"type": "string", "description": "The jobs-table row this schedule currently drives (hybrid model)."}
+    "next_run": {
+      "type": "string",
+      "description": "ISO timestamp of the next due firing; maintained by the jobs materializer."
+    },
+    "payload": {
+      "type": "object",
+      "description": "task_payload handed to the executor verbatim."
+    },
+    "materialized_job_id": {
+      "type": "string",
+      "description": "The jobs-table row this schedule currently drives (hybrid model)."
+    },
+    "scope": {
+      "type": "string",
+      "description": "Delegation scope: the owner-defined area of responsibility this record acts under. The only axis intent.md is resolved against, and distinct from domain_primary (life dimension, for retrieval). Owner-assigned only \u2014 the capture pipeline never sets it. Absent means no delegation applies, so the record can be reported but never executed unattended."
+    }
   }
 }

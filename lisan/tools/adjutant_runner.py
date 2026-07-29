@@ -120,7 +120,7 @@ def run_cycle(
             log_verdict(
                 conn,
                 task_id=task.task_id,
-                arena=task.arena,
+                scope=task.scope,
                 capabilities=capabilities,
                 verdict=verdict,
                 intent_version=intent.version,
@@ -130,7 +130,7 @@ def run_cycle(
                 {
                     "task_id": task.task_id,
                     "source": task.source,
-                    "arena": task.arena,
+                    "scope": task.scope,
                     "task_kinds": task.task_kinds,
                     "capabilities": capabilities,
                     "verdict": verdict.decision,
@@ -178,7 +178,7 @@ def run_cycle(
                     task_summary=task.summary or task.task_id,
                     planned_action=_planned_action(vault, task),
                     risk="; ".join(verdict.reasons) or f"requires confirmation per {verdict.rule}",
-                    arena=task.arena,
+                    scope=task.scope,
                     db_path=db_path,
                 )
                 if created:
@@ -514,7 +514,7 @@ def tail_log(db_path: Path | None = None, limit: int = 20) -> list[dict[str, Any
     try:
         ensure_index_schema(conn)
         rows = conn.execute(
-            "SELECT ts, task_id, arena, capabilities, verdict, matched_rule, intent_version, note "
+            "SELECT ts, task_id, COALESCE(scope, arena) AS scope, capabilities, verdict, matched_rule, intent_version, note "
             "FROM adjutant_log ORDER BY id DESC LIMIT ?",
             (int(limit),),
         ).fetchall()
@@ -533,7 +533,7 @@ def format_log(rows: list[dict[str, Any]]) -> str:
         else:
             lines.append(
                 f"{row['ts']}  {row['verdict'].upper():<12} {row['task_id']}"
-                f"  arena={row['arena'] or '-'}  rule={row['matched_rule'] or '-'}"
+                f"  scope={row['scope'] or '-'}  rule={row['matched_rule'] or '-'}"
                 f"  intent_v{row['intent_version']}"
                 + (f"  ({row['note']})" if row["note"] else "")
             )
@@ -549,7 +549,7 @@ def format_cycle_result(result: dict[str, Any]) -> str:
     ]
     for v in result["verdicts"]:
         lines.append(
-            f"  {v['verdict'].upper():<12} {v['task_id']} [{v['source']}] arena={v['arena'] or '-'} "
+            f"  {v['verdict'].upper():<12} {v['task_id']} [{v['source']}] scope={v['scope'] or '-'} "
             f"kinds={','.join(v['task_kinds'])} rule={v['rule']}"
         )
         for reason in v["reasons"]:

@@ -9,6 +9,7 @@ from .db import connect as _db_connect
 from ..frontmatter import load_markdown, write_markdown
 from ..utils import slugify, today_iso
 from .domain_fields import with_domain_fields
+from .scope import normalize_scope
 from ..utils import listify
 from .reference_resolution import resolve_reference
 
@@ -501,6 +502,7 @@ def new_decision(
     supersedes: list[str] | None = None,
     superseded_by: str | None = None,
     execution_steps: list[dict[str, Any]] | None = None,
+    scope: str = "",
 ) -> CreatedRecord:
     today = today_iso()
     safe_slug = slugify(title)
@@ -534,6 +536,9 @@ def new_decision(
     if execution_steps:
         # WO-ADJUTANT: unexecuted implications; callers sanitize the shape.
         frontmatter["execution_steps"] = execution_steps
+    # Delegation axis; owner-set only (lisan/tools/scope.py rule 2).
+    if scope:
+        frontmatter["scope"] = normalize_scope(scope)
     decision_text = summary or title
     alts = "\n".join(f"- {a}" for a in (alternatives_considered or [])) or "None recorded."
     revisit = "\n".join(f"- {r}" for r in (revisit_conditions or [])) or "None recorded."
@@ -580,6 +585,7 @@ def new_open_loop(
     task_payload: dict[str, Any] | None = None,
     execute_asap: bool | None = None,
     due: str | None = None,
+    scope: str = "",
 ) -> CreatedRecord:
     today = today_iso()
     safe_slug = slugify(title)
@@ -622,6 +628,12 @@ def new_open_loop(
             frontmatter["execute_asap"] = bool(execute_asap)
         if due:
             frontmatter["due"] = due
+    # The delegation axis, set only when a caller passes it. The capture
+    # pipeline never does — see lisan/tools/scope.py rule 2 — so a captured
+    # loop is pollable but never unattended-executable, which is the whole
+    # point of the split. `lisan new loop --scope` is the owner's door in.
+    if scope:
+        frontmatter["scope"] = normalize_scope(scope)
     body = f"# {title}\n\n## Next Action\n\n{next_action}\n"
     write_markdown(path, with_domain_fields(frontmatter), body)
     return CreatedRecord(path=path, created=True)
@@ -1470,9 +1482,14 @@ def new_schedule(
     privacy: str = "personal",
     summary: str | None = None,
     links: list[str] | None = None,
+    scope: str = "",
 ) -> CreatedRecord:
     """A recurring Adjutant task definition (WO-ADJUTANT hybrid model: this
-    record is the owner-editable truth; the jobs table drives firing)."""
+    record is the owner-editable truth; the jobs table drives firing).
+
+    ``scope`` is the delegation axis. A schedule without one can only ever be
+    reported, never executed — which is correct: the owner writes the schedule,
+    so the owner names the area of responsibility it acts under."""
     from .adjutant_common import TASK_KINDS, valid_cron
 
     if task_kind not in TASK_KINDS:
@@ -1508,6 +1525,8 @@ def new_schedule(
         "next_run": next_run,
         "payload": payload or {},
     }
+    if scope:
+        frontmatter["scope"] = normalize_scope(scope)
     body = f"# {title}\n\nRuns {cron}; next {next_run}.\n"
     write_markdown(path, with_domain_fields(frontmatter), body)
     return CreatedRecord(path=path, created=True)
@@ -1524,9 +1543,18 @@ def new_confirmation(
     domain_primary: str = "cross_arena",
     privacy: str = "personal",
     links: list[str] | None = None,
+    scope: str = "",
 ) -> CreatedRecord:
     """A pending-approval record (WO-ADJUTANT §2.6). planned_action must be
-    the exact action — for outbound messages, the full outgoing content."""
+    the exact action — for outbound messages, the full outgoing content.
+
+    ``scope`` must be carried through: the poller re-selects approved
+    confirmations and the gate re-resolves them against current intent, so a
+    confirmation that loses its delegation scope resolves as ``no_scope`` and
+    the owner's approval silently degrades. Before 2026-07-29 the scope was
+    smuggled in via ``domain_primary`` and read back through the ``arena``
+    coalesce — which worked by accident and is exactly the conflation the
+    split retires."""
     today = today_iso()
     safe_slug = slugify(title)
     # A task can legitimately need a second confirmation on the same day
@@ -1560,6 +1588,8 @@ def new_confirmation(
         "risk": risk,
         "expires": expires,
     }
+    if scope:
+        frontmatter["scope"] = normalize_scope(scope)
     body = (
         f"# {title}\n\n## What will happen\n\n{planned_action}\n\n"
         f"## Risk\n\n{risk}\n\n"

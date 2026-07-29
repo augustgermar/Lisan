@@ -141,33 +141,58 @@ _One paragraph. What the whole system is for. Replace this._
 
 # Standing Delegations
 
-Every arena starts report-only. Widen authority per-arena,
-per-capability, explicitly, here. The resolution contract:
+Authority is delegated per **scope** — an area of responsibility you
+name. `greenhouse`, `rental-property`, `taxes`, `book-project`:
+whatever you would actually say when handing a job to someone else.
 
-- Order: Never-rules -> global -> arena -> defaults. Restrictiveness:
+> **Scope is not the same axis as domain.** A record's `domain_primary`
+> is a life *dimension* from a fixed list (`work`, `relational`,
+> `financial`, `cross_arena`, ...) and exists for memory retrieval. It is
+> a poor fit for authority — "may the agent write files in the
+> `relational` dimension?" is barely a question. `scope` is free text you
+> define and is the only axis this document is resolved against.
+>
+> A record carries a scope only when you put one there — with
+> `lisan new loop --scope <name>`, on a schedule record, or by editing
+> the file. **Nothing infers a scope**, because a model guessing at your
+> areas of responsibility is how an authority document ends up matching
+> nothing. Work captured from conversation therefore has no scope and can
+> only ever be reported to you, never executed unattended. That is the
+> intended resting state, not a defect.
+>
+> Check what your rules actually cover: `lisan intent scopes` lists the
+> scopes you declared beside the scopes present on real records, and
+> names the gap. Run it after editing this section.
+
+The resolution contract:
+
+- Order: Never-rules -> global -> scope -> defaults. Restrictiveness:
   execute < confirm < report_only < deny; **most restrictive wins.**
-- A capability named explicitly in an arena's `confirm_required` is a
+- A capability named explicitly in a scope's `confirm_required` is a
   grant-with-confirmation — it need not also appear in `capabilities`
   (see git_push below).
 - `"*"` in `confirm_required` only tightens the granted list; it never
   widens it. Default deny holds.
-- Never-rules (an arena's `outbound_comms: "never"`, a global
-  `"never"`) outrank everything — including confirm_required grants and
-  approvals already given.
+- Never-rules (a scope's `outbound_comms: "never"`, a global `"never"`)
+  outrank everything — including confirm_required grants and approvals
+  already given.
+- `defaults` cannot grant a capability. An unlisted scope is report-only
+  even at `"mode": "execute"`, and an *absent* scope more so. Execute is
+  reachable only inside a scope you named here.
 
-Two teaching arenas below: `example-project` is the granted-execute
-shape; `legal` is the maximally gated shape. Rename, copy, delete.
+Two teaching entries below. Replace both with your own — names that
+match how you actually divide your responsibilities, not these:
 
 ```json
 {
   "defaults": { "mode": "report_only" },
-  "arenas": {
-    "example-project": {
+  "scopes": {
+    "rename-me-a-real-area-of-responsibility": {
       "mode": "execute",
       "capabilities": ["read_files", "write_files", "run_local_scripts", "web_research"],
       "confirm_required": ["git_push", "publish"]
     },
-    "legal": {
+    "rename-me-something-you-keep-on-a-short-leash": {
       "mode": "report_only",
       "capabilities": ["read_files"],
       "confirm_required": ["*"],
@@ -188,7 +213,7 @@ shape; `legal` is the maximally gated shape. Rename, copy, delete.
 
 - Anything touching money, health, legal exposure, or another person's
   data: stop and ask, whatever the delegations say.
-- Ambiguity about which arena a task belongs to: stop and ask.
+- Ambiguity about which scope a task belongs to: stop and ask.
 - _Add your own. These apply regardless of delegations._
 
 # Never
@@ -333,24 +358,39 @@ def _validate_delegations(delegations: dict[str, Any]) -> list[str]:
     elif defaults.get("mode") not in MODES:
         issues.append(f"delegations.defaults.mode must be one of {sorted(MODES)}")
 
-    arenas = delegations.get("arenas", {})
-    if not isinstance(arenas, dict):
-        issues.append("delegations.arenas must be an object")
-        arenas = {}
-    for name, arena in arenas.items():
-        prefix = f"delegations.arenas.{name}"
-        if not isinstance(arena, dict):
+    # ``scopes`` is canonical; ``arenas`` is the legacy spelling and stays
+    # valid so an adopted authority document is never invalidated by a
+    # vocabulary change in the code. Both at once is ambiguous, though —
+    # tell the owner rather than silently preferring one.
+    from .scope import LEGACY_SCOPES_KEY, SCOPES_KEY, declared_scopes
+
+    has_new = isinstance(delegations.get(SCOPES_KEY), dict)
+    has_legacy = isinstance(delegations.get(LEGACY_SCOPES_KEY), dict)
+    if has_new and has_legacy:
+        issues.append(
+            f"delegations has both '{SCOPES_KEY}' and '{LEGACY_SCOPES_KEY}': "
+            f"keep one (prefer '{SCOPES_KEY}'); '{SCOPES_KEY}' wins per key while both are present"
+        )
+    for candidate_key in (SCOPES_KEY, LEGACY_SCOPES_KEY):
+        block = delegations.get(candidate_key, {})
+        if candidate_key in delegations and not isinstance(block, dict):
+            issues.append(f"delegations.{candidate_key} must be an object")
+
+    key = SCOPES_KEY if has_new else LEGACY_SCOPES_KEY
+    for name, scope_rules in declared_scopes(delegations).items():
+        prefix = f"delegations.{key}.{name}"
+        if not isinstance(scope_rules, dict):
             issues.append(f"{prefix} must be an object")
             continue
-        if arena.get("mode") not in MODES:
+        if scope_rules.get("mode") not in MODES:
             issues.append(f"{prefix}.mode must be one of {sorted(MODES)}")
-        for cap in arena.get("capabilities", []) or []:
+        for cap in scope_rules.get("capabilities", []) or []:
             if cap not in CAPABILITIES:
                 issues.append(f"{prefix}.capabilities: unknown capability {cap!r}")
-        for cap in arena.get("confirm_required", []) or []:
+        for cap in scope_rules.get("confirm_required", []) or []:
             if cap != "*" and cap not in CAPABILITIES:
                 issues.append(f"{prefix}.confirm_required: unknown capability {cap!r}")
-        outbound = arena.get("outbound_comms")
+        outbound = scope_rules.get("outbound_comms")
         if outbound is not None and outbound != "never":
             issues.append(f"{prefix}.outbound_comms must be 'never' or absent")
 
@@ -399,25 +439,36 @@ def load_intent(vault: Path) -> Intent:
 # Delegation resolution (pure; the Adjutant gate wraps this with the
 # task-kind -> capabilities mapping and audit logging)
 
-def resolve_delegation(delegations: dict[str, Any], arena: str, capability: str) -> Verdict:
-    """(arena, capability) -> verdict, per spec resolution order:
-    never-rules -> global rules -> arena rules -> defaults.
-    Most restrictive wins on conflict."""
+def resolve_delegation(delegations: dict[str, Any], scope: str, capability: str) -> Verdict:
+    """(scope, capability) -> verdict, per spec resolution order:
+    never-rules -> global rules -> scope rules -> defaults.
+    Most restrictive wins on conflict.
+
+    ``scope`` is the delegation axis (see :mod:`lisan.tools.scope`), not the
+    life-dimension ``domain``. An empty scope is a legitimate input meaning
+    "this record declares no scope" — it matches no rule and therefore lands
+    on defaults, which is why the caller (the gate) reports the absence
+    explicitly rather than letting it read as an ordinary miss.
+    """
+    from .scope import declared_scopes, normalize_scope, scopes_key_in_use
+
     candidates: list[Verdict] = []
-    arenas = delegations.get("arenas", {}) or {}
-    arena_rules = arenas.get(arena)
+    scope = normalize_scope(scope)
+    scopes = declared_scopes(delegations)
+    key = scopes_key_in_use(delegations)
+    scope_rules = scopes.get(scope)
     defaults = delegations.get("defaults", {}) or {}
     global_rules = delegations.get("global", {}) or {}
 
     # Never-rules (machine-readable ones).
-    if isinstance(arena_rules, dict):
-        if arena_rules.get("mode") == "disabled":
-            return Verdict(DENY, f"arenas.{arena}.mode=disabled", [f"arena {arena!r} is disabled"])
-        if arena_rules.get("outbound_comms") == "never" and capability == "send_outbound_message":
+    if isinstance(scope_rules, dict):
+        if scope_rules.get("mode") == "disabled":
+            return Verdict(DENY, f"{key}.{scope}.mode=disabled", [f"scope {scope!r} is disabled"])
+        if scope_rules.get("outbound_comms") == "never" and capability == "send_outbound_message":
             return Verdict(
                 DENY,
-                f"arenas.{arena}.outbound_comms=never",
-                [f"outbound communication is never permitted in arena {arena!r}"],
+                f"{key}.{scope}.outbound_comms=never",
+                [f"outbound communication is never permitted in scope {scope!r}"],
             )
     if global_rules.get(capability) == "never":
         return Verdict(DENY, f"global.{capability}=never", [f"{capability} is never permitted"])
@@ -428,14 +479,14 @@ def resolve_delegation(delegations: dict[str, Any], arena: str, capability: str)
             Verdict(CONFIRM, f"global.{capability}=confirm_always", [f"{capability} always requires confirmation"])
         )
 
-    # Arena rules, or defaults when the arena is unlisted.
-    if isinstance(arena_rules, dict):
-        mode = arena_rules.get("mode", defaults.get("mode", "report_only"))
+    # Scope rules, or defaults when the scope is unlisted.
+    if isinstance(scope_rules, dict):
+        mode = scope_rules.get("mode", defaults.get("mode", "report_only"))
         if mode == "report_only":
-            candidates.append(Verdict(REPORT_ONLY, f"arenas.{arena}.mode=report_only"))
+            candidates.append(Verdict(REPORT_ONLY, f"{key}.{scope}.mode=report_only"))
         else:  # execute
-            granted = arena_rules.get("capabilities", []) or []
-            confirm_required = arena_rules.get("confirm_required", []) or []
+            granted = scope_rules.get("capabilities", []) or []
+            confirm_required = scope_rules.get("confirm_required", []) or []
             # A capability named explicitly in confirm_required is a
             # grant-with-confirmation (the spec's own example lists git_push
             # only there). "*" merely tightens the granted list — it never
@@ -444,50 +495,63 @@ def resolve_delegation(delegations: dict[str, Any], arena: str, capability: str)
                 candidates.append(
                     Verdict(
                         CONFIRM,
-                        f"arenas.{arena}.confirm_required",
-                        [f"{capability} requires confirmation in arena {arena!r}"],
+                        f"{key}.{scope}.confirm_required",
+                        [f"{capability} requires confirmation in scope {scope!r}"],
                     )
                 )
             elif capability not in granted:
                 candidates.append(
                     Verdict(
                         REPORT_ONLY,
-                        f"arenas.{arena}.capabilities",
-                        [f"{capability} not granted in arena {arena!r}"],
+                        f"{key}.{scope}.capabilities",
+                        [f"{capability} not granted in scope {scope!r}"],
                     )
                 )
             elif "*" in confirm_required:
                 candidates.append(
                     Verdict(
                         CONFIRM,
-                        f"arenas.{arena}.confirm_required",
-                        [f"all capabilities require confirmation in arena {arena!r}"],
+                        f"{key}.{scope}.confirm_required",
+                        [f"all capabilities require confirmation in scope {scope!r}"],
                     )
                 )
             else:
-                candidates.append(Verdict(EXECUTE, f"arenas.{arena}.mode=execute"))
+                candidates.append(Verdict(EXECUTE, f"{key}.{scope}.mode=execute"))
+    elif not scope:
+        # No scope declared on the record at all. Distinguished from a
+        # declared-but-unlisted scope because the owner's remedy differs:
+        # here they tag the record (or accept that captured work is never
+        # unattended-executable), there they add a rule. Reported, never
+        # substituted — see lisan/tools/scope.py rule 1.
+        candidates.append(
+            Verdict(
+                REPORT_ONLY,
+                "no_scope",
+                ["record declares no scope, so no delegation applies"],
+            )
+        )
     else:
         default_mode = defaults.get("mode", "report_only")
         if default_mode == "disabled":
-            return Verdict(DENY, "defaults.mode=disabled", ["unlisted arenas are disabled"])
+            return Verdict(DENY, "defaults.mode=disabled", ["unlisted scopes are disabled"])
         if default_mode == "execute":
             # Defaults grant no capability list; execute-by-default still
             # means report-only per capability. Default deny holds.
             candidates.append(
-                Verdict(REPORT_ONLY, "defaults.mode", [f"arena {arena!r} not listed; no capabilities granted"])
+                Verdict(REPORT_ONLY, "defaults.mode", [f"scope {scope!r} not listed; no capabilities granted"])
             )
         else:
-            candidates.append(Verdict(REPORT_ONLY, "defaults.mode=report_only", [f"arena {arena!r} not listed"]))
+            candidates.append(Verdict(REPORT_ONLY, "defaults.mode=report_only", [f"scope {scope!r} not listed"]))
 
     return max(candidates, key=lambda v: _RESTRICTIVENESS[v.decision])
 
 
-def resolve_capabilities(delegations: dict[str, Any], arena: str, capabilities: list[str]) -> Verdict:
+def resolve_capabilities(delegations: dict[str, Any], scope: str, capabilities: list[str]) -> Verdict:
     """Most restrictive verdict across a capability set; reasons accumulate
     from every capability that tightened the outcome."""
     if not capabilities:
         return Verdict(REPORT_ONLY, "no capabilities required")
-    verdicts = [resolve_delegation(delegations, arena, cap) for cap in capabilities]
+    verdicts = [resolve_delegation(delegations, scope, cap) for cap in capabilities]
     worst = max(verdicts, key=lambda v: _RESTRICTIVENESS[v.decision])
     reasons: list[str] = []
     for v in verdicts:

@@ -22,13 +22,14 @@ from typing import Any
 
 from ..frontmatter import FrontmatterError, load_markdown
 from .intent import Intent
+from .scope import declared_scopes, normalize_scope
 
 
 @dataclass(slots=True)
 class PolledTask:
     task_id: str
     source: str          # open_loop | decision | schedule | confirmation
-    arena: str
+    scope: str
     task_kinds: list[str]
     path: str
     summary: str
@@ -40,7 +41,7 @@ class PolledTask:
 
     def as_gate_task(self) -> dict[str, Any]:
         return {
-            "arena": self.arena,
+            "scope": self.scope,
             "task_kinds": self.task_kinds,
             "blocked_contexts": self.blocked_contexts,
         }
@@ -71,10 +72,9 @@ def priority_rank(text: str, priorities: list[str]) -> int:
     return 10**6
 
 
-def _disabled_arenas(intent: Intent) -> set[str]:
-    arenas = intent.delegations.get("arenas", {}) or {}
+def _disabled_scopes(intent: Intent) -> set[str]:
     disabled = {
-        name for name, rules in arenas.items()
+        name for name, rules in declared_scopes(intent.delegations).items()
         if isinstance(rules, dict) and rules.get("mode") == "disabled"
     }
     if (intent.delegations.get("defaults", {}) or {}).get("mode") == "disabled":
@@ -82,12 +82,12 @@ def _disabled_arenas(intent: Intent) -> set[str]:
     return disabled
 
 
-def _arena_is_disabled(arena: str, disabled: set[str], intent: Intent) -> bool:
-    if arena in disabled:
+def _scope_is_disabled(scope: str, disabled: set[str], intent: Intent) -> bool:
+    scope = normalize_scope(scope)
+    if scope in disabled:
         return True
     if "*" in disabled:
-        listed = (intent.delegations.get("arenas", {}) or {}).keys()
-        return arena not in listed
+        return scope not in declared_scopes(intent.delegations)
     return False
 
 
@@ -102,13 +102,13 @@ def poll(
     today = today or date.today().isoformat()
     now = now or datetime.now().isoformat(timespec="seconds")
     priorities = intent_priorities(intent)
-    disabled = _disabled_arenas(intent)
+    disabled = _disabled_scopes(intent)
     tasks: list[PolledTask] = []
 
     # 4 first: approved confirmations jump the queue by construction.
     confirmed: list[PolledTask] = []
     for row in conn.execute(
-        "SELECT c.id, c.task_id, f.arena, f.task_kind, f.path, f.summary, f.created, f.blocked_contexts "
+        "SELECT c.id, c.task_id, f.scope, f.task_kind, f.path, f.summary, f.created, f.blocked_contexts "
         "FROM confirmations c LEFT JOIN files f ON f.id = c.task_id "
         "WHERE c.resolution = 'approved'"
     ):
@@ -116,7 +116,7 @@ def poll(
             PolledTask(
                 task_id=str(row["task_id"]),
                 source="confirmation",
-                arena=str(row["arena"] or ""),
+                scope=normalize_scope(row["scope"]),
                 task_kinds=[str(row["task_kind"])] if row["task_kind"] else [],
                 path=str(row["path"] or ""),
                 summary=str(row["summary"] or ""),
@@ -127,7 +127,7 @@ def poll(
         )
 
     for row in conn.execute(
-        "SELECT id, arena, task_kind, path, summary, created, due, blocked_contexts, execute_asap "
+        "SELECT id, scope, task_kind, path, summary, created, due, blocked_contexts, execute_asap "
         "FROM files WHERE type = 'open_loop' AND status = 'active' AND task_kind IS NOT NULL "
         "AND task_status = 'pending' AND (execute_asap = 1 OR (due IS NOT NULL AND due != '' AND due <= ?))",
         (today,),
@@ -136,7 +136,7 @@ def poll(
             PolledTask(
                 task_id=str(row["id"]),
                 source="open_loop",
-                arena=str(row["arena"] or ""),
+                scope=normalize_scope(row["scope"]),
                 task_kinds=[str(row["task_kind"])],
                 path=str(row["path"]),
                 summary=str(row["summary"] or ""),
@@ -147,7 +147,7 @@ def poll(
         )
 
     for row in conn.execute(
-        "SELECT id, arena, path, summary, created, blocked_contexts FROM files "
+        "SELECT id, scope, path, summary, created, blocked_contexts FROM files "
         "WHERE type = 'decision' AND status = 'active' AND task_status = 'pending'"
     ):
         kinds = _pending_step_kinds(vault / str(row["path"]))
@@ -157,7 +157,7 @@ def poll(
             PolledTask(
                 task_id=str(row["id"]),
                 source="decision",
-                arena=str(row["arena"] or ""),
+                scope=normalize_scope(row["scope"]),
                 task_kinds=kinds,
                 path=str(row["path"]),
                 summary=str(row["summary"] or ""),
@@ -167,7 +167,7 @@ def poll(
         )
 
     for row in conn.execute(
-        "SELECT id, arena, task_kind, path, summary, created, next_run, blocked_contexts FROM files "
+        "SELECT id, scope, task_kind, path, summary, created, next_run, blocked_contexts FROM files "
         "WHERE type = 'schedule' AND status = 'active' AND next_run IS NOT NULL AND next_run != '' AND next_run <= ?",
         (now,),
     ):
@@ -175,7 +175,7 @@ def poll(
             PolledTask(
                 task_id=str(row["id"]),
                 source="schedule",
-                arena=str(row["arena"] or ""),
+                scope=normalize_scope(row["scope"]),
                 task_kinds=[str(row["task_kind"])] if row["task_kind"] else [],
                 path=str(row["path"]),
                 summary=str(row["summary"] or ""),
@@ -185,17 +185,17 @@ def poll(
             )
         )
 
-    # Disabled arenas are never selected — not even to be denied. The
+    # Disabled scopes are never selected — not even to be denied. The
     # negative test in the spec pins this.
-    tasks = [t for t in tasks if not _arena_is_disabled(t.arena, disabled, intent)]
-    confirmed = [t for t in confirmed if not _arena_is_disabled(t.arena, disabled, intent)]
+    tasks = [t for t in tasks if not _scope_is_disabled(t.scope, disabled, intent)]
+    confirmed = [t for t in confirmed if not _scope_is_disabled(t.scope, disabled, intent)]
 
     # A task with an approved confirmation rides the confirmation lane only;
     # re-selecting it as a pending loop would double-issue its verdict.
     confirmed_ids = {t.task_id for t in confirmed}
     tasks = [t for t in tasks if t.task_id not in confirmed_ids]
 
-    # Rank on the summary only: arena names are often everyday words
+    # Rank on the summary only: scope names are often everyday words
     # ("work", "financial") and would false-match priority prose.
     for task in tasks:
         task.priority_rank = priority_rank(task.summary, priorities)

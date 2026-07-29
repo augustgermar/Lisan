@@ -14,10 +14,11 @@ from typing import Any
 
 from .adjutant_common import TASK_KINDS
 from .intent import DENY, Intent, Verdict, resolve_capabilities
+from .scope import normalize_scope
 
 # What each task kind needs permission for. Deterministic and fixed —
 # the task record chooses a kind; the kind decides the capabilities;
-# intent.md decides whether the arena may have them.
+# intent.md decides whether the scope may have them.
 TASK_KIND_CAPABILITIES: dict[str, list[str]] = {
     "run_script": ["run_local_scripts", "read_files", "write_files"],
     "research": ["web_research", "write_files"],
@@ -37,10 +38,17 @@ def required_capabilities(task_kinds: list[str]) -> list[str]:
 
 
 def gate(task: dict[str, Any], intent: Intent) -> Verdict:
-    """Decide one task. ``task`` is a poller item: needs ``arena``,
+    """Decide one task. ``task`` is a poller item: needs ``scope``,
     ``task_kinds`` (one kind for loops/schedules, possibly several for a
-    decision's pending steps), and ``blocked_contexts``."""
-    arena = str(task.get("arena") or "")
+    decision's pending steps), and ``blocked_contexts``.
+
+    ``scope`` is the delegation axis (:mod:`lisan.tools.scope`). It is
+    routinely empty — the capture pipeline never assigns one — and an empty
+    scope resolves to REPORT_ONLY with the rule ``no_scope`` so the audit
+    log distinguishes "the owner delegated nothing here" from "the owner
+    delegated something that does not permit this".
+    """
+    scope = normalize_scope(task.get("scope"))
     kinds = [k for k in task.get("task_kinds", []) if k]
     unknown = [k for k in kinds if k not in TASK_KINDS]
     if unknown:
@@ -49,37 +57,40 @@ def gate(task: dict[str, Any], intent: Intent) -> Verdict:
         return Verdict(DENY, "no_task_kind", ["task carries no task_kind"])
 
     # Misfiled-task check: a task whose own compartment rules would block
-    # retrieval of its arena's context can never be executed coherently.
-    blocked = task.get("blocked_contexts") or []
-    if arena and arena in blocked:
+    # retrieval of its scope's context can never be executed coherently.
+    blocked = {normalize_scope(item) for item in (task.get("blocked_contexts") or [])}
+    if scope and scope in blocked:
         return Verdict(
             DENY,
             "misfiled_task",
-            [f"arena {arena!r} is in the task's own blocked_contexts; flagged for review"],
+            [f"scope {scope!r} is in the task's own blocked_contexts; flagged for review"],
         )
 
-    return resolve_capabilities(intent.delegations, arena, required_capabilities(kinds))
+    return resolve_capabilities(intent.delegations, scope, required_capabilities(kinds))
 
 
 def log_verdict(
     conn: sqlite3.Connection,
     *,
     task_id: str,
-    arena: str,
+    scope: str,
     capabilities: list[str],
     verdict: Verdict,
     intent_version: int,
     note: str | None = None,
 ) -> None:
+    """Audit one verdict. Writes the delegation axis to ``scope``; the older
+    ``arena`` column is left NULL on new rows and keeps its historical values
+    on rows written before 2026-07-29 (readers COALESCE the two)."""
     conn.execute(
         """
-        INSERT INTO adjutant_log (ts, task_id, arena, capabilities, verdict, matched_rule, intent_version, note)
+        INSERT INTO adjutant_log (ts, task_id, scope, capabilities, verdict, matched_rule, intent_version, note)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             task_id,
-            arena,
+            scope,
             json.dumps(capabilities),
             verdict.decision,
             verdict.rule,

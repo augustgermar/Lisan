@@ -49,7 +49,7 @@ def create_confirmation_for_task(
     task_summary: str,
     planned_action: str,
     risk: str,
-    arena: str = "",
+    scope: str = "",
     db_path: Path | None = None,
     expires_days: int = DEFAULT_EXPIRY_DAYS,
 ) -> str | None:
@@ -69,7 +69,13 @@ def create_confirmation_for_task(
         planned_action=planned_action,
         risk=risk,
         expires=expires,
-        domain_primary=arena or "cross_arena",
+        # The scope rides on its own field so the gate's re-check at
+        # execution time resolves the same rule the owner approved under.
+        # domain_primary stays the honest catch-all: a delegation scope is
+        # not a life dimension, and writing one into the other is the
+        # conflation that made intent.md inert for a month.
+        domain_primary="cross_arena",
+        scope=scope,
     )
     reindex_record(created.path, vault, db_path, quiet=True)
     return str(load_markdown(created.path).frontmatter["id"])

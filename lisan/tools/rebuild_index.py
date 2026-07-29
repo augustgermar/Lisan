@@ -13,6 +13,7 @@ from ..frontmatter import FrontmatterError, load_markdown
 from ..paths import embeddings_path, repo_root, sqlite_path, vault_root
 from ..providers.embeddings import EmbeddingProvider
 from .domain_fields import normalize_domain_fields
+from .scope import record_scope
 from ..utils import listify
 from .epistemic import (
     normalize_claim_frontmatter,
@@ -38,7 +39,12 @@ CREATE TABLE IF NOT EXISTS files (
     significance TEXT,
     domain_primary TEXT,
     domain_secondary TEXT,
+    -- `arena` is the life-dimension axis under its older name: it mirrors
+    -- domain_primary and is kept for readers that predate the rename.
+    -- `scope` is the delegation axis and is a different thing entirely
+    -- (lisan/tools/scope.py). Do not conflate them again.
     arena TEXT,
+    scope TEXT,
     privacy TEXT,
     disclosure TEXT,
     compartments TEXT,
@@ -231,11 +237,16 @@ CREATE TABLE IF NOT EXISTS ingestion_batches (
 -- adjutant_log: task_id='cycle' is reserved for cycle-level events
 -- (halt, cycle summary, intent_oob_edit; the verdict column carries the
 -- event name). Survives rebuild: runtime history, not derived state.
+-- `arena` holds the axis pre-2026-07-29 verdicts were computed from; it is
+-- accurate history and is left alone. New verdicts write `scope`. Readers
+-- should COALESCE(scope, arena) so a six-day audit trail stays legible
+-- across the change.
 CREATE TABLE IF NOT EXISTS adjutant_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts TEXT NOT NULL,
     task_id TEXT NOT NULL,
     arena TEXT,
+    scope TEXT,
     capabilities TEXT,
     verdict TEXT NOT NULL,
     matched_rule TEXT,
@@ -501,6 +512,13 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
         "domain_primary": str(fm.get("domain_primary") or fm.get("arena_primary") or ""),
         "domain_secondary": json.dumps(fm.get("domain_secondary") or fm.get("arena_secondary") or []),
         "arena": str(fm.get("arena") or fm.get("domain_primary") or fm.get("arena_primary") or ""),
+        # No COALESCE here, and that is the point. `arena` above falls back to
+        # domain_primary, which is correct for it (same axis, older name) and
+        # was catastrophic when the Adjutant gate read it as a delegation
+        # scope: an absent authority declaration silently became a life
+        # dimension, so intent.md's rules matched nothing and the gate never
+        # reported a gap. `scope` is NULL when the owner has not declared one.
+        "scope": record_scope(fm) or None,
         "privacy": str(fm.get("privacy", "")),
         "disclosure": str(fm.get("disclosure", "private")),
         "compartments": json.dumps(fm.get("compartments") or []),
@@ -614,7 +632,7 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
             alternative_hypotheses, claim_updates, confidence_adjustments,
             reasoning_errors, corrects, field_corrected, original_value, corrected_value, basis,
             approved_by, content_hash, word_count, token_count_approx, embedding_status,
-            execute_asap, task_kind, task_status, next_run, expires, due
+            execute_asap, task_kind, task_status, next_run, expires, due, scope
         ) VALUES (
             :id, :type, :path, :created, :created_at, :updated, :status, :significance, :domain_primary,
             :domain_secondary, :arena, :privacy, :disclosure, :compartments, :allowed_contexts, :blocked_contexts,
@@ -630,7 +648,7 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
             :alternative_hypotheses, :claim_updates, :confidence_adjustments,
             :reasoning_errors, :corrects, :field_corrected, :original_value, :corrected_value, :basis,
             :approved_by, :content_hash, :word_count, :token_count_approx, :embedding_status,
-            :execute_asap, :task_kind, :task_status, :next_run, :expires, :due
+            :execute_asap, :task_kind, :task_status, :next_run, :expires, :due, :scope
         )
         """,
         row,
@@ -856,8 +874,25 @@ def materialize_schedule_job(fm: dict[str, Any], file_id: str, db_path: Path | N
             pass
 
 
+def _ensure_adjutant_log_columns(conn: sqlite3.Connection) -> None:
+    """adjutant_log survives rebuilds (runtime history, not derived state), so
+    CREATE TABLE IF NOT EXISTS never widens an existing one. The delegation
+    axis moved to `scope` on 2026-07-29; old rows keep their `arena` values,
+    which is what those verdicts were actually computed from."""
+    try:
+        existing = {str(row[1]) for row in conn.execute("PRAGMA table_info(adjutant_log)").fetchall()}
+    except sqlite3.Error:
+        return
+    if existing and "scope" not in existing:
+        try:
+            conn.execute("ALTER TABLE adjutant_log ADD COLUMN scope TEXT")
+        except sqlite3.Error:
+            pass
+
+
 def _ensure_files_columns(conn: sqlite3.Connection) -> None:
     """Backfill columns added after a database was first created."""
+    _ensure_adjutant_log_columns(conn)
     try:
         existing = {str(row[1]) for row in conn.execute("PRAGMA table_info(files)").fetchall()}
     except sqlite3.Error:
@@ -882,6 +917,12 @@ def _ensure_files_columns(conn: sqlite3.Connection) -> None:
         ("next_run", "TEXT"),
         ("expires", "TEXT"),
         ("due", "TEXT"),
+        # The delegation axis (lisan/tools/scope.py). Separate from `arena`,
+        # which is the life-dimension `domain_primary` under an older name.
+        # Deliberately NULL wherever the owner has not declared a scope —
+        # never coalesced from domain, because an invisible absence is what
+        # let intent.md's rules match nothing for a month.
+        ("scope", "TEXT"),
     ]:
         if column not in existing:
             try:
