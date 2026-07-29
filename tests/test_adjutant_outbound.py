@@ -31,7 +31,7 @@ from lisan.tools.record_factory import new_open_loop
 
 DELEGATIONS = {
     "defaults": {"mode": "report_only"},
-    "arenas": {
+    "scopes": {
         "work": {
             "mode": "execute",
             "capabilities": ["read_files", "write_files", "web_research", "send_outbound_message"],
@@ -85,7 +85,7 @@ def world(tmp_path):
 
 
 def _task_loop(vault, conn, title, *, kind, payload):
-    created = new_open_loop(vault, title, domain_primary="work")
+    created = new_open_loop(vault, title, scope="work")
     doc = load_markdown(created.path)
     fm = dict(doc.frontmatter)
     fm.update(task_kind=kind, task_payload=payload, task_status="pending", execute_asap=True)

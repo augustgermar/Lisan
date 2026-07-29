@@ -6,7 +6,8 @@ asks the writer about taskings); v2 is selected only when
 adjutant.enabled; malformed task fields fail toward PLAIN records (the
 ratified asymmetry — a false tasking costs a wrong verdict, a missed
 tasking costs one command); and the whole closed loop works end to end
-with a fake provider: instruction turn -> tasked open_loop -> dry-run
+with a fake provider: instruction turn -> tasked open_loop (unscoped, so
+reported not executed) -> owner assigns the delegation scope -> dry-run
 verdict -> execution -> result re-captured -> Skeptic review ->
 originating loop resolved.
 """
@@ -18,11 +19,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from lisan.frontmatter import dump_markdown, load_markdown
+from lisan.frontmatter import dump_markdown, load_markdown, write_markdown
 from lisan.paths import ensure_vault_layout
 from lisan.tools.adjutant_runner import run_cycle
 from lisan.tools.db import connect as db_connect
 from lisan.tools.intent import _record_known_hash, init_intent, intent_path
+from lisan.tools.rebuild_index import reindex_record
 from lisan.tools.record_fanout import (
     fanout_decisions,
     fanout_open_loops,
@@ -172,7 +174,7 @@ def test_all_steps_malformed_means_plain_decision(vault):
 
 DELEGATIONS = {
     "defaults": {"mode": "report_only"},
-    "arenas": {
+    "scopes": {
         "work": {"mode": "execute", "capabilities": ["run_local_scripts", "read_files", "write_files"]},
     },
     "global": {"max_task_wall_seconds": 30, "max_tasks_per_cycle": 5},
@@ -285,32 +287,67 @@ def test_definition_of_done_closed_loop(monkeypatch, vault, tmp_path):
     loop_fm = load_markdown(loops[0]).frontmatter
     assert loop_fm["task_kind"] == "run_script" and loop_fm["task_status"] == "pending"
     loop_id = loop_fm["id"]
+    # Capture never assigns a delegation scope — a model guessing at the
+    # owner's areas of responsibility is how intent.md came to match nothing
+    # (lisan/tools/scope.py rule 2). The loop is pollable and inert.
+    assert "scope" not in loop_fm
 
-    # 2. Dry-run first: verdict logged, nothing executed.
+    # 2. Unscoped, so the gate reports rather than acts — and says which of the
+    #    two "not permitted" cases this is, because the remedies differ.
+    unscoped = run_cycle(vault, db, config={"adjutant": {**config["adjutant"], "enabled": False}})
+    assert unscoped["verdicts"][0]["verdict"] == "report_only"
+    assert unscoped["verdicts"][0]["rule"] == "no_scope"
+    assert unscoped["executed"] == []
+
+    # 3. The owner grants authority by naming the area of responsibility. The
+    #    vault is plain files, so this is `lisan edit --set scope=work` or an
+    #    editor; either way it is a deliberate human act, never inferred.
+    scoped_fm = dict(load_markdown(loops[0]).frontmatter)
+    scoped_fm["scope"] = "work"
+    write_markdown(loops[0], scoped_fm, load_markdown(loops[0]).body)
+    reindex_record(loops[0], vault, db, quiet=True)
+
+    # 4. Dry-run now resolves through the owner's rule, and still executes nothing.
     dry = run_cycle(vault, db, config={"adjutant": {**config["adjutant"], "enabled": False}})
     assert dry["dry_run"] and dry["verdicts"][0]["verdict"] == "execute" and dry["executed"] == []
+    assert dry["verdicts"][0]["rule"] == "scopes.work.mode=execute"
     assert load_markdown(loops[0]).frontmatter["task_status"] == "pending"
 
-    # 3. Enabled: the echo script runs; the result re-enters through capture.
+    # 5. Enabled: the echo script runs; the result re-enters through capture.
     result = run_cycle(vault, db, config=config)
     assert result["executed"][0]["ok"]
 
-    # 4. Skeptic reviewed the re-captured result (the writer observer saw it too).
+    # 6. Skeptic reviewed the re-captured result (the writer observer saw it too).
     assert any(p == "writer_open_loop_v1" or p.startswith("writer_") for p in writer_prompts[1:])
     adjutant_turns = [p for p in writer_prompts[1:]]
     assert adjutant_turns  # the result went through the pipeline
 
-    # 5. The originating loop is resolved — task lifecycle AND loop status.
+    # 7. The originating loop is resolved — task lifecycle AND loop status.
     final = load_markdown(loops[0]).frontmatter
     assert final["task_status"] == "resolved"
     assert final["status"] == "resolved"  # closed by the completion matcher
     assert final["resolved_by"]
 
-    # 6. The audit trail holds the whole story.
+    # 8. The audit trail holds the whole story, including the part where the
+    #    system had no authority yet. Three rows, in order: inert-because-
+    #    unscoped, then the owner's grant resolving twice (dry, then live).
+    #    Every row carries the rule that produced it, so an auditor can see
+    #    *why* the answer changed rather than only that it did.
     conn = db_connect(db)
     conn.row_factory = sqlite3.Row
-    rows = conn.execute("SELECT verdict FROM adjutant_log WHERE task_id = ?", (loop_id,)).fetchall()
-    assert [r["verdict"] for r in rows] == ["execute", "execute"]
+    rows = conn.execute(
+        "SELECT verdict, matched_rule, scope FROM adjutant_log WHERE task_id = ? ORDER BY id",
+        (loop_id,),
+    ).fetchall()
+    assert [r["verdict"] for r in rows] == ["report_only", "execute", "execute"]
+    assert [r["matched_rule"] for r in rows] == [
+        "no_scope",
+        "scopes.work.mode=execute",
+        "scopes.work.mode=execute",
+    ]
+    # The delegation axis is recorded in its own column, not smuggled through
+    # the life-dimension one.
+    assert [r["scope"] for r in rows] == ["", "work", "work"]
     run_row = conn.execute("SELECT exit_status FROM task_runs WHERE task_id = ?", (loop_id,)).fetchone()
     assert run_row["exit_status"] == "ok"
     conn.close()

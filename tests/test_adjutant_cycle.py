@@ -1,7 +1,7 @@
 """WO-ADJUTANT step 3: poller + gate + dry-run cycle.
 
 The binding claims: selection is pure SQL against the index; disabled
-arenas are never selected; every verdict lands in adjutant_log with its
+scopes are never selected; every verdict lands in adjutant_log with its
 rule and intent version; an invalid intent halts the cycle loudly; and
 nothing — ever — executes in this step.
 """
@@ -24,7 +24,7 @@ from lisan.tools.record_factory import new_confirmation, new_open_loop, new_sche
 
 DELEGATIONS = {
     "defaults": {"mode": "report_only"},
-    "arenas": {
+    "scopes": {
         "work": {
             "mode": "execute",
             "capabilities": ["run_local_scripts", "read_files", "write_files", "web_research", "send_outbound_message"],
@@ -71,8 +71,12 @@ def world(tmp_path):
     return vault, db, conn
 
 
-def _task_loop(vault, conn, title, *, arena="work", kind="run_script", asap=True, due="", status="active", blocked=None):
-    created = new_open_loop(vault, title, domain_primary=arena)
+def _task_loop(vault, conn, title, *, scope="work", kind="run_script", asap=True, due="", status="active", blocked=None):
+    # scope is the delegation axis and rides its own field; domain_primary
+    # stays the life-dimension catch-all. Passing the delegation name as
+    # domain_primary is what the pre-2026-07-29 fixture did, and it only
+    # worked because files.arena coalesced the two.
+    created = new_open_loop(vault, title, scope=scope)
     doc = load_markdown(created.path)
     fm = dict(doc.frontmatter)
     fm.update(task_kind=kind, task_payload={}, task_status="pending", status=status)
@@ -96,7 +100,7 @@ def test_poller_selects_asap_and_due_not_future_or_untasked(world):
     asap = _task_loop(vault, conn, "Asap thing", asap=True)
     due = _task_loop(vault, conn, "Due thing", asap=False, due="2026-07-01")
     _task_loop(vault, conn, "Future thing", asap=False, due="2027-01-01")
-    plain = new_open_loop(vault, "Untasked loop", domain_primary="work")
+    plain = new_open_loop(vault, "Untasked loop", scope="work")
     index_single_record(plain.path, vault, conn)
     conn.commit()
     ids = [t.task_id for t in poll(conn, load_intent(vault), vault, today="2026-07-23")]
@@ -104,9 +108,9 @@ def test_poller_selects_asap_and_due_not_future_or_untasked(world):
     assert len(ids) == 2
 
 
-def test_disabled_arena_is_never_selected(world):
+def test_disabled_scope_is_never_selected(world):
     vault, db, conn = world
-    _task_loop(vault, conn, "Forbidden finance task", arena="financial")
+    _task_loop(vault, conn, "Forbidden finance task", scope="financial")
     visible = _task_loop(vault, conn, "Allowed work task")
     ids = [t.task_id for t in poll(conn, load_intent(vault), vault, today="2026-07-23")]
     assert ids == [visible]
@@ -203,18 +207,18 @@ def test_gate_maps_kinds_to_capabilities(world):
     vault, db, conn = world
     intent = load_intent(vault)
     assert required_capabilities(["run_script"]) == ["run_local_scripts", "read_files", "write_files"]
-    v = gate({"arena": "work", "task_kinds": ["run_script"], "blocked_contexts": []}, intent)
+    v = gate({"scope": "work", "task_kinds": ["run_script"], "blocked_contexts": []}, intent)
     assert v.decision == "execute"
-    v = gate({"arena": "work", "task_kinds": ["notify"], "blocked_contexts": []}, intent)
+    v = gate({"scope": "work", "task_kinds": ["notify"], "blocked_contexts": []}, intent)
     assert v.decision == "confirm"  # global send_outbound_message=confirm_always
-    v = gate({"arena": "somewhere", "task_kinds": ["draft"], "blocked_contexts": []}, intent)
+    v = gate({"scope": "somewhere", "task_kinds": ["draft"], "blocked_contexts": []}, intent)
     assert v.decision == "report_only"
 
 
 def test_gate_denies_misfiled_task(world):
     vault, db, conn = world
     intent = load_intent(vault)
-    v = gate({"arena": "work", "task_kinds": ["draft"], "blocked_contexts": ["work"]}, intent)
+    v = gate({"scope": "work", "task_kinds": ["draft"], "blocked_contexts": ["work"]}, intent)
     assert v.decision == "deny"
     assert v.rule == "misfiled_task"
 
@@ -222,7 +226,7 @@ def test_gate_denies_misfiled_task(world):
 def test_gate_denies_unknown_kind(world):
     vault, db, conn = world
     intent = load_intent(vault)
-    v = gate({"arena": "work", "task_kinds": ["transmute"], "blocked_contexts": []}, intent)
+    v = gate({"scope": "work", "task_kinds": ["transmute"], "blocked_contexts": []}, intent)
     assert v.decision == "deny" and v.rule == "unknown_task_kind"
 
 

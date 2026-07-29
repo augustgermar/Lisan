@@ -1,5 +1,88 @@
 # Changelog
 
+## Unreleased
+
+**The Adjutant's authority axis is real.** `intent.md` had been resolved
+against the life-dimension enum, so an owner's carefully written
+delegations matched nothing and `execute` was unreachable by
+construction. Delegation now has its own field.
+
+- **`scope` is the delegation axis; `domain` stays the life dimension.**
+  Two questions, two axes. *"Which dimension of my life does this memory
+  touch?"* is `domain_primary`, a fixed enum, for retrieval. *"What am I
+  responsible for, and how much rope does the agent get here?"* is
+  `scope` — free text the owner defines, and the only axis intent.md is
+  resolved against. `cross_arena` remains a domain value; renaming it is
+  a schema migration, deliberately not attempted here. `arenas` in an
+  adopted intent.md keeps resolving forever, and error messages echo
+  whichever spelling the document uses.
+
+- **`scope` never falls back, and that is the entire fix.** The old
+  `files.arena` column was `COALESCE(arena, domain_primary,
+  arena_primary)` — correct for the life-dimension axis it was named
+  after, catastrophic once the gate read it as authority: an absent
+  delegation silently became a plausible life dimension, so the gate
+  always resolved *something* and never reported a gap. A month of
+  verdicts looked healthy. `scope` is NULL when the owner has not
+  declared one, and an unscoped record resolves `no_scope` — distinct
+  from a declared-but-unlisted scope, because the remedies differ (tag
+  the record vs. add a rule). *A default that substitutes for a missing
+  declaration turns a loud failure into a silent one.*
+
+- **Only the owner grants authority.** The capture pipeline never assigns
+  a scope; a writer-proposed one is dropped and logged
+  (`fanout.open_loop.scope_ignored`), and both v2 writer prompts now say
+  so. This settles the "why does the writer never task anything" question
+  in the writer's favour: its restraint was correct, and conversational
+  capture was never the right source of *authority*. Captured work is
+  reportable; unattended execution attaches to work the owner created
+  deliberately — `lisan new loop --scope`, a schedule record, an approved
+  confirmation. The definition-of-done test pins the whole arc, including
+  the inert middle.
+
+- **`lisan intent scopes`** — declared scopes beside the scopes real
+  records carry, with the gap named in both directions ("declared but
+  unused: these rules can never fire"). The instrument that would have
+  caught this on day one instead of after a month. Run it after editing
+  Standing Delegations.
+
+- **Confirmations carry their own scope.** Previously smuggled through
+  `domain_primary` and read back via the `arena` coalesce — which worked
+  by accident. The gate re-checks an approval against current intent at
+  execution time, so a confirmation that lost its scope would silently
+  degrade to `no_scope`.
+
+- **The shipped template stopped teaching the bug.** It had shipped
+  `example-project` and `legal` — neither an owner's real area of
+  responsibility, and `legal` looked authoritative enough to keep
+  verbatim. Placeholders are now obviously placeholders, and the section
+  explains the domain/scope distinction and that nothing infers a scope.
+  Casing is normalized at every boundary (observed drift included
+  `"Lisan System"` beside `system`); the validator flags non-canonical
+  values.
+
+Migration is additive (`scope` on `files` and `adjutant_log`), applied by
+`ensure_index_schema` on the next index write — the zero-migration
+guarantee holds, verified against a live install. Old `adjutant_log` rows
+keep their `arena` values: accurate history of the axis those verdicts
+were computed from. Readers `COALESCE(scope, arena)`.
+
+**The first calibration soak measured a gate with one reachable verdict
+and is not evidence of anything.** Restart the clock once `lisan intent
+scopes` reports at least one reachable scope; that is also the moment
+`execute` first becomes reachable, so it is when the `enabled: true`
+audit genuinely begins.
+
+Also: `lisan complete` and `lisan provider check` both raised
+`UnboundLocalError` — three branches of `main()` re-imported
+`load_config` locally, and Python binds a name for the whole function
+body, so a convenience import near the bottom unbound every read above
+it. An AST gate now fails the suite on the next one. And
+`lisan self state` reported "last slept 1969-12-31" from Darwin's
+epoch-zero `kern.sleeptime` sentinel, beside its own sentence telling the
+reader to treat that interval as machine sleep — the instrument built to
+prevent one confabulation had begun producing its own.
+
 ## 26.7.26 (2026-07-26)
 
 **Containment release.** Two days of soak found four ways the system

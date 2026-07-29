@@ -136,6 +136,8 @@ def test_weekly_schedule_unparks_after_run(vault, tmp_path):
     doc = load_markdown(path)
     delegations = {
         "defaults": {"mode": "report_only"},
+        # Deliberately the LEGACY "arenas" spelling: an authority document
+        # the owner already adopted must keep resolving after the rename.
         "arenas": {"work": {"mode": "execute", "capabilities": ["read_files", "write_files"]}},
         "global": {"max_tasks_per_cycle": 5, "max_task_wall_seconds": 30},
     }
@@ -155,7 +157,7 @@ def test_weekly_schedule_unparks_after_run(vault, tmp_path):
     created = new_schedule(
         vault, "weekly tick", task_kind="draft", cron="weekly:mon@08:00",
         next_run="2020-01-06T08:00:00", payload={"title": "t", "instructions": "tick"},
-        domain_primary="work",
+        scope="work",
     )
     index_single_record(created.path, vault, conn)
     conn.commit()

@@ -41,8 +41,8 @@ Three components:
   reports by calling the capture pipeline; results are triaged, drafted,
   and Skeptic-reviewed like any other input. The executor never writes
   episodes/knowledge/state directly.
-- **Default deny.** Every arena starts report-only. Authority is widened
-  per-arena, per-capability, explicitly, in intent.md.
+- **Default deny.** Every scope starts report-only. Authority is widened
+  per-scope, per-capability, explicitly, in intent.md.
 - **Everything is auditable.** Every Adjutant decision is logged with
   the intent rule and intent version that produced it.
 
@@ -95,12 +95,14 @@ Implemented in `lisan/tools/intent.py`; contract pinned by
 
 ### 1.3 Standing Delegations
 
-Fenced JSON block inside `# Standing Delegations`:
+Fenced JSON block inside `# Standing Delegations`. Keyed by **scope** —
+see the 2026-07-29 ruling below, which supersedes the word "arena"
+throughout this section:
 
 ```json
 {
   "defaults": { "mode": "report_only" },
-  "arenas": {
+  "scopes": {
     "lisan-dev": {
       "mode": "execute",
       "capabilities": ["run_local_scripts", "read_files", "write_files", "web_research"],
@@ -135,11 +137,11 @@ Modes: `report_only`, `execute`, `disabled`.
 
 ### [RESOLVED] Resolution contract (supersedes the draft's ambiguity)
 
-Order: never-rules -> global rules -> arena rules -> defaults.
+Order: never-rules -> global rules -> scope rules -> defaults.
 Restrictiveness: EXECUTE < CONFIRM < REPORT_ONLY < DENY; **most
 restrictive wins on conflict.** Specifically:
 
-- A capability **named explicitly** in an arena's `confirm_required` is
+- A capability **named explicitly** in a scope's `confirm_required` is
   a **grant-with-confirmation** — it need not also appear in
   `capabilities` (this is what the lisan-dev example above means:
   git_push is permitted, behind a human gate).
@@ -147,18 +149,105 @@ restrictive wins on conflict.** Specifically:
   `capabilities` list; it never widens it. finance's `"*"` grants
   nothing by itself — default deny holds.
 - **Never-rules outrank confirm_required grants.** A capability both
-  named in confirm_required and covered by a never-rule (arena
+  named in confirm_required and covered by a never-rule (a scope's
   `outbound_comms: never`, or a global `never`) resolves DENY, not
   CONFIRM. Pinned by `test_never_rules_beat_confirm_required_grants`.
 - `report_only` mode outranks a global `confirm_always`: the task
   reports, it does not queue for confirmation.
-- An unlisted arena falls to `defaults.mode`; a default of `execute`
-  still grants no capabilities (default deny), `disabled` denies.
+- An unlisted scope falls to `defaults.mode`; a default of `execute`
+  still grants no capabilities (default deny), `disabled` denies. An
+  *absent* scope resolves `no_scope` — same restrictiveness, different
+  rule, because the owner's remedy differs (tag the record vs add a rule).
+
+### [RESOLVED 2026-07-29] The delegation axis is `scope`, not `arena`
+
+**This supersedes every use of "arena" above in a delegation sense.** The
+JSON example in §1.3 and the resolution contract now read `scopes` and
+"scope"; `arenas` remains accepted forever so an adopted document keeps
+resolving.
+
+The defect. Delegation was grafted onto the life-dimension enum
+(`domain_primary`, historically `arena`). A real adopted `intent.md`
+declared eight areas of responsibility — projects, a household, a
+workplace, family-legal matters — while records carried life dimensions
+(`cross_arena` on the large majority, `relational`, `work`). The overlap
+was **empty**. (The scope names themselves are personal and stay out of
+this repo; `lisan intent scopes` prints them locally.) Every task from every
+source resolved through `defaults`, and because defaults grant no
+capability list, EXECUTE was unreachable by construction. Measured on the
+live vault 2026-07-29: 8 declared scopes, 0 reachable; 245 of 248 cycles
+logged `tasks=0`; 3 verdicts in six days, all `report_only`, all from one
+record.
+
+Why it stayed invisible for a month — and this is the transferable
+lesson. `files.arena` was populated as `COALESCE(arena, domain_primary,
+arena_primary)`. That fallback is *correct* for the life-dimension axis
+(same axis, older name) and was catastrophic for the gate reading it as
+delegation: an absent authority declaration silently became a plausible
+life dimension, so the gate always had something to resolve and never
+reported a gap. **A default that substitutes for a missing declaration
+converts a loud failure into a silent one.** Same family as
+`unreachable_policy: skip` leaving the semantic lane dead while embed
+jobs reported success.
+
+The ruling:
+
+1. **Two axes, permanently distinct.** `domain_primary` is a life
+   dimension from a fixed enum, for retrieval and the self-model.
+   `scope` is owner-defined free text and is the only axis intent.md is
+   resolved against. `cross_arena` stays a domain enum value; renaming it
+   is a schema migration and is out of scope here.
+2. **`scope` never falls back.** `lisan/tools/scope.py::record_scope`
+   reads one field. Absent means absent, and the gate says
+   `no_scope` rather than inventing a match. Pinned by
+   `test_record_scope_never_falls_back_to_domain` and
+   `test_index_keeps_scope_null_while_arena_still_mirrors_domain`.
+3. **Only the owner assigns scope.** The capture pipeline never sets one;
+   a writer-proposed `scope` is dropped and the drop is logged
+   (`fanout.open_loop.scope_ignored`). A model inferring areas of
+   responsibility is how the original mismatch was manufactured. Both v2
+   writer prompts now say so explicitly.
+4. **Therefore captured work is reportable, never unattended-executable.**
+   This resolves the "why does the writer never tasks anything" question
+   the other way round than expected: the writer's restraint is correct,
+   and conversational capture was never the right source of *authority*.
+   Authority attaches to work the owner created deliberately —
+   `lisan new loop --scope <name>`, a schedule record, an approved
+   confirmation. The definition-of-done test now pins the full arc:
+   captured tasking -> `no_scope` report -> owner assigns scope ->
+   execute.
+5. **Confirmations carry their own scope.** Previously the scope was
+   smuggled through `domain_primary` and read back via the `arena`
+   coalesce. Now `new_confirmation(scope=...)` writes the real field, so
+   the gate's re-check at execution time resolves the same rule the owner
+   approved under. Without this an approval silently degrades to
+   `no_scope`.
+6. **Casing is normalized at every boundary** (stripped, lowercased).
+   Observed drift included `"Lisan System"` beside `system`; a delegation
+   that misses on a capital letter reads as a considered rule and behaves
+   as no rule. The validator flags non-canonical `scope` values.
+7. **`lisan intent scopes` is the instrument.** Declared scopes beside
+   scopes present on pollable records, with the gap named in both
+   directions. Run it after editing Standing Delegations. This is the
+   command that would have caught the whole defect on day one.
+
+Calibration consequence: the soak that ran 2026-07-23 -> 07-29 measured a
+gate with one reachable verdict. **It is not evidence of anything and
+extending it buys nothing.** A fresh soak starts when at least one scope
+is reachable — verify with `lisan intent scopes` before starting the
+clock. EXECUTE first becomes reachable at that moment, which is when the
+`enabled: true` audit genuinely begins.
+
+Migration for existing installs: additive `scope` column on `files` and
+`adjutant_log`, applied by `ensure_index_schema` on the next index write
+(zero-migration guarantee holds). Old `adjutant_log` rows keep their
+`arena` values — accurate history of what those verdicts were computed
+from; readers `COALESCE(scope, arena)`.
 
 ### 1.4 CLI (shipped)
 
 ```
-lisan intent show | init | edit | history | check <arena> <capability>
+lisan intent show | init | edit | history | scopes | check <scope> <capability>
 ```
 
 `check` runs the real resolver against the live intent — the same
@@ -174,7 +263,7 @@ function the gate (§2.3) wraps.
 lisan/tools/
   intent.py                  # shipped (step 1)
   adjutant_poller.py         # finds actionable records (pure SQL)
-  adjutant_gate.py           # (task, arena, capabilities) -> verdict + audit log
+  adjutant_gate.py           # (task, scope, capabilities) -> verdict + audit log
   adjutant_executor.py       # runs tasks via providers; sandboxing; timeouts
   adjutant_reporter.py       # formats results, submits via capture_text
   adjutant_confirmations.py  # pending-confirmation queue
@@ -192,7 +281,7 @@ prompts/
 The poller selects, via SQL against the existing index:
 
 1. **Open loops** with `status: active`, a due date now-or-past or
-   `execute_asap: true`, whose `arena_primary` is not `disabled`.
+   `execute_asap: true`, whose `scope` is not `disabled`.
 2. **Decision records** with any `execution_steps` step
    `status: pending`.
 3. **Scheduled tasks**: `schedule` records whose materialized job is due
@@ -218,9 +307,9 @@ Pure function, no LLM. Wraps `intent.resolve_capabilities` with the
 deterministic task_kind -> required-capabilities mapping (e.g.
 `research -> [web_research, write_files]`; `run_script ->
 [run_local_scripts, read_files, write_files]`). Every verdict is written
-to `adjutant_log`: timestamp, task id, arena, capabilities, verdict,
+to `adjutant_log`: timestamp, task id, scope, capabilities, verdict,
 matched rule, intent version. A task whose compartment/blocked_contexts
-would prevent retrieval of its own arena context is DENIED and flagged
+would prevent retrieval of its own scope context is DENIED and flagged
 (misfiled task).
 
 ### 2.4 Execution
@@ -342,7 +431,9 @@ Config (`config.json`):
   as to chat retrieval; test the blocked-context leakage case explicitly.
 - No secrets in the vault: tokens from env vars only; validator warns on
   credential-pattern matches.
-- The `legal` arena template ships maximally gated (see §1.3).
+- The maximally-gated template entry ships as an obvious placeholder
+  (see §1.3 and the 2026-07-29 ruling): a copyable `legal` example was
+  itself part of the defect.
 - `lisan backup create` must include the new tables and
   `intent-history/`.
 
@@ -378,7 +469,7 @@ dry cycles act on nothing; plain enabled still halts on sentinels.)
 The asymmetry to audit: false taskings (aspirations that got a
 task_kind) are the failure that matters; missed taskings cost one
 command. The audit trail from real days, not the test suite, is what
-earns the key-turn — and even then, execution starts at the arenas the
+earns the key-turn — and even then, execution starts at the scopes the
 owner has explicitly granted.
 
 ## 7. Testing requirements
@@ -389,7 +480,8 @@ owner has explicitly granted.
 - Integration (definition of done): fake provider — instruction turn ->
   open_loop with task fields -> dry-run verdict -> execute (echo script)
   -> result re-captured -> Skeptic review -> originating loop resolved.
-- Negative: disabled arena never selected; blocked-context leakage
+- Negative: disabled scope never selected; unscoped record reports;
+  blocked-context leakage
   denied and logged; script outside allowlist refuses; invalid intent.md
   prevents daemon start.
 

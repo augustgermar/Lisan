@@ -10,6 +10,12 @@ gate — read the gate before starting):
   carries the resolved delegation contract and every settled ruling —
   it supersedes the original draft spec. Runtime guide:
   `adjutant_daemon.md`.
+  **READ THE 2026-07-29 RULING FIRST** (§ "The delegation axis is
+  `scope`, not `arena`"). It supersedes the word "arena" everywhere in a
+  delegation sense, and it voids the first soak: that one measured a gate
+  with a single reachable verdict, because no record carried any declared
+  scope. The clock restarts once `lisan intent scopes` reports at least
+  one reachable scope — run it before starting any audit.
 
 - `psyche_workorder.md` — WO-PSYCHE, the psychological pattern layer:
   three-tier provenance (facts / owner-ratified frameworks / earned

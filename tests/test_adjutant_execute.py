@@ -35,7 +35,7 @@ from lisan.tools.record_factory import new_open_loop, new_schedule
 
 DELEGATIONS = {
     "defaults": {"mode": "report_only"},
-    "arenas": {
+    "scopes": {
         "work": {
             "mode": "execute",
             "capabilities": ["run_local_scripts", "read_files", "write_files"],
@@ -86,8 +86,8 @@ def _script(scripts_dir, name, body="#!/bin/sh\necho hello from $0\n", mode=0o75
     return path
 
 
-def _task_loop(vault, conn, title, *, kind="run_script", payload=None, arena="work"):
-    created = new_open_loop(vault, title, domain_primary=arena)
+def _task_loop(vault, conn, title, *, kind="run_script", payload=None, scope="work"):
+    created = new_open_loop(vault, title, scope=scope)
     doc = load_markdown(created.path)
     fm = dict(doc.frontmatter)
     fm.update(task_kind=kind, task_payload=payload or {}, task_status="pending", execute_asap=True)
@@ -298,15 +298,15 @@ def test_two_failures_block_the_task(world):
 
 def test_confirm_verdict_creates_confirmation_then_approval_executes(world):
     vault, db, conn, config, scripts, tmp = world
-    # git_push is confirm_required in work: use a draft task in an arena
+    # git_push is confirm_required in work: use a draft task in a scope
     # where drafting demands confirmation instead — simpler: notify kind is
     # globally confirm_always but lands in step 5; use git_push mapping via
-    # a run_script task in a report_only arena? No — use kind draft in an
-    # unlisted arena = report_only, not confirm. So: extend the loop with a
+    # a run_script task in a report_only scope? No — use kind draft in an
+    # unlisted scope = report_only, not confirm. So: extend the loop with a
     # payload and rely on global confirm for send? Cleanest real case:
     # a task whose kind maps to a confirm_required capability. None of the
     # local kinds map to git_push, so wire an explicit confirm: run_script
-    # in work arena with global run_local_scripts=confirm_always.
+    # in work scope with global run_local_scripts=confirm_always.
     config2 = dict(config)
     path = intent_path(vault)
     doc = load_markdown(path)
@@ -385,7 +385,7 @@ def test_decision_steps_execute_in_order_and_halt_on_failure(world):
     _script(scripts, "bad.sh", "#!/bin/sh\nexit 1\n")
     from lisan.tools.record_factory import new_decision
 
-    created = new_decision(vault, "Two step plan", domain_primary="work")
+    created = new_decision(vault, "Two step plan", scope="work")
     doc = load_markdown(created.path)
     fm = dict(doc.frontmatter)
     fm["execution_steps"] = [
@@ -413,11 +413,11 @@ def test_schedule_advances_all_cadences_after_run(world):
     _script(scripts, "tick.sh", "#!/bin/sh\necho tick\n")
     daily = new_schedule(
         vault, "daily tick", task_kind="run_script", cron="daily@08:00",
-        next_run="2020-01-01T08:00:00", payload={"script": "tick.sh"}, domain_primary="work",
+        next_run="2020-01-01T08:00:00", payload={"script": "tick.sh"}, scope="work",
     )
     weekly = new_schedule(
         vault, "weekly tick", task_kind="run_script", cron="weekly:mon@08:00",
-        next_run="2020-01-01T08:00:00", payload={"script": "tick.sh"}, domain_primary="work",
+        next_run="2020-01-01T08:00:00", payload={"script": "tick.sh"}, scope="work",
     )
     for record in (daily, weekly):
         index_single_record(record.path, vault, conn)
