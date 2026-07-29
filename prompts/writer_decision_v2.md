@@ -55,3 +55,10 @@ Attach steps ONLY when ALL of these hold:
 
 A decision recorded for memory alone — most decisions — has NO
 execution_steps.
+
+**Never emit a `scope`.** Authority is delegated per scope — the owner's
+own areas of responsibility — and only the owner assigns one. You cannot
+know which area a decision belongs to, and guessing is how an authority
+document ends up full of rules that match nothing. Steps you attach are
+*pollable*; until the owner scopes the decision, the system reports the
+work rather than doing it.

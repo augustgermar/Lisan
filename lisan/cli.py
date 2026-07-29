@@ -124,6 +124,12 @@ def build_parser() -> argparse.ArgumentParser:
     validate = subparsers.add_parser("validate", help="Validate vault files")
     validate.add_argument("--vault", type=Path, default=vault_root())
 
+    # Local to build_parser on purpose: main() already lazy-imports these in
+    # its `intent` branch, and hoisting to module level would make that local
+    # import shadow the global for the whole of main() — the UnboundLocalError
+    # class that tests/test_cli_no_shadowed_module_imports.py now gates.
+    from .tools.intent import CAPABILITIES
+
     intent_cmd = subparsers.add_parser("intent", help="Commander's intent: the authority document for execution")
     intent_subparsers = intent_cmd.add_subparsers(dest="intent_command", required=True)
     intent_show = intent_subparsers.add_parser("show", help="Render current intent with version and validity")
@@ -135,10 +141,17 @@ def build_parser() -> argparse.ArgumentParser:
     intent_edit.add_argument("--vault", type=Path, default=vault_root())
     intent_history_cmd = intent_subparsers.add_parser("history", help="List intent snapshots")
     intent_history_cmd.add_argument("--vault", type=Path, default=vault_root())
-    intent_check = intent_subparsers.add_parser("check", help="Dry-run the delegation gate for an arena + capability")
-    intent_check.add_argument("arena")
-    intent_check.add_argument("capability")
+    intent_check = intent_subparsers.add_parser("check", help="Dry-run the delegation gate for a scope + capability")
+    intent_check.add_argument("scope", help="An area of responsibility, as named in Standing Delegations")
+    intent_check.add_argument("capability", choices=sorted(CAPABILITIES), metavar="capability",
+                              help=f"One of: {', '.join(sorted(CAPABILITIES))}")
     intent_check.add_argument("--vault", type=Path, default=vault_root())
+    intent_scopes = intent_subparsers.add_parser(
+        "scopes",
+        help="Declared delegation scopes vs the scopes real records carry, and the gap between them",
+    )
+    intent_scopes.add_argument("--vault", type=Path, default=vault_root())
+    intent_scopes.add_argument("--db-path", type=Path, default=None)
 
     adjutant_cmd = subparsers.add_parser("adjutant", help="The execution layer: poll, gate, execute against intent")
     adjutant_subparsers = adjutant_cmd.add_subparsers(dest="adjutant_command", required=True)
@@ -329,6 +342,14 @@ def build_parser() -> argparse.ArgumentParser:
     new_loop_cmd.add_argument("--owner", default="user")
     new_loop_cmd.add_argument("--next-action", default="Describe the next action.")
     new_loop_cmd.add_argument("--blocked-by", default=None)
+    new_loop_cmd.add_argument(
+        "--scope",
+        default="",
+        help="Delegation scope: the area of responsibility this work acts under, as named "
+             "in intent.md Standing Delegations. Distinct from --domain-primary (the life "
+             "dimension, used for retrieval). Only a scope you set here can ever be executed "
+             "unattended; see `lisan intent scopes`.",
+    )
 
     new_knowledge_cmd = new_subparsers.add_parser("knowledge", help="Create a new knowledge record")
     new_knowledge_cmd.add_argument("--vault", type=Path, default=vault_root())
@@ -1095,10 +1116,20 @@ def main(argv: list[str] | None = None) -> int:
             except IntentError as exc:
                 print(str(exc), file=sys.stderr)
                 return 1
-            verdict = resolve_delegation(intent.delegations, args.arena, args.capability)
+            verdict = resolve_delegation(intent.delegations, args.scope, args.capability)
             print(f"{verdict.decision.upper()}  (rule: {verdict.rule}, intent version {intent.version})")
             for reason in verdict.reasons:
                 print(f"  - {reason}")
+            return 0
+        if args.intent_command == "scopes":
+            from .tools.intent_scopes import format_scope_coverage
+
+            try:
+                intent = load_intent(args.vault)
+            except IntentError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            print(format_scope_coverage(intent, args.vault, db_path=args.db_path or sqlite_path()))
             return 0
 
     if args.command == "manifest":
@@ -2261,6 +2292,7 @@ def _handle_new(args: argparse.Namespace) -> int:
                 owner=args.owner,
                 next_action=args.next_action,
                 blocked_by=args.blocked_by,
+                scope=args.scope,
             )
         elif args.new_command == "knowledge":
             record = new_knowledge(

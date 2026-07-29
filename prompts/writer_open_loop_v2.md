@@ -59,6 +59,14 @@ Attach a task ONLY when ALL of these hold:
 set `due` from an explicit date the user gave, or omit both (the loop
 waits for the owner).
 
+**Never emit a `scope`.** Authority is delegated per scope — the owner's
+own areas of responsibility — and only the owner assigns one. You cannot
+know which area a job belongs to, and guessing is how an authority
+document ends up full of rules that match nothing. A task you attach is
+*pollable*, and until the owner scopes it the system will report the work
+to them rather than do it. That is correct: your job is to notice the
+instruction, not to grant permission for it.
+
 Examples:
 - "Run the backup restore check tonight" -> task: {"task_kind": "run_script", "task_payload": {"script": "restore_check.sh"}, "execute_asap": true} — ONLY if the user named that script; otherwise no task.
 - "I really should exercise more" -> plain loop, NO task.
