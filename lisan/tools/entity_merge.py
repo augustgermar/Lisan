@@ -82,10 +82,19 @@ def merge_entities(
     dst_fm["updated"] = today_iso()
     write_markdown(dst, dst_fm, dst_doc.body)
 
-    # 3. the fragment file retires to the archive (reversible)
+    # 3. the fragment file retires to the archive (reversible), carrying a
+    #    forwarding address. Without it, every record that referenced the
+    #    fragment keeps resolving to the fragment: the id still exists and
+    #    archived records stay indexed, so nothing looks broken while
+    #    retrieval quietly reaches a stub instead of the person it was
+    #    merged into. `merged_into` lets resolve_reference follow the merge,
+    #    and `lisan migrate refs` rewrite it.
     archive = vault / "archive" / "entities"
     archive.mkdir(parents=True, exist_ok=True)
     archived_path = archive / f"merged-{src.stem}.md"
+    src_fm["merged_into"] = str(dst_fm.get("id") or "")
+    src_fm["status"] = "archived"
+    write_markdown(src, src_fm, src_doc.body)
     shutil.move(str(src), str(archived_path))
 
     # 4. reindex + one compaction to weave the absorbed material in

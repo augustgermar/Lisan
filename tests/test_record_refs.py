@@ -336,3 +336,58 @@ def test_bare_filename_reference_is_also_reported(vault):
     hits = [i for i in validate_vault(vault).issues if created.path.name in i.message]
     assert hits and hits[0].severity == "warning"
     assert "will not traverse" in hits[0].message
+
+
+# ---------------------------------------------------------------------------
+# 10. A merged-away reference follows the forwarding address
+
+def test_reference_to_a_merged_entity_resolves_to_the_survivor(vault):
+    """A merge preserves the fragment's id in the archive, so the reference
+    still resolves and nothing looks broken — while retrieval reaches a stub
+    instead of the person the fragment became."""
+    _write(vault / "archive" / "entities" / "merged-frag.md",
+           _record("entity.frag", "entity", subtype="person", canonical_name="Frag",
+                   status="archived", merged_into="entity.survivor"))
+    _write(vault / "entities" / "people" / "survivor.md",
+           _record("entity.survivor", "entity", subtype="person", canonical_name="Survivor"))
+    index = build_reference_index(vault)
+    resolution = resolve_reference("entity.frag", vault, index)
+    assert not resolution.ok, "resolving is not the same as resolving correctly"
+    assert resolution.repairable and resolution.target == "entity.survivor"
+
+    _write(vault / "knowledge" / "k.md", _record("knowledge.k", links=["entity.frag"]))
+    hits = [i for i in validate_vault(vault).issues if "entity.frag" in i.message]
+    assert hits and hits[0].severity == "warning"
+    assert "entity.survivor" in hits[0].message
+
+
+def test_merge_forwarding_survives_a_chain_and_refuses_a_cycle(vault):
+    for stem, rid, into in [("a", "entity.a", "entity.b"), ("b", "entity.b", "entity.c")]:
+        _write(vault / "archive" / "entities" / f"merged-{stem}.md",
+               _record(rid, "entity", subtype="person", canonical_name=stem,
+                       status="archived", merged_into=into))
+    _write(vault / "entities" / "people" / "c.md",
+           _record("entity.c", "entity", subtype="person", canonical_name="C"))
+    index = build_reference_index(vault)
+    assert index.survivor_of("entity.a") == "entity.c", "follow the whole chain"
+
+    # A cycle must not hang or invent an answer.
+    _write(vault / "archive" / "entities" / "merged-x.md",
+           _record("entity.x", "entity", subtype="person", canonical_name="X",
+                   status="archived", merged_into="entity.y"))
+    _write(vault / "archive" / "entities" / "merged-y.md",
+           _record("entity.y", "entity", subtype="person", canonical_name="Y",
+                   status="archived", merged_into="entity.x"))
+    cyclic = build_reference_index(vault)
+    assert cyclic.survivor_of("entity.x") is None
+
+
+def test_migration_rewrites_merged_references(vault):
+    _write(vault / "archive" / "entities" / "merged-frag.md",
+           _record("entity.frag", "entity", subtype="person", canonical_name="Frag",
+                   status="archived", merged_into="entity.survivor"))
+    _write(vault / "entities" / "people" / "survivor.md",
+           _record("entity.survivor", "entity", subtype="person", canonical_name="Survivor"))
+    loop = new_open_loop(vault, "A loop", links=["entity.frag"])
+    migrate_references(vault, dry_run=False)
+    assert load_markdown(loop.path).frontmatter["links"] == ["entity.survivor"]

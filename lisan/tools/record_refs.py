@@ -91,10 +91,33 @@ class ReferenceIndex:
     nodes (drafts). Kept so a reference to one gets an accurate message rather
     than "no such record"."""
 
+    merged_into: dict[str, str] = field(default_factory=dict)
+    """Retired id -> surviving id, from an archived record's ``merged_into``.
+
+    A merge preserves the fragment's id in the archive, so a reference to it
+    still resolves and nothing looks broken — while retrieval reaches a stub
+    instead of the person the fragment became. Following the forwarding
+    address is the difference between a reference that works and one that
+    merely validates."""
+
     _path_to_id: dict[str, str] = field(default_factory=dict)
 
     def id_for_path(self, rel: str) -> str | None:
         return self._path_to_id.get(rel)
+
+    def survivor_of(self, record_id: str) -> str | None:
+        """Follow merge forwarding to the final survivor, cycle-safe."""
+        seen: set[str] = set()
+        current = record_id
+        while current in self.merged_into:
+            if current in seen:
+                return None
+            seen.add(current)
+            nxt = self.merged_into[current]
+            if not nxt or nxt == current:
+                return None
+            current = nxt
+        return current if current != record_id else None
 
 
 def build_reference_index(vault: Path) -> ReferenceIndex:
@@ -118,6 +141,9 @@ def build_reference_index(vault: Path) -> ReferenceIndex:
             continue
         index.ids.setdefault(record_id, rel)
         index._path_to_id.setdefault(rel_str, record_id)
+        forwarding = frontmatter.get("merged_into")
+        if isinstance(forwarding, str) and forwarding.strip() and forwarding.strip() != record_id:
+            index.merged_into.setdefault(record_id, forwarding.strip())
         if "archive" not in rel.parts:
             index.live_ids.setdefault(record_id, rel)
             index.by_basename.setdefault(path.name, []).append(record_id)
@@ -168,7 +194,7 @@ class Resolution:
     def repairable(self) -> bool:
         """Names a real record, but not in a form the graph can follow.
         ``lisan migrate refs`` rewrites these to :attr:`target`."""
-        return self.kind in {"path", "basename"} and bool(self.target)
+        return self.kind in {"path", "basename", "merged"} and bool(self.target)
 
 
 def resolve_reference(value: Any, vault: Path, index: ReferenceIndex) -> Resolution:
@@ -187,6 +213,16 @@ def resolve_reference(value: Any, vault: Path, index: ReferenceIndex) -> Resolut
     if not text:
         return Resolution("unknown", detail="empty reference")
     if text in index.ids:
+        survivor = index.survivor_of(text)
+        if survivor and survivor in index.ids:
+            # Resolvable, but pointing at a fragment that was merged into
+            # someone else. Repairable rather than fine: the reference works
+            # and still reaches the wrong record.
+            return Resolution(
+                "merged",
+                target=survivor,
+                detail=f"{text} was merged into {survivor}",
+            )
         return Resolution("id", target=text)
     if text in index.unindexed_paths:
         # A real file, but not a graph node — a draft. Rewriting it to its id
