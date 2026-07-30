@@ -244,6 +244,41 @@ Migration for existing installs: additive `scope` column on `files` and
 `arena` values — accurate history of what those verdicts were computed
 from; readers `COALESCE(scope, arena)`.
 
+### [RESOLVED 2026-07-30] The calibration soak is replaced by a verdict matrix
+
+**The soak is retired as an entry gate.** It was specified as: accumulate dry
+verdicts, audit `adjutant_log` for false taskings, earn `enabled: true`. Run
+2026-07-23 → 07-29 it produced **three** task verdicts, all `report_only`, all
+from a single record — because 0 records carried `task_kind` and 245 of 248
+cycles logged `tasks=0`. It was measuring an empty pipeline, and extending it
+buys more of the same. A calendar is not evidence.
+
+What the soak was trying to buy is *coverage*: has every (scope mode ×
+capability grant × task kind) combination been decided, and did each decide the
+way this contract says? That is a fixture, not a wait.
+`tests/test_adjutant_verdict_matrix.py` enumerates it exhaustively — 38 verdicts
+in 0.05s against 3 in six days — and runs on every push rather than once. It is
+stronger than the soak in three ways: it covers combinations a real vault may
+not produce for months, it re-runs whenever the resolver changes, and it fails
+loudly instead of requiring someone to read a log and notice an absence.
+
+It also pins the invariant that made the vocabulary mismatch harmless rather
+than dangerous: **no `defaults` configuration reaches EXECUTE for an unscoped or
+unlisted record**, exhaustive over the mode enum.
+
+What the matrix explicitly does NOT settle is whether the tasks being *created*
+are the ones the owner wanted. That is a question about the writer and about
+intent.md's content — and the soak never answered it either, which is part of
+why it was the wrong instrument. The remaining gate for `enabled: true` is
+therefore the owner's judgement on a small number of real taskings, not elapsed
+time.
+
+One thing the matrix surfaced: `git_push` appears in the contract's own
+`confirm_required` example but is reachable from no entry in
+`TASK_KIND_CAPABILITIES`, so the Adjutant can never exercise that rule. It
+governs only the CLI and chat paths. Harmless, and worth knowing before someone
+reads the example as a live Adjutant capability.
+
 ### 1.4 CLI (shipped)
 
 ```

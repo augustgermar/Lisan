@@ -14,8 +14,11 @@ gate — read the gate before starting):
   `scope`, not `arena`"). It supersedes the word "arena" everywhere in a
   delegation sense, and it voids the first soak: that one measured a gate
   with a single reachable verdict, because no record carried any declared
-  scope. The clock restarts once `lisan intent scopes` reports at least
-  one reachable scope — run it before starting any audit.
+  scope. **SUPERSEDED 2026-07-30:** the soak is retired as an entry gate —
+  see the verdict-matrix ruling in that document. It was measuring an empty
+  pipeline (3 verdicts in 6 days), and coverage is now a test that runs on
+  every push. What remains before `enabled: true` is owner judgement on a
+  few real taskings, not elapsed time.
 
 - `psyche_workorder.md` — WO-PSYCHE, the psychological pattern layer:
   three-tier provenance (facts / owner-ratified frameworks / earned
