@@ -384,26 +384,30 @@ def validate_vault(vault: Path | None = None, *, db_path: Path | None = None) ->
 
 
 def _validate_universal(path: Path, frontmatter: dict[str, Any], report: ValidationReport) -> None:
-    for field in UNIVERSAL_REQUIRED:
-        if field not in frontmatter:
-            report.add(path, f"Missing required frontmatter field: {field}")
-    for field in ["created", "updated", "last_confirmed", "review_after"]:
-        if field in frontmatter and frontmatter[field]:
+    # `field_name`, not `field`: dataclasses.field is imported at module scope
+    # and used by ValidationReport, so a loop variable of that name shadows it
+    # for the whole function — the same shape as the UnboundLocalError fixed on
+    # 2026-07-29, which no test could see by reading one branch.
+    for field_name in UNIVERSAL_REQUIRED:
+        if field_name not in frontmatter:
+            report.add(path, f"Missing required frontmatter field_name: {field_name}")
+    for field_name in ["created", "updated", "last_confirmed", "review_after"]:
+        if field_name in frontmatter and frontmatter[field_name]:
             try:
-                date.fromisoformat(str(frontmatter[field]))
+                date.fromisoformat(str(frontmatter[field_name]))
             except ValueError:
-                report.add(path, f"Invalid ISO date in {field}: {frontmatter[field]}")
-    for field, allowed in ENUMS.items():
-        value = frontmatter.get(field)
+                report.add(path, f"Invalid ISO date in {field_name}: {frontmatter[field_name]}")
+    for field_name, allowed in ENUMS.items():
+        value = frontmatter.get(field_name)
         if value is None:
             continue
-        if field == "confidence" and str(frontmatter.get("type")) in {"claim", "pattern"}:
+        if field_name == "confidence" and str(frontmatter.get("type")) in {"claim", "pattern"}:
             continue
-        if field in {"domain_primary", "privacy", "status", "significance", "confidence", "source", "priority", "source_type", "sensitivity", "reliability"} and str(value) not in allowed:
-            report.add(path, f"Invalid {field}: {value}")
-    for field in ["domain_secondary", "arena_secondary", "compartments", "allowed_contexts", "blocked_contexts", "links"]:
-        if field in frontmatter and not isinstance(frontmatter[field], list):
-            report.add(path, f"{field} must be a list")
+        if field_name in {"domain_primary", "privacy", "status", "significance", "confidence", "source", "priority", "source_type", "sensitivity", "reliability"} and str(value) not in allowed:
+            report.add(path, f"Invalid {field_name}: {value}")
+    for field_name in ["domain_secondary", "arena_secondary", "compartments", "allowed_contexts", "blocked_contexts", "links"]:
+        if field_name in frontmatter and not isinstance(frontmatter[field_name], list):
+            report.add(path, f"{field_name} must be a list")
     disclosure = frontmatter.get("disclosure")
     if disclosure is not None and str(disclosure) not in ENUMS["disclosure"]:
         report.add(path, f"Invalid disclosure: {disclosure}")
@@ -412,8 +416,8 @@ def _validate_universal(path: Path, frontmatter: dict[str, Any], report: Validat
 def _validate_type_specific(path: Path, frontmatter: dict[str, Any], report: ValidationReport) -> None:
     file_type = str(frontmatter.get("type"))
     missing = TYPE_FIELDS[file_type] - frontmatter.keys()
-    for field in sorted(missing):
-        report.add(path, f"Missing required {file_type} field: {field}")
+    for field_name in sorted(missing):
+        report.add(path, f"Missing required {file_type} field: {field_name}")
     if file_type == "claim":
         confidence = frontmatter.get("confidence")
         if not isinstance(confidence, (int, float)):

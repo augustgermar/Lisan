@@ -4,6 +4,7 @@ from datetime import date, timedelta
 import re
 from pathlib import Path
 from typing import Any
+from ..frontmatter import FrontmatterError, load_markdown
 from ..utils import listify
 
 
@@ -433,7 +434,13 @@ def load_existing_patterns(vault: Path) -> list[dict[str, Any]]:
     for path in sorted(patterns_root.glob("*.md")):
         try:
             doc = load_markdown(path)
-        except Exception:
+        except (FrontmatterError, OSError):
+            # Narrow on purpose. `except Exception` here swallowed a NameError
+            # for load_markdown — the import was simply missing — so this
+            # function silently returned [] for every pattern on disk, and
+            # pattern_conflicts_with_existing never once had data to compare
+            # against. A bare except turned a crash into a permanent, invisible
+            # no-op; the analyst went on re-deriving patterns it already had.
             continue
         fm = normalize_pattern_frontmatter(doc.frontmatter)
         fm["_path"] = str(path)

@@ -6,18 +6,24 @@ on:
   workflow_dispatch:
 
 jobs:
+  # pytest is the floor. It runs on every supported interpreter, because
+  # `requires-python = ">=3.11"` is a promise and 3.11-only CI does not keep it.
   pytest:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: pip
 
       - name: Install package
@@ -25,3 +31,124 @@ jobs:
 
       - name: Run tests
         run: python -m pytest -q
+
+  # The suite, run the way the incidents actually happened.
+  #
+  # `python -m unittest discover -s tests` puts tests/ on sys.path and imports
+  # each module top-level, so tests/__init__.py never runs — which is how
+  # LISAN_DATA_HOME and LISAN_NO_OUTBOUND both came to be unset while
+  # data_root() resolved to the live install (measured 2026-07-29). The guards
+  # are runner-independent now; this job is what keeps them that way. A repo
+  # whose stated principle is "the suite is the floor" should run the suite the
+  # way it broke, not only the way that passes.
+  unittest-discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install --upgrade pip && python -m pip install -e ".[test]"
+      - name: Run the suite under unittest discover
+        # Deliberately with the containment env vars UNSET: the point is to
+        # prove the guards hold without them.
+        env:
+          LISAN_DATA_HOME: ""
+          LISAN_NO_OUTBOUND: ""
+        run: python -m unittest discover -s tests -t .
+
+  # Vault contracts. The validator is the schema's enforcement arm, so schema
+  # drift should fail here rather than surfacing months later as 1,446 errors
+  # on a production vault.
+  vault-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install --upgrade pip && python -m pip install -e ".[test]"
+
+      - name: Seed vault must validate
+        run: python -m lisan validate --vault lisan-vault
+
+      - name: Shipped intent template must be valid and teach the canonical shape
+        run: |
+          python - <<'PY'
+          from lisan.tools.intent import default_intent_document, parse_intent, validate_intent_text
+          doc = default_intent_document()
+          issues = validate_intent_text(doc)
+          assert not issues, f"shipped intent template is invalid: {issues}"
+          delegations = parse_intent(doc).delegations
+          assert "scopes" in delegations, "template must teach the canonical `scopes` key"
+          assert "arenas" not in delegations, "template must not ship the legacy spelling"
+          print("intent template OK")
+          PY
+
+      - name: Cold start — a fresh vault must init, sync and validate
+        # Catches the class where an indexer or migration change breaks the path
+        # a new user takes and a developer never does.
+        #
+        # Embeddings are pinned to hash mode: the default is fastembed/auto,
+        # which on a cold runner means downloading a ~130MB ONNX model. This job
+        # is about vault and index mechanics, so it should not depend on the
+        # network — and hash mode is deterministic, which a CI gate wants.
+        run: |
+          export LISAN_VAULT="$RUNNER_TEMP/coldstart-vault"
+          export LISAN_DATA_HOME="$RUNNER_TEMP/coldstart-data"
+          python - <<'PY'
+          import json, pathlib
+          # config.json is gitignored, so a fresh checkout has none and
+          # load_config() falls back to DEFAULT_CONFIG. Write the minimum that
+          # keeps this job offline.
+          pathlib.Path("config.json").write_text(json.dumps(
+              {"retrieval": {"embeddings": {"mode": "hash"}}}, indent=2))
+          PY
+          python -m lisan init
+          python -m lisan sync
+          python -m lisan validate
+
+  # Static checks. The error-class rules are hard failures; the full ruleset is
+  # advisory so the gate can land without a mass-rewrite commit. An advisory
+  # check that reports is worth more than a strict one nobody enables.
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install --upgrade pip && python -m pip install -e ".[test]" ruff
+
+      - name: Lint — defect classes that break at runtime, hard failure
+        # Deliberately narrow, and every rule here earned its place on
+        # 2026-07-29 when this gate was first run against the tree:
+        #   F821 undefined name        -> found a real NameError in epistemic.py,
+        #                                 swallowed by a bare `except Exception`,
+        #                                 which made load_existing_patterns()
+        #                                 silently return [] for every pattern
+        #                                 on disk since it was written.
+        #   F811 redefinition          -> two imports shadowed by later bindings.
+        #   F402 import shadowed by    -> the exact shape of the UnboundLocalError
+        #        a loop variable          fixed the same day, in validator.py,
+        #                                 where dataclasses.field IS used.
+        #   F601 repeated dict key     -> a dead `"summary"` key in new_state that
+        #                                 the later key silently overwrote.
+        #   E9   syntax / IO errors
+        # The tree is clean on all of these; keeping them hard means it stays so.
+        run: python -m ruff check lisan tests --select F821,F811,F402,F601,E9
+
+      - name: Lint — full ruleset, advisory
+        # ~212 findings remain, almost all F401 unused imports and F841 unused
+        # locals. Advisory rather than hard: gating on them today would mean a
+        # mass-rewrite commit landing next to real work, and an advisory check
+        # that reports is worth more than a strict one nobody turns on. Burn the
+        # backlog down, then promote rules into the hard list above.
+        continue-on-error: true
+        run: python -m ruff check lisan tests --statistics

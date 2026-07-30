@@ -1,3 +1,21 @@
-# Core runtime intentionally uses only the Python standard library.
-# Optional provider SDKs can be installed separately if desired.
+# pyproject.toml is the single source of truth for dependencies.
+#
+#     pip install -e .          # runtime
+#     pip install -e ".[test]"  # runtime + pytest
+#
+# This file exists only so that `pip install -r requirements.txt` does the
+# right thing for anyone who reaches for it by habit.
+#
+# It used to say "core runtime intentionally uses only the Python standard
+# library", which stopped being true when fastembed became a declared
+# dependency — and the contradiction was not harmless. The semantic retrieval
+# lane sat dead for the entire life of one install because its virtualenv
+# predated the already-declared fastembed requirement, and nothing reconciled
+# the two files, so a drifted venv looked correct. Two documents disagreeing
+# about what the software needs is how that happens.
+#
+# Almost all of Lisan is stdlib by design, and that remains a real property
+# worth protecting — see pyproject's optional extras. It is a statement about
+# the architecture, not about the install.
 
+-e .

@@ -786,7 +786,6 @@ def _load_relevant_contradictions(vault: Path, query: str) -> list[str]:
         return []
     query_terms = {t.lower() for t in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]+", query) if len(t) > 3}
     notes: list[str] = []
-    from datetime import date
     for path in sorted(contradictions_dir.glob("*.md")):
         try:
             doc = load_markdown(path)

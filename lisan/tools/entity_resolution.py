@@ -14,7 +14,6 @@ user's own language for a person always beats a system-coined handle.
 from __future__ import annotations
 
 import re
-from dataclasses import field
 from pathlib import Path
 from typing import Any
 from ..frontmatter import load_markdown, write_markdown

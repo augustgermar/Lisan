@@ -821,7 +821,6 @@ def upsert_state(
         "domain_secondary": state_secondary or [],
         "privacy": privacy,
         "disclosure": normalize_disclosure(disclosure),
-        "summary": summary,
         "links": [],
         "confidence": confidence,
         "confidence_basis": confidence_basis,
@@ -830,6 +829,11 @@ def upsert_state(
         "ttl_days": ttl_days or STATE_TTLS[state_category],
         "sources": sources or [],
         "recent_summaries": existing_recent,
+        # The rolling merge of the last three entries, which always includes
+        # the summary just passed in. A duplicate `"summary": summary` key
+        # used to sit further up this literal; it was dead — the later key
+        # silently won — and a reader had to know Python dict semantics to
+        # see which value actually shipped.
         "summary": merged_summary,
     }
     body = f"# {state_category.title()} State\n\n" + "\n".join(f"- {entry['summary']}" for entry in existing_recent) + "\n"
