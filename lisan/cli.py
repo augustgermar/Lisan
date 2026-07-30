@@ -551,6 +551,15 @@ def build_parser() -> argparse.ArgumentParser:
     migrate = subparsers.add_parser("migrate", help="Inspect or run vault structure migrations")
     migrate.add_argument("--vault", type=Path, default=vault_root())
     migrate.add_argument("--apply", action="store_true")
+    # Optional subcommand: bare `lisan migrate` keeps its old structural
+    # behaviour, so an existing habit or script does not change meaning.
+    migrate_subparsers = migrate.add_subparsers(dest="migrate_command", required=False)
+    migrate_refs_cmd = migrate_subparsers.add_parser(
+        "refs",
+        help="Rewrite record references to canonical ids so graph retrieval can follow them",
+    )
+    migrate_refs_cmd.add_argument("--vault", type=Path, default=vault_root())
+    migrate_refs_cmd.add_argument("--apply", action="store_true", help="Write changes (default is a dry run)")
 
     edit = subparsers.add_parser("edit", help="Edit an existing record")
     edit.add_argument("--path", type=Path, required=True)
@@ -1900,6 +1909,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "migrate":
+        if getattr(args, "migrate_command", None) == "refs":
+            from .tools.migrate_refs import migrate_references
+
+            result = migrate_references(args.vault, dry_run=not args.apply)
+            print(json.dumps(result.as_dict(), indent=2))
+            if result.dry_run and result.files_changed:
+                print(f"\nDry run. Re-run with --apply to rewrite {result.references_rewritten} "
+                      f"reference(s) in {result.files_changed} file(s), then `lisan rebuild-index`.")
+            return 0
         plan = run_migration(vault=args.vault, dry_run=not args.apply)
         print(json.dumps({"needs_migration": plan.needs_migration, "actions": plan.actions}, indent=2))
         return 0

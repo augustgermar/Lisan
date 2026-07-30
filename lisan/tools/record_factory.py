@@ -9,6 +9,7 @@ from .db import connect as _db_connect
 from ..frontmatter import load_markdown, write_markdown
 from ..utils import slugify, today_iso
 from .domain_fields import with_domain_fields
+from .record_refs import canonicalize_references
 from .scope import normalize_scope
 from ..utils import listify
 from .reference_resolution import resolve_reference
@@ -1326,7 +1327,23 @@ def new_pattern(
     if path.exists():
         raise FileExistsError(path)
 
-    support = supporting_records or []
+    # The analyst's supporting_records arrives verbatim from LLM output, and a
+    # model that saw `episodes/2026-07-05-….md` in its context will happily
+    # emit the bare filename or invent `entities/people/example-person.md` for a record
+    # actually filed as entity.example-person-with-surnames. SPEC.md declares
+    # links(target_id) REFERENCES files(id), so every such reference became an
+    # edge that joined nothing — 561 validation errors and a permanently
+    # disconnected slice of the association graph. Deterministic-first: the
+    # model may propose a reference, code decides what it resolves to.
+    support, unresolved_support = canonicalize_references(supporting_records, vault)
+    if unresolved_support:
+        # Never silent: a reference the analyst believed in is worth a log line
+        # even when it cannot be honoured.
+        from .log import get_logger
+
+        get_logger(vault).warning(
+            "pattern references dropped as unresolvable: " + "; ".join(unresolved_support[:8])
+        )
     counter = counterexamples or ["No explicit counterexamples found in the scanned records."]
     alternatives = alternative_explanations or []
     preds = predictions or []
