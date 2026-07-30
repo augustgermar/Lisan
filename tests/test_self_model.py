@@ -216,3 +216,68 @@ class ToolWiringTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StaleCodeInstrumentTests(unittest.TestCase):
+    """A long-running process holds the modules it imported, and nothing said so.
+
+    On 2026-07-30 the analyst re-created five duplicate pattern records overnight
+    using a record_factory that had been fixed the previous afternoon. The fix
+    was committed, tested, and live in the tree — and entirely absent from the
+    process doing the work, which had started at 14:48 the day before. The vault
+    looked like the fix had failed. It had simply never been loaded.
+
+    Comparing the newest source mtime against each service's start time needs no
+    new state file and answers the only question that matters: is the agent
+    running the code I think it is?
+    """
+
+    def test_stale_services_are_named_in_the_rendered_snapshot(self):
+        from unittest.mock import patch
+
+        from lisan.tools import self_model
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ensure_repo_layout(root)
+            with patch.object(self_model, "_stale_code_services", return_value=["adjutant", "telegram"]):
+                state = snapshot_self_state(vault=vault_root(root), db_path=root / "jobs.sqlite")
+                rendered = render_self_state(state)
+        self.assertIn("STALE CODE", rendered)
+        self.assertIn("adjutant", rendered)
+        self.assertIn("restart", rendered.lower(), "the report must name the remedy")
+
+    def test_nothing_is_said_when_no_service_is_stale(self):
+        from unittest.mock import patch
+
+        from lisan.tools import self_model
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ensure_repo_layout(root)
+            with patch.object(self_model, "_stale_code_services", return_value=[]):
+                state = snapshot_self_state(vault=vault_root(root), db_path=root / "jobs.sqlite")
+                rendered = render_self_state(state)
+        self.assertNotIn("STALE CODE", rendered)
+
+    def test_service_discovery_finds_services_the_code_does_not_hardcode(self):
+        """The hardcoded pair missed com.lisan.adjutant and com.lisan.jobs, both
+        installed on a real deployment — so the agent could not say whether its
+        own execution layer was alive."""
+        from unittest.mock import patch
+
+        from lisan.tools import self_model
+
+        listing = "15262\t1\tcom.lisan.adjutant\n25118\t-15\tcom.lisan.telegram\n-\t0\tcom.lisan.jobs\n"
+
+        class _Result:
+            stdout = listing
+
+        with patch.object(self_model.subprocess, "run", return_value=_Result()), \
+                patch("platform.system", return_value="Darwin"):
+            services = self_model._service_status()
+
+        self.assertTrue(services["telegram"])
+        self.assertTrue(services["adjutant"], "a discovered running service is up")
+        self.assertIn("jobs", services)
+        self.assertFalse(services["jobs"], "an interval-triggered service with no pid is idle")

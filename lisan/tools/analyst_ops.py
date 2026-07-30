@@ -94,6 +94,40 @@ def build_analyst_bundle(vault: Path) -> str:
     return "\n".join(sections).rstrip() + "\n"
 
 
+
+def independent_support_count(vault: Path, support: list[Any]) -> int:
+    """How many distinct sources these supporting references actually represent.
+
+    References arrive as record ids (canonicalized at write time), so each is
+    resolved to its record and grouped by lineage — the document, artifact or
+    ingestion batch it came from. Sibling chunks of one document collapse to
+    one. A reference that cannot be resolved counts as its own lineage rather
+    than as nothing: an unresolvable citation should not silently *help* a
+    hypothesis clear the bar, but neither should it be treated as corroboration
+    it cannot provide.
+    """
+    from .origin import independent_lineages
+    from .record_refs import build_reference_index, resolve_reference
+
+    if not support:
+        return 0
+    index = build_reference_index(vault)
+    frontmatters: list[dict[str, Any]] = []
+    unresolvable = 0
+    for reference in support:
+        resolution = resolve_reference(reference, vault, index)
+        target = resolution.target if (resolution.ok or resolution.repairable) else ""
+        path = index.ids.get(target) if target else None
+        if path is None:
+            unresolvable += 1
+            continue
+        try:
+            frontmatters.append(load_markdown(vault / path).frontmatter)
+        except Exception:
+            unresolvable += 1
+    return len(independent_lineages(frontmatters)) + unresolvable
+
+
 def _materialize_pattern(vault: Path, bundle: str, pattern: dict[str, Any], existing_patterns: list[dict[str, Any]]):
     try:
         hypothesis = str(pattern.get("hypothesis") or "").strip()
@@ -101,8 +135,31 @@ def _materialize_pattern(vault: Path, bundle: str, pattern: dict[str, Any], exis
         if not hypothesis:
             return None
         support = list(pattern.get("supporting_records") or [])
-        support_count = len(support)
-        if support_count < 2:
+        # The evidence gate counts *sources*, not records.
+        #
+        # `len(support) >= 2` asked whether someone wrote two things down. The
+        # question it was written to answer is whether two sources agree — and
+        # those differ badly once a document is chunked. Measured on a
+        # production vault 2026-07-30: 339 of 340 knowledge records carry a
+        # `source_document`, and one document had produced 38 chunks. Under the
+        # old bar that single document could found a pattern about a person
+        # nineteen times over, by itself, and the citation list would look
+        # thorough. One of those groups was an 8-chunk document about family
+        # members.
+        #
+        # This is the "manufactured corroboration" laundering channel: many
+        # untrusted copies faking consensus. The defence is to require distinct
+        # lineages, with the rule that an item cannot corroborate itself.
+        independent = independent_support_count(vault, support)
+        if independent < 2:
+            if support:
+                from .log import get_logger
+
+                get_logger(vault).info(
+                    "analyst pattern refused: %d supporting record(s) resolve to "
+                    "%d independent source(s) — %s",
+                    len(support), independent, hypothesis[:120],
+                )
             return None
         if pattern_is_too_broad(hypothesis):
             return None

@@ -354,6 +354,7 @@ def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) 
 
     state["services"] = _service_status()
     state["machine"] = _machine_sleep_status()
+    state["stale_code_services"] = _stale_code_services()
 
     try:
         import re as _re
@@ -462,7 +463,87 @@ def _service_status() -> dict[str, bool]:
     # when they aren't.
     if services["telegram"] and not services["scheduler"]:
         services["scheduler"] = True
+    # Discover the rest rather than assume them. The hardcoded pair above misses
+    # com.lisan.adjutant and com.lisan.jobs, both of which are installed on a
+    # real deployment — so the agent could not tell the owner whether its own
+    # execution layer was alive. Enumerating means a service installed tomorrow
+    # is visible without editing this function, which is the difference between
+    # an instrument that reports and one that only confirms expectations.
+    try:
+        if platform.system() == "Darwin":
+            result = subprocess.run(["launchctl", "list"], capture_output=True, text=True, timeout=5)
+            for line in result.stdout.splitlines():
+                parts = line.split("\t")
+                if len(parts) < 3:
+                    continue
+                pid, _status, label = parts[0].strip(), parts[1], parts[2].strip()
+                if not label.startswith("com.lisan."):
+                    continue
+                name = label.rsplit(".", 1)[-1]
+                if name in services:
+                    continue
+                # A PID of "-" is not a failure for an interval-triggered
+                # service (com.lisan.jobs runs on StartInterval with no
+                # KeepAlive), so it is reported as installed-but-idle rather
+                # than down — "down" would read as broken.
+                services[name] = pid.isdigit()
+    except Exception:
+        pass
     return services
+
+
+def _stale_code_services() -> list[str]:
+    """Running services whose code changed after they started.
+
+    A long-running Python process holds the modules it imported. On 2026-07-30
+    the analyst re-created five duplicate pattern records overnight using a
+    record_factory that had been fixed the previous afternoon — the fix was
+    committed, tested and live in the tree, and entirely absent from the process
+    doing the work. Nothing said so.
+
+    Comparing the newest source mtime against each process's start time needs no
+    new state file and answers the only question that matters: is the agent
+    running the code I think it is?
+    """
+    import platform
+
+    if platform.system() != "Darwin":
+        return []
+    try:
+        newest_source = max(
+            (p.stat().st_mtime for p in repo_root().joinpath("lisan").rglob("*.py")),
+            default=0.0,
+        )
+    except OSError:
+        return []
+    stale: list[str] = []
+    try:
+        listing = subprocess.run(["launchctl", "list"], capture_output=True, text=True, timeout=5)
+        for line in listing.stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) < 3 or not parts[2].strip().startswith("com.lisan."):
+                continue
+            pid = parts[0].strip()
+            if not pid.isdigit():
+                continue
+            started = subprocess.run(
+                ["ps", "-o", "lstart=", "-p", pid], capture_output=True, text=True, timeout=5
+            )
+            stamp = started.stdout.strip()
+            if not stamp:
+                continue
+            import time as _time
+            from datetime import datetime
+
+            try:
+                start_epoch = _time.mktime(datetime.strptime(stamp, "%a %b %d %H:%M:%S %Y").timetuple())
+            except ValueError:
+                continue
+            if newest_source > start_epoch:
+                stale.append(parts[2].strip().rsplit(".", 1)[-1])
+    except Exception:
+        return stale
+    return stale
 
 
 def render_self_state(state: dict[str, Any]) -> str:
@@ -512,6 +593,14 @@ def render_self_state(state: dict[str, Any]) -> str:
     lines.append(
         "Services: " + ", ".join(f"{name} {'up' if up else 'down'}" for name, up in sorted(services.items()))
     )
+    stale = state.get("stale_code_services") or []
+    if stale:
+        lines.append(
+            "STALE CODE: " + ", ".join(sorted(stale)) + " started before the current source was written, "
+            "so they are running an older version of me than what is on disk. "
+            "Restart them (`lisan restart`, or launchctl kickstart) before trusting "
+            "that a recent fix is in effect."
+        )
     machine = state.get("machine") or {}
     if machine.get("last_wake") or machine.get("last_sleep"):
         lines.append(
