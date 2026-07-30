@@ -100,6 +100,25 @@ class ReferenceIndex:
     address is the difference between a reference that works and one that
     merely validates."""
 
+    by_claim_text: dict[str, list[str]] = field(default_factory=dict)
+    """Exact ``claim_text`` -> claim ids.
+
+    The writer put claim *text* where claim *ids* belong, in `links` and
+    `linked_claims` alike, so 39 references were whole sentences. They are not
+    junk: each is the verbatim text of a claim record that exists, which makes
+    them repairable by exact match rather than by guesswork. Only exact, only
+    unique — a near-match between two claims is a judgement, not a lookup."""
+
+    by_entity_alias: dict[str, list[str]] = field(default_factory=dict)
+    """Slugified entity name/alias -> entity ids.
+
+    The last resort for a reference the model invented rather than copied:
+    ``entities/people/rosa.md`` names a real person filed under her full name.
+    Aliases are the vault's own record of what she is called, so matching
+    through them is reading the data rather than guessing at it — and the same
+    ambiguity rule applies, because three people sharing a first name make it
+    unresolvable, not a coin flip."""
+
     _path_to_id: dict[str, str] = field(default_factory=dict)
 
     def id_for_path(self, rel: str) -> str | None:
@@ -139,7 +158,14 @@ def build_reference_index(vault: Path) -> ReferenceIndex:
         if not is_indexable(rel):
             index.unindexed_paths.setdefault(rel_str, record_id)
             continue
-        index.ids.setdefault(record_id, rel)
+        # A live record outranks an archived one carrying the same id. Archived
+        # copies legitimately share ids (epoch snapshots, merges, superseded
+        # revisions), and `setdefault` alone would let whichever the directory
+        # walk reached first win — so a reference could resolve to a retired
+        # snapshot while the current record sat right there.
+        archived = "archive" in rel.parts
+        if record_id not in index.ids or (not archived and "archive" in index.ids[record_id].parts):
+            index.ids[record_id] = rel
         index._path_to_id.setdefault(rel_str, record_id)
         forwarding = frontmatter.get("merged_into")
         if isinstance(forwarding, str) and forwarding.strip() and forwarding.strip() != record_id:
@@ -147,7 +173,31 @@ def build_reference_index(vault: Path) -> ReferenceIndex:
         if "archive" not in rel.parts:
             index.live_ids.setdefault(record_id, rel)
             index.by_basename.setdefault(path.name, []).append(record_id)
+            claim_text = frontmatter.get("claim_text")
+            if isinstance(claim_text, str) and claim_text.strip():
+                key = " ".join(claim_text.split())
+                index.by_claim_text.setdefault(key, []).append(record_id)
+            if str(frontmatter.get("type")) == "entity":
+                names = [frontmatter.get("canonical_name"), frontmatter.get("nickname")]
+                names.extend(frontmatter.get("aliases") or [])
+                for name in names:
+                    key = _alias_key(name)
+                    if key and record_id not in index.by_entity_alias.setdefault(key, []):
+                        index.by_entity_alias[key].append(record_id)
     return index
+
+
+def _alias_key(value: Any) -> str:
+    """Comparison form for a name: lowercased, non-alphanumerics to hyphens.
+
+    Makes ``Rosa Delgado``, ``rosa-delgado`` and ``Rosa_Delgado`` one key,
+    which is what lets a reference written as a filename find the person.
+    """
+    if not isinstance(value, str):
+        return ""
+    import re as _re
+
+    return _re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
 
 
 def looks_like_prose(value: str) -> bool:
@@ -194,7 +244,7 @@ class Resolution:
     def repairable(self) -> bool:
         """Names a real record, but not in a form the graph can follow.
         ``lisan migrate refs`` rewrites these to :attr:`target`."""
-        return self.kind in {"path", "basename", "merged"} and bool(self.target)
+        return self.kind in {"path", "basename", "merged", "alias", "claim_text"} and bool(self.target)
 
 
 def resolve_reference(value: Any, vault: Path, index: ReferenceIndex) -> Resolution:
@@ -245,6 +295,18 @@ def resolve_reference(value: Any, vault: Path, index: ReferenceIndex) -> Resolut
             detail="points at a real file that is not an indexed record (provenance, not a graph edge)",
         )
     if looks_like_prose(text):
+        matches = index.by_claim_text.get(" ".join(text.split())) or []
+        if len(matches) == 1:
+            return Resolution(
+                "claim_text",
+                target=matches[0],
+                detail=f"verbatim claim_text of {matches[0]}",
+            )
+        if len(matches) > 1:
+            return Resolution(
+                "prose",
+                detail=f"text matches {len(matches)} claims; resolve by hand",
+            )
         return Resolution("prose", detail="prose in a reference field")
     basename = text.rsplit("/", 1)[-1]
     if basename.endswith(".md"):
@@ -253,6 +315,22 @@ def resolve_reference(value: Any, vault: Path, index: ReferenceIndex) -> Resolut
             return Resolution("basename", target=matches[0], detail=f"filename of {matches[0]}")
         if len(matches) > 1:
             return Resolution("unknown", detail=f"filename {basename!r} matches {len(matches)} records; ambiguous")
+    # Last resort: the reference may name an entity by a name it actually goes
+    # by, in a file that never existed — a model writing
+    # `entities/people/<firstname>.md` for someone filed under a full name.
+    stem = basename[:-3] if basename.endswith(".md") else basename
+    alias_matches = index.by_entity_alias.get(_alias_key(stem)) or []
+    if len(alias_matches) == 1:
+        return Resolution(
+            "alias",
+            target=alias_matches[0],
+            detail=f"names {alias_matches[0]} by one of its aliases",
+        )
+    if len(alias_matches) > 1:
+        return Resolution(
+            "unknown",
+            detail=f"{stem!r} is an alias of {len(alias_matches)} entities; ambiguous — resolve by hand",
+        )
     return Resolution("unknown", detail="no record with this id, path, or filename")
 
 

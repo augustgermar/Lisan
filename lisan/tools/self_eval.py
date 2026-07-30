@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 from .db import connect as _db_connect
 
+from ..frontmatter import load_markdown, write_markdown
 from ..utils import today_iso
 from .log import get_logger, log_error
 
@@ -213,8 +214,6 @@ def machine_health(vault: Path, *, db_path: Path | None, days: int) -> dict[str,
     for kind in created:
         folder = vault / kind
         if folder.exists():
-            from ..frontmatter import load_markdown
-
             for p in folder.rglob("*.md"):
                 try:
                     if str(load_markdown(p).frontmatter.get("created") or "") >= cutoff:
@@ -414,7 +413,32 @@ def _write_report(
         lines.append("- nothing actionable; hold course")
     path = vault / "reports" / f"self-eval-{now.strftime('%Y%m%d')}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Frontmatter, because reports/ is a structured-record directory: written
+    # bare, every self-evaluation failed validation for a missing `type` and
+    # stayed invisible to retrieval — the system could not recall its own
+    # reviews of itself. personal_sensitive/private by construction: the body
+    # quotes real conversation verbatim.
+    stamp = now.isoformat()
+    frontmatter = {
+        "id": f"report.self-eval-{now.strftime('%Y%m%d')}",
+        "type": "report",
+        "created": stamp,
+        "updated": stamp,
+        "status": "active",
+        "significance": "medium",
+        "domain_primary": "competence",
+        "domain_secondary": [],
+        "privacy": "personal_sensitive",
+        "disclosure": "private",
+        "summary": f"Self-evaluation {stamp}: {entry['judged']} exchange(s) judged, "
+                   f"overall mean {entry.get('overall_mean')}",
+        "links": [],
+        "confidence": "medium",
+        "confidence_basis": "Rubric scores over real transcripts, judged by a separate examiner",
+        "last_confirmed": stamp,
+        "review_after": stamp,
+    }
+    write_markdown(path, frontmatter, "\n".join(lines) + "\n")
     return path
 
 

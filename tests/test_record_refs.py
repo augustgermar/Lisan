@@ -391,3 +391,62 @@ def test_migration_rewrites_merged_references(vault):
     loop = new_open_loop(vault, "A loop", links=["entity.frag"])
     migrate_references(vault, dry_run=False)
     assert load_markdown(loop.path).frontmatter["links"] == ["entity.survivor"]
+
+
+# ---------------------------------------------------------------------------
+# 11. A re-derived record updates its record instead of founding a new one
+
+def test_rederived_pattern_updates_in_place(vault):
+    """The filename carries the date, the id does not — so a daily analyst scan
+    founded a new file under the same id every run: 13 copies per pattern in two
+    weeks, of which the index kept exactly one (INSERT OR REPLACE on id) while
+    the rest were invisible to retrieval and visible only as duplicate-id
+    errors."""
+    from lisan.tools.record_factory import new_pattern
+
+    first = new_pattern(vault=vault, pattern_type="work_loop",
+                        hypothesis="Work concerns recur across records",
+                        supporting_records=[], first_seen="2026-07-15")
+    # Simulate the record having been created on an earlier day.
+    doc = load_markdown(first.path)
+    fm = dict(doc.frontmatter); fm["created"] = "2026-07-15"
+    write_markdown(first.path, fm, doc.body)
+
+    second = new_pattern(vault=vault, pattern_type="work_loop",
+                         hypothesis="Work concerns recur across records",
+                         supporting_records=[])
+    assert second.path == first.path, "a re-derivation must not found a second file"
+    assert len(list((vault / "patterns").glob("*.md"))) == 1
+    # The record's age is part of what a longitudinal pattern means.
+    assert load_markdown(second.path).frontmatter["created"] == "2026-07-15"
+
+
+def test_duplicate_id_migration_keeps_newest_and_archives_rest(vault):
+    from lisan.tools.migrate_duplicate_ids import migrate_duplicate_ids
+
+    for day in ("2026-07-15", "2026-07-20", "2026-07-29"):
+        _write(vault / "patterns" / f"{day}-work-loop.md",
+               _record("pattern.work-loop", "pattern", created=day, updated=day,
+                       pattern_type="work_loop", hypothesis="h", supporting_records=[],
+                       counterexamples=[], alternative_explanations=[], confidence=0.4,
+                       first_seen=day, last_reviewed=day, predictions=[], review_notes=""))
+
+    dry = migrate_duplicate_ids(vault, dry_run=True)
+    assert dry.files_archived == 2
+    assert len(list((vault / "patterns").glob("*.md"))) == 3, "dry run must not move files"
+
+    migrate_duplicate_ids(vault, dry_run=False)
+    live = list((vault / "patterns").glob("*.md"))
+    assert len(live) == 1 and live[0].name == "2026-07-29-work-loop.md", "newest survives"
+    archived = list((vault / "archive" / "patterns").glob("superseded-*.md"))
+    assert len(archived) == 2, "older copies archived, never deleted"
+    assert load_markdown(archived[0]).frontmatter["status"] == "superseded"
+    assert migrate_duplicate_ids(vault, dry_run=False).files_archived == 0, "idempotent"
+
+
+def test_live_record_outranks_an_archived_one_with_the_same_id(vault):
+    _write(vault / "archive" / "patterns" / "superseded-old.md",
+           _record("pattern.p", "pattern", status="superseded"))
+    _write(vault / "patterns" / "new.md", _record("pattern.p", "pattern"))
+    index = build_reference_index(vault)
+    assert "archive" not in index.ids["pattern.p"].parts, "a reference must reach the current record"

@@ -356,7 +356,9 @@ def _assimilate_episode_note(item: dict[str, Any], *, vault: Path, summary: dict
         vault,
         f"note {day}",
         summary=f"From {{{{principal}}}}'s note dated {day}: {first_line[:160]}",
-        source="ingestion",
+        # The enum is {elicitor, extraction, manual}: capturing an episode from
+        # a written note IS extraction. Provenance detail lives in source_type.
+        source="extraction",
         confidence="medium",
         confidence_basis="The owner's own dated note",
         last_confirmed=day,

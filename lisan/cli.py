@@ -560,6 +560,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     migrate_refs_cmd.add_argument("--vault", type=Path, default=vault_root())
     migrate_refs_cmd.add_argument("--apply", action="store_true", help="Write changes (default is a dry run)")
+    migrate_dupes_cmd = migrate_subparsers.add_parser(
+        "duplicate-ids",
+        help="Archive superseded copies of re-derived records that reused an id",
+    )
+    migrate_dupes_cmd.add_argument("--vault", type=Path, default=vault_root())
+    migrate_dupes_cmd.add_argument("--apply", action="store_true", help="Write changes (default is a dry run)")
 
     edit = subparsers.add_parser("edit", help="Edit an existing record")
     edit.add_argument("--path", type=Path, required=True)
@@ -1909,6 +1915,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "migrate":
+        if getattr(args, "migrate_command", None) == "duplicate-ids":
+            from .tools.migrate_duplicate_ids import migrate_duplicate_ids
+
+            dupe_result = migrate_duplicate_ids(args.vault, dry_run=not args.apply)
+            print(json.dumps(dupe_result.as_dict(), indent=2))
+            if dupe_result.dry_run and dupe_result.files_archived:
+                print(f"\nDry run. Re-run with --apply to archive {dupe_result.files_archived} "
+                      f"superseded file(s), then `lisan rebuild-index`.")
+            return 0
         if getattr(args, "migrate_command", None) == "refs":
             from .tools.migrate_refs import migrate_references
 

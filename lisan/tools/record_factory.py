@@ -1298,6 +1298,23 @@ def new_skeptical_review(
     return CreatedRecord(path=record_path, created=True)
 
 
+
+def _existing_record_path(folder: Path, record_id: str) -> Path | None:
+    """The live file already carrying *record_id* in *folder*, if any.
+
+    Used by re-derived record types so a fresh derivation updates its record
+    instead of founding a second one under the same id.
+    """
+    if not folder.exists():
+        return None
+    for candidate in sorted(folder.glob("*.md")):
+        try:
+            if str(load_markdown(candidate).frontmatter.get("id") or "") == record_id:
+                return candidate
+        except Exception:
+            continue
+    return None
+
 def new_pattern(
     vault: Path,
     pattern_type: str,
@@ -1324,7 +1341,22 @@ def new_pattern(
     today = today_iso()
     safe_slug = slugify(f"{pattern_type}-{hypothesis}")[:80]
     path = vault / "patterns" / f"{today}-{safe_slug}.md"
-    if path.exists():
+    # A re-derived pattern updates its record; it does not found a new one.
+    # The filename carries the date, the id does not, so the analyst's daily
+    # scan produced a new file under the same id every run: 13 copies of each
+    # pattern in two weeks, of which the index kept exactly one (INSERT OR
+    # REPLACE on id) while the other twelve were invisible to retrieval and
+    # visible only as duplicate-id errors. Write over the existing record and
+    # keep its original `created` — the record's age is part of what a
+    # longitudinal pattern means.
+    pattern_id = f"pattern.{safe_slug}"
+    existing = _existing_record_path(vault / "patterns", pattern_id)
+    if existing is not None:
+        # Identity is the id, not the filename — so this resolves before the
+        # same-day collision check, which would otherwise raise on the second
+        # scan of a single day while silently permitting a duplicate on the next.
+        path = existing
+    elif path.exists():
         raise FileExistsError(path)
 
     # The analyst's supporting_records arrives verbatim from LLM output, and a
@@ -1355,10 +1387,16 @@ def new_pattern(
         "counterexamples": counter,
     }
     integration_override = integration_override or {"enabled": False, "reason": "", "approved_by": ""}
+    created_on = today
+    if existing is not None:
+        try:
+            created_on = str(load_markdown(existing).frontmatter.get("created") or today)
+        except Exception:
+            created_on = today
     frontmatter = {
-        "id": f"pattern.{safe_slug}",
+        "id": pattern_id,
         "type": "pattern",
-        "created": today,
+        "created": created_on,
         "created_at": today,
         "updated": today,
         "status": status,

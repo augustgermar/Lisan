@@ -421,7 +421,11 @@ def _emit(
             "confidence_basis": "Deterministic deviation scan",
             "last_confirmed": today,
             "review_after": today,
-            "priority": "normal",
+            # "normal" is not in the priority enum {high, medium, low}; every
+            # deviation loop written since this scanner shipped failed validation
+            # on it (19 records), which is a producer writing a value its own
+            # schema forbids.
+            "priority": "medium",
             "owner": "agent",
             "next_action": "",
             "blocked_by": [],
