@@ -181,6 +181,10 @@ class TaskExecutionTests(unittest.TestCase):
             # suite-wide outbound kill switch — lift the switch so the config
             # path runs. load_config is patched to {}, so nothing can send.
             os.environ.pop("LISAN_NO_OUTBOUND", None)
+            # Same for the runner-independent test-process guard: opting out is
+            # explicit here precisely because the guard is not, and an empty
+            # config still makes delivery impossible.
+            os.environ["LISAN_ALLOW_TEST_OUTBOUND"] = "1"
             summary = run_jobs_worker(vault=self.vault, db_path=self.db)
         # the worker exhausts max_attempts within one drain (retry_wait
         # promotes immediately when scheduled_for is now), then escalation

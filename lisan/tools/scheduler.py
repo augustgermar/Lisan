@@ -425,14 +425,30 @@ def _deliver_owner_message(text: str, *, chat_id: int | None = None, config: dic
 
     if os.environ.get("LISAN_NO_OUTBOUND"):
         # The hard kill switch for every owner-bound message. Set by the
-        # test suite (tests/__init__.py, so unittest AND pytest runs are
-        # covered): escalation fires from deep inside the job worker and
-        # reads the developer's real config.json if nothing intervenes —
-        # on 2026-07-26 three full-suite runs paged the owner's phone six
-        # times with a test fixture's deliberate parse failure. Raising
-        # (not silently succeeding) keeps the caller's books honest: the
-        # message was NOT delivered.
+        # test suite (tests/__init__.py): escalation fires from deep inside
+        # the job worker and reads the developer's real config.json if
+        # nothing intervenes — on 2026-07-26 three full-suite runs paged the
+        # owner's phone six times with a test fixture's deliberate parse
+        # failure. Raising (not silently succeeding) keeps the caller's books
+        # honest: the message was NOT delivered.
         raise RuntimeError("outbound delivery disabled by LISAN_NO_OUTBOUND")
+
+    from ..paths import _looks_like_a_test_process
+
+    if _looks_like_a_test_process() and not os.environ.get("LISAN_ALLOW_TEST_OUTBOUND"):
+        # And the same guarantee without depending on the env var arriving.
+        # tests/__init__.py sets LISAN_NO_OUTBOUND, but `python -m unittest
+        # discover -s tests` imports test modules top-level and never runs
+        # that init, so under that runner the switch is simply absent —
+        # measured 2026-07-29. escalation._notify_owner's resident-vault check
+        # does not close the gap either: a test that escalates with the
+        # *ambient* vault is by definition the resident vault, so it passes.
+        # Asking whether this process is a test suite is the one question that
+        # holds for every runner and every vault. A test that deliberately
+        # exercises the paths *below* this guard sets LISAN_ALLOW_TEST_OUTBOUND
+        # and makes sending impossible some other way (an empty config), so the
+        # opt-out is explicit at the call site rather than ambient.
+        raise RuntimeError("outbound delivery refused: this is a test process")
 
     config = config or load_config()
     token, allowed = _resolve_settings(config)

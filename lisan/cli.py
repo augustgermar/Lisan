@@ -123,6 +123,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate = subparsers.add_parser("validate", help="Validate vault files")
     validate.add_argument("--vault", type=Path, default=vault_root())
+    validate.add_argument("--db-path", type=Path, default=None,
+                          help="Index to validate against (defaults to this install's)")
 
     # Local to build_parser on purpose: main() already lazy-imports these in
     # its `intent` branch, and hoisting to module level would make that local
@@ -999,7 +1001,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "validate":
-        report = validate_vault(args.vault)
+        report = validate_vault(args.vault, db_path=args.db_path)
         print(format_report(report))
         return 0 if report.ok else 1
 
@@ -1806,7 +1808,8 @@ def main(argv: list[str] | None = None) -> int:
         generate_manifests(args.vault, write=True)
         write_current_brief(args.vault)
         write_batch_review(args.vault)
-        report = validate_vault(args.vault)
+        # sync validates the vault it is syncing, against that vault's index.
+        report = validate_vault(args.vault, db_path=getattr(args, "db_path", None))
         counts = rebuild_index(args.vault)
         from .tools.learned_edges import mine_learned_edges
         from .tools.retrospective import sweep_missed_captures

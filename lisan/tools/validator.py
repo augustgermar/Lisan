@@ -309,7 +309,15 @@ _CREDENTIAL_PATTERNS = [
 ]
 
 
-def validate_vault(vault: Path | None = None) -> ValidationReport:
+def validate_vault(vault: Path | None = None, *, db_path: Path | None = None) -> ValidationReport:
+    """Validate a vault. ``db_path`` names the index to check it against.
+
+    Threading it matters: the alias-uniqueness check reads the index, and
+    resolving that ambiently meant `lisan validate --vault X` could validate
+    vault X against whatever index the process happened to default to. The two
+    were the same install here, so it passed by luck rather than by design —
+    the same ambient-resolution shape that let a test write into production.
+    """
     vault = vault or vault_root()
     report = ValidationReport()
     schemas = load_schemas()
@@ -371,7 +379,7 @@ def validate_vault(vault: Path | None = None) -> ValidationReport:
     _validate_episode_sources(vault, report)
     _validate_state_staleness(vault, report)
     _validate_wikilinks(vault, seen_ids, report)
-    _validate_alias_uniqueness(vault, report)
+    _validate_alias_uniqueness(vault, report, db_path=db_path)
     return report
 
 
@@ -849,11 +857,16 @@ def _validate_wikilinks(vault: Path, seen_ids: dict[str, Path], report: Validati
             report.add(path, f"Wikilink target not found: [[{target_clean}]]", severity="warning")
 
 
-def _validate_alias_uniqueness(vault: Path, report: ValidationReport) -> None:
-    """Warn when the same alias resolves to multiple entities (spec §7.8)."""
+def _validate_alias_uniqueness(
+    vault: Path, report: ValidationReport, *, db_path: Path | None = None
+) -> None:
+    """Warn when the same alias resolves to multiple entities (spec §7.8).
+
+    The index travels with the vault its caller named — see validate_vault.
+    """
     import sqlite3
     from ..paths import sqlite_path
-    db = sqlite_path()
+    db = db_path or sqlite_path()
     if not db.exists():
         return
     try:

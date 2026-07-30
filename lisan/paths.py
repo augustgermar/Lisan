@@ -1,11 +1,40 @@
 from __future__ import annotations
 
 import os
+import sys
+import tempfile
+import warnings
 from pathlib import Path
 
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
+
+
+def _looks_like_a_test_process() -> bool:
+    """Is this process running a test suite, whatever the runner?
+
+    Asks what the process *is* rather than how it was started — the same shape
+    as ``_notify_owner`` asking whose vault is escalating instead of whether it
+    was launched under systemd. ``tests/__init__.py`` sets ``LISAN_DATA_HOME``
+    for containment, but it is only imported when the suite loads as a package:
+    ``python -m unittest discover -s tests`` puts ``tests/`` on sys.path and
+    imports each module top-level, so the init never runs. Measured 2026-07-29
+    — under that runner ``LISAN_DATA_HOME`` was unset and ``data_root()``
+    resolved to the live install, which is the exact resolution that replaced
+    971 production vectors with an empty stub.
+
+    Neither framework is imported anywhere in lisan's runtime, so their presence
+    in ``sys.modules`` is a sound signal rather than a guess.
+    """
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return True
+    return "pytest" in sys.modules or "unittest" in sys.modules
+
+
+# Resolved once per process so every ambient caller in a test run agrees, and
+# so the warning is emitted once rather than per call.
+_TEST_DATA_ROOT: Path | None = None
 
 
 def default_vault_root() -> Path:
@@ -49,12 +78,35 @@ def data_root() -> Path:
     ``LISAN_DATA_HOME`` redirects only the mutable paths, so a test run (or any
     sandboxed process) can be pointed somewhere harmless without breaking
     prompt and schema loading.
+
+    A test process never gets the live install back. That containment used to
+    depend on ``tests/__init__.py`` being imported before anything else, which
+    one real runner skips (see :func:`_looks_like_a_test_process`); deciding it
+    here makes it hold for every runner, including one nobody has written yet.
+    Set ``LISAN_DATA_HOME`` to choose the location, or
+    ``LISAN_ALLOW_TEST_DATA_ROOT=1`` to opt out deliberately — one test asserts
+    the production default and must still be able to.
     """
     env_value = os.environ.get("LISAN_DATA_HOME")
     if env_value:
         root = Path(env_value).expanduser()
         root.mkdir(parents=True, exist_ok=True)
         return root
+    if _looks_like_a_test_process() and os.environ.get("LISAN_ALLOW_TEST_DATA_ROOT") != "1":
+        global _TEST_DATA_ROOT
+        if _TEST_DATA_ROOT is None:
+            _TEST_DATA_ROOT = Path(tempfile.mkdtemp(prefix="lisan-test-data-"))
+            # Audible, not silent: a redirect nobody is told about is the same
+            # failure mode as an embedder that skips and reports success.
+            warnings.warn(
+                "lisan.paths.data_root(): a test process resolved the mutable data root "
+                f"ambiently; redirected to {_TEST_DATA_ROOT} rather than the live install "
+                f"at {repo_root()}. Pass an explicit path, or set LISAN_DATA_HOME.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        _TEST_DATA_ROOT.mkdir(parents=True, exist_ok=True)
+        return _TEST_DATA_ROOT
     return repo_root()
 
 
