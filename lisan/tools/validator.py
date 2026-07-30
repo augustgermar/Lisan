@@ -14,6 +14,7 @@ from ..frontmatter import FrontmatterError, load_markdown
 from ..paths import vault_root, schemas_dir, repo_root
 from ..schemas import load_schemas
 from .domain_fields import normalize_domain_fields
+from .record_refs import ReferenceIndex, build_reference_index, resolve_reference
 from .common import iter_markdown_files, parse_date
 
 
@@ -361,8 +362,12 @@ def validate_vault(vault: Path | None = None) -> ValidationReport:
             else:
                 seen_ids[file_id] = path
 
+    # One index, two audiences: seen_ids stays live-only for the duplicate
+    # audit above; reference checking spans archive because archiving
+    # preserves ids on purpose.
+    reference_index = build_reference_index(vault)
     _validate_intent(vault, report)
-    _validate_links(vault, seen_ids, report)
+    _validate_links(vault, reference_index, report)
     _validate_episode_sources(vault, report)
     _validate_state_staleness(vault, report)
     _validate_wikilinks(vault, seen_ids, report)
@@ -713,23 +718,75 @@ def _validate_intent(vault: Path, report: ValidationReport) -> None:
         report.add(intent_path(vault), f"intent.md: {issue}")
 
 
-def _validate_links(vault: Path, seen_ids: dict[str, Path], report: ValidationReport) -> None:
+_LINK_FIELDS = ("links", "supporting_records")
+
+
+def _validate_links(vault: Path, index: ReferenceIndex, report: ValidationReport) -> None:
+    """Check reference fields against every record that exists, archived
+    included.
+
+    The index deliberately spans ``archive/`` where the duplicate-id audit
+    does not: epoch archiving and entity merges preserve a record's id, so a
+    reference to an archived record names something real. Conflating the two
+    views produced 695 errors on a production vault, every one of them
+    pointing at a record that was still there.
+
+    Distinct messages per failure kind, because the owner's remedy differs:
+    prose in the field is a writer defect, an ambiguous filename needs a
+    human decision, and a genuinely absent target is a dangling reference.
+    """
     for path in iter_markdown_files(vault):
         if path.name in {"identity.md", "operating-style.md", "current-brief.md"}:
+            continue
+        try:
+            rel = path.relative_to(vault)
+        except ValueError:
+            continue
+        # Drafts are the writer's proposals awaiting review. A draft may
+        # legitimately reference a record that does not exist yet — that is
+        # what makes it a draft — so holding its references to the standard of
+        # committed bookkeeping reports 115 non-problems on a real vault.
+        if rel.parts and rel.parts[0] == "drafts":
             continue
         try:
             doc = load_markdown(path)
         except FrontmatterError:
             continue
-        links = doc.frontmatter.get("links", [])
-        if not isinstance(links, list):
-            continue
-        for link in links:
-            if isinstance(link, str):
-                if link in seen_ids:
+        for field_name in _LINK_FIELDS:
+            values = doc.frontmatter.get(field_name)
+            if not isinstance(values, list):
+                continue
+            for value in values:
+                resolution = resolve_reference(value, vault, index)
+                if resolution.ok:
                     continue
-                if not (vault / link).exists():
-                    report.add(path, f"Link target does not exist: {link}")
+                if resolution.kind == "unindexed":
+                    # A reference to a draft, and a legitimate one: promotion
+                    # records the draft a record came from, which is provenance
+                    # rather than a graph edge. Nothing to fix, so nothing said.
+                    continue
+                if resolution.repairable:
+                    # Names a real record, in a form graph retrieval cannot
+                    # follow. Reported as a warning: nothing is lost and the
+                    # remedy is one mechanical command, so it should not sit
+                    # in the same bucket as a reference to nothing.
+                    report.add(
+                        path,
+                        f"{field_name} reference is not an id and will not traverse: "
+                        f"{value} -> {resolution.target} (run `lisan migrate refs`)",
+                        severity="warning",
+                    )
+                elif resolution.kind == "prose":
+                    excerpt = str(value).strip()[:70]
+                    report.add(
+                        path,
+                        f"{field_name} entry is prose, not a record reference: {excerpt!r}",
+                    )
+                else:
+                    report.add(
+                        path,
+                        f"{field_name} target does not exist: {value} ({resolution.detail})",
+                    )
 
 
 def _validate_episode_sources(vault: Path, report: ValidationReport) -> None:
