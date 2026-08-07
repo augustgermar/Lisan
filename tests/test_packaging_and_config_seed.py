@@ -58,6 +58,47 @@ def test_version_is_the_same_in_both_places_it_is_written():
     )
 
 
+def test_every_declared_core_dependency_is_actually_installed():
+    """The environment running the tests must have what pyproject declares.
+
+    This is the gate for the failure that cost this project the most: the
+    semantic retrieval lane was dead for the entire life of an install because
+    ``fastembed`` — a declared *core* dependency — was missing from a venv that
+    predated it. Nothing said so. ``index.embed_pending`` jobs reported
+    succeeded while embedding nothing, and the three-lane retrieval quietly ran
+    on two, because ``unreachable_policy: skip`` degrades silently by design.
+
+    The same drift then hid a test bug: ``test_learned_partner_enters_fusion``
+    passed on a developer venv that also lacked fastembed, i.e. it was green
+    only where the semantic lane was dead, and failed the moment CI ran it
+    somewhere the lane worked.
+
+    Checking installation rather than importing keeps this fast and avoids
+    guessing module names from distribution names — the question is whether the
+    environment matches the manifest, not whether a particular import works.
+    """
+    from importlib.metadata import PackageNotFoundError, distribution
+
+    pyproject = (_repo() / "pyproject.toml").read_text(encoding="utf-8")
+    block = re.search(r"^dependencies\s*=\s*\[(.*?)\]", pyproject, re.MULTILINE | re.DOTALL)
+    assert block, "pyproject.toml has no core dependencies block"
+
+    declared = re.findall(r'"([A-Za-z0-9._-]+)', block.group(1))
+    assert declared, "parsed no dependency names — the regex and pyproject have drifted"
+
+    missing = []
+    for name in declared:
+        try:
+            distribution(name)
+        except PackageNotFoundError:
+            missing.append(name)
+    assert not missing, (
+        f"core dependencies declared in pyproject.toml but not installed here: {missing}. "
+        "This environment does not match the manifest — reinstall (pip install -e .) before "
+        "trusting a green run. A missing core dependency degrades silently."
+    )
+
+
 # ── the shipped example config ───────────────────────────────────────────────
 
 def test_example_config_is_valid_json():
