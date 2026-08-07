@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .config import load_config, save_default_config
 from .agents import AdviceAgent, AnalystAgent, AssemblerAgent, DreamerAgent, ElicitorAgent, InterlocutorAgent, ListenerAgent, RouterAgent, SkepticAgent, WriterAgent
-from .paths import ensure_repo_layout, ensure_root_layout, ensure_vault_layout, repo_root, sqlite_path, vault_root, write_seed_files
+from .paths import config_path, ensure_repo_layout, ensure_root_layout, ensure_vault_layout, repo_root, seed_config_file, sqlite_path, vault_root, write_seed_files
 from .providers.base import LisanLLM, ProviderError
 from .prompts import list_prompts, load_prompt
 from .tools.assembler import assemble_context
@@ -69,7 +69,13 @@ def _split_csv_values(value: str | None) -> list[str]:
 def _bootstrap_runtime(vault: Path, *, ensure_schema: bool = False) -> None:
     ensure_root_layout(repo_root())
     ensure_vault_layout(vault)
-    if not (repo_root() / "config.json").exists():
+    # config_path(), not a hardcoded config.json: on an install predating the
+    # rename the live config is config.yaml, and testing the json name directly
+    # reported "absent" for a configured install — then wrote an empty default
+    # beside it, which config_path() prefers from that moment on. The install
+    # would have kept running, on defaults, with its real settings still on
+    # disk and no longer read by anything.
+    if not config_path().exists():
         save_default_config()
     write_seed_files(vault)
     if ensure_schema:
@@ -922,11 +928,14 @@ def main(argv: list[str] | None = None) -> int:
         vault = vault_root()
         ensure_repo_layout()
         seeded = write_seed_files(vault)
+        config_seeded = seed_config_file()
         print(f"Lisan workspace initialized at {vault}.")
         if seeded:
             print("\nSeed files created (fill these in before first use):")
             for f in seeded:
                 print(f"  {f}")
+        if config_seeded is not None:
+            print(f"\nConfig created from config.example.json:\n  {config_seeded}")
         from .tools.onboarding import run_onboarding
         run_onboarding(vault)
         if not os.environ.get("LISAN_VAULT"):

@@ -229,6 +229,39 @@ def write_seed_files(vault: Path) -> list[str]:
     return written
 
 
+def seed_config_file(base: Path | None = None) -> Path | None:
+    """Create the live ``config.json`` from ``config.example.json`` if absent.
+
+    A fresh clone shipped ``config.example.json`` and nothing that copied it,
+    while onboarding told the new owner to "update routing in config.json" — a
+    file that did not exist and that no command created. The system ran fine on
+    built-in defaults, so the instruction was the only symptom, and it pointed
+    at nothing. Advice naming a file the installer never writes is a papercut
+    that reads as a broken install.
+
+    Returns the path written, or None when there was nothing to do.
+
+    Two refusals, both deliberate. If ``config_path()`` already resolves to an
+    existing file this does nothing — including when that file is a legacy
+    ``config.yaml``, because writing config.json beside it would silently
+    promote an empty config over the settings the install actually runs on
+    (``config_path`` prefers config.json once it exists). And a missing example
+    is not an error worth failing ``init`` over.
+    """
+    root = base or repo_root()
+    live = config_path(root)
+    if live.exists():
+        return None
+    example = root / "config.example.json"
+    if not example.is_file():
+        return None
+    try:
+        live.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
+    except OSError:
+        return None
+    return live
+
+
 def ensure_vault_layout(vault: Path) -> None:
     for rel in [
         "primer",
