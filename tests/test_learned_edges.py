@@ -101,6 +101,43 @@ class MiningTests(unittest.TestCase):
 
 
 class RetrievalLaneTests(unittest.TestCase):
+    def setUp(self) -> None:
+        """Hold the semantic lane down for this test, in the test itself.
+
+        The assertion below is that the partner arrives *via* the learned edge.
+        That lane only ever ADDS candidates and excludes its own seeds, so it
+        is only reachable when the ordinary lanes cannot find the partner on
+        their own — with embeddings live, the vector lane finds "cider press"
+        from "orchard ladder safety", the partner becomes a seed, and the
+        learned lane correctly declines to duplicate it. The record still
+        loads; its reason is rrf:sql+vector. Product right, test right,
+        environment doing the deciding.
+
+        conftest.py arranged that determinism suite-wide, but conftest is a
+        pytest file: ``unittest discover -s tests`` puts tests/ on sys.path and
+        imports each module top-level, so neither conftest nor tests/__init__
+        runs, and the CI job that uses it deliberately unsets the containment
+        env vars to prove the guards hold without them. On 2026-08-07 its first
+        run failed here. The test had also been green on this developer's
+        machine for the worst possible reason: the test venv had no fastembed,
+        so it was passing only where the semantic lane was dead.
+
+        A test whose premise is "the other lanes miss this" has to establish
+        that premise rather than inherit it — which is what conftest's own
+        docstring says semantic-path tests should do.
+        """
+        patcher = patch(
+            "lisan.providers.embeddings.EmbeddingProvider._attempt_remote",
+            lambda self, texts, **kwargs: None,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        from lisan.providers import embeddings as embeddings_module
+
+        embeddings_module.reset_provider_state()
+        self.addCleanup(embeddings_module.reset_provider_state)
+
     def test_learned_partner_enters_fusion(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
