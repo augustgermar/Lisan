@@ -1,6 +1,74 @@
 # Changelog
 
-## Unreleased
+## 26.8.7 (2026-08-07)
+
+Two batches: the delegation-axis correction that made `intent.md` resolvable
+at all, and a pass over the path nobody here walks.
+
+**The fresh-install half could only break for somebody else.** The suite
+runs almost exclusively on a machine where Lisan is already installed,
+configured, and full of data, which makes the first-run path the
+least-exercised code in the project and the only part every new user runs.
+Checked by installing the committed tree into a clean virtualenv and
+running it as a stranger would.
+
+- **A clean checkout failed two tests that passed here.** One was a time
+  bomb: the deviation fixture hardcoded "recently updated" as a date, the
+  stale detector measures against the wall clock, and on 2026-08-04 the
+  control entity aged past the threshold and began aching on its own. A
+  fixture that means *now* has to say now. The other was
+  `codex_workspace()` — see below.
+
+- **The executor's working directory was decided by where the repo happens
+  to sit.** `codex_workspace()` took the common ancestor of repo and vault
+  and collapsed to the repo only when that ancestor was `$HOME`, above it,
+  or the filesystem root — three ways for two trees to share a large
+  unrelated parent, out of many. A clone under `/private/tmp` yielded a
+  workspace of `/private/tmp`; a plausible `~/Documents/code/lisan` beside
+  `~/Documents/vault` yields all of `~/Documents`. The rule is now
+  structural and mentions no path at all: the vault inside the repo, the
+  repo inside the vault, or both as direct children of one directory — the
+  install-root shape `install.sh` builds — are deliberate envelopes;
+  anything else is a coincidence of placement and collapses to the repo.
+  The live install still resolves to `~/.lisan`. *The test hardcoded a
+  "disjoint" vault path that was only disjoint from this developer's
+  install; it was measuring where the code lives.*
+
+- **`codex_workspace()`'s docstring described a cage that was removed a
+  month ago.** It claimed everything outside the workspace was read-only
+  to the executor "by sandbox policy". That stopped being true on
+  2026-07-06, when the executor's default became `danger-full-access`, and
+  twice over on 2026-07-25, when the briefing began granting full
+  filesystem access explicitly. The directory still decides real things —
+  where relative paths land, what the briefing shows — but it is a working
+  directory, not a boundary, and it now says so.
+
+- **`init` creates the file it tells you to edit.** Onboarding's provider
+  advice ended "then update routing in config.json", which no command
+  created; `config.example.json` shipped beside it and nothing copied it.
+  Now seeded on `init`, never over an existing config, and never beside a
+  legacy `config.yaml` — `config_path()` prefers `config.json` once one
+  exists, so seeding there would replace the settings the install actually
+  runs on rather than adding any. `_bootstrap_runtime` had the same bug
+  and now asks `config_path()` instead of testing the filename.
+
+- **The shipped example had stopped documenting the code.** Nothing held
+  `config.example.json` and `DEFAULT_CONFIG` in step, and
+  `jobs.drain_on_capture` existed only in `config.py`. A gate now requires
+  every code default to appear in the example, asymmetrically — extra keys
+  in the example are fine, since a documented setting the code ignores is
+  harmless and an active default nobody can see is not. Two more gates:
+  the example must ship the execution layer off, and `lisan.__version__`
+  must equal the pyproject version, because `self_model` stamps that
+  string into the capability manifest and a drifted instrument is a
+  confabulation with a citation.
+
+- **The installer said the semantic lane was optional.** `LISAN_EMBEDDINGS`
+  documented itself as "install semantic extra (1 = yes, default: 0)" long
+  after `fastembed` became a core dependency. Anyone deciding whether their
+  retrieval was whole got the wrong answer from the most authoritative-
+  looking place — in a system where that lane has already been silently
+  dead once. The flag still works and is now described as the no-op it is.
 
 **The Adjutant's authority axis is real.** `intent.md` had been resolved
 against the life-dimension enum, so an owner's carefully written
