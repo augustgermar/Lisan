@@ -20,7 +20,7 @@
 #   LISAN_VAULT       default vault path      (default: $LISAN_HOME/vault)
 #   LISAN_REPO_URL    git URL to clone        (default: the public GitHub repo)
 #   LISAN_REF         branch/tag/commit       (default: main)
-#   LISAN_EMBEDDINGS  install semantic extra  (1 = yes, default: 0)
+#   LISAN_EMBEDDINGS  legacy no-op; the semantic lane installs by default
 #   LISAN_NO_INIT     skip vault seeding      (1 = skip)
 #   LISAN_NO_PATH     skip editing shell rc   (1 = skip)
 # ============================================================================
@@ -112,10 +112,14 @@ VENV_PY="$VENV_DIR/bin/python"
 info "Installing dependencies (this can take a minute)…"
 "$VENV_PY" -m pip install --quiet --upgrade pip >/dev/null
 
+# FastEmbed is a core dependency, so the plain "." spec already installs the
+# semantic retrieval lane. LISAN_EMBEDDINGS=1 selects the [embeddings] extra,
+# which is now an alias for the same package and is kept only so existing
+# scripts that set it keep working. It is not a way to turn embeddings on, and
+# leaving it unset is not a way to leave them out.
 PKG_SPEC="."
 if [ "$LISAN_EMBEDDINGS" = "1" ]; then
   PKG_SPEC=".[embeddings]"
-  info "Including semantic embeddings extra (FastEmbed)"
 fi
 # Editable install: a future `git pull` in $REPO_DIR updates the CLI in place.
 ( cd "$REPO_DIR" && "$VENV_PY" -m pip install --quiet --editable "$PKG_SPEC" )
