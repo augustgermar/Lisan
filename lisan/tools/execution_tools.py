@@ -427,24 +427,72 @@ def read_file(path: str, *, max_bytes: int = 50 * 1024) -> str:
 
 
 def codex_workspace() -> str:
-    """The executor's default workspace: the smallest directory containing
-    both the repo and the vault. Everything outside it is read-only to the
-    executor by sandbox policy — so when repo and vault share no ancestor
-    deeper than the user's home (disjoint trees give a common path of
-    home, /Users, or /), the boundary must collapse tighter, not wider:
-    the workspace falls back to the repo alone."""
+    """The executor's default working directory: the smallest directory that
+    *deliberately* contains both the repo and the vault, or the repo alone.
+
+    This is a working directory, not a cage. It was one once — the docstring
+    here claimed until 2026-08-07 that "everything outside it is read-only to
+    the executor by sandbox policy", which stopped being true on 2026-07-06
+    when the executor's default became ``danger-full-access``, and stopped
+    being true twice over on 2026-07-25 when the briefing began granting full
+    filesystem access in so many words. A comment asserting a guarantee the
+    code has stopped providing is the most expensive kind of stale: it is
+    exactly what a future maintainer checks instead of the code. What this
+    directory still decides is real but narrower — where relative paths land,
+    where the executor starts looking, and the "Working directory:" line the
+    briefing shows it.
+
+    The rule is structural, and deliberately says nothing about ``$HOME``.
+    The old one collapsed to the repo when the common ancestor was home, an
+    ancestor of home, or the filesystem root — which correctly caught
+    ``/Users`` and ``/`` while missing every other way two trees can share a
+    large, unrelated ancestor. Two examples, both real: a clone under
+    ``/private/tmp`` with a vault elsewhere in ``/private/tmp`` yielded a
+    workspace of ``/private/tmp`` (this is why the suite passed on the
+    developer's machine and failed on a clean install — the test's "disjoint"
+    vault was only disjoint from *that* install's location), and a plausible
+    ``~/Documents/code/lisan`` + ``~/Documents/vault`` layout yielded all of
+    ``~/Documents``. Neither is home-adjacent; both are wrong.
+
+    So instead of asking "is this ancestor suspiciously high relative to
+    home?", ask the question that actually matters: *is this ancestor a
+    deliberate envelope around these two trees, or an accident of where they
+    happen to sit?* Three shapes are deliberate — the vault inside the repo,
+    the repo inside the vault, and the install-root shape where both are
+    direct children (``~/.lisan/{repo,vault}``, which is what install.sh
+    builds and what production runs). Anything else is a coincidence, and a
+    coincidence collapses to the repo.
+
+    The trade is that an intentional layout one level deeper than the
+    install-root shape also collapses to the repo. That is a degradation
+    toward the tighter answer, it is a working directory rather than a
+    permission, and ``run_codex`` takes an explicit ``working_directory``
+    for anyone who means something wider.
+    """
     import os
 
     from ..paths import vault_root
 
+    repo = repo_root()
     try:
-        common = Path(os.path.commonpath([str(repo_root()), str(vault_root())]))
-    except ValueError:
+        # Resolve both sides before comparing: repo_root() already resolves,
+        # and on macOS an unresolved vault under /tmp compares unequal to the
+        # same directory reached via /private/tmp. Non-existent paths resolve
+        # fine (strict=False is the default) — the monkeypatched vault in the
+        # tests never touches the disk.
+        repo = repo.resolve()
+        vault = vault_root().resolve()
+        common = Path(os.path.commonpath([str(repo), str(vault)]))
+    except (ValueError, OSError):
+        # No common path at all (different drives on Windows) is already the
+        # collapse answer, not an error worth propagating.
         return str(repo_root())
-    home = Path.home()
-    if common == home or common in home.parents or common == Path(common.anchor):
-        return str(repo_root())
-    return str(common)
+
+    if common == repo or common == vault:
+        return str(common)
+    if repo.parent == common and vault.parent == common:
+        return str(common)
+    return str(repo_root())
 
 
 def _chat_intent_verdict(vault: Path) -> tuple[Any, int] | None:

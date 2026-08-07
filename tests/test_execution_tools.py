@@ -202,16 +202,61 @@ def test_codex_workspace_is_the_install_not_home():
     assert workspace == repo or workspace in repo.parents
 
 
-def test_codex_workspace_collapses_to_repo_when_vault_is_disjoint(monkeypatch):
-    from pathlib import Path
+def _workspace_for(monkeypatch, repo, vault):
+    """codex_workspace() with both trees placed under the test's own tmp_path.
 
-    from lisan.tools.execution_tools import codex_workspace, repo_root
+    The previous version of the disjoint test hardcoded the vault as
+    ``/private/tmp/nowhere/disjoint-vault``, which is only disjoint from a repo
+    that does not itself live under ``/private/tmp``. It passed on the
+    developer's install at ``~/.lisan/repo`` and failed on any clean checkout
+    under a temp dir — a test that measured where the developer keeps their
+    code. Building both sides from ``tmp_path`` makes the *shape* the subject,
+    which is what the rule is actually about.
+    """
+    from lisan.tools import execution_tools
 
-    monkeypatch.setattr(
-        "lisan.paths.vault_root",
-        lambda *args, **kwargs: Path("/private/tmp/nowhere/disjoint-vault"),
-    )
-    assert Path(codex_workspace()) == Path(repo_root())
+    repo.mkdir(parents=True, exist_ok=True)
+    vault.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(execution_tools, "repo_root", lambda *a, **k: repo)
+    monkeypatch.setattr("lisan.paths.vault_root", lambda *a, **k: vault)
+    return Path(execution_tools.codex_workspace())
+
+
+def test_codex_workspace_keeps_the_install_root_shape(monkeypatch, tmp_path):
+    """repo and vault as direct children of one directory — what install.sh
+    builds and what production runs. This is the shape that must not collapse."""
+    install = tmp_path / "dot-lisan"
+    workspace = _workspace_for(monkeypatch, install / "repo", install / "vault")
+    assert workspace == install.resolve()
+
+
+def test_codex_workspace_keeps_a_vault_nested_in_the_repo(monkeypatch, tmp_path):
+    repo = tmp_path / "clone"
+    workspace = _workspace_for(monkeypatch, repo, repo / "lisan-vault")
+    assert workspace == repo.resolve()
+
+
+def test_codex_workspace_collapses_to_repo_when_vault_is_disjoint(monkeypatch, tmp_path):
+    repo = tmp_path / "somewhere" / "repo"
+    workspace = _workspace_for(monkeypatch, repo, tmp_path / "elsewhere" / "vault")
+    assert workspace == repo.resolve()
+
+
+def test_codex_workspace_collapses_on_an_accidental_shared_ancestor(monkeypatch, tmp_path):
+    """The hole the home-relative rule could not see.
+
+    ``~/Documents/code/lisan`` beside ``~/Documents/vault`` shares an ancestor
+    that is neither home, nor above home, nor the filesystem root — so the old
+    rule accepted it and handed the executor the whole of ``~/Documents`` as
+    its working directory. Sharing a big unrelated parent is a coincidence of
+    where two trees sit, not a declaration that the space between them is a
+    workspace.
+    """
+    documents = tmp_path / "Documents"
+    repo = documents / "code" / "lisan"
+    workspace = _workspace_for(monkeypatch, repo, documents / "vault")
+    assert workspace == repo.resolve()
+    assert workspace != documents.resolve()
 
 
 def test_codex_briefing_declares_write_boundary():
