@@ -18,10 +18,16 @@ def _entity(vault: Path, stem: str, name: str, kind: str, *, body: str = "", sig
     folder = vault / "entities" / ("people" if kind == "person" else "things")
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{stem}.md"
+    # `updated` defaults to *today*, not a literal. The stale detector measures
+    # a gap against the wall clock, so a fixture that hardcodes "recently
+    # updated" as a fixed date is a time bomb: this one read 2026-07-05 and
+    # detonated on 2026-08-04, when the control entity in
+    # test_stale_high_significance_detected aged past stale_after_days and
+    # started aching on its own. A fixture that means "now" has to say now.
     fm = {
         "id": f"entity.{stem}", "type": "entity", "canonical_name": name, "kind": kind,
-        "significance": significance, "created": "2026-06-01",
-        "updated": updated or "2026-07-05", "links": [],
+        "significance": significance, "created": (date.today() - timedelta(days=60)).isoformat(),
+        "updated": updated or date.today().isoformat(), "links": [],
     }
     path.write_text(dump_markdown(fm, f"# {name}\n\n{body}\n"), encoding="utf-8")
     return path
