@@ -51,9 +51,13 @@ token.json
 browser-profile/
 browser-shots/
 
-# Skills are the owner's, not the project's. A downloader gets the skills
-# *machinery* — the Agent Skills loader, progressive disclosure, `lisan skills
-# validate|migrate` — and none of anyone else's procedures, credentials-adjacent
-# setup, or personal workflows. Drop a directory containing a SKILL.md in here
-# (or in the installed skills dir) and it is discovered automatically.
-skills/
+# Skill *contents* are the owner's; the folder itself ships. A downloader gets
+# the skills machinery — the Agent Skills loader, progressive disclosure,
+# `lisan skills validate|migrate` — plus an empty skills/ with a README showing
+# where their own skills go, and none of anyone else's procedures.
+#
+# `skills/*`, not `skills/`: git does not descend into an ignored directory, so
+# a negation inside one never matches and the README would vanish from the
+# clone along with everything else. Verified, because it looks like it works.
+skills/*
+!skills/README.md
