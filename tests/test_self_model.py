@@ -274,10 +274,33 @@ class StaleCodeInstrumentTests(unittest.TestCase):
             stdout = listing
 
         with patch.object(self_model.subprocess, "run", return_value=_Result()), \
-                patch("platform.system", return_value="Darwin"):
+                patch("platform.system", return_value="Darwin"), \
+                patch.object(self_model, "_launchd_is_interval_triggered",
+                             lambda label: label == "com.lisan.jobs"):
             services = self_model._service_status()
 
-        self.assertTrue(services["telegram"])
-        self.assertTrue(services["adjutant"], "a discovered running service is up")
-        self.assertIn("jobs", services)
-        self.assertFalse(services["jobs"], "an interval-triggered service with no pid is idle")
+        self.assertEqual(services["telegram"], "up")
+        self.assertEqual(services["adjutant"], "up", "a discovered running service is up")
+        # The assertion this test used to make was `assertFalse(services["jobs"])`
+        # with the message "an interval-triggered service with no pid is idle" —
+        # the message said idle and the assertion said down, and the renderer
+        # printed "jobs down". On 2026-08-14 that told the owner his system was
+        # unhealthy while the queue was draining normally.
+        self.assertEqual(services["jobs"], "idle",
+                         "a timer-triggered service between runs is idle, not down")
+
+    def test_a_resident_service_with_no_pid_is_genuinely_down(self):
+        """The distinction has to cut both ways, or "idle" just hides failure."""
+        from unittest.mock import patch
+
+        from lisan.tools import self_model
+
+        class _Result:
+            stdout = "-\t0\tcom.lisan.adjutant\n"
+
+        with patch.object(self_model.subprocess, "run", return_value=_Result()), \
+                patch("platform.system", return_value="Darwin"), \
+                patch.object(self_model, "_launchd_is_interval_triggered", lambda label: False):
+            services = self_model._service_status()
+
+        self.assertEqual(services["adjutant"], "down")

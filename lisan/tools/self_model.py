@@ -435,11 +435,54 @@ def _machine_sleep_status() -> dict[str, str]:
     return out
 
 
-def _service_status() -> dict[str, bool]:
-    """Is the always-on layer actually alive? Platform-aware, non-fatal."""
+def _launchd_is_interval_triggered(label: str) -> bool:
+    """Does this launchd job run on a timer rather than staying resident?
+
+    Read from the plist with plistlib rather than inferred: a job with
+    ``StartInterval`` or ``StartCalendarInterval`` and no ``KeepAlive`` is
+    *supposed* to spend most of its life not running.
+    """
+    import plistlib
+    from pathlib import Path as _Path
+
+    for base in (_Path.home() / "Library" / "LaunchAgents",):
+        path = base / f"{label}.plist"
+        if not path.is_file():
+            continue
+        try:
+            with path.open("rb") as handle:
+                data = plistlib.load(handle)
+        except Exception:
+            return False
+        if data.get("KeepAlive"):
+            return False
+        return bool(data.get("StartInterval") or data.get("StartCalendarInterval"))
+    return False
+
+
+def _service_status() -> dict[str, str]:
+    """Is the always-on layer actually alive? Platform-aware, non-fatal.
+
+    Values are "up", "idle", or "down" — not booleans, because two of those
+    three are healthy and a boolean cannot say so.
+
+    ``com.lisan.jobs`` runs on a 3600s StartInterval with no KeepAlive: it
+    wakes, drains the queue, and exits. Its steady state is no process at all.
+    Reported as a boolean it came out False, rendered as "jobs down", and on
+    2026-08-14 the agent told the owner his system was unhealthy while the
+    queue was draining normally — six jobs had succeeded minutes earlier. The
+    code comment beside the offending line already said a missing pid "is
+    reported as installed-but-idle rather than down", and the test asserting
+    it said "an interval-triggered service with no pid is idle" while asserting
+    False. Three places described the intent and the implementation contradicted
+    all of them, because the return type had no room for the third state.
+
+    A false alarm is not a harmless conservatism: it teaches the owner to
+    discount the instrument, which costs exactly when the alarm is real.
+    """
     import platform
 
-    services = {"telegram": False, "scheduler": False}
+    services = {"telegram": "down", "scheduler": "down"}
     labels = {"telegram": "com.lisan.telegram", "scheduler": "com.lisan.scheduler"}
     units = {"telegram": "lisan-telegram.service", "scheduler": "lisan-scheduler.service"}
     try:
@@ -448,21 +491,21 @@ def _service_status() -> dict[str, bool]:
             for key, label in labels.items():
                 for line in result.stdout.splitlines():
                     if line.endswith(label) and not line.startswith("-"):
-                        services[key] = True
+                        services[key] = "up"
         elif platform.system() == "Linux":
             for key, unit in units.items():
                 result = subprocess.run(
                     ["systemctl", "--user", "is-active", unit], capture_output=True, text=True, timeout=5
                 )
-                services[key] = result.stdout.strip() == "active"
+                services[key] = "up" if result.stdout.strip() == "active" else "down"
     except Exception:
         pass
     # The Telegram service hosts the scheduler loop as a thread — when it is
     # up, scheduling is up. Reporting "scheduler down" because the *standalone*
     # service isn't installed would tell the user their reminders are broken
     # when they aren't.
-    if services["telegram"] and not services["scheduler"]:
-        services["scheduler"] = True
+    if services["telegram"] == "up" and services["scheduler"] != "up":
+        services["scheduler"] = "up"
     # Discover the rest rather than assume them. The hardcoded pair above misses
     # com.lisan.adjutant and com.lisan.jobs, both of which are installed on a
     # real deployment — so the agent could not tell the owner whether its own
@@ -485,8 +528,15 @@ def _service_status() -> dict[str, bool]:
                 # A PID of "-" is not a failure for an interval-triggered
                 # service (com.lisan.jobs runs on StartInterval with no
                 # KeepAlive), so it is reported as installed-but-idle rather
-                # than down — "down" would read as broken.
-                services[name] = pid.isdigit()
+                # than down — "down" would read as broken. This line used to
+                # say `pid.isdigit()`, which reported precisely the "down" the
+                # comment forbids.
+                if pid.isdigit():
+                    services[name] = "up"
+                elif _launchd_is_interval_triggered(label):
+                    services[name] = "idle"
+                else:
+                    services[name] = "down"
     except Exception:
         pass
     return services
@@ -591,7 +641,10 @@ def render_self_state(state: dict[str, Any]) -> str:
         lines.append(f"Active plan ({pl['progress']} steps): {pl['goal']}")
     services = state.get("services") or {}
     lines.append(
-        "Services: " + ", ".join(f"{name} {'up' if up else 'down'}" for name, up in sorted(services.items()))
+        "Services: " + ", ".join(
+            f"{name} {state}" if state != "idle" else f"{name} idle (scheduled, not resident)"
+            for name, state in sorted(services.items())
+        )
     )
     stale = state.get("stale_code_services") or []
     if stale:
