@@ -146,7 +146,21 @@ def test_injection_only_on_session_open(tmp_path, monkeypatch):
     passes the question through as unresolved_thread."""
     import lisan.tools.conversation as conv
 
-    _loop(tmp_path, "delta", links=["self_episode.job-1"])
+    # Dates relative to today, unlike the other tests here, because this one is
+    # the only one that does NOT pass an explicit `now`: it goes through
+    # run_conversation_turn, so the drive scores against the wall clock. With
+    # the fixture's fixed 2026-07-08 the loop aged past the decay threshold and
+    # this test began failing on 2026-08-07 — green for thirty days, then not,
+    # with no code change. Second detonation of that pattern in a week; the
+    # deviations fixture was the first. A fixture that means "recent" has to
+    # say recent.
+    today = date.today()
+    _loop(
+        tmp_path, "delta",
+        links=["self_episode.job-1"],
+        created=(today - timedelta(days=9)).isoformat(),
+        updated=(today - timedelta(days=2)).isoformat(),
+    )
     captured: dict = {}
 
     class FakeAgent:
