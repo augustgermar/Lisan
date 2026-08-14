@@ -561,16 +561,49 @@ def _is_poll_timeout(exc: BaseException) -> bool:
     return False
 
 
-def _resolve_settings(config: dict[str, Any], *, include_env: bool = True) -> tuple[str, set[int]]:
-    """Token + allowlist from env (preferred) or the config telegram block.
+def telegram_credentials_path() -> Path:
+    """Where the bot token lives: ``<credentials_root>/telegram.json``."""
+    from ..paths import credentials_root
 
-    ``include_env=False`` resolves from config alone — used to check what a
-    detached service (which never inherits this shell's env) will actually see.
+    return credentials_root() / "telegram.json"
+
+
+def _token_from_credentials_file() -> str:
+    """Read the bot token from the credentials store, or "" if absent.
+
+    Never raises: a missing or malformed file means "no token here", and the
+    caller falls back to config. Losing the bot because a credential file has a
+    stray comma would be a worse failure than the one this move prevents.
+    """
+    try:
+        path = telegram_credentials_path()
+        if not path.is_file():
+            return ""
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    return str((data or {}).get("token") or "").strip() if isinstance(data, dict) else ""
+
+
+def _resolve_settings(config: dict[str, Any], *, include_env: bool = True) -> tuple[str, set[int]]:
+    """Token + allowlist from env, the credentials store, or the config block.
+
+    ``include_env=False`` resolves without the environment — used to check what
+    a detached service (which never inherits this shell's env) will actually
+    see. The credentials file IS visible to a detached service, so it is
+    consulted in both modes.
+
+    Precedence: environment, then ``<credentials_root>/telegram.json``, then
+    ``config.telegram.token``. The config fallback is deliberate and stays:
+    this token used to live there, `backup.create_backup` copies config.json
+    into every archive, and an install that has not migrated must keep working
+    rather than silently losing its bot. `lisan telegram setup` writes to the
+    credentials store now, so migration happens by using the tool.
     """
     tg_cfg = config.get("telegram", {}) if isinstance(config.get("telegram"), dict) else {}
 
     env_token = os.environ.get("LISAN_TELEGRAM_TOKEN") if include_env else None
-    token = (env_token or str(tg_cfg.get("token") or "")).strip()
+    token = (env_token or _token_from_credentials_file() or str(tg_cfg.get("token") or "")).strip()
 
     raw_allowed = os.environ.get("LISAN_TELEGRAM_ALLOWED") if include_env else None
     if raw_allowed is None:
@@ -733,7 +766,23 @@ def detect_owner_id(
 
 
 def save_telegram_settings(token: str, allowed_ids: list[int], *, path: Path | None = None) -> Path:
-    """Persist token + allowlist into the (gitignored) config.json telegram block."""
+    """Persist the token to the credentials store and the allowlist to config.
+
+    The token used to live in ``config.telegram.token``. That file is gitignored,
+    but ``backup.create_backup`` copies it into every archive alongside the
+    vault, unencrypted by default — so a routine backup published a credential
+    that grants full control of the running agent to anyone holding it. One was
+    found on disk at mode 644 on 2026-08-13.
+
+    The token now goes to ``<credentials_root>/telegram.json`` at mode 0600,
+    outside both the repo and the vault, and any token already in config.json is
+    removed as a side effect: calling this is the migration. The allowlist stays
+    in config — it is authorization, not a secret, and keeping it there means a
+    failure to read the credentials file cannot silently widen who may talk to
+    the bot.
+
+    Returns the credentials path, which is what the operator needs to know.
+    """
     from ..paths import config_path
 
     path = path or config_path()
@@ -749,10 +798,23 @@ def save_telegram_settings(token: str, allowed_ids: list[int], *, path: Path | N
         from ..config import DEFAULT_CONFIG
 
         cfg = deepcopy(DEFAULT_CONFIG)
-    cfg["telegram"] = {"token": token, "allowed_user_ids": list(allowed_ids)}
+
+    cred_path = telegram_credentials_path()
+    cred_path.parent.mkdir(parents=True, exist_ok=True)
+    # Create with owner-only permissions rather than writing then chmod-ing:
+    # between those two calls the token is world-readable on a shared machine.
+    fd = os.open(cred_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump({"token": token}, handle, indent=2)
+        handle.write("\n")
+    os.chmod(cred_path, 0o600)
+
+    # The allowlist stays; the token does not. Leaving it would defeat the move,
+    # since _resolve_settings falls back to config for un-migrated installs.
+    cfg["telegram"] = {"allowed_user_ids": list(allowed_ids)}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
-    return path
+    return cred_path
 
 
 def run_telegram_setup() -> int:
@@ -820,7 +882,8 @@ def run_telegram_setup() -> int:
         return 1
 
     path = save_telegram_settings(token, allowed)
-    print(f"\n✓ Saved to {path} (gitignored — your token stays local).")
+    print(f"\n✓ Token saved to {path} (mode 0600, outside the repo and the vault).")
+    print("  It is deliberately not in config.json: backups copy that file.")
     print(f"  Authorized ids: {', '.join(map(str, allowed))}")
     print("\nStart the bot with:  lisan telegram run")
     print("Keep it always-on with: lisan telegram install-service")

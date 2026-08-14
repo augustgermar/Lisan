@@ -446,13 +446,22 @@ class WizardTests(unittest.TestCase):
         self.assertIsNone(detect_owner_id("tok", api=lambda *a, **k: {"result": []}, max_wait=0))
 
     def test_save_settings_roundtrips_and_resolves(self):
+        """The token no longer lands in config.json — that is the fix, not a
+        regression. `backup.create_backup` copies config.json into every
+        archive, unencrypted by default, so a routine backup was publishing a
+        credential that grants control of the running agent. The allowlist
+        stays (authorization, not a secret); the token moves to the credentials
+        store, and the resolver reads it back from there.
+        """
         with tempfile.TemporaryDirectory() as d:
             cfg_path = Path(d) / "config.json"
-            save_telegram_settings("123:tok", [1, 2], path=cfg_path)
+            cred_path = save_telegram_settings("123:tok", [1, 2], path=cfg_path)
             import json
             saved = json.loads(cfg_path.read_text())
-            self.assertEqual(saved["telegram"]["token"], "123:tok")
+            self.assertNotIn("token", saved["telegram"])
+            self.assertNotIn("123:tok", cfg_path.read_text())
             self.assertEqual(saved["telegram"]["allowed_user_ids"], [1, 2])
+            self.assertEqual(json.loads(cred_path.read_text())["token"], "123:tok")
             # and the runtime resolver reads it back (env cleared)
             import os
             with patch.dict("os.environ", {}, clear=False):

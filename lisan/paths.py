@@ -35,6 +35,7 @@ def _looks_like_a_test_process() -> bool:
 # Resolved once per process so every ambient caller in a test run agrees, and
 # so the warning is emitted once rather than per call.
 _TEST_DATA_ROOT: Path | None = None
+_TEST_CREDENTIALS_ROOT: Path | None = None
 
 
 def default_vault_root() -> Path:
@@ -63,6 +64,65 @@ def config_path(base: Path | None = None) -> Path:
     if not primary.exists() and legacy.exists():
         return legacy
     return primary
+
+
+def credentials_root() -> Path:
+    """Where secrets live: outside the repo, and outside the vault.
+
+    Two directories in this system are safe against publication for different
+    reasons, and neither is right for a credential.
+
+    The **repo** is protected by a ``.gitignore`` rule — protection that has to
+    keep working. A stray ``git add -f``, a rule edited during a refactor, or a
+    fresh clone configured by hand and it is gone. Secrets sat in
+    ``repo/credentials/`` until 2026-08-13 on exactly that footing, and a
+    ``git add -A`` had already swept a token into a commit once.
+
+    The **vault** is protected structurally — it lives outside the repo tree and
+    cannot be committed by any accident — which is why it looks like the obvious
+    home. It is the wrong one. The vault is the part of the system designed to
+    *travel*: ``backup.create_backup`` copytrees the whole directory into a
+    tarball that is unencrypted by default, ``purge`` deletes it, the wipe test
+    clones it, and ``LISAN_VAULT`` points wherever the owner says — which for
+    many people is an Obsidian folder synced through iCloud or Drive. Putting a
+    credential there ships it to whatever cloud the user's notes sync to.
+
+    So: a sibling of the vault, never inside it. Resolution order —
+
+    1. ``LISAN_CREDENTIALS_DIR``
+    2. ``$LISAN_HOME/credentials`` when the installer's home is set
+    3. ``~/.lisan/credentials`` when that install root exists (installer default)
+    4. ``~/.local/share/Lisan/credentials`` — matches the long-standing Google
+       skill fallback, so existing installs that never configured a path keep
+       resolving to the same place.
+    """
+    env = os.environ.get("LISAN_CREDENTIALS_DIR")
+    if env:
+        return Path(env).expanduser()
+
+    # A test process never reaches the live credential store — the same
+    # containment `data_root` applies to the index, decided at the seam rather
+    # than in a fixture, so it holds under every runner. This is not
+    # hypothetical: the moment the Telegram token moved out of config.json,
+    # three existing tests that resolve settings without an explicit path began
+    # reading the owner's real bot token, and one of them asserted on the value
+    # it found. Tests must not be able to see a credential, let alone write one.
+    # ``LISAN_ALLOW_TEST_CREDENTIALS_ROOT=1`` opts out deliberately, mirroring
+    # LISAN_ALLOW_TEST_DATA_ROOT — the tests that assert the *production*
+    # resolution order have to be able to see it.
+    if _looks_like_a_test_process() and os.environ.get("LISAN_ALLOW_TEST_CREDENTIALS_ROOT") != "1":
+        global _TEST_CREDENTIALS_ROOT
+        if _TEST_CREDENTIALS_ROOT is None:
+            _TEST_CREDENTIALS_ROOT = Path(tempfile.mkdtemp(prefix="lisan-test-credentials-"))
+        return _TEST_CREDENTIALS_ROOT
+
+    home_env = os.environ.get("LISAN_HOME")
+    if home_env:
+        return Path(home_env).expanduser() / "credentials"
+    default_install = Path.home() / ".lisan"
+    if default_install.is_dir():
+        return default_install / "credentials"
+    return Path.home() / ".local" / "share" / "Lisan" / "credentials"
 
 
 def data_root() -> Path:
