@@ -101,10 +101,24 @@ class PromptAgent:
         render_kwargs.pop("provider_error_mode", None)
         tool_handlers = tool_handlers or {}
         tool_log: list[dict[str, Any]] = []
+        # AVAILABLE_TOOLS goes FIRST, before the caller's blocks, because it is
+        # the most stable content in the prompt — byte-identical every turn
+        # until the tool set itself changes.
+        #
+        # It used to be passed last, and render_input preserves kwarg order, so
+        # ~7,400 tokens of unchanging JSON sat *behind* RETRIEVED_CONTEXT, the
+        # growing CONVERSATION, and a minute-resolution NOW. conversation.py
+        # orders its own sections stable-first with a comment explaining that a
+        # provider's prefix cache "survives across turns instead of missing on
+        # the first volatile byte" — and then this call quietly undid it from a
+        # different file. Measured on a real render: the cache diverged at 36%
+        # and the tool blob started at 39%, so every turn re-processed all of it
+        # from scratch. Ordering is a property of the whole assembled prompt;
+        # it cannot be maintained by one file that does not append last.
         prompt = self.render_input(
             user_input,
-            **render_kwargs,
             available_tools=json.dumps(tools or [], indent=2, ensure_ascii=True) if tools else None,
+            **render_kwargs,
         )
         current_prompt = prompt
         llm_schema = schema

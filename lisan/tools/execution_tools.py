@@ -56,14 +56,14 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "browser",
         "description": (
-            "Your own visible Chrome browser on the user's desktop — a SHARED session: the user "
-            "can watch, take the mouse anytime, log into sites for you, or show you a page. Its "
-            "profile is persistent (cookies, logins, tabs survive restarts). Actions: 'open' "
-            "(bring it up), 'goto' {url}, 'read' (current page text), 'elements' (numbered list of everything clickable — use on complex pages, then click by index), 'click' {target: visible "
-            "text, CSS selector, or index from 'elements'}, 'type' {target, text, submit?}, 'screenshot', 'tabs', "
-            "'switch_tab' {index}, 'back'. Compose small steps and read after navigating. When a "
-            "login or CAPTCHA blocks you, say so and ask the user to handle it in the window — "
-            "then continue. Use this for anything web: searching, reading pages, checking sites."
+            "Your own visible Chrome on the user's desktop — a SHARED session they can watch, "
+            "take the mouse in, or log into sites for you. Profile persists (cookies, logins, "
+            "tabs). Actions: 'open', 'goto' {url}, 'read' (page text), 'elements' (numbered "
+            "clickables — use on complex pages, then click by index), 'click' {target: visible "
+            "text, CSS selector, or index}, 'type' {target, text, submit?}, 'screenshot', "
+            "'tabs', 'switch_tab' {index}, 'back'. Compose small steps and read after "
+            "navigating. If a login or CAPTCHA blocks you, say so and ask them to handle it in "
+            "the window, then continue. Use for anything web."
         ),
         "parameters": {
             "type": "object",
@@ -249,15 +249,13 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "create_plan",
         "description": (
-            "Turn a multi-step goal into a durable background plan that executes step by step "
-            "and reports back when done — use this when a request needs several actions that "
-            "take time (inspect, then process, then verify), not for a single immediate action. "
-            "Each step has a kind: 'codex' (run a shell/CLI/file task — the workhorse), 'prompt' "
-            "(run a prompt through your own pipeline — REQUIRED for any step that needs your "
-            "skills: gmail, messages, browser, calendar; the codex sandbox has no network to "
-            "those services and will fail with misleading auth errors), or 'note' (record an "
-            "observation). Steps run in order; each sees the goal and the results of earlier "
-            "steps. The user approves the plan now, at creation. Keep plans to a few concrete steps."
+            "Turn a multi-step goal into a durable background plan that runs step by step and "
+            "reports when done — for work with real stages, not a single immediate action. Step "
+            "kinds: 'codex' (shell/CLI/file work), 'prompt' (runs through your own pipeline — "
+            "REQUIRED for any step needing gmail, messages, browser or calendar; the codex "
+            "sandbox has no network to those and fails with misleading auth errors), 'note' (an "
+            "observation). Steps run in order and see earlier results. Approved at creation. "
+            "Keep to a few concrete steps."
         ),
         "parameters": {
             "type": "object",
@@ -281,21 +279,15 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "schedule_task",
         "description": (
-            "Schedule something to happen at a future time. Kinds: 'reminder' sends the user a "
-            "message at that time; 'prompt' runs a prompt through your own pipeline at that time "
-            "and sends the user the result; 'codex' runs a codex task at that time (the user "
-            "approves it now, at scheduling time). 'when' must be deterministic: 'YYYY-MM-DD HH:MM' "
-            "(user's local time), 'HH:MM' (next such time), 'tomorrow HH:MM', or a relative offset "
-            "like '+30m', '+2h', '+3d'. Never pass fuzzy phrases like 'next thursday' — resolve them "
-            "to a date first; if you are unsure of today's date, prefer a relative offset (error "
-            "messages include the current local time, so you can correct yourself). Optional "
-            "'recurrence': 'every:30m', 'every:2h', 'every:1d', 'daily@HH:MM', or "
-            "'annual@MM-DD@HH:MM'. Omit 'when' on "
-            "recurring tasks to start at the next occurrence."
-            " KIND RULES: 'codex' runs in a sandbox with NO network — it can never send a Telegram"
-            " message, reach email, or browse; scheduling 'lisan telegram send' as codex fails"
-            " every time. To deliver text on a schedule use kind 'reminder'; to have yourself"
-            " think and respond on a schedule use kind 'prompt'."
+            "Schedule work for a future time. Kinds: 'reminder' sends the user a message; "
+            "'prompt' runs a prompt through your own pipeline and sends the result; 'codex' runs "
+            "a codex task (approved now, at scheduling time). 'when' must be deterministic: "
+            "'YYYY-MM-DD HH:MM' (local), 'HH:MM', 'tomorrow HH:MM', or an offset like '+2h'. "
+            "Never fuzzy phrases like 'next thursday' — resolve first; when unsure of the date "
+            "prefer an offset. Optional 'recurrence': 'every:30m', 'daily@HH:MM', "
+            "'annual@MM-DD@HH:MM'; omit 'when' to start at the next occurrence. "
+            "KIND RULE: 'codex' has NO network — it can never send Telegram, reach email, or "
+            "browse. Use 'reminder' to deliver text, 'prompt' to think and respond."
         ),
         "parameters": {
             "type": "object",
