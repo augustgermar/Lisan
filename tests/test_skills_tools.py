@@ -24,6 +24,16 @@ pytestmark = requires_bundled
 
 
 def _load(module_path: Path, name: str):
+    """Import a skill's real module, or skip the test if that skill is gone.
+
+    These tests exercise skill code off disk, and skills are the owner's — they
+    get installed and uninstalled. On 2026-08-14 seven were removed and seven
+    tests errored with FileNotFoundError, because the module-level guard only
+    asked whether ANY skills were present, not whether THIS one was. A test for
+    a skill that is not installed is not failing, it is inapplicable.
+    """
+    if not Path(module_path).is_file():
+        pytest.skip(f"skill not installed: {Path(module_path).parent.name}")
     spec = importlib.util.spec_from_file_location(name, module_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
