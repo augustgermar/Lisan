@@ -32,9 +32,28 @@ Hard rules that override anything else you infer:
 
 ## Owner calibration verdict (REQUIRED — agent: stop and ask if blank)
 
-> [owner: paste your mosquito-vs-indexer read here — a few sentences on
-> whether Ship 1's surfaced questions felt like curiosity or grinding, and
-> any dial adjustments you want (daily_cap, thresholds).]
+> **Curiosity, not grinding.** — August, 2026-08-14
+>
+> The surfaced questions read like a mind being curious, and the system
+> working as it was intended. Reviewed against the full calibration period:
+> 40 days, 26 origin:self loops, 0.65/day against a daily_cap of 2 — it
+> never once reached its own ceiling. 22 of 26 resolved.
+>
+> The classes it found: 10 probable-duplicate records, 8 "this person comes
+> up constantly and I barely know them", 5 self-diagnostics on its own
+> broken machinery, 2 quality-slippage reads, 1 cross-kind collision. The
+> self-diagnostics were correct — the embedding-backlog ache was true, and
+> that lane later turned out to have been dead for the life of the install.
+>
+> **Dials: unchanged.** daily_cap stays 2, thin_person_max_words 25,
+> thin_person_min_mentions 3, stale_after_days 30, failed_jobs_threshold 5,
+> embedding_backlog_threshold 25; drive cooldown_days 7, min_score 2.0,
+> max_callbacks 2. Nothing was tuned because nothing bound: the cap was
+> never hit, so lowering it would change nothing and raising it would be
+> speculation about pressure that never arrived. Revisit if Ship 2's own
+> enrichment loops push the rate up.
+>
+> Calibration period closed 2026-08-14. Proceed with the six steps.
 
 ## Definition of done
 

@@ -1,5 +1,76 @@
 # Changelog
 
+## 26.8.14 (2026-08-14)
+
+**The week the instruments were audited.** Almost everything here is a
+component that reported success while doing nothing, or reported failure
+while working. The pattern is old news in this project; what is new is that
+each fix went to the seam that lied rather than the caller that noticed.
+
+- **Self-evaluation had measured nothing since 2026-07-15.** `_judge_sample`
+  wrapped the judge model in `str()`, and `str(None)` is the four-character
+  string `"None"` — which reaches the codex CLI as `--model None` and exits 1
+  in under three seconds. Harmless while the default was `"openai/gpt-4o"`;
+  a total outage the moment f5de272 moved the judge to codex and set the
+  default to None. Five weekly runs, ten failed calls each, every one
+  reported green. A run that judges nothing now raises into the escalation
+  ladder instead of writing a well-formed report that says nothing. First
+  real score since the break: 4.03, against 4.05 before it.
+
+- **The Adjutant could never have executed anything.** Its launchd service ran
+  with launchd's default `PATH`, which does not contain `/usr/local/bin`,
+  where `codex` lives. 638 healthy-looking cycles from 2026-07-24 while
+  structurally incapable of running a task. It is the one service installed
+  from a hand-written plist in `docs/adjutant_daemon.md` rather than through
+  `service_install`, so every copy of that doc had the same hole. Fixed in the
+  doc, in the live plist, and in the daemon, which now prints its executor
+  state at startup.
+
+- **"jobs down" was a false alarm the code comment had already forbidden.**
+  `com.lisan.jobs` runs on a timer with no `KeepAlive`; its steady state is no
+  process. Reported as a boolean it came out False and rendered as "down",
+  and the agent told the owner his system was unhealthy while the queue was
+  draining normally. The comment beside the line, and the test's own failure
+  message, both already said "idle". The return type had no room for a third
+  state; now it has one.
+
+- **The honesty rule did not cover attempts.** It forbade claiming you
+  *performed* an action, so "I tried to log that but the tool isn't available"
+  — with no tool call, about a tool that was present and working — passed
+  straight through. A false diagnosis is worse than a false success: it sends
+  the owner to debug something that was fine. Extended in both prompts that
+  carry the rule, with a test pinning which prompts those are.
+
+- **Skills now use the Agent Skills format.** A skill is a directory with a
+  `SKILL.md` whose frontmatter carries a name and description — the same
+  contract Claude Code, Codex and the rest use. The old loader required
+  `schema.json` *and* `tool.py` *and* `SKILL.md`, so a skill written to the
+  standard was skipped in silence. Adds progressive disclosure: an
+  instructional skill costs one line of context until it is invoked. Plus
+  `lisan skills validate` and `lisan skills migrate`. Skill *contents* are
+  gitignored; the folder ships with a README showing where they go.
+
+- **The most stable block in the prompt sat behind the most volatile ones.**
+  `conversation.py` orders its sections stable-first for prefix caching, and
+  then `base.py` appended `AVAILABLE_TOOLS` last — ~7,400 tokens of
+  byte-identical JSON positioned after the growing conversation and a
+  minute-resolution clock. Ordering is a property of the assembled prompt, and
+  no single file that does not append last can hold it.
+
+- Birthdays: an annual reminder *and* a fact the entity keeps, in frontmatter
+  and the durable `source_log` rather than in prose a compaction would drop.
+  Leap-day birthdays no longer remind two days early, and the recurrence no
+  longer depends on which year it was created in.
+
+- Credentials moved out of the repo to `~/.lisan/credentials` — a sibling of
+  the vault, not inside it. The vault is protected structurally but is the
+  part designed to *travel*: backups tar it up unencrypted, purge deletes it,
+  and `LISAN_VAULT` often points at a cloud-synced notes folder. Test
+  processes can no longer reach the real credential store.
+
+- Two more time-bomb fixtures found and fixed: a test is not allowed to encode
+  "recently" as a literal date and then be measured against the wall clock.
+
 ## 26.8.7 (2026-08-07)
 
 Two batches: the delegation-axis correction that made `intent.md` resolvable
