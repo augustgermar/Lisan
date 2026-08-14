@@ -10,6 +10,18 @@ import pytest
 
 from lisan.tools.skills_cli import bundled_skills_root
 
+# Gitignored as of 2026-08-14 — see tests/test_skills_bundled.py. These import
+# real skill modules off disk, so they can only run where those skills exist.
+requires_bundled = pytest.mark.skipif(
+    not bundled_skills_root().is_dir()
+    or not [d for d in bundled_skills_root().iterdir()
+            if d.is_dir() and not d.name.startswith(".")],
+    reason="no bundled skills present (they are gitignored; this is a clean checkout)",
+)
+
+# Module-level: every test here imports a real skill module off disk.
+pytestmark = requires_bundled
+
 
 def _load(module_path: Path, name: str):
     spec = importlib.util.spec_from_file_location(name, module_path)

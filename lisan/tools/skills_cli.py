@@ -145,3 +145,94 @@ def setup_skill(
         raise ValueError(f"skill {name!r} has no setup script")
     result = subprocess.run([sys.executable, str(script), *forwarded_args])
     return int(result.returncode)
+
+
+# ── format compliance (2026-08-14) ────────────────────────────────────────────
+
+def validate_skills(skills_dir: Path | None = None) -> list[dict[str, Any]]:
+    """Check every skill in a directory against the Agent Skills format.
+
+    Returns one row per skill with its errors. The point is that a
+    non-compliant skill is *reported* rather than silently skipped, which is
+    how the old loader handled anything it did not recognise.
+    """
+    from .skill_format import SKILL_FILE, parse_skill_md
+
+    root = skills_dir if skills_dir is not None else skills_root()
+    rows: list[dict[str, Any]] = []
+    if not root.exists():
+        return rows
+    for skill_dir in sorted(root.iterdir()):
+        if not skill_dir.is_dir() or skill_dir.name.startswith((".", "_", "__")):
+            continue
+        doc = skill_dir / SKILL_FILE
+        if not doc.is_file():
+            rows.append({"name": skill_dir.name, "errors": [f"no {SKILL_FILE}"],
+                         "kind": "unrecognised", "path": str(skill_dir)})
+            continue
+        manifest = parse_skill_md(doc)
+        executable = (skill_dir / "schema.json").is_file() and (skill_dir / "tool.py").is_file()
+        errors = list(manifest.errors)
+        if not manifest.description and executable:
+            # schema.json can still supply it, so this is a migration nudge
+            # rather than a fault.
+            errors = [e for e in errors if "description" not in e]
+            errors.append("description lives in schema.json, not SKILL.md frontmatter (run `lisan skills migrate`)")
+        rows.append({
+            "name": manifest.name,
+            "errors": errors,
+            "kind": "executable" if executable else "instructional",
+            "version": manifest.version,
+            "path": str(skill_dir),
+        })
+    return rows
+
+
+def migrate_skill_frontmatter(skills_dir: Path | None = None, *, apply: bool = False) -> list[dict[str, Any]]:
+    """Give old-format skills the frontmatter the standard requires.
+
+    Lisan's original layout kept the description in schema.json and left
+    SKILL.md as bare prose. The format puts name and description in the
+    document itself, because that pair is what stays in context — so a skill
+    whose description lives elsewhere cannot participate in progressive
+    disclosure. This copies it into frontmatter without touching the prose or
+    the schema, so the skill keeps working exactly as before either way.
+    """
+    from .skill_format import SKILL_FILE, parse_frontmatter
+
+    root = skills_dir if skills_dir is not None else skills_root()
+    changed: list[dict[str, Any]] = []
+    if not root.exists():
+        return changed
+
+    for skill_dir in sorted(root.iterdir()):
+        if not skill_dir.is_dir() or skill_dir.name.startswith((".", "_", "__")):
+            continue
+        doc = skill_dir / SKILL_FILE
+        if not doc.is_file():
+            continue
+        text = doc.read_text(encoding="utf-8")
+        data, _ = parse_frontmatter(text)
+        if data.get("name") and data.get("description"):
+            continue
+
+        description = str(data.get("description") or "")
+        if not description:
+            try:
+                schema = json.loads((skill_dir / "schema.json").read_text(encoding="utf-8"))
+                description = str(schema.get("description") or "")
+            except Exception:
+                description = ""
+        if not description:
+            changed.append({"name": skill_dir.name, "action": "skipped",
+                            "reason": "no description in SKILL.md or schema.json"})
+            continue
+
+        # Single-line, quoted: descriptions routinely contain colons, which
+        # would otherwise reparse as a mapping.
+        safe = description.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ").strip()
+        front = f'---\nname: {skill_dir.name}\ndescription: "{safe}"\n---\n\n'
+        if apply:
+            doc.write_text(front + text.lstrip("\n"), encoding="utf-8")
+        changed.append({"name": skill_dir.name, "action": "migrated" if apply else "would migrate"})
+    return changed

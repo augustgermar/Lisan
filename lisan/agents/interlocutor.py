@@ -3,10 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..paths import skills_root
 from ..tools.operating_style import load_operating_style
-from ..tools.execution_tools import TOOLS, build_tool_handlers
-from ..tools.skill_loader import load_skills
+from ..tools.execution_tools import agent_tools, build_tool_handlers
 from .base import PromptAgent
 
 
@@ -63,7 +61,7 @@ class InterlocutorAgent(PromptAgent):
         **kwargs: Any,
     ) -> dict[str, Any]:
         self.last_tool_calls = []
-        tools = list(TOOLS) + load_skills(skills_root())
+        tools = agent_tools()
         tool_handlers = build_tool_handlers(
             vault=self.vault,
             db_path=kwargs.get("db_path"),

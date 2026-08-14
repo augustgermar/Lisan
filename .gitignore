@@ -50,3 +50,10 @@ token.json
 # The agent's browser profile holds cookies and saved passwords
 browser-profile/
 browser-shots/
+
+# Skills are the owner's, not the project's. A downloader gets the skills
+# *machinery* — the Agent Skills loader, progressive disclosure, `lisan skills
+# validate|migrate` — and none of anyone else's procedures, credentials-adjacent
+# setup, or personal workflows. Drop a directory containing a SKILL.md in here
+# (or in the installed skills dir) and it is discovered automatically.
+skills/

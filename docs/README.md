@@ -1,5 +1,10 @@
 # docs/ — what is live and what is history
 
+`skills.md` is a STANDING REFERENCE, not a work order: the Agent Skills
+format (`SKILL.md` + frontmatter), progressive disclosure, the two kinds of
+skill, and where they live. Skills themselves are gitignored, so that doc
+and the loader are what a downloader actually gets.
+
 Four documents are LIVE (work orders in flight or awaiting their entry
 gate — read the gate before starting):
 

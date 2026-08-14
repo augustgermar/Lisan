@@ -731,6 +731,13 @@ def build_parser() -> argparse.ArgumentParser:
     skills_install.add_argument("name", nargs="?", default=None, help="Skill name (omit with --all)")
     skills_install.add_argument("--all", action="store_true", help="Install every bundled skill")
     skills_install.add_argument("--force", action="store_true", help="Overwrite an existing installed copy")
+    skills_validate = skills_subparsers.add_parser(
+        "validate", help="Check installed skills against the Agent Skills format")
+    skills_validate.add_argument("--skills-dir", type=Path, default=None)
+    skills_migrate = skills_subparsers.add_parser(
+        "migrate", help="Add SKILL.md frontmatter to skills that predate the format")
+    skills_migrate.add_argument("--skills-dir", type=Path, default=None)
+    skills_migrate.add_argument("--apply", action="store_true", help="Write the changes (default: dry run)")
     skills_uninstall = skills_subparsers.add_parser("uninstall", help="Remove an installed skill")
     skills_uninstall.add_argument("name")
     skills_auth = skills_subparsers.add_parser(
@@ -1463,6 +1470,39 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if result.status in {"ok", "warning"} else 1
 
     if args.command == "skills":
+        if args.skills_command == "validate":
+            from .tools.skills_cli import validate_skills
+
+            rows = validate_skills(args.skills_dir)
+            if not rows:
+                print("No skills found.")
+                return 0
+            bad = 0
+            for row in rows:
+                if row["errors"]:
+                    bad += 1
+                    print(f"✗ {row['name']}  ({row['kind']})")
+                    for err in row["errors"]:
+                        print(f"    {err}")
+                else:
+                    version = f" v{row['version']}" if row.get("version") else ""
+                    print(f"✓ {row['name']}{version}  ({row['kind']})")
+            print(f"\n{len(rows) - bad}/{len(rows)} conform to the Agent Skills format.")
+            return 1 if bad else 0
+
+        if args.skills_command == "migrate":
+            from .tools.skills_cli import migrate_skill_frontmatter
+
+            rows = migrate_skill_frontmatter(args.skills_dir, apply=args.apply)
+            if not rows:
+                print("Nothing to migrate — every skill already declares name and description.")
+                return 0
+            for row in rows:
+                print(f"  {row['action']}: {row['name']}" + (f" ({row['reason']})" if row.get("reason") else ""))
+            if not args.apply:
+                print("\nDry run. Re-run with --apply to write.")
+            return 0
+
         if args.skills_command == "auth":
             import subprocess as _sp
             import sys as _sys

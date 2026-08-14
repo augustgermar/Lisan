@@ -407,6 +407,7 @@ def build_tool_handlers(
             vault=vault,
             conversation_id=conversation_id,
         ),
+        "skill": lambda name: skill_tool(name=name),
     }
     handlers.update(
         load_skill_handlers(
@@ -417,6 +418,97 @@ def build_tool_handlers(
         )
     )
     return handlers
+
+
+def skill_tool(*, name: str) -> str:
+    """Load one skill's instructions on demand — progressive disclosure.
+
+    The whole point of the format: a catalogue costs one line of context per
+    skill until the model decides one is relevant, and only then does the body
+    arrive. Loading every skill's instructions up front would put the cost back
+    and defeat the reason skills exist.
+    """
+    from .skill_loader import load_skill_manifest, render_skill_body
+
+    wanted = str(name or "").strip()
+    if not wanted:
+        return "Error: which skill? Pass the skill's name."
+
+    skill = load_skill_manifest(skills_root(), wanted)
+    if skill is None:
+        available = [s["name"] for s in load_skills_listing()]
+        if not available:
+            return (
+                f"No skill named {wanted!r}, and no skills are installed. "
+                "Install one with `lisan skills install <name>`, or drop a directory "
+                "containing a SKILL.md into the skills directory."
+            )
+        return f"No skill named {wanted!r}. Installed: {', '.join(sorted(available))}"
+    return render_skill_body(skill)
+
+
+def load_skills_listing() -> list[dict[str, Any]]:
+    from .skill_loader import load_skills
+
+    return load_skills(skills_root())
+
+
+def agent_tools(skills_dir: Path | None = None) -> list[dict[str, Any]]:
+    """The tool list an agent sees: built-ins, executable skills, and ``skill``.
+
+    Skills reach the model two different ways, and the split is the format's
+    central economy:
+
+    - an **executable** skill (schema.json + tool.py) is a callable function,
+      so its JSON-Schema parameters have to be in context for the model to call
+      it correctly;
+    - an **instructional** skill contributes one line — name and description —
+      to the ``skill`` tool's description, and its instructions load only when
+      the model asks for them.
+
+    Before this, every skill was appended whole to every turn. That is
+    affordable for a dozen and ruinous for a hundred, which is exactly the
+    pressure progressive disclosure exists to relieve.
+    """
+    from .skill_loader import load_skills
+
+    skills = load_skills(skills_dir if skills_dir is not None else skills_root())
+    usable = [s for s in skills if s.get("model_invocable", True)]
+    executable = [s for s in usable if s.get("executable")]
+    instructional = [s for s in usable if not s.get("executable")]
+
+    tools = list(TOOLS)
+    tools += [
+        {"name": s["name"], "description": s["description"], "parameters": s.get("parameters") or {}}
+        for s in executable
+    ]
+
+    if usable:
+        catalogue = "\n".join(f"  - {s['name']}: {s['description']}" for s in instructional)
+        description = (
+            "Load a skill's full instructions on demand. Skills are procedures the owner "
+            "installed; you see only their names and one-line descriptions until you ask "
+            "for one, so call this the moment a skill looks relevant and follow what it "
+            "returns. It may point you at supporting files — read those only if its "
+            "instructions send you there."
+        )
+        if instructional:
+            description += f"\n\nAvailable:\n{catalogue}"
+        else:
+            description += (
+                "\n\nNo instruction-only skills are installed; the skills present are "
+                "callable tools in their own right."
+            )
+        tools.append({
+            "name": "skill",
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": {"name": {"type": "string", "description": "The skill's name"}},
+                "required": ["name"],
+            },
+        })
+    return tools
 
 
 def search_memory(
