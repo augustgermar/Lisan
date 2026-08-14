@@ -37,6 +37,10 @@ the three paths:
   <dict>
     <key>LISAN_VAULT</key>
     <string>/Users/YOU/.local/share/Lisan/vault</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -49,6 +53,17 @@ the three paths:
 </dict>
 </plist>
 ```
+
+**`PATH` is not optional.** launchd hands a service
+`/usr/bin:/bin:/usr/sbin:/sbin` unless the plist says otherwise, and the
+executor binary (`codex`) normally lives in `/usr/local/bin`. Without the
+`PATH` entry above the daemon runs, polls, gates, and logs verdicts
+perfectly — and could never execute a task, because the binary it would
+call is invisible to it. This install ran that way from 2026-07-24 to
+2026-08-14; it cost nothing only because cycles were dry. The daemon now
+prints its executor state at startup, so the next copy of this plist says
+so on its first line rather than on the day someone sets
+`adjutant.enabled: true`.
 
 Load / unload:
 

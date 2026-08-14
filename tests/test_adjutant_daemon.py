@@ -254,3 +254,66 @@ def test_fswatch_new_and_changed_files_become_capture_turns(vault, tmp_path):
 
 def test_fswatch_without_paths_is_inert(vault, tmp_path):
     assert fswatch_scan(vault, tmp_path / "x.sqlite", config={"ingest": {"fswatch_paths": []}}, capture=None) == []
+
+
+# ── executor reachability (2026-08-14) ────────────────────────────────────────
+
+def test_executor_readiness_reports_an_unreachable_binary(monkeypatch):
+    """The Adjutant is installed from a hand-written plist in
+    docs/adjutant_daemon.md, which set LISAN_VAULT and no PATH. launchd's
+    default is /usr/bin:/bin:/usr/sbin:/sbin, so codex in /usr/local/bin was
+    invisible: this install polled, gated and logged verdicts for three weeks
+    while being structurally unable to execute anything. It cost nothing only
+    because cycles were dry.
+    """
+    from lisan.tools.adjutant_daemon import executor_readiness
+
+    monkeypatch.setattr("shutil.which", lambda binary: None)
+    state = executor_readiness({"routing": {"executor": {"medium": "codex"}}})
+    assert state["checked"] is True
+    assert state["reachable"] is False
+    assert state["binary"] == "codex"
+
+
+def test_executor_readiness_reports_a_reachable_binary(monkeypatch):
+    from lisan.tools.adjutant_daemon import executor_readiness
+
+    monkeypatch.setattr("shutil.which", lambda binary: "/usr/local/bin/codex")
+    state = executor_readiness({"routing": {"executor": {"medium": "codex"}}})
+    assert state["reachable"] is True
+    assert state["path"] == "/usr/local/bin/codex"
+
+
+def test_executor_readiness_honours_the_binary_env_override(monkeypatch):
+    from lisan.tools.adjutant_daemon import executor_readiness
+
+    monkeypatch.setenv("CODEX_BIN", "/opt/custom/codex")
+    seen = {}
+
+    def _which(binary):
+        seen["binary"] = binary
+        return binary
+
+    monkeypatch.setattr("shutil.which", _which)
+    state = executor_readiness({"routing": {"executor": {"medium": "codex"}}})
+    assert seen["binary"] == "/opt/custom/codex"
+    assert state["reachable"] is True
+
+
+def test_a_non_codex_executor_is_not_probed_for_a_binary(monkeypatch):
+    """Only the CLI-backed executor has a binary to find on PATH."""
+    from lisan.tools.adjutant_daemon import executor_readiness
+
+    state = executor_readiness({"routing": {"executor": {"medium": "rotato"}}})
+    assert state["checked"] is False
+    assert state["reachable"] is True
+
+
+def test_the_shipped_plist_documents_a_PATH():
+    """The doc is the artifact people copy — the fix has to live there too."""
+    from pathlib import Path
+
+    doc = Path(__file__).resolve().parents[1] / "docs" / "adjutant_daemon.md"
+    text = doc.read_text(encoding="utf-8")
+    assert "<key>PATH</key>" in text
+    assert "/usr/local/bin" in text

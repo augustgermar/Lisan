@@ -69,6 +69,42 @@ def release_lock(vault: Path, *, pid: int | None = None) -> None:
         pass
 
 
+def executor_readiness(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Can the executor actually run anything from inside this process?
+
+    The Adjutant is the one service installed from a hand-written plist in
+    ``docs/adjutant_daemon.md`` rather than through ``service_install``, and
+    that documented plist sets ``LISAN_VAULT`` and nothing else. launchd's
+    default PATH is ``/usr/bin:/bin:/usr/sbin:/sbin``, so ``codex`` — which
+    lives in ``/usr/local/bin`` on a normal install — is invisible to it. Every
+    copy of that plist has the same hole.
+
+    It has cost nothing so far only because the daemon ships dry: cycles log
+    verdicts and execute nothing. The day ``adjutant.enabled`` becomes true,
+    every task needing the executor would fail inside a service whose PATH
+    nobody thinks about. That is the shape of failure this project keeps
+    finding, so the daemon says it out loud at startup instead of waiting.
+    """
+    import shutil
+
+    config = config or load_config()
+    routing = (config.get("routing") or {}).get("executor") or {}
+    provider = str(routing.get("medium") or "codex")
+    if provider != "codex":
+        return {"provider": provider, "reachable": True, "checked": False}
+    binary_env = ((config.get("providers") or {}).get("codex") or {}).get("binary_env", "CODEX_BIN")
+    binary = os.environ.get(binary_env) or "codex"
+    resolved = shutil.which(binary)
+    return {
+        "provider": provider,
+        "binary": binary,
+        "path": resolved,
+        "reachable": bool(resolved),
+        "checked": True,
+        "search_path": os.environ.get("PATH", ""),
+    }
+
+
 def run_daemon(
     vault: Path | None = None,
     db_path: Path | None = None,
@@ -88,6 +124,28 @@ def run_daemon(
     interval = max(1, int((config.get("adjutant") or {}).get("interval_minutes", 15) or 15)) * 60
 
     acquire_lock(vault)
+
+    # Startup notice, flushed: launchd block-buffers stdout, and a diagnostic
+    # nobody can read on time is not a diagnostic (2026-07-27).
+    adjutant_cfg = config.get("adjutant") or {}
+    posture = ("enabled" if adjutant_cfg.get("enabled") else
+               "calibration (dry)" if adjutant_cfg.get("calibration") else "dry")
+    ready = executor_readiness(config)
+    print(f"⚕ Adjutant daemon — vault {vault}, every {interval // 60}m, {posture}")
+    if ready["checked"] and not ready["reachable"]:
+        print(f"  ! executor unreachable: {ready['binary']!r} is not on this service's PATH")
+        print(f"    PATH={ready['search_path']}")
+        print("    Cycles will report but can never execute. Add PATH to the service's")
+        print("    EnvironmentVariables (see docs/adjutant_daemon.md) and reload it.")
+    elif ready["checked"]:
+        print(f"  ✓ executor {ready['provider']} at {ready['path']}")
+    try:
+        import sys as _sys
+
+        _sys.stdout.flush()
+    except Exception:
+        pass
+
     stop = {"flag": False}
 
     def _stop(signum, frame):  # noqa: ARG001
