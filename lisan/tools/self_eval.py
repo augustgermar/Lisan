@@ -45,6 +45,20 @@ _HISTORY_REL = "reports/self-eval-history.jsonl"
 _TRIVIAL_WORDS = 4  # user turns at or below this are acks, not evidence
 
 
+class SelfEvalJudgeUnavailable(RuntimeError):
+    """Every judge call in a run failed, so the run measured nothing.
+
+    Raised *after* the report and history are written, so the evidence of the
+    failed run survives and the job still fails. Degrading to "not judged this
+    run" rather than inventing scores is right; degrading *silently* is not.
+    For five consecutive weeks this organ scored 0/10, wrote a well-formed
+    report saying nothing, and returned success — and because `_judge_sample`
+    caught each exception and continued, nothing ever reached the escalation
+    ladder, whose entire purpose is that a silent failure is the worst kind.
+    A caller that swallows an exception makes the ladder blind.
+    """
+
+
 def self_eval_config(config: dict[str, Any] | None) -> dict[str, Any]:
     out = dict(DEFAULTS)
     out.update((config or {}).get("self_eval") or {})
@@ -81,6 +95,18 @@ def run_self_evaluation(
         f"self_eval.run window_days={cfg['days']} exchanges={len(exchanges)} "
         f"judged={len(judged)} suggestions={len(emitted)}"
     )
+
+    # A window with exchanges in it that judged none of them is a failed run,
+    # not a quiet one. Raising here puts it on the escalation ladder — real
+    # error to Telegram, one second chance, then an investigation loop — which
+    # is the owner's ratified policy for exactly this. The report and history
+    # are already on disk above, so the failure keeps its evidence.
+    if exchanges and not judged:
+        raise SelfEvalJudgeUnavailable(
+            f"self-evaluation judged 0 of {min(len(exchanges), int(cfg['sample_size']))} "
+            f"sampled exchange(s); {judge_note}. The run measured nothing."
+        )
+
     return {
         "enabled": True,
         "window_days": int(cfg["days"]),
@@ -238,7 +264,17 @@ def _judge_sample(
 
     rubric = rubric_from_kernel(vault)
     provider = str(cfg.get("judge_provider") or DEFAULT_JUDGE_PROVIDER)
-    model = str(cfg.get("judge_model") or DEFAULT_JUDGE_MODEL)
+    # NOT str(): "no model, let the provider choose its default" is None, and
+    # str(None) is the four-character string "None", which reaches the codex
+    # CLI as `--model None` and exits 1 in about three seconds. This line was
+    # harmless while DEFAULT_JUDGE_MODEL was "openai/gpt-4o"; f5de272 moved the
+    # judge to the codex provider (so transcripts reach no new third party) and
+    # set the default to None, which turned a pointless coercion into a total
+    # outage. Every run from 2026-07-15 to 2026-08-13 scored 0/10 and reported
+    # success. A str() around a value that is allowed to be None is never
+    # load-bearing and is always a latent bug.
+    model = cfg.get("judge_model") or DEFAULT_JUDGE_MODEL
+    model = str(model) if model is not None else None
     sample = exchanges[-int(cfg["sample_size"]):]
     judged: list[dict[str, Any]] = []
     errors = 0

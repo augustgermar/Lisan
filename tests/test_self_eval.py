@@ -12,6 +12,7 @@ from unittest.mock import patch
 from lisan.frontmatter import load_markdown
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.self_eval import (
+    SelfEvalJudgeUnavailable,
     _parse_transcript,
     recent_exchanges,
     run_self_evaluation,
@@ -129,17 +130,89 @@ class RunTests(_Env):
             result = run_self_evaluation(self.vault, db_path=self.db, now=_TODAY)
         self.assertTrue(any("dropped" in s for s in result["suggestions"]))
 
-    def test_judge_failure_degrades_never_fakes(self):
+    def test_judge_failure_degrades_never_fakes_but_is_never_silent(self):
+        """Refusing to invent scores is right. Returning success is not.
+
+        This test previously asserted that a total judge outage returns
+        normally with judged=0 — which is exactly what the organ then did,
+        every week from 2026-07-15 to 2026-08-13, while `_judge_sample`
+        swallowed all ten exceptions. The old assertions were true and the
+        behaviour they pinned was the bug: the report is honest, and nobody
+        is told. A run that measured nothing now reaches the escalation
+        ladder, and still leaves its evidence on disk.
+        """
         _transcript(self.vault, "2026-07-05", [
             ("Tell me about the letterpress zine progress please?", "It moved forward."),
         ])
+
         def boom(*a, **k):
             raise RuntimeError("judge offline")
+
         with patch("lisan.tools.judge.judge_exchange", side_effect=boom):
-            result = run_self_evaluation(self.vault, db_path=self.db, now=_TODAY)
+            with self.assertRaises(SelfEvalJudgeUnavailable) as caught:
+                run_self_evaluation(self.vault, db_path=self.db, now=_TODAY)
+
+        self.assertIn("judged 0 of", str(caught.exception))
+        # The evidence survives the failure — report and history are written
+        # before the raise, so the ladder has something to point at.
+        report = self.vault / "reports" / f"self-eval-{_TODAY.isoformat().replace('-', '')}.md"
+        self.assertTrue(report.exists())
+        history = self.vault / "reports" / "self-eval-history.jsonl"
+        self.assertTrue(history.exists())
+        entry = json.loads(history.read_text(encoding="utf-8").strip().splitlines()[-1])
+        self.assertEqual(entry["judged"], 0)
+        self.assertIsNone(entry["overall_mean"])  # never a fabricated number
+
+    def test_an_empty_window_is_quiet_not_an_error(self):
+        """No exchanges to judge is a normal week, not a failure."""
+        result = run_self_evaluation(self.vault, db_path=self.db, now=_TODAY)
+        self.assertEqual(result["exchanges"], 0)
         self.assertEqual(result["judged"], 0)
-        self.assertIsNone(result["overall_mean"])
-        self.assertTrue(Path(result["report"]).exists())  # report still written, honestly empty
+
+    def test_absent_judge_model_reaches_the_provider_as_none_not_the_word(self):
+        """The root cause of the five-week outage, pinned.
+
+        `_judge_sample` wrapped the model in `str()`. While the default was
+        "openai/gpt-4o" that was a harmless no-op; f5de272 moved the judge to
+        the codex provider and set the default to None, and `str(None)` is the
+        four-character string "None" — which reaches the CLI as `--model None`
+        and exits 1 in under three seconds. Ten calls, ten fast failures, a
+        report reading "judge: codex/None; 0/10 scored", and a green job.
+
+        "Let the provider choose" must arrive as None, not as its own spelling.
+        """
+        _transcript(self.vault, "2026-07-05", [
+            ("How did the zine layout turn out in the end?", "Two spreads are done."),
+        ])
+        seen: dict[str, object] = {}
+
+        def capture(rubric, user, assistant, *, provider=None, model=None, context=None, llm=None):
+            seen["provider"] = provider
+            seen["model"] = model
+            return [{"id": "continuity", "score": 4, "rationale": "test"}]
+
+        with patch("lisan.tools.judge.judge_exchange", side_effect=capture):
+            run_self_evaluation(self.vault, db_path=self.db, now=_TODAY)
+
+        self.assertIsNone(seen["model"])
+        self.assertNotEqual(seen["model"], "None")
+        self.assertEqual(seen["provider"], "codex")
+
+    def test_an_explicit_configured_judge_model_still_passes_through(self):
+        _transcript(self.vault, "2026-07-05", [
+            ("What happened with the zine deadline this week?", "It slipped a day."),
+        ])
+        seen: dict[str, object] = {}
+
+        def capture(rubric, user, assistant, *, provider=None, model=None, context=None, llm=None):
+            seen["model"] = model
+            return [{"id": "continuity", "score": 4, "rationale": "test"}]
+
+        cfg = {"self_eval": {"judge_model": "some/model", "judge_provider": "openrouter"}}
+        with patch("lisan.tools.judge.judge_exchange", side_effect=capture):
+            run_self_evaluation(self.vault, db_path=self.db, config=cfg, now=_TODAY)
+
+        self.assertEqual(seen["model"], "some/model")
 
 
 if __name__ == "__main__":
