@@ -786,6 +786,17 @@ def build_parser() -> argparse.ArgumentParser:
     task_cancel = task_subparsers.add_parser("cancel", help="Cancel a scheduled task")
     task_cancel.add_argument("job_id")
     task_cancel.add_argument("--db-path", type=Path, default=None)
+    task_birthdays = task_subparsers.add_parser("birthdays", help="Schedule annual reminders before birthdays")
+    task_birthdays.add_argument(
+        "--person", action="append", required=True, metavar="NAME=YYYY-MM-DD",
+        help="Birthday entry; repeat for each person",
+    )
+    task_birthdays.add_argument("--db-path", type=Path, default=None)
+    task_birthdays.add_argument("--vault", type=Path, default=vault_root())
+    task_birthdays.add_argument(
+        "--no-entity", action="store_true",
+        help="Only schedule the reminder; do not record the birthday on the person's entity",
+    )
 
     plan_cmd = subparsers.add_parser("plan", help="Durable multi-step background plans")
     plan_subparsers = plan_cmd.add_subparsers(dest="plan_command", required=True)
@@ -1621,6 +1632,43 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"✗ No such task: {args.job_id}")
                 return 1
             print(f"✓ Canceled {args.job_id} (status: {job.get('status')})")
+            return 0
+        if args.task_command == "birthdays":
+            from .tools.birthdays import schedule_birthday_reminders
+
+            birthdays = []
+            for value in args.person:
+                if "=" not in value:
+                    print(f"✗ Invalid --person {value!r}; use NAME=YYYY-MM-DD")
+                    return 1
+                person, birthday = value.split("=", 1)
+                birthdays.append({"person": person, "date": birthday})
+            try:
+                summaries = schedule_birthday_reminders(
+                    birthdays,
+                    db_path=args.db_path,
+                    vault=None if args.no_entity else args.vault,
+                )
+            except ValueError as exc:
+                print(f"✗ {exc}")
+                return 1
+            for summary in summaries:
+                if summary.get("created"):
+                    print(f"✓ Scheduled birthday reminder for {summary['person']} at {summary['scheduled_for_local']}")
+                else:
+                    print(f"• Already scheduled for {summary['person']} — left alone")
+                print(f"  id: {summary['job_id']}  (recurring {summary['recurrence']})")
+                ent = summary.get("entity") or {}
+                if ent.get("entity_updated"):
+                    print(f"  ✓ recorded on {ent['entity_id']}")
+                elif ent.get("reason") == "conflict":
+                    print(f"  ! {ent['entity_id']} already says {ent['existing']}, not {ent['proposed']}"
+                          " — left as-is; resolve it by hand")
+                elif ent.get("reason") == "ambiguous":
+                    print(f"  ! several people match {summary['person']!r}: {', '.join(ent['candidates'])}"
+                          " — entity not updated")
+                elif ent.get("reason") == "no_entity":
+                    print(f"  · no entity for {summary['person']!r} — reminder only")
             return 0
 
     if args.command == "plan":

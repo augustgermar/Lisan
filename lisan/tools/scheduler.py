@@ -80,6 +80,7 @@ _LATE_THRESHOLD = timedelta(minutes=15)
 
 _EVERY_RE = re.compile(r"^every:(\d+)([smhdw])$")
 _DAILY_RE = re.compile(r"^daily@([01]?\d|2[0-3]):([0-5]\d)$")
+_ANNUAL_RE = re.compile(r"^annual@(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(?:@([01]\d|2[0-3]):([0-5]\d))?$")
 
 _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
@@ -153,7 +154,8 @@ def parse_when(value: str, *, now: datetime | None = None) -> datetime:
 
 def normalize_recurrence(value: str | None) -> str | None:
     """Validate and normalize a recurrence rule. Two deterministic forms:
-    ``every:<N><s|m|h|d|w>`` and ``daily@HH:MM`` (local time)."""
+    ``every:<N><s|m|h|d|w>``, ``daily@HH:MM`` (local time), and
+    ``annual@MM-DD`` (calendar date in local time)."""
     if value in (None, ""):
         return None
     text = str(value).strip().lower()
@@ -165,9 +167,19 @@ def normalize_recurrence(value: str | None) -> str | None:
     if _DAILY_RE.match(text):
         hour, minute = text.split("@", 1)[1].split(":")
         return f"daily@{int(hour):02d}:{minute}"
+    annual_match = _ANNUAL_RE.match(text)
+    if annual_match:
+        month, day = text.split("@", 1)[1].split("@", 1)[0].split("-")
+        # Validate dates such as annual@02-31 here, without rejecting the
+        # otherwise useful year-independent recurrence syntax.
+        from calendar import monthrange
+        if int(day) > monthrange(2024, int(month))[1]:
+            raise ValueError(f"invalid annual calendar date: {value!r}")
+        hour, minute = annual_match.group(3), annual_match.group(4)
+        return f"annual@{month}-{day}" + (f"@{int(hour):02d}:{minute}" if hour is not None else "")
     raise ValueError(
         f"unsupported recurrence {value!r}; use 'every:<N><m|h|d|w>' (e.g. every:30m) "
-        "or 'daily@HH:MM' (local time)"
+        "'daily@HH:MM' (local time), or 'annual@MM-DD'"
     )
 
 
@@ -181,12 +193,26 @@ def next_occurrence(recurrence: str, *, after: datetime | None = None) -> dateti
     if match:
         seconds = int(match.group(1)) * _UNIT_SECONDS[match.group(2)]
         return after + timedelta(seconds=seconds)
-    hour, minute = (int(part) for part in rule.split("@", 1)[1].split(":"))
+    if rule.startswith("daily@"):
+        hour, minute = (int(part) for part in rule.split("@", 1)[1].split(":"))
+        local_after = after.astimezone(_local_tz())
+        candidate = local_after.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if candidate <= local_after:
+            candidate += timedelta(days=1)
+        return candidate.astimezone(timezone.utc)
+
+    annual_parts = rule.split("@")
+    month, day = (int(part) for part in annual_parts[1].split("-"))
+    annual_time = (int(annual_parts[2].split(":")[0]), int(annual_parts[2].split(":")[1])) if len(annual_parts) == 3 else (0, 0)
     local_after = after.astimezone(_local_tz())
-    candidate = local_after.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    if candidate <= local_after:
-        candidate += timedelta(days=1)
-    return candidate.astimezone(timezone.utc)
+    year = local_after.year
+    while True:
+        from calendar import monthrange
+        actual_day = min(day, monthrange(year, month)[1])
+        candidate = datetime(year, month, actual_day, annual_time[0], annual_time[1], tzinfo=_local_tz())
+        if candidate > local_after:
+            return candidate.astimezone(timezone.utc)
+        year += 1
 
 
 def schedule_task(

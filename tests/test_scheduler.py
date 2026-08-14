@@ -73,7 +73,7 @@ class RecurrenceTests(unittest.TestCase):
         self.assertEqual(normalize_recurrence("daily@9:05"), "daily@09:05")
 
     def test_bad_rules_raise(self):
-        for bad in ("weekly:1", "every:xm", "daily@25:00", "sometimes"):
+        for bad in ("weekly:1", "every:xm", "daily@25:00", "annual@02-31", "sometimes"):
             with self.assertRaises(ValueError):
                 normalize_recurrence(bad)
 

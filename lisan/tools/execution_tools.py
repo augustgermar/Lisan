@@ -289,7 +289,8 @@ TOOLS: list[dict[str, Any]] = [
             "like '+30m', '+2h', '+3d'. Never pass fuzzy phrases like 'next thursday' — resolve them "
             "to a date first; if you are unsure of today's date, prefer a relative offset (error "
             "messages include the current local time, so you can correct yourself). Optional "
-            "'recurrence': 'every:30m', 'every:2h', 'every:1d', or 'daily@HH:MM'. Omit 'when' on "
+            "'recurrence': 'every:30m', 'every:2h', 'every:1d', 'daily@HH:MM', or "
+            "'annual@MM-DD@HH:MM'. Omit 'when' on "
             "recurring tasks to start at the next occurrence."
             " KIND RULES: 'codex' runs in a sandbox with NO network — it can never send a Telegram"
             " message, reach email, or browse; scheduling 'lisan telegram send' as codex fails"
@@ -305,6 +306,37 @@ TOOLS: list[dict[str, Any]] = [
                 "recurrence": {"type": "string", "description": "Optional recurrence rule"},
             },
             "required": ["text"],
+        },
+    },
+    {
+        "name": "birthday_reminders",
+        "description": (
+            "Record birthdays and schedule annual reminders. Pass a non-empty list of objects "
+            "with 'person' and an ISO 'date' (YYYY-MM-DD). Does two things per person: fires an "
+            "annual reminder the day before at 09:00 local, and writes the birthday onto that "
+            "person's entity record so it becomes part of what you know about them. "
+            "Safe to re-run — an identical reminder is not duplicated. "
+            "If the person's recorded birthday DIFFERS from the one given, nothing is "
+            "overwritten and you are told; report the conflict to the owner and let them "
+            "decide, never pick one yourself. February 29 is observed on February 28 in "
+            "common years."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "birthdays": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "person": {"type": "string"},
+                            "date": {"type": "string", "description": "ISO date: YYYY-MM-DD"},
+                        },
+                        "required": ["person", "date"],
+                    },
+                },
+            },
+            "required": ["birthdays"],
         },
     },
 ]
@@ -367,6 +399,12 @@ def build_tool_handlers(
             kind=kind,
             recurrence=recurrence,
             db_path=db_path,
+            conversation_id=conversation_id,
+        ),
+        "birthday_reminders": lambda birthdays: birthday_reminders_tool(
+            birthdays=birthdays,
+            db_path=db_path,
+            vault=vault,
             conversation_id=conversation_id,
         ),
     }
@@ -841,6 +879,51 @@ def schedule_task_tool(
         f"Scheduled {summary['kind']} for {summary['scheduled_for_local']}{recur_note} "
         f"(task id {summary['job_id']})"
     )
+
+
+def birthday_reminders_tool(
+    *, birthdays: list[dict[str, Any]], db_path: Path | None = None,
+    vault: Path | None = None, conversation_id: str | None = None,
+) -> str:
+    """Conversational entry point: schedule the reminders AND keep the fact.
+
+    Reports what actually happened per person rather than a uniform success
+    line — an already-scheduled reminder, a name that matches nobody, and a
+    contradiction between a recorded birthday and this one are three different
+    outcomes, and a model that is told "scheduled" for all three will tell the
+    owner the same.
+    """
+    from .birthdays import schedule_birthday_reminders
+
+    chat_id: int | None = None
+    match = _TELEGRAM_CONVERSATION_RE.match(str(conversation_id or ""))
+    if match:
+        chat_id = int(match.group(1))
+    try:
+        summaries = schedule_birthday_reminders(
+            birthdays, db_path=db_path, vault=vault, chat_id=chat_id
+        )
+    except ValueError as exc:
+        return f"Error: {exc}"
+
+    lines = []
+    for item in summaries:
+        verb = "scheduled" if item.get("created") else "already scheduled"
+        line = f"{item['person']}: {verb} for {item['scheduled_for_local']} (task {item['job_id']})"
+        ent = item.get("entity") or {}
+        if ent.get("entity_updated"):
+            line += f"; recorded on {ent['entity_id']}"
+        elif ent.get("reason") == "already_recorded":
+            line += "; entity already had it"
+        elif ent.get("reason") == "conflict":
+            line += (f"; NOT recorded — {ent['entity_id']} says {ent['existing']}, "
+                     f"this says {ent['proposed']}. Tell the owner; do not pick one.")
+        elif ent.get("reason") == "ambiguous":
+            line += f"; entity not updated, several people match: {', '.join(ent['candidates'])}"
+        elif ent.get("reason") == "no_entity":
+            line += "; no entity for that name, reminder only"
+        lines.append(line)
+    return "Birthdays — " + "; ".join(lines)
 
 
 def _codex_default_model(config: dict[str, Any], provider: str | None = None) -> str | None:
