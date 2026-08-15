@@ -32,11 +32,14 @@ gate — read the gate before starting):
   analyst organ) remains, gated on four weeks of observation data —
   the clock starts when check-ins start.
 - `ship2_enable_workorder.md` — enable person enrichment (Ship 2 of
-  WO-ENRICH). Waits for the owner's calibration verdict, pasted into the
-  slot in that file. Binding spec: `ship2_person_enrichment.md`.
-  NOTE 2026-07-15: the deviation drive was silently dead 07-05→07-15
-  (post-turn seam bug, fixed); the calibration period genuinely starts
-  from that fix, not from Ship 1's commit date.
+  WO-ENRICH). **Calibration verdict given 2026-08-14: curiosity, not
+  grinding — the gate is cleared and this is ready to build.** Binding spec:
+  `ship2_person_enrichment.md`, **rewritten the same day**: the owner read it
+  back against its own intent and removed the four-prong permission gate,
+  which by its own rules could never have fired on the loops Ship 1 produces.
+  What Ship 2 builds is the system noticing a thin spot and going to close it.
+  Ring 2 (the published world) is deferred behind one open decision in that
+  spec's §9.
 - `self_repair_workorder.md` — WO-REPAIR, the self-improvement loop.
   Waits for 4 weeks of self-eval history (same note: the weekly
   self-eval only began firing 2026-07-15; gate opens ~mid-August).

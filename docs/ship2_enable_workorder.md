@@ -4,31 +4,37 @@
 period is over. It is deliberately not executable without the owner's
 calibration verdict pasted into the slot below.*
 
-Read `docs/ship2_person_enrichment.md` — it is the binding spec, written
-against this codebase. Also read `lisan/tools/action_policy.py`,
-`lisan/tools/deviations.py`, and `lisan/tools/drive.py` before writing
-anything.
+Read `docs/ship2_person_enrichment.md` — it is the binding spec. Also read
+`lisan/tools/action_policy.py`, `lisan/tools/deviations.py`, and
+`lisan/tools/drive.py` before writing anything.
 
-Implement the six steps in the spec's "What Ship 2 implementation requires,
-in order" section, **in that order**. Do not skip ahead: raising the
-`policy_tier` clamp so `enrich_person` (tier 3) becomes reachable is step 6
-and must be the final commit, after everything before it is tested and
-green. If you find yourself editing the clamp before the four-prong gate
-functions, the `enrichment.expire` tombstone cascade, the audit-line format,
-and the inference immune system all exist with passing tests, stop — you are
-doing it in the wrong order.
+**Rewritten 2026-08-14.** The previous version of this work order told the
+agent to build a four-prong permission gate. The owner read the spec back
+against its own intent and removed it: the gate could never have fired on the
+loops Ship 1 actually produces (see §1 of the spec), and a specification whose
+main content is denial conditions produces nothing. What the system is for is
+noticing where its model is thin and going to find what closes the gap.
+
+Implement the steps in the spec's §7, **in that order**. Raising the
+`policy_tier` clamp so `enrich_person` becomes reachable is the last one and
+must be the final commit. If you find yourself editing the clamp before Ring 0
+enrichment, provenance, and the inference cap exist with passing tests, stop —
+you are doing it in the wrong order.
 
 Hard rules that override anything else you infer:
 
-- the gate fails closed — ambiguous source = bounded = denied;
-- a person never loses person-protections because they entered the vault
-  incidentally (§1.4 of the WO);
-- detector-emitted loops are `frame: none` and may only surface-to-owner;
-- forgetting must tombstone, never orphan `source_refs`;
-- every acquisition is audit-logged in the entity file;
-- the symmetry test is the tie-breaker for anything the prongs
-  underdetermine: would the subject find it fair if a competent agent did
-  this to them for someone else?
+- **the resolution is written, never the corpus** — an email thread does not
+  get copied into the vault; what was learned does, with a pointer to where it
+  came from;
+- **nothing lands that cannot say where it came from** — provenance on every
+  write path, on the durable `source_log` seam;
+- **inference is marked and capped** (`basis: inference`, 0.6) and is
+  superseded by direct evidence rather than sitting beside it;
+- **every read is scoped to a named deficit** — background scanning of any
+  corpus is never the behaviour; appetite without a loop is the failure mode;
+- **Ring 2 is out of scope** and blocked on the open decision in the spec's §9;
+- caps are budgets, not permission tests: they bound how much work runs, never
+  which subject may be looked into.
 
 ## Owner calibration verdict (REQUIRED — agent: stop and ask if blank)
 
@@ -57,12 +63,13 @@ Hard rules that override anything else you infer:
 
 ## Definition of done
 
-- Full suite green.
-- Prong functions have a test matrix including the incidental-person rule.
-- `enrichment.expire` tested, including the derived-inference cascade and
-  tombstones.
-- Live dry-run against a disposable test vault (`LISAN_VAULT=/tmp/...`),
-  never against `~/.lisan/vault` without asking the owner.
+- Full suite green, both runners.
+- Ring 0 enrichment tested end to end: deviation in, entity updated, loop
+  closed, provenance line present.
+- A test that fails if an enrichment can land without provenance.
+- Inference cap and supersede-on-direct-evidence tested.
+- Live dry-run against a disposable test vault (`LISAN_VAULT=/tmp/...`), never
+  against `~/.lisan/vault` without asking the owner.
 - Only then: the clamp raise, plus a config example showing tier 3 NOT set
   by default.
 - **Enabling on the live install (setting the tier) is the owner's manual

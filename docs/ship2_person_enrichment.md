@@ -1,146 +1,177 @@
-# Ship 2 design note — person enrichment, gated but disabled
+# Ship 2 — closing its own knowledge gaps
 
-*Follow-up to WO-ENRICH §3/§4. Status: specified, NOT enabled. `enrich_person`
-is registered in `action_policy.ACTION_TIERS` at tier 3, which `policy_tier`
-cannot reach (it clamps to 2) — structurally unreachable until this note's
-gate is implemented and the ceiling is raised on purpose, in that order.*
+*Status: specified, not built. Supersedes the 2026-07-05 design note of the
+same name, which was rewritten on 2026-08-14 after the owner read it back
+against its own intent. `enrich_entity` / `enrich_person` remain registered in
+`action_policy.ACTION_TIERS` at tiers 2 and 3; the tier is the owner's on
+switch and the last step, as before.*
 
-*Ship 1 (deviation detector, interior-only) shipped 2026-07-05. The
-calibration period on real data starts now; Ship 2 work does not begin until
-that period has produced a written mosquito-vs-indexer read.*
+## §0 — Intent
 
----
+The system notices where its model of the world is thin, goes and finds what
+would fill the gap, and writes down what it learned. That sentence is the
+whole feature. Ship 1 built the noticing. Ship 2 builds the going.
 
-## §4.1 — Machine-decidable `disclosure_intent`
+## §1 — What changed, and why the previous version could never have worked
 
-**Decision: a source-class allowlist that fails closed.** "Published to the
-world" is not decidable from a URL in general; it IS decidable for an
-enumerated set of source classes. Config gains `enrichment.sources`, an
-allowlist of classes with fixed disclosure semantics:
+The superseded note specified a four-prong permission gate, a source-class
+allowlist, a `frame` field on the open loop, and a fail-closed default. Two of
+its own rules, read together, made the feature inert:
 
-- `published`: preprint servers/DOIs, an organization's own public site, official
-  business listings, published docs. The existing skills platform (e.g.
-  `arxiv_search`) is exactly this class — reuse skills as the only fetch
-  surface, so what CAN be reached is enumerable from the skill manifest.
-- everything else: `bounded`, by definition, including anything behind a
-  login, any social platform (public-by-default platforms included — a
-  public post is world-readable but audience-scoped in intent), and any
-  general web search over a person's *name*.
+> *"Detector-emitted person loops (`origin: self`) carry `frame: none` by
+> construction — the detector cannot know why a person matters."*
+> *"`frame: none` means prong 3 fails, which means surface-to-owner is the ONLY
+> closure path."*
 
-**Aggregation prong, mechanically:** one loop closure may consult at most
-one source class per acquisition (config `enrichment.max_sources_per_loop:
-1`). Cross-source assembly of a person profile is the aggregation violation
-(§1.3.2) and is prevented by the counter, not by judgment.
+Every loop Ship 1 emits is `origin: self`, therefore `frame: none`, therefore
+permitted to do nothing but ask the owner — which is what v0 already did. The
+gate would have been built, tested, shipped, and never once fired on the loops
+the detector actually produces. All 26 loops from the calibration period fall
+in that class.
 
-Ambiguous → `bounded` → denied. No judgment call in the hot path.
+The prongs, the allowlist, and the `frame` field are removed. What replaced
+them is not a weaker gate; it is no gate. The three pieces of that note which
+were never gates — provenance, inference discipline, and retention for fetched
+third-party material — are kept below, because they are about *what the system
+does with what it finds*, not about whether it is allowed to look.
 
-## §4.2 — Machine-decidable `frame`
+**A spec whose main content is denial conditions produces nothing.** That is
+the lesson worth carrying out of this rewrite.
 
-**Decision: frame lives on the loop.** An entity outlives frames; a session
-is too ephemeral; the loop IS the decision at hand — it already carries
-`origin`, links, and lifecycle. Schema addition: `frame: hiring | vendor |
-meeting | client | none` on `open_loop`.
+## §2 — The loop
 
-- Frame is set only from an explicit owner utterance at loop creation
-  ("I'm interviewing X Tuesday") — writer-extracted, skeptic-gated, like
-  every other capture field.
-- Detector-emitted person loops (`origin: self`) carry `frame: none` by
-  construction — the detector cannot know why a person matters.
-- **Default = most restrictive**: `frame: none` means prong 3 fails, which
-  means surface-to-owner ("I know almost nothing about X — anything I
-  should track?") is the ONLY closure path. This is v0's whole behavior,
-  and it stays the behavior for any loop without an owner-given frame.
+A `thin` deviation is the trigger. Ship 1 already produces it, in the owner's
+words (real example, cast renamed): *"Ruth Varga keeps coming up (71 records)
+but my model of them is 18 words — there is clearly more to know."*
 
-Off-frame fact detection at acquisition time: the fetch is scoped by the
-frame→source-class map (hiring → `published` professional classes only),
-so an off-frame fact is mostly unreachable rather than filtered after the
-fact. Prevention over filtering, same as the confabulation stance.
+1. **Name the deficit.** Not "learn about X" but "X appears in 71 records and
+   the entity narrative is 18 words." The deficit is the search target and the
+   stopping condition. Appetite without a named deficit is the failure mode.
+2. **Ring 0 — the vault.** Search interior memory first. The material is often
+   already captured and simply never reached the entity's story. Free, and it
+   frequently ends here.
+3. **Ring 1 — the owner's own corpora.** Gmail, Obsidian, the owner's files,
+   through the existing skills. Scoped to the named deficit; never a background
+   sweep.
+4. **Write the resolution, not the corpus** (§4).
+5. **Close the loop and say what was learned.** One line to the owner: what it
+   didn't know, what it now knows, where that came from.
+6. **If the gap does not close, ask — informed.** Rings 0 and 1 run *before*
+   the question so the question arrives with what was found: *"your notes say
+   Tuesdays and a March email says Wednesdays — which is current?"* A question
+   only the owner can answer is still asked, with curiosity, not silently
+   resolved.
 
-## §4.5 — Retention trigger and forgetting cascade
+Satiation is inherited from Ship 1: the deviation resolves, the fingerprint
+stops re-firing, and the system goes quiet. The mosquito seeks one specific
+meal, then stops.
 
-**Decision: the trigger is the originating loop leaving `active`.** The loop
-is the decision; when it resolves, expires (drive decay), or is archived,
-retention ends. Acquired records are born tagged:
+## §3 — The source ladder
+
+- **Ring 0 — the vault.** Interior. Always first. No conditions.
+- **Ring 1 — the owner's own corpora.** The owner's data, read on the owner's
+  machine, for the owner's benefit. No third-party question arises. Two
+  disciplines, neither of which can refuse a lookup: every read is scoped to a
+  named deficit, and every acquisition carries provenance (§4).
+- **Ring 2 — the published world.** **Deferred, not designed here.** There is
+  currently no published-class fetch surface installed: `arxiv_search`, `maps`
+  and `polymarket` were removed on 2026-08-14, leaving Gmail, Obsidian and
+  `youtube_transcript`. Ring 2 needs one open decision before it is built (§9)
+  and is out of scope for this ship.
+
+Escalation is outward only when the inner ring fails.
+
+## §4 — What gets written
+
+**The resolution, never the corpus.** An email thread is not copied into the
+vault. What lands is what was learned — *"Ruth Varga is Dana Feld's mother"* —
+with a pointer to where it came from. The vault is a memory, not a mail
+archive, and the owner's corpora are already searchable where they live.
+
+**Provenance on every acquisition.** Enrichment appends to the entity's
+durable `source_log`, the same seam birthdays use, so it survives narrative
+compaction and is searchable immediately:
 
 ```
-acquired_for: <loop_id>
-acquired_at: <date>
-evidence_class: published-source
+[enrichment] 2026-08-14 — learned <what> from <ring>/<skill> while closing
+             <loop_id>
 ```
 
-On loop close, an `enrichment.expire` job (same queue, deterministic):
+Nothing is written that cannot say where it came from. Without this, an entity
+file asserts things with no way to distinguish what the owner said from what
+the system went and read — the confabulation problem in a new costume.
 
-1. deletes acquired records tagged with that loop id;
-2. cascades to inferences derived from them (any record whose `links` /
-   `source_refs` cite a deleted acquired record) — delete or demote to
-   `status: retracted`;
-3. **tombstones, never orphans**: each deleted record is replaced by a
-   one-line tombstone record ("acquired content expired per retention
-   discipline, <date>") so surviving `source_refs` resolve to the fact of
-   expiry rather than dangling — and the deviation detector's dangling-link
-   scan stays quiet;
-4. the acquisition self-episode is kept but references only the tombstone:
-   the agent remembers THAT it looked and why, never retains WHAT it found.
-   No standing dossier, but an honest autobiography.
+**Inference is marked and capped.** A statement the system *derived* rather
+than read carries `basis: inference` and confidence capped at 0.6, matching
+the `self_report` cap from WO-GROUND. Any direct evidence about the subject
+supersedes an inference rather than sitting beside it. Guesses must not harden
+into facts by aging.
 
-## §4.6 — Rollback for misclassification
+**Retention.** Ring 0 and Ring 1 findings are permanent: they are facts about
+the owner's own life, learned from the owner's own data, and expiring them
+would be absurd. Corrections use the ordinary record lifecycle. The loop-scoped
+expiry and tombstone cascade of the superseded note were designed for fetched
+third-party material and belong with Ring 2 when it is built.
 
-If an acquisition is later judged to have breached the gate (owner says so,
-or a source class is reclassified):
+## §5 — Budgets, which are not gates
 
-1. run the §4.5 expiry cascade immediately for that loop (blast radius =
-   everything tagged `acquired_for` + derived inferences, enumerable by
-   construction — this is why the tag is mandatory at birth);
-2. write an audit-visible retraction record in `reports/` naming what was
-   accessed, when, under which class, and why that was wrong;
-3. emit a self-episode (biography-grade: the agent was wrong about a
-   boundary — that is exactly the kind of event Layer B must carry);
-4. the loop reopens as `frame: none` → surface-to-owner only.
+A cap is a resource budget, not a permission test: it never decides that a
+particular subject may not be looked into, only how much work runs per day.
 
-## What Ship 2 implementation requires, in order
+- `enrichment.daily_cap` — enrichment attempts per day. Start at 2, matching
+  Ship 1's `daily_cap`, which never bound (0.65/day actual over 40 days).
+- `enrichment.max_reads_per_loop` — corpus reads while closing one deficit.
+  Start at 5. Prevents a single thin entity from turning into a mailbox scan.
+- Every attempt is logged whether or not it found anything, so a system that is
+  trying and failing is visible rather than quiet.
 
-1. Calibration read from Ship 1 (mosquito or indexer?) — written, owner-read.
-2. The four prongs as pure functions over (loop, entity, source class) with
-   the full test matrix, including the §1.4 rule that person-protections do
-   not thin with incidental origin.
-3. `enrichment.expire` + tombstones + cascade, tested.
-4. Audit line format in the entity file (§1.5) + provenance via the existing
-   evidence-class fields.
-5. Inference immune system (§1.6): inference records get `basis: inference`,
-   capped confidence, and demotion-by-individual-evidence in the skeptic.
-6. Only then: raise the `policy_tier` clamp to 3 and let the owner set it.
+## §6 — The owner's switch
 
-*Symmetry test stays the tie-breaker for anything this note underdetermines:
-would the subject find it fair if a competent agent did it to them for
-someone else? If not, it fails — regardless of what the prongs technically
-permit.*
+`policy_tier` stays exactly as it is: `enrich_entity` at 2, `enrich_person` at
+3, and the clamp raised in code as the final commit. Setting the tier on the
+live install remains the owner's manual act. The agent ships the capability;
+the owner turns the key. This is the one place a "no" lives, and it is a single
+switch the owner holds rather than a per-subject judgement in the hot path.
 
----
+## §7 — Implementation, in order
 
-## Amendment (2026-07-05, owner-ratified): the source ladder ("bloodseeking")
+1. **`enrichment.seek` job + Ring 0.** Deficit extraction from a `thin`
+   deviation, vault search, write-back with provenance, loop closure. This is
+   the whole feature end to end against interior memory, and it is testable
+   with no external calls at all.
+2. **Provenance and the audit line** (§4), on the `source_log` seam.
+3. **Inference marking and the 0.6 cap**, plus supersede-on-direct-evidence.
+4. **Ring 1 adapters** — Gmail and Obsidian, deficit-scoped, read-limited.
+5. **Budgets and logging** (§5).
+6. **Raise the `policy_tier` clamp to 3.** Last commit, after everything above
+   is green.
 
-The owner extended the acquisition design in conversation: when a deviation
-(especially an unresolvable contradiction) cannot close from the vault, the
-agent may consult sources in strict proximity order, escalating outward
-only when the inner ring fails — the mosquito seeks one specific meal, then
-quiesces:
+Step 1 is deliberately a complete feature. If Ring 1 never shipped, an agent
+that reconciles its own entity stories against its own memory would still be
+worth having.
 
-- **Ring 0 — the vault.** Interior; free; always first.
-- **Ring 1 — the owner's own corpora** (Gmail, Messages/SMS, the owner's
-  files). The owner's data: no third-party gate, but every read is
-  loop-scoped and audit-logged — pulled because THIS ache demanded it.
-  Background scanning of any corpus is never permitted; the trigger is
-  always a specific named deficit. What is stored is the RESOLUTION plus
-  provenance ("resolved via Messages, 2026-03 thread"), never the corpus.
-- **Ring 2 — the published world** (web search / the browser). Full
-  four-prong gate for person subjects; frame-relevance and retention
-  discipline as specified above.
+## §8 — Definition of done
 
-Conflict handling keeps conversation first-class: rings 0-1 may be
-consulted BEFORE asking the owner so the question arrives informed
-("your texts say Tuesdays, my notes say Wednesdays — which is current?"),
-but a question the owner alone can answer is still asked, with curiosity,
-not silently resolved. Creative tool composition in service of closing a
-specific loop is desired behavior; appetite without a loop is the failure
-mode. Same caps, same audit, same satiation as everything else.
+- Full suite green, both runners.
+- Ring 0 enrichment tested end to end: deviation in, entity updated, loop
+  closed, provenance line present.
+- Provenance asserted on every write path — a test that fails if an enrichment
+  can land without saying where it came from.
+- Inference cap and supersede-on-evidence tested.
+- Live dry-run against a disposable vault (`LISAN_VAULT=/tmp/...`), never
+  against `~/.lisan/vault` without asking.
+- `config.example.json` ships with tier 3 **not** set.
+- The owner sets the tier.
 
+## §9 — Open decisions
+
+**Ring 2 subject classes.** Before any published-world lookup is built: is
+there a class of subject the system never researches on the open web? The
+vault contains the owner's children and people in an active custody matter,
+and "an agent doing web research on a seven-year-old" is a different sentence
+from "an agent reading its owner's email." Raised 2026-08-14, deliberately
+unanswered here rather than decided by whoever writes the code. **Blocks Ring 2
+only; Rings 0 and 1 proceed.**
+
+**A published-class source.** Ring 2 also needs at least one installed skill
+that reaches published material, since the candidates were uninstalled.
