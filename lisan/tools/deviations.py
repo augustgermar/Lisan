@@ -86,7 +86,7 @@ def scan_deviations(
 
     current = detect(vault, db_path=db_path, config=cfg)
     satiated = _satiate(vault, {d["fingerprint"] for d in current}, db_path=db_path)
-    emitted = _emit(vault, current, cfg, now, db_path=db_path)
+    emitted = _emit(vault, current, cfg, now, db_path=db_path, policy_config=config)
     return {
         "enabled": True,
         "detected": len(current),
@@ -381,6 +381,7 @@ def _emit(
     now: date,
     *,
     db_path: Path | None,
+    policy_config: dict[str, Any] | None = None,
 ) -> list[str]:
     logger = get_logger(vault)
     existing = {str(fm.get("deviation_fingerprint") or "") for _, fm in _self_loops(vault)}
@@ -434,12 +435,43 @@ def _emit(
         try:
             write_markdown(path, fm, body)
             _index_quietly(path, vault, db_path)
+            _queue_enrichment(vault, db_path, fm, dev, policy_config or {})
         except Exception as exc:
             log_error(vault, f"deviation.emit failed for {dev['fingerprint']}", exc)
             continue
         logger.info(f"deviation.emitted class={dev['klass']} fingerprint={dev['fingerprint']}")
         emitted.append(loop_id)
     return emitted
+
+
+def _queue_enrichment(
+    vault: Path,
+    db_path: Path | None,
+    loop_fm: dict[str, Any],
+    deviation: dict[str, Any],
+    cfg: dict[str, Any],
+) -> None:
+    """Materialize the next step only when the owner has enabled enrichment."""
+    from .action_policy import action_allowed
+
+    if not action_allowed("enrich", cfg):
+        return
+    links = [str(link) for link in (deviation.get("links") or []) if str(link).strip()]
+    entity_path = next((vault / link for link in links if (vault / link).exists()), None)
+    if entity_path is None:
+        return
+    from .jobs import enqueue_job
+    current = vault / "transcripts" / f"{today_iso()}.md"
+    payload = {
+        "vault": str(vault),
+        "loop_id": str(loop_fm.get("id") or ""),
+        "deficit_id": str(deviation.get("fingerprint") or ""),
+        "deficit": str(deviation.get("summary") or ""),
+        "entity_path": str(entity_path),
+    }
+    if current.exists():
+        payload["current_transcript"] = str(current)
+    enqueue_job("enrichment.seek", payload, db_path=db_path)
 
 
 def _index_quietly(path: Path, vault: Path, db_path: Path | None) -> None:

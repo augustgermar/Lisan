@@ -84,6 +84,12 @@ def phrase_question(fm: dict[str, Any]) -> str:
     """Interrogative by construction — never an assertion — and attributed
     to whoever actually owns the thread: an agent-owned loop is the agent's
     own note, not something the user said (capstone cycle 1 finding)."""
+    owner_question = str(fm.get("owner_question") or "").strip()
+    if owner_question:
+        question = owner_question.rstrip()
+        if not question.endswith("?"):
+            question += "?"
+        return question
     subject = str(fm.get("summary") or fm.get("title") or "that open thread").strip().rstrip(".!")
     if str(fm.get("owner") or "") == "agent":
         question = f'I have an open note of my own — "{subject}" — did that ever get sorted?'

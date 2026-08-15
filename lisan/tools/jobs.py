@@ -50,6 +50,8 @@ JOB_TYPES = {
     "plan.run",
     "capture.observe",
     "deviation.scan",
+    "enrichment.seek",
+    "enrichment.retry_pending",
     "self.evaluate",
     "prediction.reconcile",
     "corpus.audit_priors",
@@ -937,6 +939,51 @@ def dispatch_job(
         from .deviations import scan_deviations
 
         return scan_deviations(vault, db_path=db_path, config=load_config())
+
+    if job_type == "enrichment.seek":
+        from ..config import load_config
+        from .enrichment import seek
+        from .research import installed_owner_providers
+
+        entity_path = str(payload.get("entity_path") or "").strip()
+        loop_id = str(payload.get("loop_id") or "").strip()
+        deficit_id = str(payload.get("deficit_id") or "").strip()
+        deficit = str(payload.get("deficit") or "").strip()
+        if not entity_path or not loop_id or not deficit_id or not deficit:
+            raise ValueError("enrichment.seek requires entity_path, loop_id, deficit_id, and deficit")
+        cfg = load_config()
+        providers = installed_owner_providers(vault=vault, config=cfg)
+        historical = [Path(str(item)) for item in (payload.get("historical_transcripts") or [])]
+        result = seek(
+            vault=vault,
+            db_path=db_path,
+            loop_id=loop_id,
+            deficit_id=deficit_id,
+            deficit=deficit,
+            entity_path=Path(entity_path),
+            config=cfg,
+            current_transcript=Path(str(payload["current_transcript"])) if payload.get("current_transcript") else None,
+            historical_transcripts=historical,
+            providers=providers,
+        )
+        if result.get("status") == "pending":
+            from .jobs import enqueue_job as _enqueue_job
+
+            _enqueue_job(
+                "enrichment.retry_pending",
+                {"pending_path": result["pending_path"], "vault": str(vault)},
+                max_attempts=3,
+                db_path=db_path,
+            )
+        return result
+
+    if job_type == "enrichment.retry_pending":
+        from .enrichment import retry_pending
+
+        pending_path = str(payload.get("pending_path") or "").strip()
+        if not pending_path:
+            raise ValueError("enrichment.retry_pending requires pending_path")
+        return retry_pending(Path(pending_path), vault=vault, db_path=db_path)
 
     if job_type == "prediction.reconcile":
         from .predictions import run_prediction_reconcile

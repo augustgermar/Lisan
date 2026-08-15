@@ -166,6 +166,19 @@
       "hash_dimensions": 32
     }
   },
+  "enrichment": {
+    "daily_cap": 2,
+    "max_reads_per_loop": 5,
+    "max_candidates_per_source": 5,
+    "max_model_calls_per_loop": 2
+  },
+  "sources": {
+    "local_files": {
+      "enabled": false,
+      "roots": [],
+      "include_extensions": [".md", ".txt", ".json", ".csv", ".pdf"]
+    }
+  },
   "identity": {
     "ceremony": {
       "min_invariants": 5,

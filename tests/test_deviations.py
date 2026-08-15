@@ -157,6 +157,21 @@ class EmissionTests(_Env):
         again = scan_deviations(self.vault, db_path=self.db)
         self.assertEqual(again["emitted"], 0)
 
+    def test_enabled_enrichment_is_queued_for_emitted_entity_deficit(self):
+        _entity(self.vault, "larkspur-place", "Larkspur", "place")
+        _entity(self.vault, "larkspur-person", "Larkspur", "person")
+        result = scan_deviations(
+            self.vault,
+            db_path=self.db,
+            config={"drive": {"action_tier": 3}},
+        )
+        self.assertEqual(result["emitted"], 1)
+        from lisan.tools.jobs import list_jobs
+
+        jobs = [j for j in list_jobs(db_path=self.db) if j["job_type"] == "enrichment.seek"]
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]["payload"]["deficit_id"], "cross-kind-larkspur")
+
 
 class SatiationTests(_Env):
     def test_healed_deviation_closes_its_own_loop(self):
@@ -176,18 +191,13 @@ class SatiationTests(_Env):
 
 
 class PolicyTests(_Env):
-    def test_person_enrichment_is_structurally_unreachable(self):
+    def test_enrichment_is_one_owner_enabled_capability(self):
         from lisan.tools.action_policy import action_allowed
 
-        for tier in (0, 1, 2, 99):
-            self.assertFalse(action_allowed("enrich_person", {"drive": {"action_tier": tier}}))
-
-    def test_entity_enrichment_requires_deliberate_tier_raise(self):
-        from lisan.tools.action_policy import action_allowed
-
-        self.assertFalse(action_allowed("enrich_entity", None))  # default tier 0
-        self.assertFalse(action_allowed("enrich_entity", {"drive": {"action_tier": 1}}))
-        self.assertTrue(action_allowed("enrich_entity", {"drive": {"action_tier": 2}}))
+        for tier in (0, 1, 2):
+            self.assertFalse(action_allowed("enrich", {"drive": {"action_tier": tier}}))
+        self.assertTrue(action_allowed("enrich", {"drive": {"action_tier": 3}}))
+        self.assertTrue(action_allowed("enrich", {"drive": {"action_tier": 99}}))
 
 
 if __name__ == "__main__":

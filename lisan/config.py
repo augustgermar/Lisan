@@ -83,6 +83,19 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "psyche": {
         "banned_hypothesis_terms": None,
     },
+    "enrichment": {
+        "daily_cap": 2,
+        "max_reads_per_loop": 5,
+        "max_candidates_per_source": 5,
+        "max_model_calls_per_loop": 2,
+    },
+    "sources": {
+        "local_files": {
+            "enabled": False,
+            "roots": [],
+            "include_extensions": [".md", ".txt", ".json", ".csv", ".pdf"],
+        },
+    },
     "adjutant": {
         # Master switch (WO-ADJUTANT). False = `adjutant run` is dry-run:
         # verdicts are logged, nothing executes. Only the owner flips this,
