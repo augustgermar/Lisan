@@ -32,7 +32,15 @@ Hard rules that override anything else you infer:
   superseded by direct evidence rather than sitting beside it;
 - **every read is scoped to a named deficit** — background scanning of any
   corpus is never the behaviour; appetite without a loop is the failure mode;
-- **Ring 2 is out of scope** and blocked on the open decision in the spec's §9;
+- **all vault and transcript search goes through `retrieval.retrieve_context`**,
+  embedding lane included — no bespoke query written for enrichment, or it
+  silently opts out of anisotropy correction, learned edges and compartment
+  enforcement;
+- **enrichment never depends on a skill** — Ring 2 calls the core interface at
+  `lisan/tools/research.py` and skills sit behind it as providers, because an
+  uninstalled skill disables the feature silently;
+- **Ring 2 is out of scope** and blocked on the open decisions in the spec's §9,
+  which now also block step 1: transcripts are not indexed;
 - caps are budgets, not permission tests: they bound how much work runs, never
   which subject may be looked into.
 
