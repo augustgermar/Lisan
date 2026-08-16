@@ -44,6 +44,8 @@ def test_tier_gates_are_monotonic():
     assert action_allowed("enrich", tier3)
     assert action_allowed("self_repair_propose", tier3)
     assert not action_allowed("self_repair_apply", tier3)
+    tier4 = {"drive": {"action_tier": 4}}
+    assert action_allowed("self_repair_apply", tier4)
 
 
 def test_unknown_actions_are_denied_even_at_top_tier():
@@ -52,7 +54,7 @@ def test_unknown_actions_are_denied_even_at_top_tier():
 
 def test_bad_tier_values_fall_back_to_default():
     assert policy_tier({"drive": {"action_tier": "loud"}}) == 0
-    assert policy_tier({"drive": {"action_tier": 99}}) == 3
+    assert policy_tier({"drive": {"action_tier": 99}}) == 4
     assert policy_tier({"drive": {"action_tier": -3}}) == 0
 
 

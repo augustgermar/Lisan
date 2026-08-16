@@ -37,8 +37,8 @@ ACTION_TIERS: dict[str, int] = {
     # WO-ENRICH: one capability for every entity kind. The owner raises
     # tier 3 deliberately; there is no per-subject permission gate here.
     "enrich": 3,
-    # Phase A may draft and verify only at the enrichment tier. Applying a
-    # self-repair proposal remains unreachable while the clamp is 3.
+    # Phase A drafts at tier 3. Phase B apply is the owner-controlled tier-4
+    # key turn; it remains unavailable until the clamp is explicitly raised.
     "self_repair_propose": 3,
     "self_repair_apply": 4,
 }
@@ -50,7 +50,7 @@ def policy_tier(config: dict[str, Any] | None) -> int:
         tier = int(raw)
     except (TypeError, ValueError):
         return DEFAULT_TIER
-    return max(0, min(3, tier))
+    return max(0, min(4, tier))
 
 
 def action_allowed(kind: str, config: dict[str, Any] | None) -> bool:

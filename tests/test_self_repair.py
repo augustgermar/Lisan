@@ -132,7 +132,10 @@ def test_phase_b_applies_exact_approved_proposal_and_queues_restart(tmp_path: Pa
     approve_confirmation(vault, proposal.confirmation_id, db_path=db, capture=lambda **_: None)
 
     with pytest.raises(SelfRepairRefused, match="policy clamp"):
-        apply_approved_proposal(vault=vault, repo=repo, proposal_id=proposal.proposal_id, db_path=db)
+        apply_approved_proposal(
+            vault=vault, repo=repo, proposal_id=proposal.proposal_id, db_path=db,
+            config={"drive": {"action_tier": 3}},
+        )
 
     # Reports created before Phase B did not duplicate base/worktree metadata
     # in frontmatter; the body and conventional worktree path remain enough.
