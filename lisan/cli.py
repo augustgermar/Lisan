@@ -854,6 +854,11 @@ def build_parser() -> argparse.ArgumentParser:
     self_state_cmd.add_argument("--vault", type=Path, default=vault_root())
     self_state_cmd.add_argument("--db-path", type=Path, default=None)
     self_state_cmd.add_argument("--json", action="store_true", dest="as_json")
+    self_apply = self_subparsers.add_parser("apply", help="Apply one owner-approved self-repair proposal")
+    self_apply.add_argument("proposal_id")
+    self_apply.add_argument("--vault", type=Path, default=vault_root())
+    self_apply.add_argument("--repo", type=Path, default=None)
+    self_apply.add_argument("--db-path", type=Path, default=None)
     self_primer = self_subparsers.add_parser("primer", help="Regenerate primer/capabilities.md")
     self_primer.add_argument("--vault", type=Path, default=vault_root())
     self_primer.add_argument("--force", action="store_true")
@@ -1839,6 +1844,23 @@ def main(argv: list[str] | None = None) -> int:
         if args.self_command == "state":
             state = snapshot_self_state(vault=args.vault, db_path=args.db_path)
             print(json.dumps(state, indent=2, ensure_ascii=True) if args.as_json else render_self_state(state))
+            return 0
+        if args.self_command == "apply":
+            from .tools.self_repair import SelfRepairRefused, apply_approved_proposal
+
+            try:
+                result = apply_approved_proposal(
+                    vault=args.vault,
+                    repo=(args.repo or repo_root()).resolve(),
+                    proposal_id=args.proposal_id,
+                    db_path=args.db_path,
+                )
+            except SelfRepairRefused as exc:
+                print(f"Refused: {exc}", file=sys.stderr)
+                return 1
+            print(f"Applied {result.proposal_id} as {result.commit}")
+            print(f"Restart queued: {result.restart_job_id}")
+            print(f"Report: {result.report_path}")
             return 0
         if args.self_command == "primer":
             path = ensure_capabilities_primer(args.vault, force=args.force)

@@ -1,14 +1,16 @@
-"""Phase A of the self-repair loop: draft, verify, and propose only.
+"""Phase A and B of the self-repair loop.
 
-This module deliberately has no apply path.  It creates an isolated git
-worktree, applies a model-produced unified diff there, runs deterministic
-verification, records the result, and creates an owner confirmation.  The
-live checkout is never modified.
+Phase A creates and verifies an isolated proposal. Phase B applies only an
+exactly approved proposal after revalidating the clean base and patch hash.
+The live policy clamp still keeps Phase B unreachable until the owner enables
+it explicitly.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import re
+import sqlite3
 import shutil
 import subprocess
 import tempfile
@@ -50,6 +52,14 @@ class Proposal:
     report_path: Path
     confirmation_id: str | None
     telegram_message: str
+
+
+@dataclass(frozen=True)
+class AppliedProposal:
+    proposal_id: str
+    commit: str
+    restart_job_id: str | None
+    report_path: Path
 
 
 def _run(command: list[str], *, cwd: Path, timeout: int = 120) -> subprocess.CompletedProcess[str]:
@@ -214,6 +224,7 @@ def propose(
             "id": f"report.{proposal_id}", "type": "report", "created": date.today().isoformat(),
             "updated": date.today().isoformat(), "status": "active", "summary": f"Self-repair proposal {proposal_id}",
             "source": "self_repair", "loop_id": loop_id, "proposal_hash": patch_hash,
+            "base_commit": base_commit, "worktree": str(worktree),
         }, body)
         task_id = f"self-repair:{proposal_id}"
         confirmation = create_confirmation_for_task(
@@ -242,3 +253,180 @@ def propose(
             pass
         shutil.rmtree(worktree, ignore_errors=True)
         raise
+
+
+def _report_patch(body: str) -> str:
+    marker = "```diff\n"
+    start = body.find(marker)
+    if start < 0:
+        raise SelfRepairRefused("proposal report has no unified diff")
+    start += len(marker)
+    end = body.find("\n```", start)
+    if end < 0:
+        raise SelfRepairRefused("proposal report has an unterminated unified diff")
+    patch = body[start:end].strip()
+    if not patch:
+        raise SelfRepairRefused("proposal report contains an empty unified diff")
+    return patch
+
+
+def _approved_confirmation(vault: Path, proposal_id: str, db_path: Path | None) -> dict[str, Any]:
+    """Return the exact owner-approved confirmation for a proposal."""
+    from .db import connect
+    from .rebuild_index import ensure_index_schema
+
+    conn = connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        ensure_index_schema(conn)
+        row = conn.execute(
+            "SELECT * FROM confirmations WHERE task_id = ? AND resolution = 'approved' "
+            "AND status = 'pending' ORDER BY resolved_at DESC LIMIT 1",
+            (f"self-repair:{proposal_id}",),
+        ).fetchone()
+        if row is None:
+            raise SelfRepairRefused("proposal has no exact owner approval")
+        return dict(row)
+    finally:
+        conn.close()
+
+
+def _resolve_origin_loop(vault: Path, loop_id: str, *, proposal_id: str, commit: str) -> None:
+    for path in sorted((vault / "open_loops").glob("*.md")):
+        try:
+            doc = load_markdown(path)
+        except Exception:
+            continue
+        if str(doc.frontmatter.get("id") or "") != loop_id:
+            continue
+        fm = dict(doc.frontmatter)
+        today = date.today().isoformat()
+        fm.update({
+            "status": "resolved",
+            "updated": today,
+            "resolved_at": today,
+            "resolved_by": "self_repair",
+            "resolution": f"applied proposal {proposal_id} as {commit}",
+        })
+        write_markdown(path, fm, doc.body)
+        return
+    raise SelfRepairRefused(f"origin loop not found after apply: {loop_id}")
+
+
+def apply_approved_proposal(
+    *,
+    vault: Path,
+    repo: Path,
+    proposal_id: str,
+    db_path: Path | None = None,
+    worktree_root: Path | None = None,
+    config: dict[str, Any] | None = None,
+    policy_check: Callable[[str, dict[str, Any]], bool] | None = None,
+) -> AppliedProposal:
+    """Phase B: apply one exact, owner-approved proposal as one local commit.
+
+    The default policy check remains blocked by the live tier-3 clamp. The
+    injectable check exists for deterministic tests without weakening runtime
+    policy.
+    """
+    from .action_policy import action_allowed
+
+    if config is None:
+        from ..config import load_config
+
+        config = load_config()
+    check = policy_check or (lambda kind, cfg: action_allowed(kind, cfg))
+    if not check("self_repair_apply", config):
+        raise SelfRepairRefused("self-repair apply is disabled by the action-policy clamp")
+    proposal_id = str(proposal_id).strip()
+    if not proposal_id or "/" in proposal_id or "\\" in proposal_id or ".." in proposal_id:
+        raise SelfRepairRefused("invalid proposal id")
+    report = vault / "reports" / "self-repair-proposals" / f"{proposal_id}.md"
+    if not report.exists():
+        raise SelfRepairRefused(f"proposal report not found: {proposal_id}")
+    doc = load_markdown(report)
+    fm = dict(doc.frontmatter)
+    if str(fm.get("status") or "") != "approved":
+        raise SelfRepairRefused("proposal is not owner-approved")
+    approval = _approved_confirmation(vault, proposal_id, db_path)
+    base_commit = str(fm.get("base_commit") or "").strip()
+    loop_id = str(fm.get("loop_id") or "").strip()
+    if not base_commit:
+        match = re.search(r"^Base commit: `([^`]+)`", doc.body, re.MULTILINE)
+        base_commit = match.group(1).strip() if match else ""
+    if not loop_id:
+        match = re.search(r"^Origin loop: `([^`]+)`", doc.body, re.MULTILINE)
+        loop_id = match.group(1).strip() if match else ""
+    expected_hash = str(fm.get("proposal_hash") or "").strip()
+    if not base_commit or not loop_id or not expected_hash:
+        raise SelfRepairRefused("proposal report is missing apply metadata")
+    patch = _report_patch(doc.body)
+    actual_hash = hashlib.sha256(patch.encode("utf-8")).hexdigest()
+    if actual_hash != expected_hash:
+        raise SelfRepairRefused("proposal hash does not match the approved report")
+    validate_patch_paths(patch)
+    _loop_record(vault, loop_id, None)
+    current_base = ensure_clean_checkout(repo)
+    if current_base != base_commit:
+        raise SelfRepairRefused(f"live checkout moved from approved base {base_commit} to {current_base}")
+
+    worktree_value = str(fm.get("worktree") or "").strip()
+    if worktree_value:
+        worktree = Path(worktree_value)
+    else:
+        root = (worktree_root or Path(tempfile.gettempdir()) / "lisan-self-repair").resolve()
+        worktree = root / proposal_id
+    if not worktree.is_dir():
+        raise SelfRepairRefused(f"verified proposal worktree is missing: {worktree}")
+    if _git(worktree, "rev-parse", "HEAD") != base_commit:
+        raise SelfRepairRefused("proposal worktree no longer points at the approved base")
+    checked = subprocess.run(
+        ["git", "apply", "--check", "-"], cwd=repo, input=patch + "\n", text=True, capture_output=True
+    )
+    if checked.returncode:
+        raise SelfRepairRefused(checked.stderr.strip() or "approved patch no longer applies cleanly")
+    applied = subprocess.run(
+        ["git", "apply", "--index", "-"], cwd=repo, input=patch + "\n", text=True, capture_output=True
+    )
+    if applied.returncode:
+        raise SelfRepairRefused(applied.stderr.strip() or "approved patch could not be applied")
+    commit_result = _run(
+        ["git", "commit", "-m", f"self-repair: apply {proposal_id} (loop {loop_id})"], cwd=repo, timeout=120
+    )
+    if commit_result.returncode:
+        raise SelfRepairRefused(commit_result.stderr.strip() or "self-repair commit failed")
+    commit = _git(repo, "rev-parse", "HEAD")
+
+    from .jobs import enqueue_job
+
+    restart_job = enqueue_job(
+        "self_repair.restart",
+        {"vault": str(vault), "proposal_id": proposal_id, "applied_commit": commit, "approval_id": approval["id"]},
+        db_path=db_path,
+    )
+    _resolve_origin_loop(vault, loop_id, proposal_id=proposal_id, commit=commit)
+    today = date.today().isoformat()
+    from .self_episodes import SelfEvent, write_self_episode
+
+    write_self_episode(
+        vault,
+        SelfEvent(
+            event_id=f"self-repair-apply-{proposal_id}",
+            event_kind="self_repair",
+            date=today,
+            title=f"Applied self-repair proposal {proposal_id}",
+            narration=(f"{{{{self}}}} applied the owner-approved self-repair proposal {proposal_id} "
+                       f"for {{{{principal}}}} as local commit {commit}."),
+            outcome="succeeded",
+            source_refs=[f"reports/self-repair-proposals/{proposal_id}.md", commit],
+            significance="high",
+        ),
+        db_path=db_path,
+    )
+    fm.update({
+        "status": "applied", "updated": today, "applied_at": today,
+        "applied_by": "self_repair", "applied_commit": commit,
+        "approval_id": str(approval["id"]), "restart_job_id": restart_job,
+    })
+    write_markdown(report, fm, doc.body + f"\n## Applied\n\nLocal commit: `{commit}`\nRestart job: `{restart_job}`\n")
+    return AppliedProposal(proposal_id, commit, restart_job, report)

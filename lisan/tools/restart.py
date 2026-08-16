@@ -50,11 +50,14 @@ def restart_service(
     force: bool = False,
     runner: Any = subprocess.run,
     system: str | None = None,
+    exclude_job_id: str | None = None,
 ) -> dict[str, Any]:
     """Refuse to bounce over in-flight jobs unless forced; then restart the
     resident service (which hosts the scheduler thread). Returns a report
     dict; never raises for service-manager failures — the caller renders."""
     in_flight = running_jobs(db_path)
+    if exclude_job_id:
+        in_flight = [job for job in in_flight if str(job.get("id")) != str(exclude_job_id)]
     if in_flight and not force:
         return {
             "restarted": False,

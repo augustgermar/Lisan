@@ -6,8 +6,9 @@ from pathlib import Path
 import pytest
 
 from lisan.frontmatter import load_markdown, write_markdown
-from lisan.tools.self_repair import SelfRepairRefused, propose
+from lisan.tools.self_repair import SelfRepairRefused, apply_approved_proposal, propose
 from lisan.tools.adjutant_confirmations import approve_confirmation
+from lisan.tools.jobs import list_jobs
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -116,3 +117,61 @@ def test_phase_a_refuses_unverified_patch(tmp_path: Path):
             author=_author, verifier=lambda result: {"ok": False},
             test_command=["python3", "-c", "print('suite')"],
         )
+
+
+def test_phase_b_applies_exact_approved_proposal_and_queues_restart(tmp_path: Path):
+    repo = _repo(tmp_path)
+    vault = tmp_path / "vault"
+    loop = _loop(vault)
+    db = tmp_path / "index.sqlite"
+    proposal = propose(
+        vault=vault, repo=repo, loop_id="loop.self-repair-1", loop_path=loop,
+        author=_author, db_path=db, test_command=["python3", "-c", "print('suite')"],
+        targeted_command=["python3", "-c", "print('target')"], worktree_root=tmp_path / "worktrees",
+    )
+    approve_confirmation(vault, proposal.confirmation_id, db_path=db, capture=lambda **_: None)
+
+    with pytest.raises(SelfRepairRefused, match="policy clamp"):
+        apply_approved_proposal(vault=vault, repo=repo, proposal_id=proposal.proposal_id, db_path=db)
+
+    # Reports created before Phase B did not duplicate base/worktree metadata
+    # in frontmatter; the body and conventional worktree path remain enough.
+    approved_doc = load_markdown(proposal.report_path)
+    legacy_fm = dict(approved_doc.frontmatter)
+    legacy_fm.pop("base_commit", None)
+    legacy_fm.pop("worktree", None)
+    write_markdown(proposal.report_path, legacy_fm, approved_doc.body)
+    applied = apply_approved_proposal(
+        vault=vault, repo=repo, proposal_id=proposal.proposal_id, db_path=db,
+        worktree_root=tmp_path / "worktrees",
+        policy_check=lambda _kind, _config: True,
+    )
+    assert applied.commit
+    assert (repo / "ordinary.py").read_text(encoding="utf-8") == "VALUE = 2\n"
+    assert load_markdown(proposal.report_path).frontmatter["status"] == "applied"
+    assert load_markdown(loop).frontmatter["resolved_by"] == "self_repair"
+    episodes = list((vault / "self" / "episodes").glob("*self-repair-apply*.md"))
+    assert len(episodes) == 1
+    queued = [job for job in list_jobs(db_path=db) if job["id"] == applied.restart_job_id]
+    assert queued and queued[0]["job_type"] == "self_repair.restart"
+
+
+def test_phase_b_refuses_changed_approved_report(tmp_path: Path):
+    repo = _repo(tmp_path)
+    vault = tmp_path / "vault"
+    loop = _loop(vault)
+    db = tmp_path / "index.sqlite"
+    proposal = propose(
+        vault=vault, repo=repo, loop_id="loop.self-repair-1", loop_path=loop,
+        author=_author, db_path=db, test_command=["python3", "-c", "print('suite')"],
+        targeted_command=["python3", "-c", "print('target')"], worktree_root=tmp_path / "worktrees",
+    )
+    approve_confirmation(vault, proposal.confirmation_id, db_path=db, capture=lambda **_: None)
+    doc = load_markdown(proposal.report_path)
+    write_markdown(proposal.report_path, doc.frontmatter, doc.body.replace("VALUE = 2", "VALUE = 99"))
+    with pytest.raises(SelfRepairRefused, match="hash"):
+        apply_approved_proposal(
+            vault=vault, repo=repo, proposal_id=proposal.proposal_id, db_path=db,
+            policy_check=lambda _kind, _config: True,
+        )
+    assert (repo / "ordinary.py").read_text(encoding="utf-8") == "VALUE = 1\n"

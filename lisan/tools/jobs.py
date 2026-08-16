@@ -53,6 +53,7 @@ JOB_TYPES = {
     "enrichment.seek",
     "enrichment.retry_pending",
     "self_repair.propose",
+    "self_repair.restart",
     "self.evaluate",
     "prediction.reconcile",
     "corpus.audit_priors",
@@ -991,6 +992,16 @@ def dispatch_job(
         return {"proposal_id": proposal.proposal_id, "report": str(proposal.report_path),
                 "confirmation_id": proposal.confirmation_id, "notified": notified,
                 "patch_hash": proposal.patch_hash}
+
+    if job_type == "self_repair.restart":
+        from .restart import restart_service
+
+        result = restart_service(db_path=db_path, exclude_job_id=str(job.get("id") or ""))
+        if result.get("reason") == "jobs_in_flight":
+            raise RuntimeError(result.get("hint") or "safe self-repair restart deferred while jobs are running")
+        if not result.get("restarted"):
+            raise RuntimeError(result.get("reason") or "self-repair service restart failed")
+        return result
 
     if job_type == "deviation.scan":
         from ..config import load_config

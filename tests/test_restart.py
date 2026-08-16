@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.jobs import claim_next_job, enqueue_job
-from lisan.tools.restart import render_restart_report, restart_service
+from lisan.tools.restart import render_restart_report, restart_service, running_jobs
 
 
 def _db_with_running_job(root: Path) -> Path:
@@ -57,6 +57,15 @@ class RestartGuardTests(unittest.TestCase):
             report = restart_service(db_path=db, runner=runner, system="Linux")
         cmd = runner.call_args.args[0]
         self.assertEqual(cmd, ["systemctl", "--user", "restart", "lisan-telegram.service"])
+        self.assertTrue(report["restarted"])
+
+    def test_restart_job_can_exclude_itself_but_not_other_work(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = _db_with_running_job(Path(tmp))
+            running = running_jobs(db)[0]
+            runner = MagicMock(return_value=MagicMock(returncode=0, stderr="", stdout=""))
+            report = restart_service(db_path=db, runner=runner, system="Darwin", exclude_job_id=running["id"])
+        runner.assert_called_once()
         self.assertTrue(report["restarted"])
 
     def test_service_manager_failure_is_reported_not_raised(self):
