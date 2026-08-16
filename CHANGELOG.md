@@ -1,5 +1,22 @@
 # Changelog
 
+## 26.8.16 (2026-08-16)
+
+- **Guarded self-repair is live through Phase B.** Lisan can propose a
+  narrowly scoped ordinary-code repair in an isolated worktree, verify it
+  with the full suite and a targeted probe, and apply it only after exact
+  owner approval. Application rechecks the proposal hash, clean base,
+  protected paths, and active origin loop, then creates one local commit and
+  queues a safe service restart.
+- **Provider usage-limit failures retry normally.** Rate-limit, quota, and
+  usage-limit responses now use the bounded transient-provider retry path.
+- **Duplicate self-loop records resolve safely.** Active matching loops are
+  preferred over older resolved records, preventing a stale record from
+  blocking an approved repair.
+- **Sensitive self-repair artifacts stay out of Git.** Proposal reports and
+  confirmation records are explicitly covered by the repository's ignore
+  rules.
+
 ## 26.8.14 (2026-08-14)
 
 **The week the instruments were audited.** Almost everything here is a

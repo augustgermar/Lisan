@@ -18,6 +18,13 @@ lisan-vault/drafts/
 lisan-vault/reports/
 lisan-vault/logs/
 lisan-vault/transcripts/
+# Self-repair reports and confirmations contain proposed diffs, diagnostics,
+# and task summaries that may include personal or otherwise sensitive data.
+# Keep these explicit even though the vault root is ignored above.
+lisan-vault/reports/self-repair-proposals/
+lisan-vault/confirmations/
+# A temporary patch file may be created inside a configured proposal worktree.
+**/.self-repair.patch
 lisan-vault/backup.md
 lisan-vault/primer/current-brief.md
 # Explicit belt-and-suspenders coverage for the vault-local high-stakes file.
