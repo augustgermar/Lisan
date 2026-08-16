@@ -164,6 +164,7 @@ def session_open_callback(
                     **dict(doc.frontmatter),
                     "last_callback": fm["last_callback"],
                     "callback_count": int(fm.get("callback_count") or 0) + 1,
+                    "owner_inquiry_conversation_id": conversation_id or "",
                 },
                 doc.body,
             )

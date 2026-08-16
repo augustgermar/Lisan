@@ -5,8 +5,9 @@ design note of the same name, which was rewritten on 2026-08-14 after the
 owner read it back against its own intent. The bounded `enrichment.seek`
 core, provenance write-back, retry path, and scoped transcript lane are
 implemented and tested; the historical-transcript decision is resolved. Owner
-clarification handling and the final enrichment-tier decision remain open. Ring
-1 adapters are implemented behind the core provider interface, and
+clarification handling is now wired to the conversation observation path; the
+final enrichment-tier decision remains open. Ring 1 adapters are implemented
+behind the core provider interface, and
 the first audit rollup is now present. `enrich` is registered in
 `action_policy.ACTION_TIERS` at tier 3; the tier is the owner's on switch and
 the last implementation step.*
@@ -295,6 +296,11 @@ per-subject judgement in the hot path.
 5. **Inference marking and the 0.6 cap**, plus supersede-on-direct-evidence.
 6. **Owner clarification.** Reuse the existing chat question surface, but make
    the question an informed inquiry outcome and classify the owner's response.
+   Responses are scoped to the exact conversation that received the question,
+   preserve transcript provenance, and classify direct statements, corrections,
+   preferences, interpretations, boundaries, declines, and "not important"
+   outcomes. Boundary/decline outcomes close the inquiry without writing a
+   fact.
 7. **Ring 1 adapters** — Gmail, Obsidian, and configured local-file indexes;
    all deficit-scoped, deterministic, read-limited, and read-only.
 8. **Budgets, terminal outcomes, and ring logging** (§5), including the

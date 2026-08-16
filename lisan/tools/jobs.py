@@ -16,7 +16,7 @@ from .job_policy import (
     unique_group_for_job,
 )
 from .ingest_batches import ensure_ingestion_batches_table, get_batch
-from ..utils import json_dumps_stable as _json_dumps, json_loads_forgiving as _json_loads, parse_utc_timestamp as _parse_timestamp
+from ..utils import json_dumps_stable as _json_dumps, json_loads_forgiving as _json_loads, parse_utc_timestamp as _parse_timestamp, today_iso
 from .db import connect as _connect
 
 
@@ -1120,10 +1120,18 @@ def dispatch_job(
 
     if job_type == "capture.observe":
         from .memory_pipeline import run_memory_pipeline
+        from .enrichment import resolve_owner_clarification
 
         text = str(payload.get("text") or "")
         if not text:
             raise ValueError("capture.observe requires text")
+        owner_clarification = resolve_owner_clarification(
+            vault=vault,
+            text=text,
+            conversation_id=payload.get("conversation_id"),
+            transcript_path=vault / "transcripts" / f"{today_iso()}.md",
+            db_path=db_path,
+        )
         result = run_memory_pipeline(
             vault=vault,
             text=text,
@@ -1161,6 +1169,7 @@ def dispatch_job(
             "mode": result.mode,
             "draft": str(result.draft_path) if result.draft_path else None,
             "skeptic_approved": result.skeptic_approved,
+            "owner_clarification": owner_clarification,
             "entity_rewrites_queued": rewrites,
             "post_turn_jobs_queued": post_turn,
         }

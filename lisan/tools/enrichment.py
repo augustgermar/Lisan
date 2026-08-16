@@ -187,7 +187,10 @@ def seek(
         f"owner sources for {canonical_name} but could not resolve this deficit: {deficit}. "
         "Do you know the answer, or is this not worth pursuing?"
     )
-    _leave_owner_question(vault, db_path, loop_id, question)
+    _leave_owner_question(
+        vault, db_path, loop_id, question,
+        deficit_id=deficit_id, entity_path=entity_path,
+    )
     _record_attempt(
         vault, loop_id=loop_id, deficit_id=deficit_id, entity_path=entity_path,
         terminal_outcome="unresolved", stop_ring="owner",
@@ -203,6 +206,133 @@ def configured_local_provider(config: dict[str, Any] | None) -> LocalRootProvide
     if not roots:
         return None
     return LocalRootProvider(roots, extensions=source_cfg.get("include_extensions"))
+
+
+def resolve_owner_clarification(
+    *,
+    vault: Path,
+    text: str,
+    conversation_id: str | None,
+    transcript_path: Path | None = None,
+    db_path: Path | None = None,
+) -> dict[str, Any] | None:
+    """Resolve the one enrichment question delivered in this conversation.
+
+    This seam is intentionally deterministic and narrow. It will not attach
+    an arbitrary owner turn to an old loop: the drive stamps the conversation
+    that received the question, and only that exact conversation can answer it.
+    """
+    if not str(text or "").strip() or not conversation_id:
+        return None
+    pending: tuple[Path, dict[str, Any]] | None = None
+    for path in sorted((vault / "open_loops").glob("*.md")):
+        try:
+            fm = dict(load_markdown(path).frontmatter)
+        except Exception:
+            continue
+        if (
+            str(fm.get("type") or "") == "open_loop"
+            and str(fm.get("status") or "") == "active"
+            and str(fm.get("next_action") or "") == "ask_owner"
+            and str(fm.get("owner_inquiry_conversation_id") or "") == str(conversation_id)
+        ):
+            if pending is not None:
+                # Ambiguous ownership is safer than guessing which deficit the
+                # sentence answers.
+                return {"status": "ambiguous", "reason": "multiple_owner_inquiries"}
+            pending = (path, fm)
+    if pending is None:
+        return None
+
+    path, fm = pending
+    classification = _classify_owner_response(text)
+    source_uri = str(transcript_path or "")
+    if not source_uri:
+        source_uri = f"transcripts/{conversation_id}"
+    outcome = classification["terminal_outcome"]
+    loop_doc = load_markdown(path)
+    loop_updates = {
+        **dict(loop_doc.frontmatter),
+        "updated": today_iso(),
+        "enrichment_terminal_outcome": outcome,
+        "enrichment_stop_ring": "owner",
+        "owner_response_class": classification["source_type"],
+        "owner_response_provenance": source_uri,
+        "owner_question": "",
+        "next_action": "",
+    }
+
+    entity_path = _owner_entity_path(vault, fm)
+    if classification["source_type"] in {"boundary", "decline", "not_important"}:
+        loop_updates["status"] = "resolved"
+        loop_updates["resolved_at"] = today_iso()
+        loop_updates["resolved_by"] = "owner_interaction"
+        loop_updates["resolved_note"] = classification["note"]
+        write_markdown(path, loop_updates, loop_doc.body)
+        _reindex_optional(path, vault, db_path)
+    elif entity_path is not None:
+        resolution = EnrichmentResolution(
+            text=str(text).strip(), source_type="owner_interaction", source_uri=source_uri,
+            basis="direct_owner_statement", claim_key=str(fm.get("enrichment_deficit_id") or fm.get("id") or ""),
+        )
+        _append_source_log(entity_path, resolution, vault=vault, db_path=db_path)
+        loop_updates.update({
+            "status": "resolved", "resolved_at": today_iso(),
+            "resolved_by": "owner_interaction", "resolved_note": "owner clarification recorded",
+        })
+        write_markdown(path, loop_updates, loop_doc.body)
+        _reindex_optional(path, vault, db_path)
+    else:
+        # Preserve a useful owner answer even when an older loop has no entity
+        # link; the loop remains the durable record of the clarification.
+        loop_updates.update({
+            "status": "resolved", "resolved_at": today_iso(),
+            "resolved_by": "owner_interaction", "resolved_note": str(text).strip()[:1200],
+        })
+        write_markdown(path, loop_updates, loop_doc.body)
+        _reindex_optional(path, vault, db_path)
+
+    _record_attempt(
+        vault, loop_id=str(fm.get("id") or path.stem),
+        deficit_id=str(fm.get("enrichment_deficit_id") or fm.get("id") or ""),
+        entity_path=entity_path or path, terminal_outcome=outcome, stop_ring="owner",
+        source_uri=source_uri,
+    )
+    return {
+        "status": "resolved",
+        "terminal_outcome": outcome,
+        "source_type": classification["source_type"],
+        "loop_id": str(fm.get("id") or path.stem),
+    }
+
+
+def _classify_owner_response(text: str) -> dict[str, str]:
+    lowered = " ".join(str(text).lower().split())
+    if any(p in lowered for p in ("don't research", "do not research", "never research", "don't look into")):
+        return {"source_type": "boundary", "terminal_outcome": "owner_declined", "note": "owner set a research boundary"}
+    if any(p in lowered for p in ("not worth pursuing", "not important", "drop it", "leave it open", "don't bother")):
+        return {"source_type": "not_important", "terminal_outcome": "owner_marked_not_important", "note": "owner marked the deficit not important"}
+    if any(p in lowered for p in ("i don't know", "no idea", "can't answer", "cannot answer", "i'm not sure")):
+        return {"source_type": "decline", "terminal_outcome": "owner_declined", "note": "owner declined or could not answer"}
+    if lowered.startswith(("actually", "correction", "that's wrong", "that is wrong", "no, ")):
+        return {"source_type": "correction", "terminal_outcome": "resolved_by_owner", "note": "owner supplied a correction"}
+    if any(p in lowered for p in ("i prefer", "i want", "i'd rather", "i would rather")):
+        return {"source_type": "preference", "terminal_outcome": "resolved_by_owner", "note": "owner supplied a preference"}
+    if any(p in lowered for p in ("i think", "probably", "seems like", "my guess")):
+        return {"source_type": "interpretation", "terminal_outcome": "resolved_by_owner", "note": "owner supplied an interpretation"}
+    return {"source_type": "fact", "terminal_outcome": "resolved_by_owner", "note": "owner supplied a direct statement"}
+
+
+def _owner_entity_path(vault: Path, fm: dict[str, Any]) -> Path | None:
+    explicit = str(fm.get("enrichment_entity_path") or "").strip()
+    candidates = [explicit] + [str(link) for link in (fm.get("links") or [])]
+    for candidate in candidates:
+        path = Path(candidate)
+        if not path.is_absolute():
+            path = vault / path
+        if path.exists() and path.is_file() and str(load_markdown(path).frontmatter.get("type") or "") == "entity":
+            return path
+    return None
 
 
 def _commit_or_pending(
@@ -394,7 +524,10 @@ def _resolve_loop(vault: Path, db_path: Path | None, loop_id: str, resolution: E
         pass
 
 
-def _leave_owner_question(vault: Path, db_path: Path | None, loop_id: str, question: str) -> None:
+def _leave_owner_question(
+    vault: Path, db_path: Path | None, loop_id: str, question: str,
+    *, deficit_id: str = "", entity_path: Path | None = None,
+) -> None:
     path = _loop_path(vault, loop_id)
     if path is None:
         return
@@ -405,6 +538,8 @@ def _leave_owner_question(vault: Path, db_path: Path | None, loop_id: str, quest
         "next_action": "ask_owner",
         "enrichment_terminal_outcome": "unresolved",
         "enrichment_stop_ring": "owner",
+        "enrichment_deficit_id": deficit_id,
+        "enrichment_entity_path": str(entity_path or ""),
         "updated": today_iso(),
     })
     write_markdown(path, fm, doc.body)

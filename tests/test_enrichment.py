@@ -5,7 +5,7 @@ from pathlib import Path
 
 from lisan.frontmatter import dump_markdown, load_markdown, write_markdown
 from lisan.paths import ensure_repo_layout, vault_root
-from lisan.tools.enrichment import EnrichmentResolution, _append_source_log, seek
+from lisan.tools.enrichment import EnrichmentResolution, _append_source_log, resolve_owner_clarification, seek
 from lisan.tools.record_factory import new_entity
 from lisan.tools.rebuild_index import rebuild_index
 from lisan.tools.transcript_lane import search_transcripts
@@ -248,6 +248,66 @@ def test_provenance_failure_quarantines_resolution():
         assert not load_markdown(entity).frontmatter.get("source_log")
         pending = Path(result["pending_path"])
         assert load_markdown(pending).frontmatter["status"] == "quarantined"
+    finally:
+        tmp.cleanup()
+
+
+def test_owner_clarification_records_transcript_provenance_and_closes_loop():
+    tmp, root, vault, entity = _env()
+    try:
+        loop = _loop(vault)
+        doc = load_markdown(loop)
+        fm = dict(doc.frontmatter)
+        fm.update({
+            "next_action": "ask_owner",
+            "owner_question": "Who is Ruth Varga to Dana?",
+            "owner_inquiry_conversation_id": "conversation-1",
+            "enrichment_deficit_id": "ruth.relationship",
+            "enrichment_entity_path": str(entity),
+        })
+        write_markdown(loop, fm, doc.body)
+        transcript = vault / "transcripts" / "2026-08-16.md"
+        transcript.parent.mkdir(parents=True, exist_ok=True)
+        result = resolve_owner_clarification(
+            vault=vault, text="Ruth Varga is Dana's mother.", conversation_id="conversation-1",
+            transcript_path=transcript, db_path=root / "lisan.sqlite",
+        )
+        assert result == {
+            "status": "resolved", "terminal_outcome": "resolved_by_owner",
+            "source_type": "fact", "loop_id": "open_loop.thin-ruth",
+        }
+        entity_fm = load_markdown(entity).frontmatter
+        entry = entity_fm["source_log"][-1]
+        assert entry["source_type"] == "owner_interaction"
+        assert entry["basis"] == "direct_owner_statement"
+        assert str(transcript) == entry["source_uri"]
+        loop_fm = load_markdown(loop).frontmatter
+        assert loop_fm["status"] == "resolved"
+        assert loop_fm["owner_response_class"] == "fact"
+    finally:
+        tmp.cleanup()
+
+
+def test_owner_boundary_closes_without_writing_a_fact():
+    tmp, root, vault, entity = _env()
+    try:
+        loop = _loop(vault)
+        doc = load_markdown(loop)
+        fm = dict(doc.frontmatter)
+        fm.update({
+            "next_action": "ask_owner",
+            "owner_inquiry_conversation_id": "conversation-2",
+            "enrichment_deficit_id": "ruth.relationship",
+            "enrichment_entity_path": str(entity),
+        })
+        write_markdown(loop, fm, doc.body)
+        result = resolve_owner_clarification(
+            vault=vault, text="Please do not research this.", conversation_id="conversation-2",
+            db_path=root / "lisan.sqlite",
+        )
+        assert result["terminal_outcome"] == "owner_declined"
+        assert not load_markdown(entity).frontmatter.get("source_log")
+        assert load_markdown(loop).frontmatter["status"] == "resolved"
     finally:
         tmp.cleanup()
 
