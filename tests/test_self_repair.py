@@ -5,8 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from lisan.frontmatter import write_markdown
+from lisan.frontmatter import load_markdown, write_markdown
 from lisan.tools.self_repair import SelfRepairRefused, propose
+from lisan.tools.adjutant_confirmations import approve_confirmation
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -65,6 +66,9 @@ def test_phase_a_creates_isolated_verified_proposal_and_confirmation(tmp_path: P
     assert (repo / "ordinary.py").read_text(encoding="utf-8") == "VALUE = 1\n"
     assert (proposal.worktree / "ordinary.py").read_text(encoding="utf-8") == "VALUE = 2\n"
     assert "Phase A only" in proposal.telegram_message
+
+    approve_confirmation(proposal.report_path.parents[2], proposal.confirmation_id, db_path=db, capture=lambda **_: None)
+    assert load_markdown(proposal.report_path).frontmatter["status"] == "approved"
 
 
 def test_phase_a_refuses_dirty_checkout(tmp_path: Path):

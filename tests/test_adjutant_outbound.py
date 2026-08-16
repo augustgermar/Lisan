@@ -234,6 +234,22 @@ def test_confirmation_commands_resolve_deterministically(world):
     assert confirmation_command_response(vault, "/confirmations", db) == "No pending confirmations."
 
 
+def test_snooze_command_keeps_confirmation_pending(world):
+    vault, db, conn, config = world
+    loop_id, _ = _task_loop(vault, conn, "Defer it", kind="notify", payload={"message": "m"})
+    conn.close()
+    created = create_confirmation_for_task(
+        vault, task_id=loop_id, task_summary="defer", planned_action="m", risk="low", db_path=db
+    )
+    reply = confirmation_command_response(vault, f"snooze {created} 3", db)
+    assert reply and "Snoozed" in reply
+    pending = list_pending(db)
+    assert len(pending) == 1
+    record = load_markdown(vault / pending[0]["record_path"])
+    assert record.frontmatter.get("resolution") is None
+    assert record.frontmatter["snoozed_until"] == record.frontmatter["expires"]
+
+
 def test_double_expiry_pings_owner_exactly_once(world):
     vault, db, conn, config = world
     loop_id, loop_path = _task_loop(vault, conn, "Send the letter", kind="notify", payload={"message": "m"})

@@ -51,6 +51,7 @@ _HELP_TEXT = (
     "/domain <name> — pin the retrieval domain (no arg clears it)\n"
     "/trust 30m — run approval-gated actions without asking, for a while (/trust off to end)\n"
     "/logs [N] [errors] — recent log lines; 'errors' shows only warnings/errors\n"
+    "/status — read-only live service, queue, and confirmation status\n"
     "/confirmations — pending Adjutant confirmations\n"
     "approve <id> / deny <id> — resolve a confirmation\n"
     "/help — this message"
@@ -133,6 +134,31 @@ def _chunk(text: str, limit: int = _MSG_LIMIT) -> list[str]:
     if text:
         chunks.append(text)
     return chunks
+
+
+def _status_text(vault: Path, db_path: Path | None) -> str:
+    """Compact, deterministic status card for Telegram; never invokes an LLM."""
+    from .adjutant_confirmations import list_pending
+    from .self_model import render_self_state, snapshot_self_state
+
+    state = snapshot_self_state(vault, db_path)
+    lines = ["Lisan status (read-only)", render_self_state(state)]
+    pending = list_pending(db_path)
+    lines.append(f"Pending confirmations: {len(pending)}")
+    reports = vault / "reports" / "self-repair-proposals"
+    proposal_states: dict[str, int] = {}
+    if reports.exists():
+        from ..frontmatter import load_markdown
+
+        for path in reports.glob("*.md"):
+            try:
+                status = str(load_markdown(path).frontmatter.get("status") or "unknown")
+            except Exception:
+                status = "unreadable"
+            proposal_states[status] = proposal_states.get(status, 0) + 1
+    if proposal_states:
+        lines.append("Self-repair proposals: " + ", ".join(f"{k}={v}" for k, v in sorted(proposal_states.items())))
+    return "\n".join(lines)
 
 
 class TelegramBot:
@@ -246,6 +272,13 @@ class TelegramBot:
 
         if lowered in ("/start", "/help"):
             self._send_message(chat_id, _HELP_TEXT)
+            return
+        if lowered in ("/status", "/health"):
+            try:
+                self._send_message(chat_id, _status_text(self.vault, self.db_path))
+            except Exception as exc:
+                log_error(self.vault, "telegram status failed", exc)
+                self._send_message(chat_id, f"Status unavailable (it is logged): {exc}")
             return
         if lowered in ("/new", "/reset"):
             from .narrative_state import reset_narrative_state

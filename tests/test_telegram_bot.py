@@ -319,6 +319,14 @@ class BotDispatchTests(unittest.TestCase):
         proc.assert_not_called()
         self.assertTrue(any("Commands:" in s for s in self._sent()))
 
+    def test_status_command_is_read_only_and_does_not_invoke_pipeline(self):
+        with patch.object(telegram_bot, "_status_text", return_value="Lisan status (read-only)\nhealthy") as status, \
+                patch.object(telegram_bot, "_process_chat_turn") as proc:
+            self.bot.handle_update(_update("/status"))
+        proc.assert_not_called()
+        status.assert_called_once_with(self.vault, None)
+        self.assertEqual(self._sent(), ["Lisan status (read-only)\nhealthy"])
+
     def test_new_command_rotates_conversation_id(self):
         first = self.bot._state_for(99).conversation_id
         with patch.object(telegram_bot, "_process_chat_turn") as proc:
@@ -412,6 +420,27 @@ class DurableConfirmationButtonTests(unittest.TestCase):
         self.assertIn("sendMessage", methods)
         edit = next(params for method, params in self.calls if method == "editMessageReplyMarkup")
         self.assertEqual(edit["reply_markup"], {"inline_keyboard": []})
+
+    def test_callback_later_snoozes_without_resolving(self):
+        confirmation_id = create_confirmation_for_task(
+            self.vault, task_id="task.button", task_summary="button test",
+            planned_action="test action", risk="low", db_path=self.db,
+        )
+        token = confirmation_callback_token(str(confirmation_id))
+        self.bot.handle_update({
+            "update_id": 9,
+            "callback_query": {
+                "id": "callback-later", "from": {"id": 1},
+                "data": f"confirm:v1:snooze:{token}",
+                "message": {"message_id": 42, "chat": {"id": 99}},
+            },
+        })
+        record = next((self.vault / "confirmations").glob("*.md"))
+        fm = load_markdown(record).frontmatter
+        self.assertIsNone(fm.get("resolution"))
+        self.assertEqual(fm.get("status"), "pending")
+        self.assertEqual(fm.get("snoozed_until"), fm.get("expires"))
+        self.assertTrue(any("Snoozed until" in p["text"] for m, p in self.calls if m == "sendMessage"))
 
     def test_unauthorized_callback_does_not_resolve_confirmation(self):
         confirmation_id = create_confirmation_for_task(

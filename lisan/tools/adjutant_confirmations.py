@@ -36,7 +36,7 @@ def confirmation_keyboard(confirmation_id: str) -> dict[str, Any]:
         "inline_keyboard": [[
             {"text": "✅ Approve", "callback_data": f"{_CALLBACK_PREFIX}:approve:{token}"},
             {"text": "❌ Deny", "callback_data": f"{_CALLBACK_PREFIX}:deny:{token}"},
-        ]]
+        ], [{"text": "⏰ Later", "callback_data": f"{_CALLBACK_PREFIX}:snooze:{token}"}]]
     }
 
 
@@ -49,6 +49,7 @@ def pending_confirmation_keyboard(vault: Path, db_path: Path | None = None, *, l
             rows.append([
                 {"text": f"✅ {confirmation_id[-12:]}", "callback_data": f"{_CALLBACK_PREFIX}:approve:{confirmation_callback_token(confirmation_id)}"},
                 {"text": "❌ Deny", "callback_data": f"{_CALLBACK_PREFIX}:deny:{confirmation_callback_token(confirmation_id)}"},
+                {"text": "⏰ Later", "callback_data": f"{_CALLBACK_PREFIX}:snooze:{confirmation_callback_token(confirmation_id)}"},
             ])
     return {"inline_keyboard": rows} if rows else None
 
@@ -144,6 +145,7 @@ def _resolve(
     fm["status"] = "pending" if resolution == "approved" else "resolved"
     write_markdown(record, fm, doc.body)
     reindex_record(record, vault, db_path, quiet=True)
+    _update_self_repair_report(vault, str(fm.get("task_id") or ""), resolution, today)
 
     # The yes/no is memory too: submit it through the front door.
     if capture is None:
@@ -165,6 +167,52 @@ def _resolve(
         # already durable in the record. Never let capture failure undo it.
         pass
     return {"id": confirmation_id, "resolution": resolution, "task_id": str(fm.get("task_id"))}
+
+
+def snooze_confirmation(
+    vault: Path,
+    confirmation_id: str,
+    *,
+    days: int = 1,
+    db_path: Path | None = None,
+    resolved_by: str = "owner",
+) -> dict[str, Any]:
+    """Defer a pending confirmation without approving or denying it."""
+    if not 1 <= int(days) <= 30:
+        raise ValueError("snooze duration must be between 1 and 30 days")
+    conn = _conn(db_path)
+    try:
+        row = conn.execute("SELECT * FROM confirmations WHERE id = ?", (confirmation_id,)).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        raise KeyError(f"no confirmation {confirmation_id!r}")
+    record = vault / str(row["record_path"])
+    doc = load_markdown(record)
+    fm = dict(doc.frontmatter)
+    if fm.get("resolution") or str(fm.get("status") or "") != "pending":
+        raise ValueError(f"{confirmation_id} is not pending")
+    until = date.today() + timedelta(days=int(days))
+    fm.update({"expires": until.isoformat(), "snoozed_until": until.isoformat(), "updated": date.today().isoformat(), "snoozed_by": resolved_by})
+    write_markdown(record, fm, doc.body)
+    reindex_record(record, vault, db_path, quiet=True)
+    return {"id": confirmation_id, "task_id": str(fm.get("task_id") or ""), "snoozed_until": until.isoformat()}
+
+
+def _update_self_repair_report(vault: Path, task_id: str, resolution: str, today: str) -> None:
+    if not task_id.startswith("self-repair:"):
+        return
+    proposal_id = task_id.split(":", 1)[1]
+    path = vault / "reports" / "self-repair-proposals" / f"{proposal_id}.md"
+    if not path.exists():
+        return
+    try:
+        doc = load_markdown(path)
+        fm = dict(doc.frontmatter)
+        fm.update({"status": resolution, "decision_at": today, "decision_by": "owner"})
+        write_markdown(path, fm, doc.body)
+    except Exception:
+        pass
 
 
 def approve_confirmation(vault: Path, confirmation_id: str, **kw: Any) -> dict[str, Any]:
@@ -271,6 +319,7 @@ def confirmation_command_response(
         /confirmations            -> list pending
         approve <confirmation.id> -> approve (also /approve)
         deny <confirmation.id>    -> deny   (also /deny)
+        snooze <confirmation.id> [days] -> defer (also /snooze)
 
     Returns the reply text, or None when the message is not a
     confirmation command (the bot then treats it as a normal turn)."""
@@ -278,7 +327,7 @@ def confirmation_command_response(
 
     global _COMMAND_RE
     if _COMMAND_RE is None:
-        _COMMAND_RE = re.compile(r"^/?(approve|deny)\s+(confirmation\.\S+)\s*$", re.IGNORECASE)
+        _COMMAND_RE = re.compile(r"^/?(approve|deny|snooze)\s+(confirmation\.\S+)(?:\s+(\d+))?\s*$", re.IGNORECASE)
     stripped = text.strip()
     if stripped.lower() in ("/confirmations", "/pending"):
         return format_pending(vault, list_pending(db_path))
@@ -289,10 +338,18 @@ def confirmation_command_response(
     try:
         if action == "approve":
             outcome = approve_confirmation(vault, confirmation_id, db_path=db_path, capture=capture)
+            if str(outcome.get("task_id") or "").startswith("self-repair:"):
+                return (
+                    f"Self-repair proposal decision recorded for {outcome['id']}. "
+                    "Phase A remains proposal-only; no live code changed."
+                )
             return (
                 f"Approved {outcome['id']} (task {outcome['task_id']}). "
                 "It executes on the next Adjutant cycle — unless intent has since forbidden it."
             )
+        if action == "snooze":
+            outcome = snooze_confirmation(vault, confirmation_id, days=int(match.group(3) or 1), db_path=db_path)
+            return f"Snoozed {outcome['id']} until {outcome['snoozed_until']}."
         outcome = deny_confirmation(vault, confirmation_id, db_path=db_path, capture=capture)
         return f"Denied {outcome['id']} (task {outcome['task_id']})."
     except (KeyError, ValueError) as exc:
@@ -315,7 +372,7 @@ def confirmation_callback_response(
     """
     import re
 
-    match = re.fullmatch(r"confirm:v1:(approve|deny):([0-9a-f]{16})", data.strip(), re.IGNORECASE)
+    match = re.fullmatch(r"confirm:v1:(approve|deny|snooze):([0-9a-f]{16})", data.strip(), re.IGNORECASE)
     if not match:
         return None, None
     action, token = match.group(1).lower(), match.group(2).lower()
@@ -338,6 +395,9 @@ def confirmation_callback_response(
             return "That confirmation has already been resolved.", confirmation_id
         if str(fm.get("expires") or "") < date.today().isoformat():
             return "That confirmation has expired.", confirmation_id
+        if action == "snooze":
+            snoozed = snooze_confirmation(vault, confirmation_id, db_path=db_path)
+            return f"Snoozed until {snoozed['snoozed_until']}.", confirmation_id
         outcome = approve_confirmation if action == "approve" else deny_confirmation
         resolved = outcome(vault, confirmation_id, db_path=db_path, capture=capture)
     except (KeyError, ValueError) as exc:
@@ -352,13 +412,19 @@ def confirmation_callback_response(
 def format_pending(vault: Path, pending: list[dict[str, Any]]) -> str:
     if not pending:
         return "No pending confirmations."
-    lines = []
-    for item in pending:
+    lines = [f"Pending confirmations ({len(pending)}):"]
+    visible = pending[:8]
+    for item in visible:
         detail = ""
         try:
             fm = load_markdown(vault / item["record_path"]).frontmatter
-            detail = f"\n    will do: {fm.get('planned_action')}\n    risk: {fm.get('risk')}"
+            summary = str(fm.get("task_summary") or fm.get("planned_action") or "")
+            if len(summary) > 180:
+                summary = summary[:177].rstrip() + "..."
+            detail = f" — {summary}" if summary else ""
         except Exception:
             pass
-        lines.append(f"{item['id']}  task={item['task_id']}  expires={item['expires']}{detail}")
+        lines.append(f"• {item['id']}  expires={item['expires']}{detail}")
+    if len(pending) > len(visible):
+        lines.append(f"…and {len(pending) - len(visible)} more. Use /confirmations to review the queue.")
     return "\n".join(lines)
