@@ -110,8 +110,9 @@ meal, then stops.
   expansion (for example `~`), but must be explicitly enabled by the user.
   Every read is scoped to the named deficit and every acquisition carries
   provenance (§4).
-- **Ring 2 — the published world.** **Deferred, not designed here.** Ring 2
-  needs the open decisions in §9 and is out of scope for this ship.
+- **Ring 2 — the published world.** Enabled by owner decision, with the
+  bounded provider described below. It searches only for a named deficit and
+  retains bounded findings with provenance.
 
 Escalation is outward only when the inner ring fails.
 
@@ -316,7 +317,10 @@ per-subject judgement in the hot path.
 
 `lisan/tools/research.py` provides the Ring 2 interface and bounded web
 adapter. It retrieves search-result metadata and excerpts, never whole-page
-corpora, and is enabled explicitly in the live configuration.
+corpora, and is enabled explicitly in the live configuration. The current
+adapter follows public HTTP(S) links up to depth 3, with caps of 12 pages, 8
+links per page, and 1 MB per page; private/local addresses and non-HTML
+resources are rejected.
 
 Step 1 is deliberately a complete feature. If Ring 1 never shipped, an agent
 that reconciles its own entity stories against its own memory would still be

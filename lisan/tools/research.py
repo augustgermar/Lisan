@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import json
 import html
+import ipaddress
 import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
@@ -174,11 +175,80 @@ class _SearchResultParser(HTMLParser):
             self._href, self._text, self._in_result = "", [], False
 
 
-class WebSearchProvider:
-    """Bounded search-result adapter for the published world.
+class _PageParser(HTMLParser):
+    """Extract visible text and links from one HTML page."""
 
-    It retrieves result metadata/snippets only and never crawls result pages.
-    The opener is injectable so the contract is deterministic in tests and a
+    def __init__(self) -> None:
+        super().__init__()
+        self.title: list[str] = []
+        self.text: list[str] = []
+        self.links: list[tuple[str, str]] = []
+        self._in_title = False
+        self._skip_depth = 0
+        self._link_href = ""
+        self._link_text: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attrs_dict = dict(attrs)
+        if tag in {"script", "style", "noscript", "template", "svg"}:
+            self._skip_depth += 1
+            return
+        if self._skip_depth:
+            return
+        if tag == "title":
+            self._in_title = True
+        if tag == "a":
+            self._link_href = html.unescape(str(attrs_dict.get("href") or ""))
+            self._link_text = []
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth:
+            return
+        clean = " ".join(data.split())
+        if not clean:
+            return
+        self.text.append(clean)
+        if self._in_title:
+            self.title.append(clean)
+        if self._link_href:
+            self._link_text.append(clean)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"script", "style", "noscript", "template", "svg"}:
+            self._skip_depth = max(0, self._skip_depth - 1)
+            return
+        if tag == "title":
+            self._in_title = False
+        if tag == "a" and self._link_href:
+            self.links.append((self._link_href, " ".join(self._link_text)))
+            self._link_href, self._link_text = "", []
+
+
+def _public_http_url(value: str) -> bool:
+    try:
+        parsed = urllib.parse.urlparse(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return False
+        if parsed.username or parsed.password or (parsed.port not in (None, 80, 443)):
+            return False
+        host = parsed.hostname.lower().rstrip(".")
+        if host in {"localhost", "localhost.localdomain"} or host.endswith((".local", ".internal")):
+            return False
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            return True
+        return not (address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast or address.is_unspecified)
+    except ValueError:
+        return False
+
+
+class WebSearchProvider:
+    """Bounded search-and-crawl adapter for the published world.
+
+    Search results seed a breadth-limited crawl. Pages are followed at most
+    ``max_depth`` links from a result, with hard page/byte/link caps. The
+    opener is injectable so the contract is deterministic in tests and a
     deployment can replace the default endpoint with an approved search API.
     """
 
@@ -189,10 +259,18 @@ class WebSearchProvider:
         *,
         endpoint: str = "https://www.bing.com/search",
         timeout: float = 20.0,
+        max_depth: int = 3,
+        max_pages: int = 12,
+        max_links_per_page: int = 8,
+        max_page_bytes: int = 1_000_000,
         opener: Callable[..., Any] | None = None,
     ) -> None:
         self.endpoint = endpoint
         self.timeout = float(timeout)
+        self.max_depth = max(0, int(max_depth))
+        self.max_pages = max(1, int(max_pages))
+        self.max_links_per_page = max(1, int(max_links_per_page))
+        self.max_page_bytes = max(1_000, int(max_page_bytes))
         self.opener = opener or urllib.request.urlopen
 
     def search(self, query: str, *, limit: int) -> list[SourceFinding]:
@@ -211,20 +289,88 @@ class WebSearchProvider:
         parser = _SearchResultParser()
         parser.feed(body)
         retrieved = datetime.now(timezone.utc).isoformat()
+        rows = [row for row in parser.rows if _public_http_url(row.get("url", ""))]
         findings: list[SourceFinding] = []
-        for row in parser.rows[: max(1, int(limit))]:
-            findings.append(SourceFinding(
-                source=self.name,
-                locator=row["url"],
-                excerpt=row.get("excerpt") or row["title"],
-                title=row["title"],
-                observed_at=retrieved,
-                publisher=urllib.parse.urlparse(row["url"]).netloc,
-                retrieved_at=retrieved,
-                confidence=0.4,
-                unverifiable=True,
-            ))
-        return findings
+        queued: list[tuple[str, int, str, str]] = [
+            (row["url"], 0, row["title"], row.get("excerpt") or row["title"])
+            for row in rows[: max(1, int(limit))]
+        ]
+        visited: set[str] = set()
+        pages = 0
+        terms = [term.lower() for term in re.findall(r"[\w'-]+", query) if len(term) > 1]
+        while queued and pages < self.max_pages and len(findings) < max(1, int(limit)):
+            url, depth, seed_title, seed_excerpt = queued.pop(0)
+            normalized = urllib.parse.urldefrag(url)[0]
+            if normalized in visited or not _public_http_url(normalized):
+                continue
+            visited.add(normalized)
+            page = self._fetch_page(normalized)
+            pages += 1
+            if page is None:
+                if depth == 0 and seed_excerpt:
+                    findings.append(self._finding(normalized, seed_title, seed_excerpt, retrieved, 0.35))
+                continue
+            title, text, links = page
+            lowered = f"{title} {text}".lower()
+            score = sum(lowered.count(term) for term in terms)
+            if score:
+                excerpt = _page_excerpt(text, terms) or seed_excerpt or title
+                findings.append(self._finding(normalized, title or seed_title, excerpt, retrieved, min(0.75, 0.45 + score / 20)))
+            if depth >= self.max_depth:
+                continue
+            base_host = urllib.parse.urlparse(normalized).netloc
+            ranked_links = sorted(
+                links,
+                key=lambda item: (
+                    0 if urllib.parse.urlparse(urllib.parse.urljoin(normalized, item[0])).netloc == base_host else 1,
+                    0 if any(term in (item[0] + " " + item[1]).lower() for term in terms) else 1,
+                ),
+            )
+            for href, anchor in ranked_links[: self.max_links_per_page]:
+                child = urllib.parse.urldefrag(urllib.parse.urljoin(normalized, href))[0]
+                if _public_http_url(child) and child not in visited:
+                    queued.append((child, depth + 1, anchor or title, anchor or title))
+        if not findings:
+            for row in rows[: max(1, int(limit))]:
+                findings.append(self._finding(
+                    row["url"], row["title"], row.get("excerpt") or row["title"], retrieved, 0.3,
+                ))
+        return findings[: max(1, int(limit))]
+
+    def _fetch_page(self, url: str) -> tuple[str, str, list[tuple[str, str]]] | None:
+        request = urllib.request.Request(url, headers={"User-Agent": "Lisan/1.0 scoped-research"}, method="GET")
+        try:
+            with self.opener(request, timeout=self.timeout) as response:
+                content_type = str(getattr(response, "headers", {}).get("content-type", "")).lower()
+                if content_type and "html" not in content_type and "xhtml" not in content_type:
+                    return None
+                try:
+                    body = response.read(self.max_page_bytes + 1)
+                except TypeError:
+                    body = response.read()
+                if len(body) > self.max_page_bytes:
+                    body = body[: self.max_page_bytes]
+                parser = _PageParser()
+                parser.feed(body.decode("utf-8", errors="replace"))
+                return " ".join(parser.title), " ".join(parser.text), parser.links
+        except Exception:
+            return None
+
+    def _finding(self, url: str, title: str, excerpt: str, retrieved: str, confidence: float) -> SourceFinding:
+        return SourceFinding(
+            source=self.name, locator=url, excerpt=excerpt[:1200], title=title[:300],
+            observed_at=retrieved, publisher=urllib.parse.urlparse(url).netloc,
+            retrieved_at=retrieved, confidence=confidence, unverifiable=True,
+        )
+
+
+def _page_excerpt(text: str, terms: list[str], max_chars: int = 1200) -> str:
+    words = text.split()
+    for index, word in enumerate(words):
+        if any(term in word.lower() for term in terms):
+            start = max(0, index - 35)
+            return " ".join(words[start : start + 90])[:max_chars]
+    return " ".join(words)[:max_chars]
 
 
 class SkillSourceProvider:
@@ -306,6 +452,10 @@ def installed_published_providers(*, config: dict[str, Any]) -> list[SourceProvi
     return [WebSearchProvider(
         endpoint=str(web.get("endpoint") or "https://www.bing.com/search"),
         timeout=float(web.get("timeout_seconds") or 20),
+        max_depth=int(web.get("max_depth") or 3),
+        max_pages=int(web.get("max_pages") or 12),
+        max_links_per_page=int(web.get("max_links_per_page") or 8),
+        max_page_bytes=int(web.get("max_page_bytes") or 1_000_000),
     )]
 
 
