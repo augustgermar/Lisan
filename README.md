@@ -59,6 +59,16 @@ capabilities ship implemented but *unreachable*, and only the owner's
 hand raises the tier. The agent ships the capability; the owner turns
 the key.
 
+**A guarded self-repair loop.** An active `origin: self` loop can produce a
+narrow proposal in an isolated worktree, verify it with the full suite and a
+targeted probe, and send the exact patch hash for owner approval. Phase B is
+now enabled at tier 4: `lisan self apply <proposal-id>` rechecks the approval,
+patch hash, clean base, protected paths, and active origin loop before making
+one local commit and queueing a service restart. The loop resolves only after
+the commit succeeds; the owner still decides when to push. The default
+configuration keeps the action tier at 0, so applying repairs remains an
+explicit local installation choice.
+
 **An execution layer under commander's intent.** The Adjutant polls the
 vault for actionable records — tasked open loops, decisions with
 pending steps, schedules, approved confirmations — checks each against
@@ -107,7 +117,9 @@ scans for behavioral patterns behind an evidence gate; deviation scans
 hunt the system's own defects; a weekly self-evaluation judges real
 transcripts against a rubric derived from the identity kernel (examiner
 ≠ examinee); a prediction ledger scores the system's interpretive
-frameworks against what actually happened.
+frameworks against what actually happened. Provider failures classified as
+transient — including rate limits, quotas, and usage-limit responses — are
+retried through the normal bounded retry path.
 
 **The execution layer** closes the loop between remembering and doing:
 
@@ -211,9 +223,9 @@ coding-agent CLI as the executor.
   README used to be.
 
 Development follows the repo conventions: `python3 -m pytest tests/`
-(983 tests, green is the floor), deterministic logic in `lisan/tools/`,
-schema changes with their gates, prompts under version control in
-`prompts/`.
+(currently 1,250 passed, 7 skipped, green is the floor), deterministic logic
+in `lisan/tools/`, schema changes with their gates, prompts under version
+control in `prompts/`.
 
 ## Provenance
 
