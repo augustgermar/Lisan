@@ -57,6 +57,18 @@ _HELP_TEXT = (
     "/help — this message"
 )
 
+# Telegram displays these entries when the owner types ``/``. Commands that
+# require an id or free-form text remain documented in /help instead.
+_TELEGRAM_COMMANDS = [
+    {"command": "help", "description": "Show help and available commands"},
+    {"command": "status", "description": "Show read-only service and queue status"},
+    {"command": "confirmations", "description": "Review pending confirmations"},
+    {"command": "new", "description": "Start a fresh conversation"},
+    {"command": "domain", "description": "Set or clear the retrieval domain"},
+    {"command": "trust", "description": "Temporarily manage approval trust"},
+    {"command": "logs", "description": "Show recent logs"},
+]
+
 
 def _telegram_api(token: str, method: str, params: dict[str, Any], *, timeout: float) -> dict[str, Any]:
     """Call a Telegram Bot API method. Stdlib-only; raises on transport error."""
@@ -750,6 +762,8 @@ def run_telegram_bot(
         db_path=db_path,
         config=config,
     )
+    if not set_my_commands(token):
+        get_logger(vault).warning("telegram command menu update failed; continuing without blocking startup")
     scheduler_thread, stop_scheduler = _start_scheduler_thread(
         bot, vault=vault, db_path=db_path, provider=provider, model=model, allowed=allowed, config=config
     )
@@ -820,6 +834,19 @@ def get_me(token: str, *, api: ApiFn = _telegram_api) -> dict[str, Any] | None:
         return None
     result = resp.get("result")
     return result if resp.get("ok") and isinstance(result, dict) else None
+
+
+def set_my_commands(token: str, *, api: ApiFn = _telegram_api) -> bool:
+    """Register the native Telegram command picker entries.
+
+    A temporary API outage must not prevent the bot from serving messages, so
+    this update is best-effort and retried on the next bot start.
+    """
+    try:
+        resp = api(token, "setMyCommands", {"commands": _TELEGRAM_COMMANDS}, timeout=10)
+    except Exception:
+        return False
+    return bool(resp.get("ok"))
 
 
 def detect_owner_id(
@@ -973,6 +1000,8 @@ def run_telegram_setup() -> int:
         return 1
 
     path = save_telegram_settings(token, allowed)
+    if not set_my_commands(token):
+        print("  ⚠ Telegram's command menu could not be updated; the bot will retry when it starts.")
     print(f"\n✓ Token saved to {path} (mode 0600, outside the repo and the vault).")
     print("  It is deliberately not in config.json: backups copy that file.")
     print(f"  Authorized ids: {', '.join(map(str, allowed))}")

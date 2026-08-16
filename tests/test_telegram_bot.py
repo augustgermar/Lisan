@@ -17,6 +17,7 @@ from lisan.tools.telegram_bot import (
     _valid_token_format,
     detect_owner_id,
     get_me,
+    set_my_commands,
     save_telegram_settings,
 )
 from lisan.tools.adjutant_confirmations import (
@@ -545,6 +546,22 @@ class WizardTests(unittest.TestCase):
         def boom(*a, **k):
             raise OSError("network")
         self.assertIsNone(get_me("tok", api=boom))
+
+    def test_set_my_commands_registers_native_command_picker(self):
+        calls = []
+
+        def api(token, method, params, *, timeout=0):
+            calls.append((token, method, params, timeout))
+            return {"ok": True, "result": True}
+
+        self.assertTrue(set_my_commands("tok", api=api))
+        self.assertEqual(calls[0][1], "setMyCommands")
+        commands = calls[0][2]["commands"]
+        self.assertIn({"command": "status", "description": "Show read-only service and queue status"}, commands)
+        self.assertIn({"command": "confirmations", "description": "Review pending confirmations"}, commands)
+
+    def test_set_my_commands_failure_is_nonfatal(self):
+        self.assertFalse(set_my_commands("tok", api=lambda *a, **k: {"ok": False}))
 
     def test_detect_owner_id_captures_sender(self):
         payload = {"result": [{"update_id": 7, "message": {"from": {"id": 4242, "first_name": "Augie"}}}]}
