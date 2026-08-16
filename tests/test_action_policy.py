@@ -39,15 +39,20 @@ def test_tier_gates_are_monotonic():
     assert not action_allowed("autonomous_check", tier1)
     tier2 = {"drive": {"action_tier": 2}}
     assert all(action_allowed(k, tier2) for k in ("session_callback", "scheduled_delivery", "autonomous_check"))
+    assert not action_allowed("enrich", tier2)
+    tier3 = {"drive": {"action_tier": 3}}
+    assert action_allowed("enrich", tier3)
+    assert action_allowed("self_repair_propose", tier3)
+    assert not action_allowed("self_repair_apply", tier3)
 
 
 def test_unknown_actions_are_denied_even_at_top_tier():
-    assert not action_allowed("send_email", {"drive": {"action_tier": 2}})
+    assert not action_allowed("send_email", {"drive": {"action_tier": 3}})
 
 
 def test_bad_tier_values_fall_back_to_default():
     assert policy_tier({"drive": {"action_tier": "loud"}}) == 0
-    assert policy_tier({"drive": {"action_tier": 99}}) == 2
+    assert policy_tier({"drive": {"action_tier": 99}}) == 3
     assert policy_tier({"drive": {"action_tier": -3}}) == 0
 
 

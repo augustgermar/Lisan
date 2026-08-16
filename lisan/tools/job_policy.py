@@ -30,6 +30,7 @@ DEFAULT_JOB_PRIORITIES = {
     "deviation.scan": 85,
     "enrichment.seek": 82,
     "enrichment.retry_pending": 83,
+    "self_repair.propose": 84,
     "self.evaluate": 90,
     "entity.rewrite_story": 85,
     # User-scheduled tasks outrank maintenance: when a reminder and a dreamer
@@ -142,6 +143,9 @@ def unique_group_for_job(job_type: str, payload: dict[str, Any] | None) -> str |
     if job_type == "enrichment.retry_pending":
         pending = str(payload.get("pending_path") or "").strip()
         return f"pending:{pending}" if pending else "pending:global"
+    if job_type == "self_repair.propose":
+        loop_id = str(payload.get("loop_id") or "").strip()
+        return f"self-repair:{loop_id}" if loop_id else "self-repair:global"
     if job_type in COALESCE_BY_RECORD:
         record_id = _record_identifier(payload)
         if record_id:

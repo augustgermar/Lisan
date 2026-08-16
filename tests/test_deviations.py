@@ -163,7 +163,7 @@ class EmissionTests(_Env):
         result = scan_deviations(
             self.vault,
             db_path=self.db,
-            config={"drive": {"action_tier": 3}},
+            config={"drive": {"action_tier": 3}, "self_repair": {"targeted_command": ["python3", "-c", "pass"]}},
         )
         self.assertEqual(result["emitted"], 1)
         from lisan.tools.jobs import list_jobs
@@ -171,6 +171,9 @@ class EmissionTests(_Env):
         jobs = [j for j in list_jobs(db_path=self.db) if j["job_type"] == "enrichment.seek"]
         self.assertEqual(len(jobs), 1)
         self.assertEqual(jobs[0]["payload"]["deficit_id"], "cross-kind-larkspur")
+        repair_jobs = [j for j in list_jobs(db_path=self.db) if j["job_type"] == "self_repair.propose"]
+        self.assertEqual(len(repair_jobs), 1)
+        self.assertEqual(repair_jobs[0]["payload"]["loop_id"], "open_loop.deviation-cross-kind-larkspur")
 
 
 class SatiationTests(_Env):

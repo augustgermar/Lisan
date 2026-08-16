@@ -52,6 +52,7 @@ JOB_TYPES = {
     "deviation.scan",
     "enrichment.seek",
     "enrichment.retry_pending",
+    "self_repair.propose",
     "self.evaluate",
     "prediction.reconcile",
     "corpus.audit_priors",
@@ -933,6 +934,55 @@ def dispatch_job(
         from .self_eval import run_self_evaluation
 
         return run_self_evaluation(vault, db_path=db_path, config=load_config())
+
+    if job_type == "self_repair.propose":
+        from ..config import load_config
+        from ..providers.base import LisanLLM
+        from .self_repair import propose
+
+        cfg = load_config()
+        from .action_policy import action_allowed
+
+        if not action_allowed("self_repair_propose", cfg):
+            return {"status": "blocked", "reason": "self-repair proposal action is not enabled"}
+        loop_id = str(payload.get("loop_id") or "").strip()
+        if not loop_id:
+            raise ValueError("self_repair.propose requires loop_id")
+        llm = LisanLLM(cfg, db_path)
+
+        def author(prompt: str) -> str:
+            response = llm.complete(prompt, agent="self_repair_author", significance="high")
+            return str(getattr(response, "text", response))
+
+        repo = Path(str(payload.get("repo") or Path(__file__).resolve().parents[2])).resolve()
+        candidate_paths = [str(item) for item in (payload.get("candidate_paths") or [])]
+        proposal = propose(
+            vault=vault,
+            repo=repo,
+            loop_id=loop_id,
+            loop_path=Path(str(payload["loop_path"])) if payload.get("loop_path") else None,
+            candidate_paths=candidate_paths or None,
+            author=author,
+            db_path=db_path,
+            test_command=[str(item) for item in (payload.get("test_command") or ["python3", "-m", "pytest", "-q"])],
+            targeted_command=[str(item) for item in (payload.get("targeted_command") or [])] or None,
+            worktree_root=Path(str(payload["worktree_root"])) if payload.get("worktree_root") else None,
+            author_id="resident-agent",
+            verifier_id="deterministic-test-harness",
+        )
+        notified = False
+        try:
+            from .scheduler import _deliver_owner_message
+
+            _deliver_owner_message(proposal.telegram_message, config=cfg)
+            notified = True
+        except Exception:
+            # The proposal and confirmation remain durable; the scheduler or
+            # owner can retry delivery without regenerating the patch.
+            pass
+        return {"proposal_id": proposal.proposal_id, "report": str(proposal.report_path),
+                "confirmation_id": proposal.confirmation_id, "notified": notified,
+                "patch_hash": proposal.patch_hash}
 
     if job_type == "deviation.scan":
         from ..config import load_config

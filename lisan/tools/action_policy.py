@@ -10,11 +10,15 @@ never in prompts. Three tiers, configured as ``drive.action_tier``:
   schedule a message through the existing owner-only channel (the
   scheduler's allowlist-locked Telegram delivery). Present in config,
   requires the owner to raise the tier.
-- **Tier 2 — autonomous checks.** Would allow drive-initiated read-only
-  jobs (verify a fix, re-run a health check) without a session. Ships
-  disabled; provably inert below tier 2.
+- **Tier 2 — autonomous checks.** Allows drive-initiated read-only jobs
+  (verify a fix, re-run a health check) without a session.
+- **Tier 3 — enrichment.** Allows the agent to acquire information through
+  the Ship 2 enrichment loop. The owner must raise the tier deliberately;
+  the capability remains bounded by enrichment budgets and source rules.
 
-At every tier: nothing writes outside the vault, ever, unprompted.
+At every tier, ordinary drive actions write only inside the vault. The sole
+Phase A exception is a disposable self-repair worktree outside the live
+checkout; it is isolated, bounded, and cannot apply code changes.
 """
 from __future__ import annotations
 
@@ -30,14 +34,13 @@ ACTION_TIERS: dict[str, int] = {
     "session_callback": 0,
     "scheduled_delivery": 1,
     "autonomous_check": 2,
-    # WO-ENRICH: acquiring information to close a self-loop. Non-person
-    # entities (place/org/system/...) have no privacy stake and sit at
-    # tier 2 — the owner raises the tier deliberately. Person enrichment
-    # is registered at tier 3, which policy_tier cannot reach (it clamps
-    # to 2): gated-but-disabled *structurally* until Ship 2 raises the
-    # ceiling on purpose, with the four-prong gate implemented.
-    "enrich_entity": 2,
-    "enrich_person": 3,
+    # WO-ENRICH: one capability for every entity kind. The owner raises
+    # tier 3 deliberately; there is no per-subject permission gate here.
+    "enrich": 3,
+    # Phase A may draft and verify only at the enrichment tier. Applying a
+    # self-repair proposal remains unreachable while the clamp is 3.
+    "self_repair_propose": 3,
+    "self_repair_apply": 4,
 }
 
 
@@ -47,7 +50,7 @@ def policy_tier(config: dict[str, Any] | None) -> int:
         tier = int(raw)
     except (TypeError, ValueError):
         return DEFAULT_TIER
-    return max(0, min(2, tier))
+    return max(0, min(3, tier))
 
 
 def action_allowed(kind: str, config: dict[str, Any] | None) -> bool:

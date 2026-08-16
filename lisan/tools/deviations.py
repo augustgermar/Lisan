@@ -436,6 +436,7 @@ def _emit(
             write_markdown(path, fm, body)
             _index_quietly(path, vault, db_path)
             _queue_enrichment(vault, db_path, fm, dev, policy_config or {})
+            _queue_self_repair(vault, db_path, path, fm, dev, policy_config or {})
         except Exception as exc:
             log_error(vault, f"deviation.emit failed for {dev['fingerprint']}", exc)
             continue
@@ -472,6 +473,37 @@ def _queue_enrichment(
     if current.exists():
         payload["current_transcript"] = str(current)
     enqueue_job("enrichment.seek", payload, db_path=db_path)
+
+
+def _queue_self_repair(
+    vault: Path,
+    db_path: Path | None,
+    loop_path: Path,
+    loop_fm: dict[str, Any],
+    deviation: dict[str, Any],
+    cfg: dict[str, Any],
+) -> None:
+    """Queue Phase A only when the owner has enabled proposal generation."""
+    from .action_policy import action_allowed
+
+    if not action_allowed("self_repair_propose", cfg):
+        return
+    repair_cfg = cfg.get("self_repair") or {}
+    targeted_command = repair_cfg.get("targeted_command")
+    if not isinstance(targeted_command, list) or not targeted_command:
+        # A proposal without a loop-specific probe would be an untestable
+        # draft. Leave the loop active until the owner configures the probe.
+        return
+    from .jobs import enqueue_job
+
+    payload = {
+        "vault": str(vault),
+        "loop_id": str(loop_fm.get("id") or ""),
+        "loop_path": str(loop_path),
+        "candidate_paths": [str(link) for link in (deviation.get("links") or [])],
+        "targeted_command": [str(item) for item in targeted_command],
+    }
+    enqueue_job("self_repair.propose", payload, db_path=db_path)
 
 
 def _index_quietly(path: Path, vault: Path, db_path: Path | None) -> None:
