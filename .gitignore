@@ -7,6 +7,7 @@ config.json
 config.yaml
 lisan.sqlite
 embeddings.bin
+transcript_embeddings.bin
 .DS_Store
 
 # User-local vault data. Keep personal memories, reports, transcripts, and

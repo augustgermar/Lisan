@@ -8,6 +8,8 @@ from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.enrichment import EnrichmentResolution, _append_source_log, seek
 from lisan.tools.record_factory import new_entity
 from lisan.tools.rebuild_index import rebuild_index
+from lisan.tools.transcript_lane import search_transcripts
+from lisan.providers.embeddings import IndexEmbedding, QueryEmbedding
 
 
 def _loop(vault: Path, loop_id: str = "open_loop.thin-ruth") -> Path:
@@ -51,7 +53,23 @@ def _env() -> tuple[tempfile.TemporaryDirectory[str], Path, Path, Path]:
 
 
 def _config() -> dict:
-    return {"drive": {"action_tier": 3}, "enrichment": {"max_candidates_per_source": 5}}
+    return {
+        "drive": {"action_tier": 3},
+        "enrichment": {"max_candidates_per_source": 5},
+        "retrieval": {"embeddings": {"mode": "hash", "hash_dimensions": 32}},
+    }
+
+
+class _SemanticTranscriptEmbeddings:
+    settings = {"provider": "test", "model": "test-semantic", "mode": "semantic", "hash_dimensions": 2}
+
+    def embed_records(self, texts: list[str]) -> IndexEmbedding:
+        vectors = [[1.0, 0.0] if "mother" in text.lower() else [0.0, 1.0] for text in texts]
+        return IndexEmbedding(vectors, "semantic", "test-semantic", 2, True)
+
+    def embed_query(self, text: str) -> QueryEmbedding:
+        vector = [1.0, 0.0] if "relationship" in text.lower() else [0.0, 1.0]
+        return QueryEmbedding(vector, "semantic", 2, True)
 
 
 def test_current_transcript_wins_and_closes_loop():
@@ -101,6 +119,55 @@ def test_historical_transcript_is_used_after_current_misses():
         assert str(historical) in load_markdown(entity).frontmatter["source_log"][0]["source_uri"]
     finally:
         tmp.cleanup()
+
+
+def test_historical_transcripts_are_discovered_and_embedded(tmp_path: Path):
+    vault = vault_root(tmp_path)
+    entity = new_entity(vault, "Ruth Varga", subtype="person", summary="Ruth Varga is a person.").path
+    loop = _loop(vault)
+    historical = vault / "transcripts" / "2026-07-01.md"
+    historical.parent.mkdir(parents=True, exist_ok=True)
+    historical.write_text(
+        "## Conversation — 09:00 [old]\n\nUSER: Ruth Varga is Dana's mother.\n",
+        encoding="utf-8",
+    )
+
+    result = seek(
+        vault=vault, db_path=tmp_path / "lisan.sqlite", loop_id="open_loop.thin-ruth",
+        deficit_id="ruth.relationship", deficit="Ruth Varga relationship to Dana",
+        entity_path=entity, config=_config(), embedding_provider=_SemanticTranscriptEmbeddings(),
+    )
+
+    assert result["status"] == "resolved"
+    assert result["ring"] == "transcript"
+    assert str(historical) in load_markdown(entity).frontmatter["source_log"][0]["source_uri"]
+    sidecar = tmp_path / "transcript_embeddings.bin"
+    assert sidecar.exists()
+    sidecar_text = sidecar.read_text(encoding="utf-8")
+    assert '"content_hash"' in sidecar_text
+    assert '"embedding_hash"' in sidecar_text
+    assert load_markdown(loop).frontmatter["status"] == "resolved"
+
+
+def test_transcript_embedding_can_rank_a_paraphrase(tmp_path: Path):
+    vault = vault_root(tmp_path)
+    transcript = vault / "transcripts" / "2026-07-01.md"
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text(
+        "## Conversation — 09:00 [old]\n\nUSER: Ruth Varga is Dana's mother.\n"
+        "\n## Conversation — 10:00 [other]\n\nUSER: The weather was pleasant today.\n",
+        encoding="utf-8",
+    )
+
+    hits = search_transcripts(
+        "Ruth Varga relationship to Dana", vault=vault, db_path=tmp_path / "lisan.sqlite",
+        embedding_provider=_SemanticTranscriptEmbeddings(), limit=1,
+    )
+
+    assert len(hits) == 1
+    assert "mother" in hits[0].excerpt.lower()
+    assert hits[0].embedding_score > 0.9
+    assert hits[0].embedding_hash
 
 
 def test_vault_is_the_fallback_after_transcripts():

@@ -35,9 +35,10 @@ gate — read the gate before starting):
 - `ship2_enable_workorder.md` — enable person enrichment (Ship 2 of
   WO-ENRICH). **Calibration verdict given 2026-08-14: curiosity, not
   grinding.** The bounded enrichment core, provenance seam, and scoped
-  transcript lane are now present; the work order remains active while the
-  historical-transcript decision, owner clarification, Ring 1, and audit
-  rollups are completed. Binding spec: `ship2_person_enrichment.md`.
+  transcript lane are now present; the historical-transcript decision was
+  resolved on 2026-08-16 as a separate embedding-backed lane. The work order
+  remains active while owner clarification, Ring 1, and audit rollups are
+  completed. Binding spec: `ship2_person_enrichment.md`.
   Ring 2 (the published world) remains deferred behind the open decisions in
   that spec's §9.
 - `self_repair_workorder.md` — WO-REPAIR, the self-improvement loop.

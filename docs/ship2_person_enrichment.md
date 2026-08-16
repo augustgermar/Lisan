@@ -90,11 +90,12 @@ meal, then stops.
 
 - **Transcript 0A — the current conversation.** Search the active transcript
   and narrative state. This is the cheapest and most immediate source.
-- **Transcript 0B — historical conversations.** Search the indexed transcript
-  corpus for direct owner statements and clarifications before searching
-  derived records. **This corpus does not exist yet** — measured 2026-08-15,
-  the index holds 0 rows under `transcripts/` against 31 files on disk. Step 1
-  cannot ship without the decision in §9.
+- **Transcript 0B — historical conversations.** Search the separate,
+  enrichment-only transcript lane for direct owner statements and
+  clarifications before searching derived records. The lane discovers local
+  transcript files, stores a private sidecar with content and embedding hashes,
+  and uses bounded lexical-plus-embedding ranking. It does not add transcripts
+  to ordinary retrieval.
 - **Ring 0 — the vault.** Search entities, episodes, evidence, claims,
   decisions, knowledge, open loops, and explicit links using the existing
   deterministic retrieval lanes. Transcripts have precedence when their direct
@@ -275,14 +276,14 @@ per-subject judgement in the hot path.
 
 ## §7 — Implementation, in order
 
-1. **`enrichment.seek` job + Ring 0.** Deficit extraction from a `thin`
+1. **`enrichment.seek` job + Ring 0 — core shipped.** Deficit extraction from a `thin`
    deviation, current-transcript search, historical-transcript search, vault
    search, write-back with provenance, and loop closure. This is the whole
    feature end to end against local material, and it is testable with no
    external calls.
-2. **Transcript indexing** (§9 decision first). Whatever is decided there —
-   indexed and embedded, or scanned within a bounded window — steps 2 and 3 of
-   the ladder depend on it and it lands before them.
+2. **Transcript indexing — shipped 2026-08-16.** The owner selected a separate
+   enrichment-only lane. It discovers historical transcripts without changing
+   ordinary retrieval and records content/embedding hashes in its sidecar.
 3. **Deterministic source boundaries.** Add the source-query contract,
    candidate limits, configured local roots, incremental indexing expectations,
    and the rule that search is not ingestion. All vault and transcript queries
@@ -344,14 +345,15 @@ only; Rings 0 and 1 proceed.**
 source *discipline*, not the interface — it is instruction-only and returns
 prose. Academic-paper search is not required for the first web adapter.
 
-**Transcript indexing — blocks step 1.** Transcripts are not in the index: 0
-rows against 31 files on disk, measured 2026-08-15. The transcript-first ladder
-cannot run until that changes, and how it changes is a real decision rather
-than an oversight. Transcripts are raw, they duplicate what the distillation
-pipeline already extracted, and they are the least filtered text in the vault —
-which is exactly why they are valuable here and exactly why they were left out.
+**Transcript indexing — RESOLVED 2026-08-16.** The owner selected the separate
+enrichment-only lane. Transcripts remain out of the ordinary files table and
+ordinary `embeddings.bin`; the lane maintains its own `transcript_embeddings.bin`
+sidecar with stable content hashes and embedding hashes, and ranks bounded
+candidate excerpts with lexical and local semantic similarity. This preserves
+the raw transcript’s value for enrichment without changing what normal memory
+retrieval returns.
 
-The options, with what each costs:
+The options considered, with what each costs:
 
 - **Index and embed them like any other record.** Best retrieval, and the
   transcript corpus becomes reachable from *all* retrieval, not just
@@ -364,10 +366,10 @@ The options, with what each costs:
   time. Cheapest, no schema change, no behaviour change anywhere else — and no
   semantic search, so it finds direct wording and misses paraphrase.
 
-*Lean, not a decision:* the separate lane. It gets the embedding search the
-owner asked for without changing what ordinary retrieval returns, and the
-enrichment path is the only caller that wants unfiltered conversation ranked
-beside curated memory.
+*Decision:* the separate lane. It gets the embedding search the owner asked
+for without changing what ordinary retrieval returns, and the enrichment path
+is the only caller that wants unfiltered conversation ranked beside curated
+memory.
 
 **Owner clarification policy.** The owner is a source of information and a
 source of value-of-information judgments, but not an infallible oracle. Decide

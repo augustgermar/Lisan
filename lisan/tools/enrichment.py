@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from ..frontmatter import load_markdown, write_markdown
+from ..providers.embeddings import EmbeddingProvider
 from ..utils import today_iso
 from .action_policy import action_allowed
 from .research import LocalRootProvider, SourceFinding, SourceProvider, search_owner_sources
@@ -40,6 +41,7 @@ def seek(
     historical_transcripts: Iterable[Path] = (),
     providers: Iterable[SourceProvider] = (),
     provenance_writer: Callable[[EnrichmentResolution], None] | None = None,
+    embedding_provider: EmbeddingProvider | None = None,
 ) -> dict[str, Any]:
     """Close one named deficit, searching only caller-supplied sources.
 
@@ -68,9 +70,13 @@ def seek(
     # 0A/0B: raw conversation wording gets first chance.
     transcript_hits = search_transcripts(
         query,
+        vault=vault,
+        db_path=db_path,
         current=current_transcript,
         historical=historical_transcripts,
         limit=int(((config or {}).get("enrichment") or {}).get("max_candidates_per_source", 5)),
+        config=config,
+        embedding_provider=embedding_provider,
     )
     if transcript_hits:
         hit = transcript_hits[0]
