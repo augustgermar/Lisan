@@ -16,6 +16,43 @@ from .transcript_lane import TranscriptHit, search_transcripts
 
 
 MAX_INFERENCE_CONFIDENCE = 0.6
+_AUDIT_REL = "reports/enrichment-audit.jsonl"
+
+
+def _record_attempt(
+    vault: Path,
+    *,
+    loop_id: str,
+    deficit_id: str,
+    entity_path: Path,
+    terminal_outcome: str,
+    stop_ring: str,
+    source_uri: str = "",
+    error: str = "",
+) -> None:
+    """Append a bounded, durable outcome record without copying source text.
+
+    The audit answers whether enrichment worked and where it stopped.  It is
+    deliberately metadata-only: the resolution belongs in the entity's
+    source_log, while email/transcript/file contents must not be duplicated in
+    an operational rollup.
+    """
+    path = vault / _AUDIT_REL
+    path.parent.mkdir(parents=True, exist_ok=True)
+    row = {
+        "date": today_iso(),
+        "loop_id": loop_id,
+        "deficit_id": deficit_id,
+        "entity_path": str(entity_path),
+        "terminal_outcome": terminal_outcome,
+        "stop_ring": stop_ring,
+    }
+    if source_uri:
+        row["source_uri"] = source_uri
+    if error:
+        row["error"] = str(error)[:500]
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,8 +91,16 @@ def seek(
     if not deficit.strip():
         raise ValueError("enrichment.seek requires a non-empty deficit")
     if not action_allowed("enrich", config):
+        _record_attempt(
+            vault, loop_id=loop_id, deficit_id=deficit_id, entity_path=entity_path,
+            terminal_outcome="blocked_by_policy", stop_ring="policy",
+        )
         return {"status": "blocked", "reason": "enrichment action tier is not enabled"}
     if not entity_path.exists():
+        _record_attempt(
+            vault, loop_id=loop_id, deficit_id=deficit_id, entity_path=entity_path,
+            terminal_outcome="failed", stop_ring="input", error="entity_path_missing",
+        )
         return {"status": "failed", "reason": "entity_path_missing"}
 
     entity = load_markdown(entity_path)
@@ -143,6 +188,10 @@ def seek(
         "Do you know the answer, or is this not worth pursuing?"
     )
     _leave_owner_question(vault, db_path, loop_id, question)
+    _record_attempt(
+        vault, loop_id=loop_id, deficit_id=deficit_id, entity_path=entity_path,
+        terminal_outcome="unresolved", stop_ring="owner",
+    )
     return {"status": "needs_owner", "question": question, "ring": "owner"}
 
 
@@ -176,9 +225,26 @@ def _commit_or_pending(
             entity_path=entity_path, resolution=resolution, error=str(exc),
         )
         _mark_loop_error(vault, db_path, loop_id, f"Enrichment provenance failed; pending retry: {exc}")
+        _record_attempt(
+            vault, loop_id=loop_id, deficit_id=deficit_id, entity_path=entity_path,
+            terminal_outcome="pending_provenance", stop_ring=resolution.source_type,
+            source_uri=resolution.source_uri, error=str(exc),
+        )
         return {"status": "pending", "pending_path": str(pending), "error": str(exc)}
 
     _resolve_loop(vault, db_path, loop_id, resolution)
+    outcome = {
+        "transcript": "resolved_by_transcript",
+        "vault": "resolved_by_vault",
+        "gmail_search": "resolved_by_local_source",
+        "obsidian_search": "resolved_by_local_source",
+        "local_files": "resolved_by_local_source",
+    }.get(resolution.source_type, "resolved_by_local_source")
+    _record_attempt(
+        vault, loop_id=loop_id, deficit_id=deficit_id, entity_path=entity_path,
+        terminal_outcome=outcome, stop_ring=resolution.source_type,
+        source_uri=resolution.source_uri,
+    )
     return {
         "status": "resolved",
         "ring": resolution.source_type,
@@ -265,6 +331,12 @@ def retry_pending(path: Path, *, vault: Path, db_path: Path | None) -> dict[str,
         fm.update({"retry_count": count, "last_error": str(exc), "status": "failed" if count >= 3 else "retry_wait", "updated": today_iso()})
         write_markdown(path, fm, doc.body)
         _mark_loop_error(vault, db_path, str(fm.get("loop_id") or ""), f"Enrichment provenance retry {count}/3 failed: {exc}")
+        _record_attempt(
+            vault, loop_id=str(fm.get("loop_id") or ""), deficit_id=str(fm.get("deficit_id") or ""),
+            entity_path=Path(str(fm.get("entity_path") or "")),
+            terminal_outcome="failed", stop_ring=str(fm.get("source_type") or "provenance"),
+            source_uri=str(fm.get("source_uri") or ""), error=str(exc),
+        )
         from .log import get_logger
 
         get_logger(vault).error(
@@ -276,6 +348,16 @@ def retry_pending(path: Path, *, vault: Path, db_path: Path | None) -> dict[str,
         raise RuntimeError(f"pending enrichment retry {count}/3 failed: {exc}") from exc
     fm.update({"status": "resolved", "updated": today_iso()})
     write_markdown(path, fm, doc.body)
+    _record_attempt(
+        vault, loop_id=str(fm.get("loop_id") or ""), deficit_id=str(fm.get("deficit_id") or ""),
+        entity_path=Path(str(fm.get("entity_path") or "")),
+        terminal_outcome={
+            "transcript": "resolved_by_transcript", "vault": "resolved_by_vault",
+            "gmail_search": "resolved_by_local_source", "obsidian_search": "resolved_by_local_source",
+            "local_files": "resolved_by_local_source",
+        }.get(resolution.source_type, "resolved_by_local_source"),
+        stop_ring=resolution.source_type, source_uri=resolution.source_uri,
+    )
     _resolve_loop(vault, db_path, str(fm.get("loop_id") or ""), resolution)
     return {"status": "resolved", "path": str(path)}
 
@@ -292,6 +374,14 @@ def _resolve_loop(vault: Path, db_path: Path | None, loop_id: str, resolution: E
         "resolved_at": today_iso(),
         "resolved_by": f"enrichment.seek:{resolution.source_type}",
         "resolved_note": f"resolved from {resolution.source_uri}",
+        "enrichment_terminal_outcome": {
+            "transcript": "resolved_by_transcript",
+            "vault": "resolved_by_vault",
+            "gmail_search": "resolved_by_local_source",
+            "obsidian_search": "resolved_by_local_source",
+            "local_files": "resolved_by_local_source",
+        }.get(resolution.source_type, "resolved_by_local_source"),
+        "enrichment_stop_ring": resolution.source_type,
         "next_action": "",
         "owner_question": "",
     })
@@ -310,7 +400,13 @@ def _leave_owner_question(vault: Path, db_path: Path | None, loop_id: str, quest
         return
     doc = load_markdown(path)
     fm = dict(doc.frontmatter)
-    fm.update({"owner_question": question, "next_action": "ask_owner", "updated": today_iso()})
+    fm.update({
+        "owner_question": question,
+        "next_action": "ask_owner",
+        "enrichment_terminal_outcome": "unresolved",
+        "enrichment_stop_ring": "owner",
+        "updated": today_iso(),
+    })
     write_markdown(path, fm, doc.body)
     _reindex_optional(path, vault, db_path)
 

@@ -4,8 +4,10 @@
 design note of the same name, which was rewritten on 2026-08-14 after the
 owner read it back against its own intent. The bounded `enrichment.seek`
 core, provenance write-back, retry path, and scoped transcript lane are
-implemented and tested; the historical-transcript decision and the remaining
-Ring 1/owner/audit work are not complete. `enrich` is registered in
+implemented and tested; the historical-transcript decision is resolved. Owner
+clarification handling and the final enrichment-tier decision remain open. Ring
+1 adapters are implemented behind the core provider interface, and
+the first audit rollup is now present. `enrich` is registered in
 `action_policy.ACTION_TIERS` at tier 3; the tier is the owner's on switch and
 the last implementation step.*
 
@@ -297,7 +299,10 @@ per-subject judgement in the hot path.
    all deficit-scoped, deterministic, read-limited, and read-only.
 8. **Budgets, terminal outcomes, and ring logging** (§5), including the
    `self_state` rollup and routing `resolved_by_transcript` back at the capture
-   pipeline.
+   pipeline. The metadata-only `reports/enrichment-audit.jsonl` seam now records
+   each attempt's terminal outcome and stop ring, and `self_state` summarizes
+   the last 30 days without copying acquired source text. Budget enforcement,
+   owner outcome routing, and capture-pipeline deviation emission remain open.
 9. **Raise the `policy_tier` clamp to 3** (§6), making the single `enrich`
    action reachable. Last commit, after everything above is green.
 

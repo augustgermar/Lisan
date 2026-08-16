@@ -338,6 +338,7 @@ def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) 
     state["jobs"] = jobs_by_status
     state["next_scheduled_task"] = next_task
     state["index_records"] = index_records
+    state["enrichment_audit"] = _enrichment_audit_summary(vault)
 
     for job_type in ("dreamer.maintenance", "analyst.scan"):
         state[f"last_{job_type.split('.')[0]}_success"] = _last_success_time(job_type, db)
@@ -375,6 +376,39 @@ def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) 
     except Exception:
         state["recent_log_tail"] = []
     return state
+
+
+def _enrichment_audit_summary(vault: Path, *, days: int = 30) -> dict[str, Any]:
+    """Summarize Ship 2 outcomes without loading acquired source text."""
+    from collections import Counter
+    from datetime import date, timedelta
+
+    path = vault / "reports" / "enrichment-audit.jsonl"
+    outcomes: Counter[str] = Counter()
+    rings: Counter[str] = Counter()
+    cutoff = date.today() - timedelta(days=days)
+    if not path.exists():
+        return {"window_days": days, "attempts": 0, "outcomes": {}, "stop_rings": {}}
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                row = json.loads(line)
+                if date.fromisoformat(str(row.get("date") or "")[:10]) < cutoff:
+                    continue
+                outcome = str(row.get("terminal_outcome") or "unknown")
+                ring = str(row.get("stop_ring") or "unknown")
+                outcomes[outcome] += 1
+                rings[ring] += 1
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+    except OSError:
+        return {"window_days": days, "attempts": 0, "outcomes": {}, "stop_rings": {}}
+    return {
+        "window_days": days,
+        "attempts": sum(outcomes.values()),
+        "outcomes": dict(sorted(outcomes.items())),
+        "stop_rings": dict(sorted(rings.items())),
+    }
 
 
 def _last_success_time(job_type: str, db_path: Path) -> str | None:
@@ -636,6 +670,15 @@ def render_self_state(state: dict[str, Any]) -> str:
     for key in ("last_dreamer_success", "last_analyst_success"):
         label = key.replace("last_", "").replace("_success", "")
         lines.append(f"Last {label} success: {state.get(key) or 'never'}")
+    enrichment = state.get("enrichment_audit") or {}
+    if enrichment.get("attempts"):
+        outcomes = ", ".join(
+            f"{name}×{count}" for name, count in sorted((enrichment.get("outcomes") or {}).items())
+        )
+        lines.append(
+            f"Enrichment ({enrichment.get('window_days', 30)}d): "
+            f"{enrichment['attempts']} attempt(s) — {outcomes}"
+        )
     plans = state.get("active_plans") or []
     for pl in plans:
         lines.append(f"Active plan ({pl['progress']} steps): {pl['goal']}")

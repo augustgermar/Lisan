@@ -91,7 +91,13 @@ def test_current_transcript_wins_and_closes_loop():
         assert result["ring"] == "transcript"
         entity_fm = load_markdown(entity).frontmatter
         assert entity_fm["source_log"][0]["source_uri"].startswith(str(current))
-        assert load_markdown(loop).frontmatter["status"] == "resolved"
+        loop_fm = load_markdown(loop).frontmatter
+        assert loop_fm["status"] == "resolved"
+        assert loop_fm["enrichment_terminal_outcome"] == "resolved_by_transcript"
+        assert loop_fm["enrichment_stop_ring"] == "transcript"
+        audit = (vault / "reports" / "enrichment-audit.jsonl").read_text(encoding="utf-8")
+        assert '"terminal_outcome": "resolved_by_transcript"' in audit
+        assert 'Ruth Varga is Dana' not in audit
     finally:
         tmp.cleanup()
 
@@ -211,6 +217,12 @@ def test_owner_question_is_informed_when_no_source_resolves():
         from lisan.tools.drive import phrase_question
 
         assert phrase_question(load_markdown(loop).frontmatter) == owner_question
+        loop_fm = load_markdown(loop).frontmatter
+        assert loop_fm["enrichment_terminal_outcome"] == "unresolved"
+        assert loop_fm["enrichment_stop_ring"] == "owner"
+        audit = (vault / "reports" / "enrichment-audit.jsonl").read_text(encoding="utf-8")
+        assert '"terminal_outcome": "unresolved"' in audit
+        assert '"stop_ring": "owner"' in audit
     finally:
         tmp.cleanup()
 

@@ -84,6 +84,33 @@ class SelfStateTests(unittest.TestCase):
             self.assertIn("task.reminder", rendered)
             self.assertIn("Next scheduled", rendered)
 
+    def test_snapshot_rolls_up_enrichment_terminal_outcomes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ensure_repo_layout(root)
+            vault = vault_root(root)
+            report = vault / "reports" / "enrichment-audit.jsonl"
+            report.parent.mkdir(parents=True, exist_ok=True)
+            from datetime import date
+
+            today = date.today().isoformat()
+            report.write_text(
+                f'{{"date":"{today}","terminal_outcome":"resolved_by_transcript","stop_ring":"transcript"}}\n'
+                f'{{"date":"{today}","terminal_outcome":"unresolved","stop_ring":"owner"}}\n',
+                encoding="utf-8",
+            )
+            from lisan.tools.self_model import _enrichment_audit_summary
+            summary = _enrichment_audit_summary(vault)
+            self.assertEqual(summary["attempts"], 2)
+            self.assertEqual(summary["outcomes"]["unresolved"], 1)
+            rendered = render_self_state({
+                "version": "test", "checked_at": "now", "commit": "",
+                "index_records": 0, "jobs": {}, "services": {},
+                "enrichment_audit": summary,
+            })
+            self.assertIn("Enrichment", rendered)
+            self.assertIn("resolved_by_transcript×1", rendered)
+
     def test_future_scheduled_jobs_are_not_rendered_as_stuck(self):
         """A reminder waiting for next week is 'queued' in the table; the
         render must say it is waiting for its time — 'two jobs stuck in the
