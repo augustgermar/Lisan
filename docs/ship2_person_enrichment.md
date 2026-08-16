@@ -1,6 +1,6 @@
 # Ship 2 — closing its own knowledge gaps
 
-*Status: COMPLETE for Rings 0/1; Ring 2 deferred. Supersedes the 2026-07-05
+*Status: COMPLETE for Rings 0/1/2. Supersedes the 2026-07-05
 design note of the same name, which was rewritten on 2026-08-14 after the
 owner read it back against its own intent. The bounded `enrichment.seek`
 core, provenance write-back, retry path, and scoped transcript lane are
@@ -71,10 +71,10 @@ but my model of them is 18 words — there is clearly more to know."*
    conflict, or can decide whether external research is appropriate, surface
    an informed question in chat. Include what was found and what remains
    uncertain; never ask a generic "tell me more" question.
-7. **Ring 2 — the published world, when authorized.** If the question remains
-   worthwhile and unresolved, the future web-research adapter may use the
-   installed `research` skill's source discipline. Ring 2 remains deferred and
-   blocked by §9.
+7. **Ring 2 — the published world.** If the question remains worthwhile and
+   unresolved, the bounded web provider searches the published world for the
+   named deficit. The owner authorized every subject class on 2026-08-16;
+   results retain structured provenance and remain bounded excerpts.
 8. **Write the resolution, not the corpus** (§4), then close the loop and say
    what was learned, what remains uncertain, and where it came from.
 
@@ -314,9 +314,9 @@ per-subject judgement in the hot path.
    action reachable. Complete; the owner enabled the live configuration after
    the implementation and verification sequence.
 
-`lisan/tools/research.py` is not in this list: it is Ring 2's interface and is
-built when Ring 2 is, after §9 is answered. It is specified in §3 now so that
-the first web adapter is written against a contract rather than inventing one.
+`lisan/tools/research.py` provides the Ring 2 interface and bounded web
+adapter. It retrieves search-result metadata and excerpts, never whole-page
+corpora, and is enabled explicitly in the live configuration.
 
 Step 1 is deliberately a complete feature. If Ring 1 never shipped, an agent
 that reconciles its own entity stories against its own memory would still be
@@ -345,18 +345,15 @@ worth having.
 
 ## §9 — Open decisions
 
-**Ring 2 subject classes.** Before any published-world lookup is built: is
-there a class of subject the system never researches on the open web? The
-vault contains the owner's children and people in an active custody matter,
-and "an agent doing web research on a seven-year-old" is a different sentence
-from "an agent reading its owner's email." Raised 2026-08-14, deliberately
-unanswered here rather than decided by whoever writes the code. **Blocks Ring 2
-only; Rings 0 and 1 proceed.**
+**Ring 2 subject classes — RESOLVED 2026-08-16.** The owner authorized
+published-world research for all subject classes, regardless of sensitivity.
+The system may collect bounded, deficit-scoped web findings; later decisions
+may determine whether and how those findings are retained or acted upon.
 
-**A published-class source.** Ring 2 needs a provider behind
-`lisan/tools/research.py` (§3). The installed `research` skill supplies the
-source *discipline*, not the interface — it is instruction-only and returns
-prose. Academic-paper search is not required for the first web adapter.
+**A published-class source — RESOLVED 2026-08-16.** Ring 2 uses the typed
+provider interface in `lisan/tools/research.py`; the standard-library web
+adapter is enabled in the live configuration. The installed `research` skill
+may still supply source discipline, but is not a runtime dependency.
 
 **Transcript indexing — RESOLVED 2026-08-16.** The owner selected the separate
 enrichment-only lane. Transcripts remain out of the ordinary files table and
@@ -384,8 +381,7 @@ for without changing what ordinary retrieval returns, and the enrichment path
 is the only caller that wants unfiltered conversation ranked beside curated
 memory.
 
-**Owner clarification policy.** The owner is a source of information and a
-source of value-of-information judgments, but not an infallible oracle. Decide
-which inquiry classes should ask the owner before Ring 2, which low-risk public
-questions may proceed directly, and which owner boundaries permanently block
-external research.
+**Owner clarification policy — RESOLVED 2026-08-16.** The owner remains a
+source of information and value-of-information judgments, but no subject
+class is blocked from Ring 2 by sensitivity. Owner boundaries expressed during
+an inquiry still stop that individual inquiry.

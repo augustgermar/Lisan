@@ -1,15 +1,18 @@
-"""Core interface for scoped owner-source research.
+"""Core interfaces for scoped owner-source and published-world research.
 
-This module is deliberately not the public-web adapter.  Ship 2 uses it for
-Ring 1 sources (Gmail, Obsidian, and explicitly configured local roots).  A
-provider may be backed by an installed skill, an API, or native local code;
-enrichment depends on this contract, never on a particular skill being
-installed.
+Providers may be backed by an installed skill, an API, native local code, or
+the standard-library web adapter below; enrichment depends on this contract,
+never on a particular skill being installed.
 """
 from __future__ import annotations
 
 import re
 import json
+import html
+import urllib.parse
+import urllib.request
+from html.parser import HTMLParser
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Protocol
@@ -28,6 +31,12 @@ class SourceFinding:
     excerpt: str
     title: str = ""
     observed_at: str = ""
+    publisher: str = ""
+    published_at: str = ""
+    retrieved_at: str = ""
+    confidence: float | None = None
+    disagreement: str = ""
+    unverifiable: bool = False
 
 
 def search_owner_sources(
@@ -53,6 +62,18 @@ def search_owner_sources(
         except Exception:
             continue
     return findings[: max(1, int(max_results_per_source)) * max(1, len(provider_list))]
+
+
+def search_published_sources(
+    query: str,
+    *,
+    providers: Iterable[SourceProvider] = (),
+    max_results_per_source: int = 5,
+) -> list[SourceFinding]:
+    """Search explicitly enabled Ring 2 providers with bounded results."""
+    return search_owner_sources(
+        query, providers=providers, max_results_per_source=max_results_per_source,
+    )
 
 
 class LocalRootProvider:
@@ -95,6 +116,115 @@ class LocalRootProvider:
                 hits.append(SourceFinding(self.name, str(path), excerpt, path.name))
         hits.sort(key=lambda item: (-sum(t in item.excerpt.lower() for t in terms), item.locator))
         return hits[: max(1, int(limit))]
+
+
+class _SearchResultParser(HTMLParser):
+    """Small parser for search-result pages; never follows result links."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rows: list[dict[str, str]] = []
+        self._href = ""
+        self._text: list[str] = []
+        self._in_result = False
+        self._bing_row: dict[str, str] | None = None
+        self._bing_title = False
+        self._bing_snippet = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attrs_dict = dict(attrs)
+        classes = str(attrs_dict.get("class") or "")
+        if tag == "li" and "b_algo" in classes:
+            self._bing_row = {"title": "", "url": "", "snippet": ""}
+        if self._bing_row is not None and tag == "h2":
+            self._bing_title = True
+        if self._bing_row is not None and tag == "p":
+            self._bing_snippet = True
+        if self._bing_row is not None and tag == "a" and self._bing_title:
+            self._bing_row["url"] = html.unescape(str(attrs_dict.get("href") or ""))
+        if tag == "a" and "result__a" in classes:
+            self._href = html.unescape(str(attrs_dict.get("href") or ""))
+            self._text = []
+            self._in_result = True
+
+    def handle_data(self, data: str) -> None:
+        if self._in_result:
+            self._text.append(data)
+        if self._bing_row is not None:
+            if self._bing_title:
+                self._bing_row["title"] += data
+            elif self._bing_snippet:
+                self._bing_row["snippet"] += data
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._bing_row is not None:
+            if tag == "h2":
+                self._bing_title = False
+            elif tag == "p":
+                self._bing_snippet = False
+            elif tag == "li":
+                row = {k: " ".join(v.split()) for k, v in self._bing_row.items()}
+                if row["url"] and row["title"]:
+                    self.rows.append({"title": row["title"][:300], "url": row["url"], "excerpt": row["snippet"][:1200]})
+                self._bing_row = None
+        if tag == "a" and self._in_result:
+            title = " ".join("".join(self._text).split())
+            if self._href and title:
+                self.rows.append({"title": title[:300], "url": self._href})
+            self._href, self._text, self._in_result = "", [], False
+
+
+class WebSearchProvider:
+    """Bounded search-result adapter for the published world.
+
+    It retrieves result metadata/snippets only and never crawls result pages.
+    The opener is injectable so the contract is deterministic in tests and a
+    deployment can replace the default endpoint with an approved search API.
+    """
+
+    name = "web_search"
+
+    def __init__(
+        self,
+        *,
+        endpoint: str = "https://www.bing.com/search",
+        timeout: float = 20.0,
+        opener: Callable[..., Any] | None = None,
+    ) -> None:
+        self.endpoint = endpoint
+        self.timeout = float(timeout)
+        self.opener = opener or urllib.request.urlopen
+
+    def search(self, query: str, *, limit: int) -> list[SourceFinding]:
+        query = str(query or "").strip()
+        if not query:
+            return []
+        url = f"{self.endpoint}?{urllib.parse.urlencode({'q': query})}"
+        request = urllib.request.Request(
+            url, headers={"User-Agent": "Lisan/1.0 scoped-research"}, method="GET"
+        )
+        try:
+            with self.opener(request, timeout=self.timeout) as response:
+                body = response.read().decode("utf-8", errors="replace")
+        except Exception:
+            return []
+        parser = _SearchResultParser()
+        parser.feed(body)
+        retrieved = datetime.now(timezone.utc).isoformat()
+        findings: list[SourceFinding] = []
+        for row in parser.rows[: max(1, int(limit))]:
+            findings.append(SourceFinding(
+                source=self.name,
+                locator=row["url"],
+                excerpt=row.get("excerpt") or row["title"],
+                title=row["title"],
+                observed_at=retrieved,
+                publisher=urllib.parse.urlparse(row["url"]).netloc,
+                retrieved_at=retrieved,
+                confidence=0.4,
+                unverifiable=True,
+            ))
+        return findings
 
 
 class SkillSourceProvider:
@@ -166,6 +296,17 @@ def installed_owner_providers(*, vault: Path, config: dict[str, Any]) -> list[So
         if callable(handler):
             providers.append(SkillSourceProvider(name, handler))
     return providers
+
+
+def installed_published_providers(*, config: dict[str, Any]) -> list[SourceProvider]:
+    """Return explicitly enabled Ring 2 providers; disabled by default."""
+    web = (config.get("sources") or {}).get("web") or {}
+    if not web.get("enabled"):
+        return []
+    return [WebSearchProvider(
+        endpoint=str(web.get("endpoint") or "https://www.bing.com/search"),
+        timeout=float(web.get("timeout_seconds") or 20),
+    )]
 
 
 def _excerpt(text: str, terms: list[str], max_chars: int = 1200) -> str:

@@ -36,11 +36,10 @@ gate — read the gate before starting):
   WO-ENRICH). **Calibration verdict given 2026-08-14: curiosity, not
   grinding.** The bounded enrichment core, provenance seam, and scoped
   transcript lane are now present; the historical-transcript decision was
-  resolved on 2026-08-16 as a separate embedding-backed lane. The work order
-  remains active while owner clarification, Ring 1, and audit rollups are
-  completed. Binding spec: `ship2_person_enrichment.md`.
-  Ring 2 (the published world) remains deferred behind the open decisions in
-  that spec's §9.
+  resolved on 2026-08-16 as a separate embedding-backed lane. Rings 0/1/2 are
+  complete, with web research enabled for all subject classes through a
+  bounded, provenance-preserving provider. Binding spec:
+  `ship2_person_enrichment.md`.
 - `self_repair_workorder.md` — WO-REPAIR, the self-improvement loop.
   Phase A and owner-approved Phase B shipped and were exercised on
   2026-08-16. Phase C (bake monitoring and rollback) remains active.

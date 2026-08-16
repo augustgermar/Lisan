@@ -1012,7 +1012,7 @@ def dispatch_job(
     if job_type == "enrichment.seek":
         from ..config import load_config
         from .enrichment import seek
-        from .research import installed_owner_providers
+        from .research import installed_owner_providers, installed_published_providers
 
         entity_path = str(payload.get("entity_path") or "").strip()
         loop_id = str(payload.get("loop_id") or "").strip()
@@ -1022,6 +1022,7 @@ def dispatch_job(
             raise ValueError("enrichment.seek requires entity_path, loop_id, deficit_id, and deficit")
         cfg = load_config()
         providers = installed_owner_providers(vault=vault, config=cfg)
+        published_providers = installed_published_providers(config=cfg)
         historical = [Path(str(item)) for item in (payload.get("historical_transcripts") or [])]
         result = seek(
             vault=vault,
@@ -1034,6 +1035,7 @@ def dispatch_job(
             current_transcript=Path(str(payload["current_transcript"])) if payload.get("current_transcript") else None,
             historical_transcripts=historical,
             providers=providers,
+            published_providers=published_providers,
         )
         if result.get("status") == "pending":
             from .jobs import enqueue_job as _enqueue_job

@@ -10,7 +10,7 @@ from ..frontmatter import load_markdown, write_markdown
 from ..providers.embeddings import EmbeddingProvider
 from ..utils import today_iso
 from .action_policy import action_allowed
-from .research import LocalRootProvider, SourceFinding, SourceProvider, search_owner_sources
+from .research import LocalRootProvider, SourceFinding, SourceProvider, search_owner_sources, search_published_sources
 from .retrieval import retrieve_context
 from .transcript_lane import TranscriptHit, search_transcripts
 
@@ -92,6 +92,7 @@ def seek(
     current_transcript: Path | None = None,
     historical_transcripts: Iterable[Path] = (),
     providers: Iterable[SourceProvider] = (),
+    published_providers: Iterable[SourceProvider] = (),
     provenance_writer: Callable[[EnrichmentResolution], None] | None = None,
     embedding_provider: EmbeddingProvider | None = None,
 ) -> dict[str, Any]:
@@ -203,6 +204,29 @@ def seek(
             source_type=finding.source,
             source_uri=finding.locator,
             claim_key=deficit_id,
+        )
+        return _commit_or_pending(
+            vault=vault, db_path=db_path, loop_id=loop_id, deficit_id=deficit_id,
+            entity_path=entity_path, resolution=resolution,
+            provenance_writer=provenance_writer,
+        )
+
+    # Ring 2: published-world search is a separate, explicitly enabled
+    # provider lane. It receives the same named deficit and bounded candidate
+    # budget; it never scans the web in the background.
+    published_findings = search_published_sources(
+        query,
+        providers=published_providers,
+        max_results_per_source=int(enrichment_cfg.get("max_candidates_per_source", 5)),
+    )
+    if published_findings:
+        finding = published_findings[0]
+        resolution = EnrichmentResolution(
+            text=finding.excerpt,
+            source_type="web",
+            source_uri=finding.locator,
+            claim_key=deficit_id,
+            confidence=finding.confidence,
         )
         return _commit_or_pending(
             vault=vault, db_path=db_path, loop_id=loop_id, deficit_id=deficit_id,
@@ -397,6 +421,7 @@ def _commit_or_pending(
         "gmail_search": "resolved_by_local_source",
         "obsidian_search": "resolved_by_local_source",
         "local_files": "resolved_by_local_source",
+        "web": "resolved_by_web",
     }.get(resolution.source_type, "resolved_by_local_source")
     _record_attempt(
         vault, loop_id=loop_id, deficit_id=deficit_id, entity_path=entity_path,
@@ -512,7 +537,8 @@ def retry_pending(path: Path, *, vault: Path, db_path: Path | None) -> dict[str,
         terminal_outcome={
             "transcript": "resolved_by_transcript", "vault": "resolved_by_vault",
             "gmail_search": "resolved_by_local_source", "obsidian_search": "resolved_by_local_source",
-            "local_files": "resolved_by_local_source",
+        "local_files": "resolved_by_local_source",
+        "web": "resolved_by_web",
         }.get(resolution.source_type, "resolved_by_local_source"),
         stop_ring=resolution.source_type, source_uri=resolution.source_uri,
     )
@@ -538,6 +564,7 @@ def _resolve_loop(vault: Path, db_path: Path | None, loop_id: str, resolution: E
             "gmail_search": "resolved_by_local_source",
             "obsidian_search": "resolved_by_local_source",
             "local_files": "resolved_by_local_source",
+            "web": "resolved_by_web",
         }.get(resolution.source_type, "resolved_by_local_source"),
         "enrichment_stop_ring": resolution.source_type,
         "next_action": "",

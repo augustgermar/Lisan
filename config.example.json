@@ -182,6 +182,11 @@
       "enabled": false,
       "roots": [],
       "include_extensions": [".md", ".txt", ".json", ".csv", ".pdf"]
+    },
+    "web": {
+      "enabled": false,
+      "endpoint": "https://www.bing.com/search",
+      "timeout_seconds": 20
     }
   },
   "identity": {

@@ -1,12 +1,13 @@
 # Work order: enable Ship 2 (self-enrichment)
 
-**Status: COMPLETE — Ship 2 Rings 0/1 shipped 2026-08-16.** `enrichment.seek`,
+**Status: COMPLETE — Ship 2 Rings 0/1/2 shipped 2026-08-16.** `enrichment.seek`,
 provenance write-back, bounded retry handling, the separate embedding-backed
 transcript lane, owner clarification outcomes, Ring 1 adapters, audit
 rollups, budget enforcement, and capture-defect routing are implemented and
-tested. The owner has enabled the live tier switch. Ring 2 public-web
-research remains deliberately deferred under the separate open decisions in
-the binding specification.
+tested. The owner has enabled the live tier switch and authorized Ring 2 web
+research for every subject class. Web research remains deficit-scoped and
+bounded; it does not perform background crawling or copy whole web pages into
+the vault.
 
 *Hand this file to the coding agent when the owner decides the calibration
 period is over. It is deliberately not executable without the owner's
@@ -47,8 +48,9 @@ Hard rules that override anything else you infer:
 - **enrichment never depends on a skill** — Ring 2 calls the core interface at
   `lisan/tools/research.py` and skills sit behind it as providers, because an
   uninstalled skill disables the feature silently;
-- **Ring 2 is out of scope** and blocked on the open decisions in the spec's §9,
-  which now also block step 1: transcripts are not indexed;
+- **Ring 2 is bounded and deficit-scoped**; the owner's all-subject decision
+  resolves the former §9 subject-class block. It does not authorize background
+  crawling or whole-web ingestion;
 - caps are budgets, not permission tests: they bound how much work runs, never
   which subject may be looked into.
 
