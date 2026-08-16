@@ -1,8 +1,9 @@
 # Work Order — The Psychological Pattern Layer (WO-PSYCHE)
 
-**Status: SPECIFIED 2026-07-08, owner-approved. Ship 1 may begin
-immediately; Ship 3 has an entry gate.** Where this document conflicts
-with the code as it then exists, reality wins — report the conflict.
+**Status: SHIPS 1, 2, AND 4 EXECUTED; SHIP 3 GATE MET 2026-08-16.** The
+analyst organ may proceed after the owner resolves the open design questions
+in §6. Where this document conflicts with the code as it then exists, reality
+wins — report the conflict.
 
 **One-line goal:** give the agent a disciplined applied-psychology layer —
 longitudinal observation, owner-ratified interpretive frameworks,

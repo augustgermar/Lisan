@@ -1,8 +1,11 @@
 # Ship 2 — closing its own knowledge gaps
 
-*Status: specified, not built. Supersedes the 2026-07-05 design note of the
-same name, which was rewritten on 2026-08-14 after the owner read it back
-against its own intent. `enrich` is registered in
+*Status: PARTIALLY IMPLEMENTED, active queue. Supersedes the 2026-07-05
+design note of the same name, which was rewritten on 2026-08-14 after the
+owner read it back against its own intent. The bounded `enrichment.seek`
+core, provenance write-back, retry path, and scoped transcript lane are
+implemented and tested; the historical-transcript decision and the remaining
+Ring 1/owner/audit work are not complete. `enrich` is registered in
 `action_policy.ACTION_TIERS` at tier 3; the tier is the owner's on switch and
 the last implementation step.*
 

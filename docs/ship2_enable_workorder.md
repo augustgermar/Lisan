@@ -1,5 +1,12 @@
 # Work order: enable Ship 2 (self-enrichment)
 
+**Status: ACTIVE — CORE PARTIALLY IMPLEMENTED.** `enrichment.seek`,
+provenance write-back, bounded retry handling, and the scoped transcript lane
+are present and tested. Continue from the remaining steps in the binding
+specification rather than rebuilding those pieces; the historical-transcript
+lane decision, owner clarification outcomes, Ring 1 adapters, audit rollups,
+and final tier key remain open.
+
 *Hand this file to the coding agent when the owner decides the calibration
 period is over. It is deliberately not executable without the owner's
 calibration verdict pasted into the slot below.*

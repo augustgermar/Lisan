@@ -1,11 +1,10 @@
 # Work Order — The Self-Repair Loop (WO-REPAIR)
 
-**Status: REVISED 2026-08-15, NOT SCHEDULED.** Do not begin until the entry gate
-(§1) is satisfied. Written 2026-07-05, while frontier-model access allowed
-the design to be thought through carefully; intended to be executed later
-by whatever competent coding agent the owner has at hand, working with the
-owner. Where this document conflicts with the code as it then exists,
-reality wins — report the conflict.
+**Status: PHASE A/B SHIPPED 2026-08-16; PHASE C REMAINS.** The entry gate was
+reviewed, Phase A was lived through an owner-approved proposal, and Phase B
+was exercised against the live checkout. Phase C — bake monitoring and dumb
+rollback — is not yet enabled. Written 2026-07-05; where this document
+conflicts with the code as it then exists, reality wins — report the conflict.
 
 **One-line goal:** close the last gap in the improvement cycle — the agent
 already *detects* its own defects (deviation drive) and *measures* its own
@@ -108,14 +107,12 @@ daily is not converging; it is thrashing. The weekly self-eval must get a
 clean look at each patch in isolation.
 
 ### 2.4 Gating and the key
-New `action_policy` kind `self_repair`, registered at an unreachable tier —
-the clamp is raised only when this work order's machinery exists with passing
-tests, and setting the live
-tier is the owner's manual act. Phase A is proposal-only and must remain
-reachable without granting apply authority. The agent ships the capability;
-the owner turns the key for application. Push-to-origin stays outside the
-loop entirely: patches commit locally; the owner pushes on their own
-schedule, keeping the privacy-scrub review human.
+New `action_policy` kinds `self_repair_propose` and `self_repair_apply` are
+registered separately. Phase A is reachable at tier 3; Phase B requires tier
+4 and was raised by the owner on 2026-08-16 after the passing implementation
+and regression suite. The tier remains the owner's manual act. Push-to-origin
+stays outside the loop entirely: patches commit locally; the owner pushes on
+their own schedule, keeping the privacy-scrub review human.
 
 ### 2.5 Implementation phases
 
@@ -127,16 +124,17 @@ eligibility tiers for which files may be improved.
   run the full suite and targeted probe with an independent verifier, and
   send the owner a Telegram confirmation proposal. The live checkout is
   never changed.
-- **Phase B — owner-approved apply.** After an exact Telegram approval,
-  apply the verified worktree as a granular local commit, record the
-  proposal and approval, and queue a safe service restart.
+- **Phase B — owner-approved apply — SHIPPED and exercised 2026-08-16.**
+  After an exact approval, apply the verified worktree as a granular local
+  commit, record the proposal and approval, resolve the originating loop, and
+  queue a safe service restart.
 - **Phase C — bake and rollback.** Monitor the applied commit for the bake
   period, compare the targeted metric, and perform the pre-recorded dumb
   rollback procedure when the rollback rule fires.
 
-Phase A must ship and be lived with before Phase B is enabled. Phase C
-must be proven with a deliberately bad disposable patch before it is enabled
-for real patches.
+Phase A was lived with before Phase B was enabled. Phase C must be proven
+with a deliberately bad disposable patch before it is enabled for real
+patches.
 
 ## 3. Open implementation questions (resolve against the code, then)
 
@@ -161,7 +159,7 @@ for real patches.
    write boundaries, model-authority settings, and rollback settings remain
    protected even when stored in ordinary config files.
 
-## 4. Definition of done (v0 = Phase A, broad ordinary-code scope)
+## 4. Definition of done (v0 = Phase A/B, broad ordinary-code scope)
 
 - Entry gate documented as checked, with dates.
 - Phase A is end-to-end for an ordinary non-organ code patch: self-loop →
@@ -171,14 +169,16 @@ for real patches.
 - R3 path exclusions enforced in code with tests (a patch touching the
   kernel or the repair loop is refused before draft, whatever the loop
   says).
-- `self_repair` is registered but apply remains unreachable until the owner
-  raises the clamp by hand.
+- `self_repair_propose` and `self_repair_apply` are registered separately;
+  apply is reachable only after the owner raises the tier-4 clamp by hand.
 - Dirty-checkout refusal, proposal hashing, approval binding, verifier
   unavailability, worktree cleanup, and path exclusions are test-covered.
 - A written first proposal report exists, including the originating loop,
   proposed change, verifier result, owner decision, and rollback metadata.
 
-Phase B additionally requires a clean-base apply and safe restart test.
+Phase B additionally requires a clean-base apply and safe restart test —
+completed 2026-08-16 with local commit `1e59bd5` and a controlled service
+restart.
 Phase C additionally requires a proven rollback against a deliberately bad
 disposable patch and a documented bake result.
 
@@ -186,7 +186,7 @@ disposable patch and a documented bake result.
 
 *Origin: designed 2026-07-05 in conversation between August and Claude
 (Fable 5), as the deliberately-deferred final leg of the improvement
-cycle: detect (deviations) → measure (self-eval) → repair (this). The
-first two are live; this one waits for its evidence. It should feel
-almost boring to implement — every dangerous decision was made here, in
-advance, on purpose.*
+cycle: detect (deviations) → measure (self-eval) → repair (this). Detection,
+measurement, and Phase A/B repair are now live; Phase C remains deliberately
+deferred until bake and rollback are proven. It should feel almost boring to
+implement — every dangerous decision was made here, in advance, on purpose.*

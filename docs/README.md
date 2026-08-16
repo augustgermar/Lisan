@@ -5,7 +5,7 @@ format (`SKILL.md` + frontmatter), progressive disclosure, the two kinds of
 skill, and where they live. Skills themselves are gitignored, so that doc
 and the loader are what a downloader actually gets.
 
-Four documents are LIVE (work orders in flight or awaiting their entry
+Five documents are LIVE (work orders in flight or awaiting their entry
 gate — read the gate before starting):
 
 - `adjutant_workorder.md` — WO-ADJUTANT, the execution layer +
@@ -28,21 +28,25 @@ gate — read the gate before starting):
 - `psyche_workorder.md` — WO-PSYCHE, the psychological pattern layer:
   three-tier provenance (facts / owner-ratified frameworks / earned
   hypotheses), observation-first, prediction-scored. Ships 1, 2, and 4
-  shipped (2026-07-08, 2026-07-15, 2026-07-15); only Ship 3 (the
-  analyst organ) remains, gated on four weeks of observation data —
-  the clock starts when check-ins start.
+  shipped (2026-07-08, 2026-07-15, 2026-07-15). Ship 3 (the analyst
+  organ) now has its four-week observation gate met in the resident vault
+  (105 check-in-like evidence records across seven calendar weeks); its
+  remaining owner decisions are in §6 before implementation begins.
 - `ship2_enable_workorder.md` — enable person enrichment (Ship 2 of
   WO-ENRICH). **Calibration verdict given 2026-08-14: curiosity, not
-  grinding — the gate is cleared and this is ready to build.** Binding spec:
-  `ship2_person_enrichment.md`, **rewritten the same day**: the owner read it
-  back against its own intent and removed the four-prong permission gate,
-  which by its own rules could never have fired on the loops Ship 1 produces.
-  What Ship 2 builds is the system noticing a thin spot and going to close it.
-  Ring 2 (the published world) is deferred behind one open decision in that
-  spec's §9.
+  grinding.** The bounded enrichment core, provenance seam, and scoped
+  transcript lane are now present; the work order remains active while the
+  historical-transcript decision, owner clarification, Ring 1, and audit
+  rollups are completed. Binding spec: `ship2_person_enrichment.md`.
+  Ring 2 (the published world) remains deferred behind the open decisions in
+  that spec's §9.
 - `self_repair_workorder.md` — WO-REPAIR, the self-improvement loop.
-  Waits for 4 weeks of self-eval history (same note: the weekly
-  self-eval only began firing 2026-07-15; gate opens ~mid-August).
+  Phase A and owner-approved Phase B shipped and were exercised on
+  2026-08-16. Phase C (bake monitoring and rollback) remains active.
+- `release_readiness_workorder.md` — WO-RELEASE, the public-facing
+  installability, documentation, security, and release-hygiene pass. Not
+  scheduled; it is retained as a future release queue rather than mistaken
+  for completed work.
 
 Executed 2026-07-15: `ground_truth_workorder.md` — WO-GROUND,
 self-referential questions answered from generated ground truth, never
