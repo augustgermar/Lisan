@@ -973,8 +973,16 @@ def dispatch_job(
         notified = False
         try:
             from .scheduler import _deliver_owner_message
+            from .adjutant_confirmations import confirmation_keyboard
 
-            _deliver_owner_message(proposal.telegram_message, config=cfg)
+            if proposal.confirmation_id:
+                _deliver_owner_message(
+                    proposal.telegram_message,
+                    config=cfg,
+                    reply_markup=confirmation_keyboard(proposal.confirmation_id),
+                )
+            else:
+                _deliver_owner_message(proposal.telegram_message, config=cfg)
             notified = True
         except Exception:
             # The proposal and confirmation remain durable; the scheduler or

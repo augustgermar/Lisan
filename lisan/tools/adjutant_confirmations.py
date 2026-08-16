@@ -9,6 +9,7 @@ owner's yes/no is memory too.
 from __future__ import annotations
 
 import sqlite3
+import hashlib
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Callable
@@ -21,6 +22,35 @@ from .record_factory import new_confirmation
 from .rebuild_index import ensure_index_schema, reindex_record
 
 DEFAULT_EXPIRY_DAYS = 7
+_CALLBACK_PREFIX = "confirm:v1"
+
+
+def confirmation_callback_token(confirmation_id: str) -> str:
+    """Short deterministic token suitable for Telegram's callback_data limit."""
+    return hashlib.sha256(confirmation_id.encode("utf-8")).hexdigest()[:16]
+
+
+def confirmation_keyboard(confirmation_id: str) -> dict[str, Any]:
+    token = confirmation_callback_token(confirmation_id)
+    return {
+        "inline_keyboard": [[
+            {"text": "✅ Approve", "callback_data": f"{_CALLBACK_PREFIX}:approve:{token}"},
+            {"text": "❌ Deny", "callback_data": f"{_CALLBACK_PREFIX}:deny:{token}"},
+        ]]
+    }
+
+
+def pending_confirmation_keyboard(vault: Path, db_path: Path | None = None, *, limit: int = 8) -> dict[str, Any] | None:
+    """Build compact approve/deny rows for the pending-confirmations view."""
+    rows: list[list[dict[str, str]]] = []
+    for item in list_pending(db_path)[:limit]:
+        confirmation_id = str(item.get("id") or "")
+        if confirmation_id:
+            rows.append([
+                {"text": f"✅ {confirmation_id[-12:]}", "callback_data": f"{_CALLBACK_PREFIX}:approve:{confirmation_callback_token(confirmation_id)}"},
+                {"text": "❌ Deny", "callback_data": f"{_CALLBACK_PREFIX}:deny:{confirmation_callback_token(confirmation_id)}"},
+            ])
+    return {"inline_keyboard": rows} if rows else None
 
 
 def _conn(db_path: Path | None) -> sqlite3.Connection:
@@ -267,6 +297,56 @@ def confirmation_command_response(
         return f"Denied {outcome['id']} (task {outcome['task_id']})."
     except (KeyError, ValueError) as exc:
         return f"Cannot {action} {confirmation_id}: {exc}"
+
+
+def confirmation_callback_response(
+    vault: Path,
+    data: str,
+    *,
+    db_path: Path | None = None,
+    capture: Callable[..., Any] | None = None,
+) -> tuple[str | None, str | None]:
+    """Resolve a durable confirmation callback.
+
+    The callback contains only a short hash token; the confirmation record is
+    looked up in the vault and its current pending/expiry state is rechecked
+    by the normal resolution path. Returns ``(reply, confirmation_id)`` or
+    ``(None, None)`` for unrelated callback data.
+    """
+    import re
+
+    match = re.fullmatch(r"confirm:v1:(approve|deny):([0-9a-f]{16})", data.strip(), re.IGNORECASE)
+    if not match:
+        return None, None
+    action, token = match.group(1).lower(), match.group(2).lower()
+    found: tuple[str, Path] | None = None
+    for path in sorted((vault / "confirmations").glob("*.md")):
+        try:
+            fm = load_markdown(path).frontmatter
+        except Exception:
+            continue
+        confirmation_id = str(fm.get("id") or "")
+        if confirmation_id and confirmation_callback_token(confirmation_id) == token:
+            found = confirmation_id, path
+            break
+    if found is None:
+        return "That confirmation is unknown or no longer available.", None
+    confirmation_id, path = found
+    try:
+        fm = load_markdown(path).frontmatter
+        if str(fm.get("status") or "") != "pending" or fm.get("resolution"):
+            return "That confirmation has already been resolved.", confirmation_id
+        if str(fm.get("expires") or "") < date.today().isoformat():
+            return "That confirmation has expired.", confirmation_id
+        outcome = approve_confirmation if action == "approve" else deny_confirmation
+        resolved = outcome(vault, confirmation_id, db_path=db_path, capture=capture)
+    except (KeyError, ValueError) as exc:
+        return f"Cannot {action} {confirmation_id}: {exc}", confirmation_id
+    if str(resolved.get("task_id") or "").startswith("self-repair:"):
+        verb = "recorded" if action == "approve" else "denied"
+        return f"Self-repair proposal decision {verb}. Phase A remains proposal-only; no live code changed.", confirmation_id
+    verb = "Approved" if action == "approve" else "Denied"
+    return f"{verb} {confirmation_id}.", confirmation_id
 
 
 def format_pending(vault: Path, pending: list[dict[str, Any]]) -> str:

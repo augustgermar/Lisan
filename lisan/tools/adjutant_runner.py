@@ -189,6 +189,7 @@ def run_cycle(
                         f"Task: {task.summary or task.task_id}\n"
                         f"Will do: {_planned_action(vault, task)}\n"
                         f"Reply: approve {created}  /  deny {created}",
+                        confirmation_id=created,
                     )
 
         log_cycle_event(
@@ -237,13 +238,21 @@ def _log_halt(conn: sqlite3.Connection, reason: str, deliver: Callable[[str], No
         )
 
 
-def _ping_owner(deliver: Callable[[str], None] | None, text: str) -> None:
+def _ping_owner(
+    deliver: Callable[[str], None] | None,
+    text: str,
+    *,
+    confirmation_id: str | None = None,
+) -> None:
     """Owner pings are best-effort: an unconfigured or failing channel must
     never break the cycle; the log and batch review remain the floor."""
     if deliver is None:
         return
     try:
-        deliver(text)
+        if confirmation_id and hasattr(deliver, "confirmation"):
+            deliver.confirmation(text, confirmation_id)  # type: ignore[attr-defined]
+        else:
+            deliver(text)
     except Exception:
         pass
 
@@ -277,6 +286,13 @@ def _default_deliver(config: dict[str, Any]):
 
         def _send(text: str) -> None:
             _deliver_owner_message(text, config=config)
+
+        def _send_confirmation(text: str, confirmation_id: str) -> None:
+            from .adjutant_confirmations import confirmation_keyboard
+
+            _deliver_owner_message(text, config=config, reply_markup=confirmation_keyboard(confirmation_id))
+
+        _send.confirmation = _send_confirmation  # type: ignore[attr-defined]
 
         return _send
     except Exception:

@@ -162,10 +162,14 @@ class TelegramBot:
     def _call_api(self, method: str, params: dict[str, Any], *, timeout: float) -> dict[str, Any]:
         return _telegram_api(self.token, method, params, timeout=timeout)
 
-    def _send_message(self, chat_id: int, text: str) -> None:
-        for piece in _chunk(text):
+    def _send_message(self, chat_id: int, text: str, *, reply_markup: dict[str, Any] | None = None) -> None:
+        pieces = _chunk(text)
+        for index, piece in enumerate(pieces):
             try:
-                self._call_api("sendMessage", {"chat_id": chat_id, "text": piece}, timeout=30)
+                params: dict[str, Any] = {"chat_id": chat_id, "text": piece}
+                if reply_markup is not None and index == len(pieces) - 1:
+                    params["reply_markup"] = reply_markup
+                self._call_api("sendMessage", params, timeout=30)
             except Exception as exc:  # network hiccup shouldn't kill the bot
                 log_error(self.vault, "telegram sendMessage failed", exc)
 
@@ -205,6 +209,10 @@ class TelegramBot:
 
     # ── Update handling (unit-tested without network) ───────────────────────
     def handle_update(self, update: dict[str, Any]) -> None:
+        callback = update.get("callback_query")
+        if isinstance(callback, dict):
+            self._handle_callback_query(callback)
+            return
         message = update.get("message") or update.get("edited_message")
         if not isinstance(message, dict):
             return
@@ -263,9 +271,14 @@ class TelegramBot:
         # model ever sees the text — authority decisions are deterministic.
         from .adjutant_confirmations import confirmation_command_response
 
-        confirmation_reply = confirmation_command_response(self.vault, text)
+        confirmation_reply = confirmation_command_response(self.vault, text, db_path=self.db_path)
         if confirmation_reply is not None:
-            self._send_message(chat_id, confirmation_reply)
+            markup = None
+            if lowered in ("/confirmations", "/pending"):
+                from .adjutant_confirmations import pending_confirmation_keyboard
+
+                markup = pending_confirmation_keyboard(self.vault, self.db_path)
+            self._send_message(chat_id, confirmation_reply, reply_markup=markup)
             return
         if lowered.startswith("/logs"):
             from .log import tail_log
@@ -319,6 +332,51 @@ class TelegramBot:
                 "I couldn't produce a response to that one — the failure is logged."
             )
         self._send_message(chat_id, response)
+
+    def _handle_callback_query(self, callback: dict[str, Any]) -> None:
+        """Handle durable confirmation buttons outside an approval wait."""
+        sender = (callback.get("from") or {}).get("id")
+        callback_id = str(callback.get("id") or "")
+        data = str(callback.get("data") or "")
+        if sender is None or not self._is_allowed(int(sender)):
+            if callback_id:
+                try:
+                    self._call_api(
+                        "answerCallbackQuery",
+                        {"callback_query_id": callback_id, "text": "Not authorized.", "show_alert": True},
+                        timeout=10,
+                    )
+                except Exception:
+                    pass
+            return
+        from .adjutant_confirmations import confirmation_callback_response
+
+        reply, _confirmation_id = confirmation_callback_response(self.vault, data, db_path=self.db_path)
+        if reply is None:
+            return
+        if callback_id:
+            try:
+                self._call_api(
+                    "answerCallbackQuery",
+                    {"callback_query_id": callback_id, "text": reply[:200]},
+                    timeout=10,
+                )
+            except Exception:
+                pass
+        message = callback.get("message") or {}
+        chat_id = (message.get("chat") or {}).get("id")
+        message_id = message.get("message_id")
+        if chat_id is not None and message_id is not None:
+            try:
+                self._call_api(
+                    "editMessageReplyMarkup",
+                    {"chat_id": chat_id, "message_id": message_id, "reply_markup": {"inline_keyboard": []}},
+                    timeout=10,
+                )
+            except Exception:
+                pass
+        if chat_id is not None:
+            self._send_message(int(chat_id), reply)
 
     def _update_state_after_turn(self, state: _ChatState, result: dict[str, Any], text: str, response: str) -> None:
         """Mirror run_chat's advice-context bookkeeping so multi-turn advice works."""

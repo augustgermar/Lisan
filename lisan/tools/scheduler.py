@@ -440,7 +440,13 @@ def _best_effort_deliver(deliver: Callable[[str, int | None], Any], text: str, c
         return False
 
 
-def _deliver_owner_message(text: str, *, chat_id: int | None = None, config: dict[str, Any] | None = None) -> None:
+def _deliver_owner_message(
+    text: str,
+    *,
+    chat_id: int | None = None,
+    config: dict[str, Any] | None = None,
+    reply_markup: dict[str, Any] | None = None,
+) -> None:
     """Send a message to the owner over Telegram. Owner-only by construction:
     the target must be on the configured allowlist; anything else falls back
     to the first allowlisted id. This is deliberately the only outbound
@@ -484,8 +490,12 @@ def _deliver_owner_message(text: str, *, chat_id: int | None = None, config: dic
             "Run `lisan telegram setup`."
         )
     target = chat_id if chat_id is not None and chat_id in allowed else sorted(allowed)[0]
-    for part in _chunk(text):
-        response = _telegram_api(token, "sendMessage", {"chat_id": target, "text": part}, timeout=15)
+    parts = _chunk(text)
+    for part in parts:
+        params: dict[str, Any] = {"chat_id": target, "text": part}
+        if reply_markup is not None and part == parts[-1]:
+            params["reply_markup"] = reply_markup
+        response = _telegram_api(token, "sendMessage", params, timeout=15)
         if not response.get("ok"):
             raise RuntimeError(f"telegram sendMessage failed: {response}")
 

@@ -19,6 +19,12 @@ from lisan.tools.telegram_bot import (
     get_me,
     save_telegram_settings,
 )
+from lisan.tools.adjutant_confirmations import (
+    confirmation_callback_token,
+    confirmation_keyboard,
+    create_confirmation_for_task,
+)
+from lisan.frontmatter import load_markdown
 
 
 def _update(text: str, *, user_id: int = 1, chat_id: int = 99, update_id: int = 1) -> dict:
@@ -359,6 +365,80 @@ class BotDispatchTests(unittest.TestCase):
             self.bot.handle_update({"update_id": 5, "message": {"chat": {"id": 99}, "from": {"id": 1}}})
         proc.assert_not_called()
         self.assertEqual(self.calls, [])
+
+
+class DurableConfirmationButtonTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        ensure_repo_layout(self.root)
+        self.vault = vault_root(self.root)
+        self.db = self.root / "confirmations.sqlite"
+        self.calls: list[tuple[str, dict]] = []
+        self.bot = TelegramBot(token="TEST", allowed_user_ids={1}, vault=self.vault, db_path=self.db, config={})
+        self.bot._call_api = lambda method, params, *, timeout=0: (
+            self.calls.append((method, params)) or {"ok": True, "result": []}
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_confirmation_keyboard_uses_short_callback_tokens(self):
+        keyboard = confirmation_keyboard("confirmation.2026-08-16-confirm-self-repair-sr-very-long-id")
+        callbacks = [button["callback_data"] for row in keyboard["inline_keyboard"] for button in row]
+        self.assertTrue(all(len(item) <= 64 for item in callbacks))
+        self.assertEqual(callbacks[0].split(":")[-1], confirmation_callback_token("confirmation.2026-08-16-confirm-self-repair-sr-very-long-id"))
+
+    def test_callback_approves_confirmation_and_removes_buttons(self):
+        confirmation_id = create_confirmation_for_task(
+            self.vault, task_id="task.button", task_summary="button test",
+            planned_action="test action", risk="low", db_path=self.db,
+        )
+        self.assertIsNotNone(confirmation_id)
+        token = confirmation_callback_token(str(confirmation_id))
+        self.bot.handle_update({
+            "update_id": 7,
+            "callback_query": {
+                "id": "callback-1", "from": {"id": 1},
+                "data": f"confirm:v1:approve:{token}",
+                "message": {"message_id": 42, "chat": {"id": 99}},
+            },
+        })
+        record = next((self.vault / "confirmations").glob("*.md"))
+        self.assertEqual(load_markdown(record).frontmatter["resolution"], "approved")
+        methods = [method for method, _ in self.calls]
+        self.assertIn("answerCallbackQuery", methods)
+        self.assertIn("editMessageReplyMarkup", methods)
+        self.assertIn("sendMessage", methods)
+        edit = next(params for method, params in self.calls if method == "editMessageReplyMarkup")
+        self.assertEqual(edit["reply_markup"], {"inline_keyboard": []})
+
+    def test_unauthorized_callback_does_not_resolve_confirmation(self):
+        confirmation_id = create_confirmation_for_task(
+            self.vault, task_id="task.button", task_summary="button test",
+            planned_action="test action", risk="low", db_path=self.db,
+        )
+        token = confirmation_callback_token(str(confirmation_id))
+        self.bot.handle_update({
+            "update_id": 8,
+            "callback_query": {
+                "id": "callback-2", "from": {"id": 999},
+                "data": f"confirm:v1:approve:{token}",
+                "message": {"message_id": 42, "chat": {"id": 99}},
+            },
+        })
+        record = next((self.vault / "confirmations").glob("*.md"))
+        self.assertIsNone(load_markdown(record).frontmatter.get("resolution"))
+
+    def test_pending_command_includes_action_buttons(self):
+        create_confirmation_for_task(
+            self.vault, task_id="task.button", task_summary="button test",
+            planned_action="test action", risk="low", db_path=self.db,
+        )
+        self.bot.handle_update(_update("/confirmations"))
+        message = next(params for method, params in self.calls if method == "sendMessage")
+        self.assertIn("reply_markup", message)
+        self.assertEqual(len(message["reply_markup"]["inline_keyboard"]), 1)
 
 
 class ResolveSettingsTests(unittest.TestCase):
