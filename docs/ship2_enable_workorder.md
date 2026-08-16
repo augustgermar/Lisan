@@ -1,12 +1,12 @@
 # Work order: enable Ship 2 (self-enrichment)
 
-**Status: ACTIVE — CORE PARTIALLY IMPLEMENTED.** `enrichment.seek`,
-provenance write-back, bounded retry handling, and the separate
-embedding-backed transcript lane are present and tested. The historical-
-transcript decision was resolved on 2026-08-16. Continue from the remaining
-steps in the binding specification rather than rebuilding those pieces:
-owner clarification outcomes, Ring 1 adapters, audit rollups, and the final
-tier key remain open.
+**Status: COMPLETE — Ship 2 Rings 0/1 shipped 2026-08-16.** `enrichment.seek`,
+provenance write-back, bounded retry handling, the separate embedding-backed
+transcript lane, owner clarification outcomes, Ring 1 adapters, audit
+rollups, budget enforcement, and capture-defect routing are implemented and
+tested. The owner has enabled the live tier switch. Ring 2 public-web
+research remains deliberately deferred under the separate open decisions in
+the binding specification.
 
 *Hand this file to the coding agent when the owner decides the calibration
 period is over. It is deliberately not executable without the owner's

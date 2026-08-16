@@ -1,16 +1,15 @@
 # Ship 2 — closing its own knowledge gaps
 
-*Status: PARTIALLY IMPLEMENTED, active queue. Supersedes the 2026-07-05
+*Status: COMPLETE for Rings 0/1; Ring 2 deferred. Supersedes the 2026-07-05
 design note of the same name, which was rewritten on 2026-08-14 after the
 owner read it back against its own intent. The bounded `enrichment.seek`
 core, provenance write-back, retry path, and scoped transcript lane are
 implemented and tested; the historical-transcript decision is resolved. Owner
-clarification handling is now wired to the conversation observation path; the
-final enrichment-tier decision remains open. Ring 1 adapters are implemented
-behind the core provider interface, and
+clarification handling is wired to the conversation observation path, Ring 1
+adapters are implemented behind the core provider interface, and
 the first audit rollup is now present. `enrich` is registered in
-`action_policy.ACTION_TIERS` at tier 3; the tier is the owner's on switch and
-the last implementation step.*
+`action_policy.ACTION_TIERS` at tier 3, and the owner has enabled the live
+configuration at tier 4.*
 
 ## §0 — Intent
 
@@ -312,7 +311,8 @@ per-subject judgement in the hot path.
  outcome. Recent `resolved_by_transcript` outcomes now surface as a bounded
  `capture_defect` deviation for the capture pipeline.
 9. **Raise the `policy_tier` clamp to 3** (§6), making the single `enrich`
-   action reachable. Last commit, after everything above is green.
+   action reachable. Complete; the owner enabled the live configuration after
+   the implementation and verification sequence.
 
 `lisan/tools/research.py` is not in this list: it is Ring 2's interface and is
 built when Ring 2 is, after §9 is answered. It is specified in §3 now so that
