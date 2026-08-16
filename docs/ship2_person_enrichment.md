@@ -309,7 +309,8 @@ per-subject judgement in the hot path.
    each attempt's terminal outcome and stop ring, and `self_state` summarizes
  the last 30 days without copying acquired source text. The daily enrichment
  cap is enforced from that ledger and emits a visible `budget_exhausted`
- outcome. Capture-pipeline deviation emission remains open.
+ outcome. Recent `resolved_by_transcript` outcomes now surface as a bounded
+ `capture_defect` deviation for the capture pipeline.
 9. **Raise the `policy_tier` clamp to 3** (§6), making the single `enrich`
    action reachable. Last commit, after everything above is green.
 

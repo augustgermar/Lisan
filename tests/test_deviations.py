@@ -146,6 +146,19 @@ class EmissionTests(_Env):
         self.assertGreaterEqual(result["detected"], 4)
         self.assertEqual(result["emitted"], 2)
 
+    def test_transcript_recovery_surfaces_capture_defect(self):
+        report = self.vault / "reports" / "enrichment-audit.jsonl"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        from lisan.utils import today_iso
+
+        report.write_text(
+            f'{{"date":"{today_iso()}","terminal_outcome":"resolved_by_transcript","stop_ring":"transcript"}}\n',
+            encoding="utf-8",
+        )
+        found = [d for d in detect(self.vault, db_path=self.db) if d["klass"] == "capture_defect"]
+        self.assertEqual(len(found), 1)
+        self.assertIn("raw conversation", found[0]["summary"])
+
     def test_resolved_loop_is_not_refiled_while_deviation_persists(self):
         """The owner answered; the ache must not come back the next day."""
         _entity(self.vault, "larkspur-place", "Larkspur", "place")

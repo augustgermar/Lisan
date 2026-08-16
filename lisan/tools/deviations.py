@@ -25,9 +25,12 @@ Deviation classes (WO-ENRICH §1.2), all inward-pointing:
 - ``stale``       — a high-significance model nobody has updated in weeks
 - ``interocept``  — the machine's own condition: failed-job clusters,
                     an embedding backlog (zero privacy surface)
+- ``capture_defect`` — an answer existed in raw conversation but was not
+                       carried into the distilled memory story
 """
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from collections import defaultdict
@@ -60,9 +63,10 @@ _SIGNIFICANCE = {
     "thin": "medium",
     "interocept": "medium",
     "stale": "low",
+    "capture_defect": "medium",
 }
 # emission order under the cap: model contradictions first, housekeeping last
-_CLASS_ORDER = ["cross_kind", "near_dup", "interocept", "thin", "dangling", "stale"]
+_CLASS_ORDER = ["cross_kind", "near_dup", "capture_defect", "interocept", "thin", "dangling", "stale"]
 
 
 def deviations_config(config: dict[str, Any] | None) -> dict[str, Any]:
@@ -108,6 +112,7 @@ def detect(vault: Path, *, db_path: Path | None = None, config: dict[str, Any] |
     found.extend(_thin_persons(entities, db_path=db_path, cfg=cfg))
     found.extend(_stale_entities(entities, cfg=cfg))
     found.extend(_interoception(vault, db_path=db_path, cfg=cfg))
+    found.extend(_capture_defects(vault))
     order = {name: i for i, name in enumerate(_CLASS_ORDER)}
     # within a class, the strongest signal aches first — under a daily cap,
     # ordering IS the appetite
@@ -328,6 +333,42 @@ def _interoception(vault: Path, *, db_path: Path | None, cfg: dict[str, Any]) ->
     finally:
         conn.close()
     return out
+
+
+# ------------------------------------------------------- capture-quality detector
+
+def _capture_defects(vault: Path) -> list[dict[str, Any]]:
+    """Surface recent transcript recoveries as a capture-pipeline ache."""
+    path = vault / "reports" / "enrichment-audit.jsonl"
+    if not path.exists():
+        return []
+    recent = 0
+    cutoff = date.today().toordinal() - 30
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                row = json.loads(line)
+                if str(row.get("terminal_outcome") or "") != "resolved_by_transcript":
+                    continue
+                stamp = date.fromisoformat(str(row.get("date") or "")[:10])
+                if stamp.toordinal() >= cutoff:
+                    recent += 1
+            except (ValueError, TypeError, json.JSONDecodeError):
+                continue
+    except OSError:
+        return []
+    if not recent:
+        return []
+    return [{
+        "klass": "capture_defect",
+        "fingerprint": "capture-defect-transcript-recovery",
+        "summary": (
+            f"{recent} enrichment answer(s) were present in raw conversation but missing "
+            "from the distilled memory story — the capture pipeline dropped information"
+        ),
+        "links": [],
+        "weight": recent,
+    }]
 
 
 # ------------------------------------------------------- satiation + emission
