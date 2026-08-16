@@ -126,7 +126,10 @@
   },
   "psyche": {
     "banned_hypothesis_terms": null,
-    "__comment": "Language gate on MACHINE-AUTHORED psychology only (analyst-minted patterns, prediction expectations); user notes are always stored verbatim. null = built-in defaults; [] = gate fully disabled (e.g. a clinician's practice, where the operator mints diagnostic language professionally); a list of terms replaces the default."
+    "analyst_min_observations": 5,
+    "analyst_min_weeks": 3,
+    "context_tags": ["school-day", "caregiver-day", "schedule-change", "transition", "sleep", "illness", "appointment", "weekend", "holiday"],
+    "__comment": "Language gate on MACHINE-AUTHORED psychology only (analyst-minted patterns, prediction expectations); user notes are always stored verbatim. Automatic analysis starts at 5 check-ins across 3 distinct weeks. The listed context tags are the standard vocabulary, but custom tags are also accepted and retained."
   },
   "backup": {
     "destination_dir": "backups",

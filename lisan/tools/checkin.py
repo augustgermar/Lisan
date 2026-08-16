@@ -35,6 +35,42 @@ from .rebuild_index import reindex_record
 
 _OUTCOMES = {"worked", "didnt_work", "mixed"}
 
+DEFAULT_CONTEXT_TAGS = (
+    "school-day", "caregiver-day", "schedule-change", "transition",
+    "sleep", "illness", "appointment", "weekend", "holiday",
+)
+
+
+def standard_context_tags() -> tuple[str, ...]:
+    """Return the configured common vocabulary; custom tags remain valid."""
+    try:
+        from ..config import load_config
+
+        configured = (load_config().get("psyche") or {}).get("context_tags")
+        if isinstance(configured, list):
+            values = normalize_context_tags(configured)
+            if values:
+                return tuple(values)
+    except Exception:
+        pass
+    return DEFAULT_CONTEXT_TAGS
+
+
+def normalize_context_tags(tags: list[str] | None) -> list[str]:
+    """Return stable, human-readable tags without rejecting custom tags.
+
+    The standard vocabulary is intentionally small, but a family may need a
+    tag that Lisan does not know yet. Custom tags are data, not a failure, so
+    they are normalized and retained alongside standard tags.
+    """
+    result: list[str] = []
+    for raw in tags or []:
+        tag = re.sub(r"\s+", " ", str(raw or "").strip().lower())
+        if not tag or tag in result:
+            continue
+        result.append(tag)
+    return result
+
 
 def _refused(vault: Path, subject: str, error: str, *, candidates: list[str] | None = None) -> dict[str, Any]:
     """A check-in that fails to record is never silent (failure policy):
@@ -228,11 +264,10 @@ def record_checkin(
         )
     entity_id, canonical = _entity_identity(entity_path)
 
+    normalized_tags = normalize_context_tags(tags)
     observed = [note]
-    for tag in tags or []:
-        tag = str(tag).strip()
-        if tag:
-            observed.append(f"context: {tag}")
+    for tag in normalized_tags:
+        observed.append(f"context: {tag}")
 
     now = datetime.now().astimezone()
     created = new_evidence(
@@ -251,13 +286,68 @@ def record_checkin(
         timestamp_of_artifact=now.isoformat(timespec="seconds"),
         confidence_basis="Direct owner observation at capture time",
     )
+    doc = load_markdown(created.path)
+    frontmatter = dict(doc.frontmatter)
+    frontmatter["context_tags"] = normalized_tags
+    frontmatter["context_tag_vocabulary"] = "standard-plus-custom"
+    frontmatter["standard_context_tags"] = list(standard_context_tags())
+    write_markdown(created.path, frontmatter, doc.body)
     _append_link(created.path, entity_id)
     reindex_record(created.path, vault, db_path, quiet=True)
     return {
         "ok": True,
         "path": str(created.path),
         "subject": canonical,
-        "tags": [t for t in (tags or []) if str(t).strip()],
+        "tags": normalized_tags,
+    }
+
+
+def observation_summary_for_entity(vault: Path, entity_id: str) -> dict[str, Any]:
+    """Build a disposable summary from raw check-ins.
+
+    Check-in evidence files remain the source of truth. This aggregate is
+    intentionally calculated on demand so a future change in grouping or tag
+    vocabulary never requires rewriting the owner's observations.
+    """
+    observations = []
+    root = vault / "evidence" / "records"
+    if root.exists():
+        for path in sorted(root.rglob("*.md")):
+            try:
+                fm = load_markdown(path).frontmatter
+            except Exception:
+                continue
+            if str(fm.get("source_type") or "") != "checkin":
+                continue
+            if entity_id not in (fm.get("links") or []):
+                continue
+            raw_date = str(fm.get("timestamp_of_artifact") or fm.get("created") or "")
+            day = raw_date[:10]
+            try:
+                parsed = datetime.fromisoformat(day).date()
+                iso_week = parsed.isocalendar()
+                week = f"{iso_week.year}-W{iso_week.week:02d}"
+            except ValueError:
+                week = "unknown"
+            tags = normalize_context_tags(fm.get("context_tags") or [])
+            if not tags:
+                tags = normalize_context_tags(
+                    str(fact)[len("context:"):].strip()
+                    for fact in (fm.get("observed_facts") or [])
+                    if str(fact).lower().startswith("context:")
+                )
+            observations.append({"id": str(fm.get("id") or path.stem), "date": day, "week": week, "tags": tags})
+    weeks = sorted({item["week"] for item in observations if item["week"] != "unknown"})
+    tag_counts: dict[str, int] = {}
+    for item in observations:
+        for tag in item["tags"]:
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+    return {
+        "observation_count": len(observations),
+        "distinct_weeks": len(weeks),
+        "weeks": weeks,
+        "context_tag_counts": dict(sorted(tag_counts.items())),
+        "observation_ids": [item["id"] for item in observations],
     }
 
 

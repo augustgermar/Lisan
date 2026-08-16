@@ -15,7 +15,7 @@ from pathlib import Path
 
 from lisan.frontmatter import dump_markdown, load_markdown
 from lisan.paths import ensure_repo_layout, vault_root
-from lisan.tools.checkin import record_checkin, support_note, support_summary
+from lisan.tools.checkin import observation_summary_for_entity, record_checkin, support_note, support_summary
 
 
 def _make_vault() -> tuple[tempfile.TemporaryDirectory, Path]:
@@ -64,10 +64,20 @@ class CheckinTests(unittest.TestCase):
         self.assertIn("Maya", fm["actors"])
         self.assertIn("context: school-day", fm["observed_facts"])
         self.assertIn("context: transition-evening", fm["observed_facts"])
+        self.assertEqual(fm["context_tags"], ["school-day", "transition-evening"])
+        self.assertEqual(fm["context_tag_vocabulary"], "standard-plus-custom")
         self.assertEqual(fm["verbatim_excerpt"], "I'm fine.")
         self.assertEqual(fm["disclosure"], "private")
         # precise time captured, not just the date
         self.assertIn("T", str(fm.get("timestamp_of_artifact")))
+
+    def test_custom_tags_are_retained_and_summary_is_derived(self):
+        out = record_checkin(self.vault, "maya", "quiet morning", tags=["School-Day", "family ritual"])
+        self.assertTrue(out["ok"])
+        summary = observation_summary_for_entity(self.vault, "entity.maya")
+        self.assertEqual(summary["observation_count"], 1)
+        self.assertEqual(summary["context_tag_counts"], {"family ritual": 1, "school-day": 1})
+        self.assertEqual(summary["observation_ids"], [load_markdown(Path(out["path"])).frontmatter["id"]])
 
     def test_unknown_subject_is_refused_not_minted(self):
         out = record_checkin(self.vault, "somebody-new", "seemed tired")

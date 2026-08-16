@@ -1,9 +1,8 @@
 # Work Order — The Psychological Pattern Layer (WO-PSYCHE)
 
-**Status: SHIPS 1, 2, AND 4 EXECUTED; SHIP 3 GATE MET 2026-08-16.** The
-analyst organ may proceed after the owner resolves the open design questions
-in §6. Where this document conflicts with the code as it then exists, reality
-wins — report the conflict.
+**Status: SHIPS 1, 2, 3 (initial per-person analyst), AND 4 EXECUTED;
+2026-08-16.** Where this document conflicts with the code as it then exists,
+reality wins — report the conflict.
 
 **One-line goal:** give the agent a disciplined applied-psychology layer —
 longitudinal observation, owner-ratified interpretive frameworks,
@@ -185,7 +184,27 @@ deltas reported per the header):
    - A confirmed negative self-pattern may emit an origin:self
      improvement loop through the existing deviation seam — which is
      how a fact about the agent's psychology becomes, eventually, a
-     fix (see the self-repair work order, when its gate opens).
+      fix (see the self-repair work order, when its gate opens).
+
+### Ship 3 implementation decisions (2026-08-16)
+
+- Analysis starts automatically once a person has **5 check-ins across 3
+  distinct calendar weeks**. The thresholds are configurable as
+  `psyche.analyst_min_observations` and `psyche.analyst_min_weeks`.
+- The first implementation is strictly **per person**. Each analyst bundle
+  contains only records linked to that person, plus derived counts of weeks,
+  observations, and context tags.
+- Context tags use a small standard vocabulary (`school-day`,
+  `caregiver-day`, `schedule-change`, `transition`, `sleep`, `illness`,
+  `appointment`, `weekend`, and `holiday`), while custom tags are accepted,
+  normalized, and retained. The vocabulary is configurable through
+  `psyche.context_tags`.
+- Check-in evidence is never rolled up destructively. `context_tags` is
+  stored with the raw observation, and `observation_summary_for_entity` builds
+  counts and week coverage on demand so summaries can be regenerated.
+- Automatic patterns remain Tier H: they retain citations, use the existing
+  independent-source and counterexample gates, and link to the subject entity
+  without changing the subject's biography.
 
 ## 5. Ship 4 — Decode-on-demand (anytime; mostly prompt + retrieval) — EXECUTED 2026-07-15
 
@@ -213,15 +232,19 @@ Execution notes (2026-07-15, Claude Fable 5 with the owner):
   owner's act; the agent's interpretations through it stay attributed,
   and its standing is earned on the Ship 2 ledger.
 
-## 6. Open questions (resolve with the owner, then update here)
+## 6. Resolved design questions (2026-08-16)
 
-1. Per-entity opt-in flag for Tier-H analysis, or default-on above the
-   mention threshold? (Ship 1 is unaffected — observation is always
-   explicit and owner-initiated.)
-2. The context-tag vocabulary: fixed small set or free tags?
-3. Does the analyst run per-entity or across the relationship graph
-   (relationship-level patterns)? Per-entity first is the safe default.
-4. Retention/rollup for check-ins after they fold into longer records.
+1. Default-on above the evidence threshold; no separate opt-in is required.
+   Ship 1 remains explicit and owner-initiated.
+2. A small standard vocabulary plus custom tags. Common searches stay
+   consistent without preventing a family-specific label.
+3. Per-entity first. Relationship-level analysis can be added later without
+   broadening the first pass's privacy boundary.
+4. Keep raw check-ins permanently and regenerate summaries on demand. No
+   destructive rollup is performed.
+
+The remaining follow-up is the separately scoped self-analysis pass described
+in §4.4; it is not mixed into person check-in analysis.
 
 ---
 

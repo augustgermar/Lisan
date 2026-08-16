@@ -82,6 +82,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # a list replaces the default. Owner decision 2026-07-15.
     "psyche": {
         "banned_hypothesis_terms": None,
+        # Automatic longitudinal analysis is deliberately quiet until there
+        # is enough repeated observation to say something useful.
+        "analyst_min_observations": 5,
+        "analyst_min_weeks": 3,
+        "context_tags": [
+            "school-day", "caregiver-day", "schedule-change", "transition",
+            "sleep", "illness", "appointment", "weekend", "holiday",
+        ],
     },
     "enrichment": {
         "daily_cap": 2,

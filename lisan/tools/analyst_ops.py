@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..agents import AnalystAgent, SkepticAgent
+from ..config import load_config
 from ..frontmatter import load_markdown, write_markdown
 from ..paths import vault_root
 from ..utils import slugify, today_iso
@@ -20,6 +21,7 @@ from .epistemic import (
     pattern_is_too_broad,
 )
 from .record_factory import new_pattern, new_skeptical_review
+from .checkin import observation_summary_for_entity
 
 
 @dataclass(slots=True)
@@ -36,38 +38,92 @@ def run_analyst_scan(
     model: str | None = None,
 ) -> AnalystRunResult:
     vault = vault or vault_root()
-    bundle = build_analyst_bundle(vault)
     agent = AnalystAgent(vault=vault)
-    if provider or model:
-        response = agent.run_json(bundle, significance="high", provider=provider, model=model)
-    else:
-        response = json.loads(agent.fallback_output(bundle))
     pattern_paths: list[Path] = []
     review_paths: list[Path] = []
     existing_patterns = load_existing_patterns(vault)
-    for pattern in response.get("patterns") or []:
-        if not isinstance(pattern, dict):
-            continue
-        created = _materialize_pattern(vault, bundle, pattern, existing_patterns)
-        if created is None:
-            continue
-        pattern_paths.append(created.path)
-        existing_patterns.append(
-            {
-                "status": "active_hypothesis",
-                "pattern_type": str(pattern.get("pattern_type") or "other"),
-                "hypothesis": str(pattern.get("hypothesis") or ""),
-            }
-        )
-        review = review_pattern(vault, created.path, pattern, provider=provider, model=model)
-        if review is not None:
-            review_paths.append(review.path)
+    subjects = eligible_analyst_subjects(vault)
+    responses: list[dict[str, Any]] = []
+    # A vault without person entities may still contain general longitudinal
+    # evidence. Keep that existing analyst behavior for those vaults; once
+    # people are present, Psyche analysis is strictly per-person and gated.
+    person_files = list((vault / "entities" / "people").glob("*.md")) if (vault / "entities" / "people").exists() else []
+    bundles = [(None, build_analyst_bundle(vault))] if not person_files else [
+        (subject, build_analyst_bundle(vault, subject)) for subject in subjects
+    ]
+    for subject, bundle in bundles:
+        if provider or model:
+            response = agent.run_json(bundle, significance="high", provider=provider, model=model)
+        else:
+            response = json.loads(agent.fallback_output(bundle))
+        responses.append(response)
+        for pattern in response.get("patterns") or []:
+            if not isinstance(pattern, dict):
+                continue
+            created = _materialize_pattern(vault, bundle, pattern, existing_patterns)
+            if created is None:
+                continue
+            if subject is not None:
+                _append_pattern_link(created.path, subject["id"])
+            pattern_paths.append(created.path)
+            existing_patterns.append({"status": "active_hypothesis", "pattern_type": str(pattern.get("pattern_type") or "other"), "hypothesis": str(pattern.get("hypothesis") or "")})
+            review = review_pattern(vault, created.path, pattern, provider=provider, model=model)
+            if review is not None:
+                review_paths.append(review.path)
+    if not responses:
+        responses = [{
+            "summary": "No person has met the Psyche analyst evidence threshold yet.",
+            "patterns": [],
+            "notes": ["Automatic analysis requires 5 check-ins across 3 distinct weeks."],
+        }]
+    response = {
+        "summary": "Per-person Psyche scan completed." if subjects else responses[0].get("summary", "No eligible Psyche subjects."),
+        "patterns": [p for item in responses for p in (item.get("patterns") or [])],
+        "notes": [note for item in responses for note in (item.get("notes") or [])],
+        "subjects": [subject["id"] for subject in subjects],
+    }
     report_path = _write_report(vault, response, pattern_paths, review_paths)
     return AnalystRunResult(report_path=report_path, pattern_paths=pattern_paths, review_paths=review_paths, response=response)
 
 
-def build_analyst_bundle(vault: Path) -> str:
+def _append_pattern_link(path: Path, entity_id: str) -> None:
+    doc = load_markdown(path)
+    fm = dict(doc.frontmatter)
+    links = list(fm.get("links") or [])
+    if entity_id not in links:
+        links.append(entity_id)
+        fm["links"] = links
+        write_markdown(path, fm, doc.body)
+
+
+def eligible_analyst_subjects(vault: Path) -> list[dict[str, Any]]:
+    """Return people with enough dated check-ins for a conservative scan."""
+    settings = (load_config().get("psyche") or {})
+    minimum_observations = max(1, int(settings.get("analyst_min_observations", 5)))
+    minimum_weeks = max(1, int(settings.get("analyst_min_weeks", 3)))
+    people = vault / "entities" / "people"
+    eligible: list[dict[str, Any]] = []
+    if not people.exists():
+        return eligible
+    for path in sorted(people.glob("*.md")):
+        try:
+            fm = load_markdown(path).frontmatter
+        except Exception:
+            continue
+        if str(fm.get("subtype") or fm.get("kind") or "") != "person":
+            continue
+        entity_id = str(fm.get("id") or path.stem)
+        summary = observation_summary_for_entity(vault, entity_id)
+        if summary["observation_count"] >= minimum_observations and summary["distinct_weeks"] >= minimum_weeks:
+            eligible.append({"id": entity_id, "canonical_name": str(fm.get("canonical_name") or path.stem), "summary": summary})
+    return eligible
+
+
+def build_analyst_bundle(vault: Path, subject: dict[str, Any] | None = None) -> str:
     sections: list[str] = ["# Analyst Bundle", ""]
+    subject_id = str(subject.get("id")) if subject else None
+    if subject:
+        sections.extend(["## Analysis Subject", f"- id: {subject_id}", f"- name: {subject.get('canonical_name')}", f"- derived_observation_summary: {json.dumps(subject.get('summary') or {}, sort_keys=True)}", ""])
     sources = [
         ("Episodes", vault / "episodes"),
         ("Claims", vault / "claims"),
@@ -86,6 +142,11 @@ def build_analyst_bundle(vault: Path) -> str:
                 doc = load_markdown(path)
             except Exception:
                 continue
+            if subject_id and heading not in {"Dreamer Summaries"}:
+                links = doc.frontmatter.get("links") or []
+                actors = doc.frontmatter.get("actors") or []
+                if subject_id not in links and subject.get("canonical_name") not in actors:
+                    continue
             if heading == "Dreamer Summaries" and not str(doc.frontmatter.get("id", "")).startswith("dreamer."):
                 continue
             sections.append(f"### {path.relative_to(vault)}")

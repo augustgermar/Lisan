@@ -28,10 +28,10 @@ gate — read the gate before starting):
 - `psyche_workorder.md` — WO-PSYCHE, the psychological pattern layer:
   three-tier provenance (facts / owner-ratified frameworks / earned
   hypotheses), observation-first, prediction-scored. Ships 1, 2, and 4
-  shipped (2026-07-08, 2026-07-15, 2026-07-15). Ship 3 (the analyst
-  organ) now has its four-week observation gate met in the resident vault
-  (105 check-in-like evidence records across seven calendar weeks); its
-  remaining owner decisions are in §6 before implementation begins.
+  shipped (2026-07-08, 2026-07-15, 2026-07-15); the initial per-person Ship 3
+  analyst shipped 2026-08-16 with a 5-observation/3-week gate, standard-plus-
+  custom context tags, and regenerable summaries. The separate self-analysis
+  pass remains follow-up work.
 - `ship2_enable_workorder.md` — enable person enrichment (Ship 2 of
   WO-ENRICH). **Calibration verdict given 2026-08-14: curiosity, not
   grinding.** The bounded enrichment core, provenance seam, and scoped
