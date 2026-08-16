@@ -1,4 +1,4 @@
-# Work order: enable Ship 2 (person enrichment)
+# Work order: enable Ship 2 (self-enrichment)
 
 *Hand this file to the coding agent when the owner decides the calibration
 period is over. It is deliberately not executable without the owner's
@@ -16,8 +16,8 @@ main content is denial conditions produces nothing. What the system is for is
 noticing where its model is thin and going to find what closes the gap.
 
 Implement the steps in the spec's §7, **in that order**. Raising the
-`policy_tier` clamp so `enrich_person` becomes reachable is the last one and
-must be the final commit. If you find yourself editing the clamp before Ring 0
+`policy_tier` clamp so `enrich` becomes reachable is the last one and must be
+the final commit. If you find yourself editing the clamp before Ring 0
 enrichment, provenance, and the inference cap exist with passing tests, stop —
 you are doing it in the wrong order.
 
@@ -67,13 +67,16 @@ Hard rules that override anything else you infer:
 > speculation about pressure that never arrived. Revisit if Ship 2's own
 > enrichment loops push the rate up.
 >
-> Calibration period closed 2026-08-14. Proceed with the six steps.
+> Calibration period closed 2026-08-14. Proceed with the steps in the binding
+> specification's §7, including the transcript-indexing decision that currently
+> blocks implementation of the first seek step.
 
 ## Definition of done
 
 - Full suite green, both runners.
-- Ring 0 enrichment tested end to end: deviation in, entity updated, loop
-  closed, provenance line present.
+- Transcript-first Ring 0 enrichment tested end to end: current transcript,
+  historical transcript, then vault search; entity updated, loop closed, and
+  provenance line present.
 - A test that fails if an enrichment can land without provenance.
 - Inference cap and supersede-on-direct-evidence tested.
 - Live dry-run against a disposable test vault (`LISAN_VAULT=/tmp/...`), never

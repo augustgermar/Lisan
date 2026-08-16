@@ -70,7 +70,9 @@ def install_skill(
     src_root = bundled_dir if bundled_dir is not None else bundled_skills_root()
     dst_root = installed_dir if installed_dir is not None else skills_root()
     src = src_root / name
-    if not (src / "schema.json").exists() or not (src / "tool.py").exists():
+    # Both supported skill kinds are installable: instructional skills need
+    # only SKILL.md, while executable skills also carry schema.json/tool.py.
+    if not (src / "SKILL.md").is_file():
         raise ValueError(f"no bundled skill named {name!r} in {src_root}")
     written: list[str] = []
     targets = [name] + _shared_deps(src)
@@ -116,7 +118,7 @@ def uninstall_skill(name: str, *, installed_dir: Path | None = None) -> str:
     loader ignores directories without schema.json)."""
     dst_root = installed_dir if installed_dir is not None else skills_root()
     target = dst_root / name
-    if name.startswith("_") or not (target / "schema.json").exists():
+    if name.startswith("_") or not (target / "SKILL.md").is_file():
         raise ValueError(f"no installed skill named {name!r} in {dst_root}")
     shutil.rmtree(target)
     return str(target)

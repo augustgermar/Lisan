@@ -2,9 +2,9 @@
 
 *Status: specified, not built. Supersedes the 2026-07-05 design note of the
 same name, which was rewritten on 2026-08-14 after the owner read it back
-against its own intent. `enrich_entity` / `enrich_person` remain registered in
-`action_policy.ACTION_TIERS` at tiers 2 and 3; the tier is the owner's on
-switch and the last step, as before.*
+against its own intent. `enrich` is registered in
+`action_policy.ACTION_TIERS` at tier 3; the tier is the owner's on switch and
+the last implementation step.*
 
 ## §0 — Intent
 
@@ -257,10 +257,10 @@ particular subject may not be looked into, only how much work runs per day.
 
 **One capability, one switch, all entity kinds.** Owner ruling, 2026-08-15:
 enrichment does not distinguish a person from a place, a project, or an
-organisation. `ACTION_TIERS` currently splits `enrich_entity` (2) from
-`enrich_person` (3); that split was an artefact of the removed gate design and
-collapses to a single `enrich` action at tier 3, with the old names kept as
-aliases so nothing referencing them breaks.
+organisation. The old `enrich_entity` / `enrich_person` split was an artefact
+of the removed gate design and is replaced by one `enrich` action at tier 3.
+The old names are not policy actions; callers must migrate to `enrich` rather
+than preserve a subject-kind permission distinction.
 
 Tier 3 rather than 2 because the switch should mean the same thing whatever the
 subject is, and the stricter reading is the one the owner has always been
@@ -294,9 +294,8 @@ per-subject judgement in the hot path.
 8. **Budgets, terminal outcomes, and ring logging** (§5), including the
    `self_state` rollup and routing `resolved_by_transcript` back at the capture
    pipeline.
-9. **Collapse `enrich_entity` / `enrich_person` to one `enrich` action** (§6)
-   and **raise the `policy_tier` clamp to 3.** Last commit, after everything
-   above is green.
+9. **Raise the `policy_tier` clamp to 3** (§6), making the single `enrich`
+   action reachable. Last commit, after everything above is green.
 
 `lisan/tools/research.py` is not in this list: it is Ring 2's interface and is
 built when Ring 2 is, after §9 is answered. It is specified in §3 now so that

@@ -215,6 +215,21 @@ def test_install_unknown_skill_raises(tmp_path: Path) -> None:
         install_skill("nonexistent_skill", bundled_dir=src, installed_dir=tmp_path / "x")
 
 
+def test_install_instructional_skill(tmp_path: Path) -> None:
+    src = tmp_path / "bundled"
+    skill = src / "research"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        "---\nname: research\ndescription: Research the web.\n---\n\nUse direct HTTP first.\n",
+        encoding="utf-8",
+    )
+    dest = tmp_path / "installed"
+    written = install_skill("research", bundled_dir=src, installed_dir=dest)
+    assert written == [str(dest / "research")]
+    assert (dest / "research" / "SKILL.md").exists()
+    assert load_skills(dest)[0]["executable"] is False
+
+
 def test_install_all_and_status_and_uninstall(tmp_path: Path) -> None:
     src = _fake_catalogue(tmp_path / "bundled")
     dest = tmp_path / "installed"
