@@ -55,6 +55,21 @@ def _record_attempt(
         handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
 
 
+def _attempts_today(vault: Path) -> int:
+    path = vault / _AUDIT_REL
+    if not path.exists():
+        return 0
+    count = 0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            row = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if str(row.get("date") or "")[:10] == today_iso():
+            count += 1
+    return count
+
+
 @dataclass(frozen=True, slots=True)
 class EnrichmentResolution:
     text: str
@@ -102,6 +117,19 @@ def seek(
             terminal_outcome="failed", stop_ring="input", error="entity_path_missing",
         )
         return {"status": "failed", "reason": "entity_path_missing"}
+
+    enrichment_cfg = (config or {}).get("enrichment") or {}
+    daily_cap = int(enrichment_cfg.get("daily_cap", 2))
+    if _attempts_today(vault) >= max(0, daily_cap):
+        _record_attempt(
+            vault, loop_id=loop_id, deficit_id=deficit_id, entity_path=entity_path,
+            terminal_outcome="budget_exhausted", stop_ring="budget",
+        )
+        return {
+            "status": "budget_exhausted",
+            "reason": "daily enrichment cap reached",
+            "daily_cap": daily_cap,
+        }
 
     entity = load_markdown(entity_path)
     canonical_name = str(entity.frontmatter.get("canonical_name") or entity_path.stem)

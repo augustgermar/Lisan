@@ -307,8 +307,9 @@ per-subject judgement in the hot path.
    `self_state` rollup and routing `resolved_by_transcript` back at the capture
    pipeline. The metadata-only `reports/enrichment-audit.jsonl` seam now records
    each attempt's terminal outcome and stop ring, and `self_state` summarizes
-   the last 30 days without copying acquired source text. Budget enforcement,
-   owner outcome routing, and capture-pipeline deviation emission remain open.
+ the last 30 days without copying acquired source text. The daily enrichment
+ cap is enforced from that ledger and emits a visible `budget_exhausted`
+ outcome. Capture-pipeline deviation emission remains open.
 9. **Raise the `policy_tier` clamp to 3** (§6), making the single `enrich`
    action reachable. Last commit, after everything above is green.
 

@@ -312,6 +312,26 @@ def test_owner_boundary_closes_without_writing_a_fact():
         tmp.cleanup()
 
 
+def test_daily_enrichment_cap_is_enforced_from_audit_ledger(tmp_path: Path):
+    vault = vault_root(tmp_path)
+    entity = new_entity(vault, "Ruth Varga", subtype="person", summary="Ruth Varga is a person.").path
+    audit = vault / "reports" / "enrichment-audit.jsonl"
+    audit.parent.mkdir(parents=True, exist_ok=True)
+    today = __import__("lisan.utils", fromlist=["today_iso"]).today_iso()
+    audit.write_text(
+        f'{{"date":"{today}","terminal_outcome":"unresolved","stop_ring":"owner"}}\n'
+        f'{{"date":"{today}","terminal_outcome":"resolved_by_vault","stop_ring":"vault"}}\n',
+        encoding="utf-8",
+    )
+    result = seek(
+        vault=vault, db_path=tmp_path / "lisan.sqlite", loop_id="open_loop.missing",
+        deficit_id="ruth.relationship", deficit="Ruth Varga relationship to Dana",
+        entity_path=entity, config=_config(),
+    )
+    assert result["status"] == "budget_exhausted"
+    assert result["daily_cap"] == 2
+
+
 def test_direct_evidence_supersedes_inference_and_caps_inference():
     tmp, root, vault, entity = _env()
     try:
