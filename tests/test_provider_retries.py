@@ -38,6 +38,32 @@ class ProviderRetryTests(unittest.TestCase):
         self.assertEqual(fake.calls, 2)
         sleep.assert_called_once_with(0.5)
 
+    def test_llm_retries_usage_limit_error_then_succeeds(self) -> None:
+        class UsageLimitClient:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def complete(self, *args, **kwargs) -> LLMResponse:
+                self.calls += 1
+                if self.calls == 1:
+                    raise ProviderError("ERROR: You've hit your usage limit")
+                return LLMResponse(text="ok", provider="local", model="demo")
+
+        fake = UsageLimitClient()
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "lisan.sqlite"
+            llm = LisanLLM(config={}, db_path=db_path)
+            with (
+                patch("lisan.providers.base.select_provider", return_value=ProviderSelection(provider="local", model="demo")),
+                patch("lisan.providers.base._client_for", return_value=fake),
+                patch("time.sleep") as sleep,
+            ):
+                response = llm.complete("capture.observe", agent="listener", significance="medium")
+
+        self.assertEqual(response.text, "ok")
+        self.assertEqual(fake.calls, 2)
+        sleep.assert_called_once_with(0.5)
+
 
 if __name__ == "__main__":
     unittest.main()
