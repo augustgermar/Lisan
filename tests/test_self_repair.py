@@ -119,6 +119,24 @@ def test_phase_a_refuses_unverified_patch(tmp_path: Path):
         )
 
 
+def test_loop_lookup_skips_older_resolved_duplicate_id(tmp_path: Path):
+    vault = tmp_path / "vault"
+    old = vault / "open_loops" / "old.md"
+    write_markdown(old, {
+        "id": "loop.self-repair-duplicate", "type": "open_loop", "created": "2026-08-01",
+        "updated": "2026-08-01", "status": "resolved", "origin": "self",
+    }, "old")
+    current = vault / "open_loops" / "current.md"
+    write_markdown(current, {
+        "id": "loop.self-repair-duplicate", "type": "open_loop", "created": "2026-08-02",
+        "updated": "2026-08-02", "status": "active", "origin": "self",
+    }, "current")
+    from lisan.tools.self_repair import _loop_record
+
+    path, _ = _loop_record(vault, "loop.self-repair-duplicate", None)
+    assert path == current
+
+
 def test_phase_b_applies_exact_approved_proposal_and_queues_restart(tmp_path: Path):
     repo = _repo(tmp_path)
     vault = tmp_path / "vault"

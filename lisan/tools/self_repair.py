@@ -118,6 +118,7 @@ def _loop_record(vault: Path, loop_id: str, loop_path: Path | None) -> tuple[Pat
         candidates = sorted((vault / "open_loops").glob("*.md"))
     else:
         candidates = [loop_path]
+    matched_inactive = False
     for path in candidates:
         try:
             fm = dict(load_markdown(path).frontmatter)
@@ -125,8 +126,13 @@ def _loop_record(vault: Path, loop_id: str, loop_path: Path | None) -> tuple[Pat
             continue
         if str(fm.get("id") or "") == loop_id:
             if str(fm.get("origin") or "") != "self" or str(fm.get("status") or "") not in {"active", "open", "pending"}:
-                raise SelfRepairRefused("self-repair requires an active origin:self loop")
+                matched_inactive = True
+                if loop_path is not None:
+                    raise SelfRepairRefused("self-repair requires an active origin:self loop")
+                continue
             return path, fm
+    if matched_inactive:
+        raise SelfRepairRefused("self-repair requires an active origin:self loop")
     raise SelfRepairRefused(f"active origin:self loop not found: {loop_id}")
 
 
