@@ -247,6 +247,22 @@ while preserving their files; disagreements are surfaced rather than guessed.
 The initial California SDP contract remains a placeholder until its real
 authoritative origins and scope are supplied.
 
+The librarian is also available through the main conversation and Telegram.
+Natural-language requests are translated into the guarded `librarian` tool:
+
+> Set up the California SDP librarian and ask me which authoritative origins I want to approve.
+
+After reviewing the proposal, the owner can say:
+
+> Approve dds.ca.gov as a primary California SDP source because it is the state program authority.
+
+Then:
+
+> Build the California SDP knowledge base for independent facilitator training requirements using approved sources only.
+
+The tool does not invent origins, infer approval from a page, or overwrite
+source history when an owner correction is supplied.
+
 To correct a retrieved knowledge record, preserve the original provenance and
 record the owner’s correction explicitly:
 

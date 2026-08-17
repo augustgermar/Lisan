@@ -209,6 +209,34 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "librarian",
+        "description": (
+            "Manage curated domain knowledge through the interactive librarian. Use action=intake "
+            "to create or inspect a domain sourcing contract and present missing owner decisions; "
+            "use action=approve_origin only when the user explicitly approves a named origin and tier; "
+            "use action=build only after a contract exists and the user explicitly asks to research/build "
+            "the domain; use action=consolidate to curate exact duplicates; use action=correct when the "
+            "user identifies a knowledge error. Never invent authoritative origins, silently approve an "
+            "origin, or silently overwrite source history. Builds use only contract-approved authoritative "
+            "origins and return source tiers/URLs so the result can be narrated back through Telegram."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["intake", "approve_origin", "build", "consolidate", "correct"]},
+                "domain": {"type": "string", "description": "Domain name, for example California SDP"},
+                "query": {"type": "string", "description": "Focused research question for a build"},
+                "origin": {"type": "string", "description": "Hostname or URL explicitly approved by the owner"},
+                "tier": {"type": "string", "enum": ["primary", "official-secondary"], "default": "primary"},
+                "rationale": {"type": "string"},
+                "correction": {"type": "string", "description": "Owner's correction to a knowledge record"},
+                "record_id": {"type": "string"},
+                "limit": {"type": "integer", "default": 5},
+            },
+            "required": ["action", "domain"],
+        },
+    },
+    {
         "name": "merge_entities",
         "description": (
             "Merge two entity records that are really the same thing (a duplicate or a "
@@ -388,6 +416,9 @@ def build_tool_handlers(
             expectation, source, review_after, trigger=trigger, subject=subject, vault=vault, db_path=db_path),
         "research_hypothesis": lambda hypothesis, question: _research_hypothesis_tool(
             hypothesis, question, vault=vault, db_path=db_path, config=config),
+        "librarian": lambda action, domain, query=None, origin=None, tier="primary", rationale="", correction=None, record_id=None, limit=5: _librarian_tool(
+            action, domain, query=query, origin=origin, tier=tier, rationale=rationale,
+            correction=correction, record_id=record_id, limit=limit, vault=vault, db_path=db_path, config=config),
         "decode_message": lambda counterpart, message=None: _decode_message_tool(
             counterpart, message, vault=vault, db_path=db_path),
         "ratify_framework": lambda name, summary, source=None: _ratify_framework_tool(
@@ -783,9 +814,54 @@ def _research_hypothesis_tool(
         question=question,
         config=cfg,
         db_path=db_path,
-        published_providers=installed_published_providers(config=cfg),
-    )
+            published_providers=installed_published_providers(config=cfg),
+        )
     return _json.dumps(out, ensure_ascii=True)
+
+
+def _librarian_tool(
+    action: str,
+    domain: str,
+    *,
+    query: str | None = None,
+    origin: str | None = None,
+    tier: str = "primary",
+    rationale: str = "",
+    correction: str | None = None,
+    record_id: str | None = None,
+    limit: int = 5,
+    vault: Path,
+    db_path: Path | None,
+    config: dict[str, Any] | None,
+) -> str:
+    """Conversation-facing facade for the contract-driven librarian."""
+    import json as _json
+    from .librarian import approve_origin, build_domain, contract_path, correct_knowledge, create_contract, load_contract, consolidate_domain
+
+    action = str(action or "").strip().lower()
+    if action == "intake":
+        path = contract_path(vault, domain)
+        if not path.exists():
+            path = create_contract(vault, domain)
+            return _json.dumps({"action": action, "contract": str(path), "needs_owner_input": True, "next": "Ask the owner for authoritative origins, their tier, and domain scope."}, ensure_ascii=True)
+        contract = load_contract(vault, domain)
+        return _json.dumps({"action": action, "contract": str(path), "contract_data": contract, "needs_owner_input": not bool(contract.get("approved_origins")), "next": "Ask the owner to approve or reject origins explicitly."}, ensure_ascii=True)
+    if action == "approve_origin":
+        if not origin:
+            raise ValueError("approve_origin requires an origin")
+        path = approve_origin(vault, domain, origin, tier=tier, rationale=rationale)
+        return _json.dumps({"action": action, "contract": str(path), "approved_origin": origin, "tier": tier}, ensure_ascii=True)
+    if action == "build":
+        if not query:
+            raise ValueError("build requires a focused query")
+        return _json.dumps(build_domain(vault, domain, query, db_path=db_path, limit=max(1, min(int(limit), 20))), ensure_ascii=True)
+    if action == "consolidate":
+        return _json.dumps(consolidate_domain(vault, domain, db_path=db_path), ensure_ascii=True)
+    if action == "correct":
+        if not record_id or not correction:
+            raise ValueError("correct requires record_id and correction")
+        return _json.dumps({"action": action, "report": str(correct_knowledge(vault, record_id, correction))}, ensure_ascii=True)
+    raise ValueError(f"unknown librarian action: {action}")
 
 
 def _decode_message_tool(counterpart: str, message: str | None, *, vault: Path, db_path: Path | None) -> str:

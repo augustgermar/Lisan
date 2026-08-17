@@ -189,6 +189,18 @@ The first domain contract is intentionally a placeholder: the owner must
 provide real authoritative origins and scope before autonomous subject-matter
 building begins.
 
+The same workflow is available through Telegram. For example:
+
+> Set up the California SDP librarian and ask me which authoritative origins I want to approve.
+
+Then, after reviewing the proposal:
+
+> Approve dds.ca.gov as a primary California SDP source because it is the state program authority.
+
+Finally:
+
+> Build the California SDP knowledge base for independent facilitator training requirements using approved sources only, and show me the URLs and source tiers.
+
 ## Install
 
 ```bash
