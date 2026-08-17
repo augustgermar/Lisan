@@ -9,6 +9,7 @@ from __future__ import annotations
 import tempfile
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,17 @@ def _recommend_tier(finding: SourceFinding) -> tuple[str, str]:
     return "community", "No authoritative-origin signal detected; treat as community until the owner decides otherwise."
 
 
+def _normalize_source_query(query: str) -> str:
+    """Remove conversational intent words before sending a web query."""
+    clean = " ".join(str(query or "").strip().split())
+    clean = re.sub(r"^(?:please\s+)?(?:propose|find|discover|identify|search\s+for)\s+", "", clean, flags=re.I)
+    clean = re.sub(r"^(?:authoritative\s+)?sources?\s+(?:for|about)\s+", "", clean, flags=re.I)
+    clean = re.sub(r"\s*,?\s*prioritizing\s+.*$", "", clean, flags=re.I)
+    if not re.search(r"\b(?:rfc\w*|ietf|standard\w*)\b", clean, flags=re.I):
+        clean = f"{clean} IETF RFC standards"
+    return clean.strip(" .")
+
+
 def propose_sources(
     vault: Path,
     domain: str,
@@ -78,8 +90,9 @@ def propose_sources(
     }
     existing = {str(item.get("origin")) for item in state.get("proposals") or [] if isinstance(item, dict)}
     cfg = config or load_config()
+    search_query = _normalize_source_query(query)
     findings = search_published_sources(
-        query, providers=installed_published_providers(config=cfg), max_results_per_source=max(1, min(int(limit), 20))
+        search_query, providers=installed_published_providers(config=cfg), max_results_per_source=max(1, min(int(limit), 20))
     )
     next_number = len(state.get("proposals") or []) + 1
     for finding in findings:
@@ -96,9 +109,10 @@ def propose_sources(
         existing.add(origin)
         next_number += 1
     state["query"] = query
+    state["search_query"] = search_query
     state["status"] = "awaiting_owner"
     _save_intake(intake_path(vault, domain), state)
-    return {"domain": domain, "intake": str(intake_path(vault, domain)), "status": state["status"], "proposals": state.get("proposals", []), "needs_owner_input": True}
+    return {"domain": domain, "intake": str(intake_path(vault, domain)), "status": state["status"], "search_query": search_query, "proposals": state.get("proposals", []), "needs_owner_input": True}
 
 
 def resume_intake(vault: Path, domain: str) -> dict[str, Any]:

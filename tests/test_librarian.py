@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from lisan.frontmatter import load_markdown
-from lisan.tools.librarian import approve_origin, build_domain, contract_path, create_contract, decide_proposal, load_intake, propose_sources, resume_intake
+from lisan.tools.librarian import _normalize_source_query, approve_origin, build_domain, contract_path, create_contract, decide_proposal, load_intake, propose_sources, resume_intake
 from lisan.tools.research import SourceFinding
 from lisan.tools.source_tiers import origin_matches, tier_confidence
 from lisan.tools.execution_tools import TOOLS, build_tool_handlers
@@ -12,6 +12,7 @@ def test_source_tier_controls_confidence_and_origin_matching():
     assert tier_confidence("unverified")[0] == "low"
     assert origin_matches("example.gov", "https://docs.example.gov/path")
     assert not origin_matches("example.gov", "https://example.com/path")
+    assert _normalize_source_query("Propose authoritative sources for HTTP status codes, prioritizing IETF RFCs") == "HTTP status codes IETF RFC standards"
 
 
 def test_contract_is_durable_and_origin_approval_is_append_only(tmp_path: Path):
