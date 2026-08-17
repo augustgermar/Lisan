@@ -45,6 +45,13 @@ Participants keep control over their budgets.
         self.assertTrue(all(chunk.total_chunks == len(chunks) for chunk in chunks))
         self.assertTrue(all(chunk.source_ref.startswith("sdp-manual.md") for chunk in chunks))
 
+    def test_chunk_document_splits_large_html_style_single_paragraph(self) -> None:
+        text = " ".join(f"word{i}" for i in range(4200))
+        chunks = chunk_document(text, "RFC 9110", max_words=1500)
+        self.assertGreater(len(chunks), 2)
+        self.assertTrue(all(len(chunk.body.split()) <= 1500 for chunk in chunks))
+        self.assertTrue(all(chunk.total_chunks == len(chunks) for chunk in chunks))
+
     def test_reference_ingest_creates_knowledge_and_links_entities(self) -> None:
         maya = new_entity(self.vault, "Maya", subtype="person", summary="Maya is the principal's daughter.")
         doc = self.src / "sdp-manual.md"

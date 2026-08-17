@@ -100,3 +100,4 @@ def test_approved_proposal_url_is_fetched_directly_during_build(tmp_path: Path, 
     })
     findings = _approved_source_findings(vault, {"domain_name": "HTTP status codes", "approved_origins": [{"origin": "www.rfc-editor.org", "tier": "primary"}]}, [Provider()])
     assert findings[0].locator.endswith("rfc9110.html")
+    assert findings[0].document_text == "HTTP Semantics"

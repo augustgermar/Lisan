@@ -229,6 +229,15 @@ def _split_section(section: _Section, *, max_words: int) -> list[Chunk]:
         )]
 
     paragraphs = [para.strip() for para in _PARAGRAPH_SPLIT_RE.split(section.body) if para.strip()]
+    # HTML extraction often produces one enormous whitespace-separated
+    # section. Treat it as a sliding window rather than emitting one
+    # unbounded chunk, which would make a large standard look ingested while
+    # retrieval could only see its first result-sized fragment.
+    if len(paragraphs) == 1 and _word_count(paragraphs[0]) > max_words:
+        return _chunk_sliding_window(
+            paragraphs[0], title=section.title, source_ref_base=section.source_ref_base,
+            window_words=max_words, overlap_words=min(100, max_words // 5),
+        )
     chunks: list[tuple[str, str]] = []
     current: list[str] = []
     current_words = 0

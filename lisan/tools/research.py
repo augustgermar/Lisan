@@ -39,6 +39,7 @@ class SourceFinding:
     confidence: float | None = None
     disagreement: str = ""
     unverifiable: bool = False
+    document_text: str = ""
 
 
 def search_owner_sources(

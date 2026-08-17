@@ -58,7 +58,9 @@ def _recommend_tier(finding: SourceFinding) -> tuple[str, str]:
         return "primary", "Recognized standards publisher or registry; owner must confirm that it is authoritative for this domain."
     if origin.endswith(".gov") or origin.endswith(".gov.uk"):
         return "primary", "Government origin appears potentially authoritative; owner must confirm issuing authority."
-    if origin in {"developer.mozilla.org", "docs.python.org", "learn.microsoft.com", "cloud.google.com", "developer.apple.com"} or any(token in origin for token in ("official", "state", "agency", "university", "edu")):
+    if origin == "developer.mozilla.org":
+        return "official-secondary", "Mozilla technical documentation: reputable and derivative of standards, but not the issuing standards body."
+    if origin in {"docs.python.org", "learn.microsoft.com", "cloud.google.com", "developer.apple.com"} or any(token in origin for token in ("official", "state", "agency", "university", "edu")):
         return "official-secondary", "Origin appears institutional; owner must confirm its authority and scope."
     return "community", "No authoritative-origin signal detected; treat as community until the owner decides otherwise."
 
@@ -92,6 +94,7 @@ def _verified_standards_findings(query: str, providers: list[Any]) -> list[Sourc
             title=title or fallback_title, observed_at=retrieved,
             publisher=origin_for_url(url), retrieved_at=retrieved,
             confidence=0.95, unverifiable=False,
+            document_text=text,
         ))
     return findings
 
@@ -454,6 +457,7 @@ def _approved_source_findings(vault: Path, contract: dict[str, Any], providers: 
             source="web_search", locator=url, excerpt=(text or title)[:1200], title=title,
             observed_at=retrieved, publisher=origin_for_url(url), retrieved_at=retrieved,
             confidence=0.95, unverifiable=False,
+            document_text=text,
         ))
     return findings
 
@@ -461,7 +465,7 @@ def _approved_source_findings(vault: Path, contract: dict[str, Any], providers: 
 def _ingest_finding(vault: Path, domain: str, finding: SourceFinding, *, tier: str, db_path: Path | None, domain_tag: str) -> dict[str, Any]:
     title = finding.title or finding.locator
     with tempfile.NamedTemporaryFile("w", suffix=".md", prefix="lisan-librarian-", encoding="utf-8") as handle:
-        handle.write(f"# {title}\n\n{finding.excerpt}\n")
+        handle.write(f"# {title}\n\n{finding.document_text or finding.excerpt}\n")
         handle.flush()
         result = ingest_reference_sources(
             [Path(handle.name)], vault=vault, db_path=db_path or sqlite_path(),
