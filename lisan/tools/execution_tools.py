@@ -168,8 +168,8 @@ TOOLS: list[dict[str, Any]] = [
         "name": "record_prediction",
         "description": (
             "Record one entry in the prediction ledger: a concrete, falsifiable "
-            "expectation derived from a NAMED source — a ratified framework or an "
-            "existing pattern record — with a future review date. A reconcile pass "
+            "expectation derived from a NAMED source — a ratified framework, existing "
+            "pattern record, or self-belief — with a future review date. A reconcile pass "
             "later scores it hit/miss/unclear against what memory actually recorded, "
             "and the score rolls up to the source's standing. Attribution is "
             "mandatory: no source record, no prediction. Use when the user commits a "
@@ -187,6 +187,25 @@ TOOLS: list[dict[str, Any]] = [
                 "subject": {"type": "string", "description": "Optional person/entity the expectation is about"},
             },
             "required": ["expectation", "source", "review_after"],
+        },
+    },
+    {
+        "name": "research_hypothesis",
+        "description": (
+            "Cross-reference one stored hypothesis with relevant vault context and bounded "
+            "published-web research. This creates a private provenance report without rewriting "
+            "the hypothesis. If the web results are absent or ambiguous, it creates an owner "
+            "question that the existing private Telegram callback can surface. Use for world-"
+            "facing hypotheses and entity ambiguity; do not use web research to prove Lisan's "
+            "own capabilities, which are tested with self-episodes."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "hypothesis": {"type": "string", "description": "Hypothesis record id or vault-relative path"},
+                "question": {"type": "string", "description": "Focused question to investigate; never a general crawl"},
+            },
+            "required": ["hypothesis", "question"],
         },
     },
     {
@@ -367,6 +386,8 @@ def build_tool_handlers(
             person, strategy, outcome, note=note, vault=vault, db_path=db_path),
         "record_prediction": lambda expectation, source, review_after, trigger="", subject=None: _record_prediction_tool(
             expectation, source, review_after, trigger=trigger, subject=subject, vault=vault, db_path=db_path),
+        "research_hypothesis": lambda hypothesis, question: _research_hypothesis_tool(
+            hypothesis, question, vault=vault, db_path=db_path, config=config),
         "decode_message": lambda counterpart, message=None: _decode_message_tool(
             counterpart, message, vault=vault, db_path=db_path),
         "ratify_framework": lambda name, summary, source=None: _ratify_framework_tool(
@@ -737,6 +758,32 @@ def _record_prediction_tool(
         vault, expectation,
         source=source, review_after=review_after, trigger=trigger, subject=subject,
         db_path=db_path,
+    )
+    return _json.dumps(out, ensure_ascii=True)
+
+
+def _research_hypothesis_tool(
+    hypothesis: str,
+    question: str,
+    *,
+    vault: Path,
+    db_path: Path | None,
+    config: dict[str, Any] | None,
+) -> str:
+    import json as _json
+
+    from ..config import load_config
+    from .hypothesis_research import investigate_hypothesis
+    from .research import installed_published_providers
+
+    cfg = config or load_config()
+    out = investigate_hypothesis(
+        vault=vault,
+        hypothesis=hypothesis,
+        question=question,
+        config=cfg,
+        db_path=db_path,
+        published_providers=installed_published_providers(config=cfg),
     )
     return _json.dumps(out, ensure_ascii=True)
 

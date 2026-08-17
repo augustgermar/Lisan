@@ -367,6 +367,14 @@ candidate excerpts with lexical and local semantic similarity. This preserves
 the raw transcript’s value for enrichment without changing what normal memory
 retrieval returns.
 
+**Hypothesis cross-checks — IMPLEMENTED 2026-08-16.** The `research_hypothesis`
+tool cross-references a stored hypothesis with bounded internal retrieval and
+published-world findings. It writes a provenance report without rewriting the
+hypothesis. A missing or multi-candidate result creates an `origin: research`
+owner-question loop, which uses the existing private Telegram callback path.
+External findings support review of world-facing hypotheses; self-capability
+beliefs remain tested against future `self_episode` records.
+
 The options considered, with what each costs:
 
 - **Index and embed them like any other record.** Best retrieval, and the
