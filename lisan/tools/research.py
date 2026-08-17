@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import json
 import html
+import base64
 import ipaddress
 import urllib.parse
 import urllib.request
@@ -243,6 +244,31 @@ def _public_http_url(value: str) -> bool:
         return False
 
 
+def _normalize_search_result_url(value: str) -> str:
+    """Resolve Bing click tracking before provenance is recorded.
+
+    A search-engine redirect is not a source origin. If it cannot be decoded,
+    return an empty value so the result is omitted rather than attributed to
+    the search engine.
+    """
+    value = html.unescape(str(value or "").strip())
+    try:
+        parsed = urllib.parse.urlparse(value)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        if host.endswith("bing.com") and parsed.path.startswith("/ck/"):
+            encoded = urllib.parse.parse_qs(parsed.query).get("u", [""])[0]
+            if encoded.startswith("a1"):
+                raw = encoded[2:]
+                raw += "=" * (-len(raw) % 4)
+                decoded = base64.urlsafe_b64decode(raw).decode("utf-8", errors="strict")
+                if _public_http_url(decoded):
+                    return decoded
+            return ""
+    except (ValueError, UnicodeError, base64.binascii.Error):
+        return ""
+    return value
+
+
 class WebSearchProvider:
     """Bounded search-and-crawl adapter for the published world.
 
@@ -289,7 +315,11 @@ class WebSearchProvider:
         parser = _SearchResultParser()
         parser.feed(body)
         retrieved = datetime.now(timezone.utc).isoformat()
-        rows = [row for row in parser.rows if _public_http_url(row.get("url", ""))]
+        rows = []
+        for row in parser.rows:
+            normalized_url = _normalize_search_result_url(row.get("url", ""))
+            if normalized_url and _public_http_url(normalized_url):
+                rows.append({**row, "url": normalized_url})
         findings: list[SourceFinding] = []
         queued: list[tuple[str, int, str, str]] = [
             (row["url"], 0, row["title"], row.get("excerpt") or row["title"])

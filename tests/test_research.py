@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from lisan.tools.research import WebSearchProvider, installed_published_providers
+from lisan.tools.research import _normalize_search_result_url
 
 
 class _Response:
@@ -87,3 +88,13 @@ def test_published_provider_is_explicitly_enabled():
     providers = installed_published_providers(config={"sources": {"web": {"enabled": True}}})
     assert len(providers) == 1
     assert providers[0].name == "web_search"
+
+
+def test_bing_redirect_is_resolved_before_provenance():
+    import base64
+    import urllib.parse
+
+    target = "https://www.rfc-editor.org/rfc/rfc9110.html"
+    encoded = "a1" + base64.urlsafe_b64encode(target.encode()).decode().rstrip("=")
+    redirect = "https://www.bing.com/ck/a?" + urllib.parse.urlencode({"u": encoded})
+    assert _normalize_search_result_url(redirect) == target
