@@ -842,7 +842,7 @@ def _librarian_tool(
 ) -> str:
     """Conversation-facing facade for the contract-driven librarian."""
     import json as _json
-    from .librarian import build_domain, correct_knowledge, consolidate_domain, decide_proposal, finalize_intake, propose_sources, resume_intake
+    from .librarian import build_domain, correct_knowledge, consolidate_domain, decide_proposal, finalize_intake, propose_sources, resolve_intake_domain, resume_intake
 
     action = str(action or "").strip().lower()
     if action == "propose_sources":
@@ -852,6 +852,7 @@ def _librarian_tool(
     if action in {"approve_proposal", "reject_proposal", "down_tier_proposal"}:
         if not proposal_id:
             raise ValueError(f"{action} requires proposal_id")
+        domain = resolve_intake_domain(vault, domain, proposal_id=proposal_id, confirmed_url=confirmed_url)
         decision = {"approve_proposal": "approve", "reject_proposal": "reject", "down_tier_proposal": "down_tier"}[action]
         return _json.dumps(decide_proposal(vault, domain, proposal_id, decision=decision, confirmed_url=confirmed_url, tier=tier, rationale=rationale), ensure_ascii=True)
     if action == "finalize_intake":

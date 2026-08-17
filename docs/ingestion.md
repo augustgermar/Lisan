@@ -267,6 +267,11 @@ or down-tiered. Silence never approves anything, and a build request is
 blocked while any proposal remains pending or the intake has not been
 finalized.
 
+Once an origin is approved, the build fetches that exact approved URL directly;
+web search is supplemental discovery only. This prevents a search engine from
+returning a related but different page and causing the approved source to be
+missed during ingestion.
+
 Then:
 
 > Build the California SDP knowledge base for independent facilitator training requirements using approved sources only.

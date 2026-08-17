@@ -18,7 +18,7 @@ from ..frontmatter import load_markdown, write_markdown
 from ..paths import sqlite_path, vault_root
 from ..utils import slugify, today_iso
 from .ingest import ingest_reference_sources
-from .research import SourceFinding, installed_published_providers, search_published_sources
+from .research import SourceFinding, WebSearchProvider, installed_published_providers, search_published_sources
 from .source_tiers import SOURCE_TIERS, normalize_source_tier, now_utc, origin_for_url, origin_matches
 from .record_factory import supersede_record
 
@@ -54,19 +54,64 @@ def load_intake(vault: Path, domain: str) -> dict[str, Any] | None:
 def _recommend_tier(finding: SourceFinding) -> tuple[str, str]:
     """A proposal, never an approval: only a hint for the owner's decision."""
     origin = origin_for_url(finding.locator)
+    if origin in {"rfc-editor.org", "www.rfc-editor.org", "iana.org", "www.iana.org", "ietf.org", "www.ietf.org"}:
+        return "primary", "Recognized standards publisher or registry; owner must confirm that it is authoritative for this domain."
     if origin.endswith(".gov") or origin.endswith(".gov.uk"):
         return "primary", "Government origin appears potentially authoritative; owner must confirm issuing authority."
-    if any(token in origin for token in ("official", "state", "agency", "university", "edu")):
+    if origin in {"developer.mozilla.org", "docs.python.org", "learn.microsoft.com", "cloud.google.com", "developer.apple.com"} or any(token in origin for token in ("official", "state", "agency", "university", "edu")):
         return "official-secondary", "Origin appears institutional; owner must confirm its authority and scope."
     return "community", "No authoritative-origin signal detected; treat as community until the owner decides otherwise."
 
 
-def _normalize_source_query(query: str) -> str:
+def _verified_standards_findings(query: str, providers: list[Any]) -> list[SourceFinding]:
+    """Fetch canonical standards pages when a standards-oriented HTTP query is requested.
+
+    Search engines are useful discovery tools but may return vocabulary pages
+    for terms such as "authoritative". These verified, narrow seeds improve
+    recall without granting authority: the owner still approves each origin.
+    """
+    lowered = query.lower()
+    if "http" not in lowered or "status" not in lowered:
+        return []
+    seeds = [
+        ("https://www.rfc-editor.org/rfc/rfc9110.html", "RFC 9110: HTTP Semantics"),
+        ("https://www.iana.org/assignments/http-status-codes/http-status-codes.xhtml", "HTTP Status Code Registry"),
+    ]
+    findings: list[SourceFinding] = []
+    provider = next((item for item in providers if isinstance(item, WebSearchProvider)), None)
+    if provider is None:
+        return findings
+    retrieved = now_utc()
+    for url, fallback_title in seeds:
+        page = provider._fetch_page(url)
+        if page is None:
+            continue
+        title, text, _links = page
+        findings.append(SourceFinding(
+            source="web_search", locator=url, excerpt=(text or fallback_title)[:1200],
+            title=title or fallback_title, observed_at=retrieved,
+            publisher=origin_for_url(url), retrieved_at=retrieved,
+            confidence=0.95, unverifiable=False,
+        ))
+    return findings
+
+
+def _normalize_source_query(query: str, domain: str | None = None) -> str:
     """Remove conversational intent words before sending a web query."""
     clean = " ".join(str(query or "").strip().split())
+    # The model often supplies a complete instruction as the tool argument.
+    # Keep the subject clause and discard narration/instructions after it.
+    clean = re.split(r"[.;]\s+|,\s*(?:prioritizing|provide|show|do not|without)\b", clean, maxsplit=1, flags=re.I)[0]
     clean = re.sub(r"^(?:please\s+)?(?:propose|find|discover|identify|search\s+for)\s+", "", clean, flags=re.I)
-    clean = re.sub(r"^(?:authoritative\s+)?sources?\s+(?:for|about)\s+", "", clean, flags=re.I)
-    clean = re.sub(r"\s*,?\s*prioritizing\s+.*$", "", clean, flags=re.I)
+    clean = re.sub(r"^(?:authoritative\s+)?sources?\s+(?:for|about|defining\s+and\s+documenting|defining|documenting)\s+", "", clean, flags=re.I)
+    clean = re.sub(r"^(?:and\s+)?documenting\s+", "", clean, flags=re.I)
+    if domain and str(domain).lower() in clean.lower():
+        # Anchor on the requested domain, not on adjectives describing the
+        # desired authority. This handles model wording such as "official
+        # documentation defining HTTP status codes" without a growing list
+        # of prose-prefix patterns.
+        start = clean.lower().find(str(domain).lower())
+        clean = clean[start:]
     if not re.search(r"\b(?:rfc\w*|ietf|standard\w*)\b", clean, flags=re.I):
         clean = f"{clean} IETF RFC standards"
     return clean.strip(" .")
@@ -90,10 +135,21 @@ def propose_sources(
     }
     existing = {str(item.get("origin")) for item in state.get("proposals") or [] if isinstance(item, dict)}
     cfg = config or load_config()
-    search_query = _normalize_source_query(query)
-    findings = search_published_sources(
-        search_query, providers=installed_published_providers(config=cfg), max_results_per_source=max(1, min(int(limit), 20))
-    )
+    search_query = _normalize_source_query(query, domain=domain)
+    providers = installed_published_providers(config=cfg)
+    search_queries = [search_query]
+    if re.search(r"\b(?:rfc|ietf|standard)\w*\b", str(query), flags=re.I):
+        search_queries.extend([
+            f'"{search_query}" RFC 9110',
+            f"site:rfc-editor.org {search_query}",
+            f"site:iana.org {search_query} registry",
+        ])
+    findings: list[SourceFinding] = []
+    findings.extend(_verified_standards_findings(search_query, providers))
+    for candidate_query in search_queries:
+        findings.extend(search_published_sources(
+            candidate_query, providers=providers, max_results_per_source=max(1, min(int(limit), 20))
+        ))
     next_number = len(state.get("proposals") or []) + 1
     for finding in findings:
         origin = origin_for_url(finding.locator)
@@ -120,6 +176,37 @@ def resume_intake(vault: Path, domain: str) -> dict[str, Any]:
     if state is None:
         return {"domain": domain, "status": "not_started", "needs_owner_input": True, "next": "Ask for a focused domain question to begin source proposals."}
     return {"domain": domain, "intake": str(intake_path(vault, domain)), **state, "needs_owner_input": any(str(item.get("status")) == "pending" for item in state.get("proposals", []))}
+
+
+def resolve_intake_domain(
+    vault: Path,
+    domain: str,
+    *,
+    proposal_id: str | None = None,
+    confirmed_url: str | None = None,
+) -> str:
+    """Resolve model paraphrases using durable proposal identity, never text alone."""
+    if load_intake(vault, domain) is not None:
+        return domain
+    matches: list[str] = []
+    root = vault / "domains"
+    for path in root.glob("*/librarian-intake.json") if root.exists() else []:
+        try:
+            state = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for proposal in state.get("proposals") or []:
+            if not isinstance(proposal, dict):
+                continue
+            if proposal_id and str(proposal.get("proposal_id")) != str(proposal_id):
+                continue
+            if confirmed_url and str(proposal.get("url")) != str(confirmed_url):
+                continue
+            matches.append(str(state.get("domain") or path.parent.name))
+            break
+    if len(matches) == 1:
+        return matches[0]
+    return domain
 
 
 def _refresh_intake_status(vault: Path, domain: str, state: dict[str, Any]) -> None:
@@ -162,7 +249,7 @@ def decide_proposal(
         selected = normalize_source_tier(tier)
         if selected not in {"primary", "official-secondary"}:
             raise ValueError("authoritative approval must explicitly choose primary or official-secondary")
-        approve_origin(vault, domain, str(proposal["origin"]), tier=selected, rationale=rationale or str(proposal.get("tier_basis") or ""))
+        approve_origin(vault, domain, str(proposal["origin"]), tier=selected, source_url=str(proposal["url"]), rationale=rationale or str(proposal.get("tier_basis") or ""))
         proposal.update({"status": "approved", "owner_tier": selected, "decided_at": now_utc(), "decision": "approved"})
     elif decision in {"reject", "down_tier"}:
         selected = normalize_source_tier(tier) if decision == "down_tier" else "unverified"
@@ -268,6 +355,7 @@ def approve_origin(
     tier: str = "primary",
     rationale: str = "",
     approved_by: str = "owner",
+    source_url: str | None = None,
 ) -> Path:
     tier = normalize_source_tier(tier)
     if tier not in {"primary", "official-secondary"}:
@@ -280,7 +368,7 @@ def approve_origin(
     origins = [dict(item) for item in (fm.get("approved_origins") or []) if isinstance(item, dict)]
     clean = origin_for_url(origin)
     if not any(str(item.get("origin")) == clean for item in origins):
-        origins.append({"origin": clean, "tier": tier, "rationale": rationale, "approved_by": approved_by, "approved_at": today_iso()})
+        origins.append({"origin": clean, "tier": tier, "source_url": source_url or "", "rationale": rationale, "approved_by": approved_by, "approved_at": today_iso()})
     fm["approved_origins"] = origins
     # Direct CLI approval remains an explicit manual override. Conversational
     # approval uses decide_proposal, which also persists the proposal decision.
@@ -317,7 +405,17 @@ def build_domain(
             raise ValueError(f"build blocked: owner decisions are still pending for {', '.join(pending)}")
         raise ValueError("build blocked: sourcing intake is not finalized; propose and resolve origins first")
     config = load_config()
-    findings = search_published_sources(query, providers=installed_published_providers(config=config), max_results_per_source=limit)
+    providers = installed_published_providers(config=config)
+    findings = _approved_source_findings(vault, contract, providers)
+    findings.extend(search_published_sources(query, providers=providers, max_results_per_source=limit))
+    unique_findings: list[SourceFinding] = []
+    seen_urls: set[str] = set()
+    for finding in findings:
+        if finding.locator in seen_urls:
+            continue
+        seen_urls.add(finding.locator)
+        unique_findings.append(finding)
+    findings = unique_findings
     approved: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     for finding in findings:
@@ -327,6 +425,37 @@ def build_domain(
             continue
         approved.append(_ingest_finding(vault, domain, finding, tier=tier, db_path=db_path, domain_tag=domain_tag or str(contract.get("domain_primary") or "cross_arena")))
     return {"domain": domain, "query": query, "contract": str(contract_path(vault, domain)), "findings": len(findings), "ingested": approved, "skipped": skipped, "retrieved_at": now_utc()}
+
+
+def _approved_source_findings(vault: Path, contract: dict[str, Any], providers: list[Any]) -> list[SourceFinding]:
+    """Fetch exact URLs the owner approved; search is only supplemental discovery."""
+    intake = load_intake(vault, str(contract.get("domain_name") or ""))
+    proposal_urls = {
+        str(item.get("origin")): str(item.get("url"))
+        for item in (intake or {}).get("proposals", [])
+        if isinstance(item, dict) and str(item.get("status")) == "approved" and item.get("url")
+    }
+    provider = next((item for item in providers if isinstance(item, WebSearchProvider)), None)
+    if provider is None:
+        return []
+    findings: list[SourceFinding] = []
+    retrieved = now_utc()
+    for entry in contract.get("approved_origins") or []:
+        if not isinstance(entry, dict):
+            continue
+        url = str(entry.get("source_url") or proposal_urls.get(str(entry.get("origin") or "")))
+        if not url:
+            continue
+        page = provider._fetch_page(url)
+        if page is None:
+            continue
+        title, text, _links = page
+        findings.append(SourceFinding(
+            source="web_search", locator=url, excerpt=(text or title)[:1200], title=title,
+            observed_at=retrieved, publisher=origin_for_url(url), retrieved_at=retrieved,
+            confidence=0.95, unverifiable=False,
+        ))
+    return findings
 
 
 def _ingest_finding(vault: Path, domain: str, finding: SourceFinding, *, tier: str, db_path: Path | None, domain_tag: str) -> dict[str, Any]:
