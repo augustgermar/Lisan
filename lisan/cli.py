@@ -58,6 +58,7 @@ from .tools.narrative_state import conversation_history, load_narrative_state, r
 from .tools.tracing import format_recent_turn_traces, format_turn_trace, list_recent_turn_traces, load_turn_trace
 from .tools.transcripts import append_transcript
 from .tools.validator import format_report, validate_vault
+from .tools.librarian import approve_origin, build_domain, consolidate_domain, correct_knowledge, create_contract
 
 
 def _split_csv_values(value: str | None) -> list[str]:
@@ -670,6 +671,34 @@ def build_parser() -> argparse.ArgumentParser:
         dreamer_task.add_argument("--vault", type=Path, default=vault_root())
         dreamer_task.add_argument("--provider", default=None)
         dreamer_task.add_argument("--model", default=None)
+
+    librarian = subparsers.add_parser("librarian", help="Manage contract-driven domain knowledge")
+    librarian_subparsers = librarian.add_subparsers(dest="librarian_command", required=True)
+    librarian_contract = librarian_subparsers.add_parser("contract", help="Create a domain sourcing contract")
+    librarian_contract.add_argument("domain")
+    librarian_contract.add_argument("--vault", type=Path, default=vault_root())
+    librarian_contract.add_argument("--domain-tag", default=None)
+    librarian_contract.add_argument("--reputability-bar", default=None)
+    librarian_approve = librarian_subparsers.add_parser("approve-origin", help="Add an owner-approved source origin")
+    librarian_approve.add_argument("domain")
+    librarian_approve.add_argument("origin")
+    librarian_approve.add_argument("--tier", choices=["primary", "official-secondary"], default="primary")
+    librarian_approve.add_argument("--rationale", default="")
+    librarian_approve.add_argument("--vault", type=Path, default=vault_root())
+    librarian_build = librarian_subparsers.add_parser("build", help="Search approved origins and ingest their findings")
+    librarian_build.add_argument("domain")
+    librarian_build.add_argument("query")
+    librarian_build.add_argument("--vault", type=Path, default=vault_root())
+    librarian_build.add_argument("--db-path", type=Path, default=sqlite_path())
+    librarian_build.add_argument("--limit", type=int, default=5)
+    librarian_consolidate = librarian_subparsers.add_parser("consolidate", help="Curate exact duplicate domain knowledge")
+    librarian_consolidate.add_argument("domain")
+    librarian_consolidate.add_argument("--vault", type=Path, default=vault_root())
+    librarian_consolidate.add_argument("--db-path", type=Path, default=sqlite_path())
+    librarian_correct = librarian_subparsers.add_parser("correct", help="Record an owner correction without deleting provenance")
+    librarian_correct.add_argument("record_id")
+    librarian_correct.add_argument("correction")
+    librarian_correct.add_argument("--vault", type=Path, default=vault_root())
 
     analyst = subparsers.add_parser("analyst", help="Run longitudinal pattern analysis")
     analyst_subparsers = analyst.add_subparsers(dest="analyst_command", required=True)
@@ -2212,6 +2241,24 @@ def main(argv: list[str] | None = None) -> int:
             print(str(exc), file=sys.stderr)
             return 1
         print(out)
+        return 0
+
+    if args.command == "librarian":
+        try:
+            if args.librarian_command == "contract":
+                out = create_contract(args.vault, args.domain, domain_tag=args.domain_tag, reputability_bar=args.reputability_bar or "Prefer current, attributable, primary or official sources; flag stale or ambiguous material.")
+                print(out)
+            elif args.librarian_command == "approve-origin":
+                print(approve_origin(args.vault, args.domain, args.origin, tier=args.tier, rationale=args.rationale))
+            elif args.librarian_command == "build":
+                print(json.dumps(build_domain(args.vault, args.domain, args.query, db_path=args.db_path, limit=args.limit), indent=2))
+            elif args.librarian_command == "correct":
+                print(correct_knowledge(args.vault, args.record_id, args.correction))
+            else:
+                print(json.dumps(consolidate_domain(args.vault, args.domain, db_path=args.db_path), indent=2))
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
         return 0
 
     if args.command == "iip":

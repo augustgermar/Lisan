@@ -503,6 +503,10 @@ def _sql_metadata_score(
     if row["domain_primary"] == arena or row["domain_primary"] == "cross_arena":
         score += 2.0
     score += _type_boost(str(row["type"]))
+    if row["type"] == "knowledge":
+        score += {"primary": 1.0, "official-secondary": 0.75, "community": 0.35, "owner-authored": 0.25}.get(
+            str(row["source_tier"] or "unverified"), 0.0
+        )
     try:
         updated_str = str(row["updated"] or "").strip()
         if updated_str and today is not None:
@@ -696,6 +700,9 @@ def _score_row(
     confidence_score = row["confidence_score"] if "confidence_score" in row.keys() else None
     if isinstance(confidence_score, (int, float)):
         score += float(confidence_score) * 0.3
+
+    if str(row["type"]) == "knowledge" and str(row["source_tier"] or "unverified") in {"primary", "official-secondary"}:
+        reasons.append("source_tier")
 
     if not reasons:
         return None

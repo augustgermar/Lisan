@@ -272,6 +272,10 @@ def new_knowledge(
     total_chunks: int | None = None,
     source_wikilinks: list[str] | None = None,
     source_tags: list[str] | None = None,
+    source_url: str | None = None,
+    source_origin: str | None = None,
+    retrieved_at: str | None = None,
+    source_tier: str = "unverified",
     body: str | None = None,
 ) -> CreatedRecord:
     if category not in KNOWLEDGE_DIRS:
@@ -314,6 +318,14 @@ def new_knowledge(
         frontmatter["source_wikilinks"] = sorted({str(w) for w in source_wikilinks if str(w).strip()})
     if source_tags:
         frontmatter["source_tags"] = sorted({str(w) for w in source_tags if str(w).strip()})
+    from .source_tiers import normalize_source_tier
+    frontmatter["source_tier"] = normalize_source_tier(source_tier)
+    if source_url is not None:
+        frontmatter["source_url"] = source_url
+    if source_origin is not None:
+        frontmatter["source_origin"] = source_origin
+    if retrieved_at is not None:
+        frontmatter["retrieved_at"] = retrieved_at
     record_body = body if body is not None else "Knowledge entry created from the CLI."
     if not record_body.lstrip().startswith("#"):
         record_body = f"# {title}\n\n{record_body.strip()}\n"

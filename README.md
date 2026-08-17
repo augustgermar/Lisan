@@ -168,6 +168,27 @@ as data, never as instructions.
 6. **The suite is the floor.** Contracts are pinned by tests — including
    gate tests that make whole defect classes structurally impossible.
 
+### Domain knowledge librarian
+
+Lisan can build a curated knowledge base for a specific subject. Before it
+uses web material autonomously, the owner creates a sourcing contract and
+approves authoritative origins. The librarian then searches the configured
+web provider, keeps contract-approved origins as authoritative, and records
+the source URL, origin, retrieval time, domain, and source tier on every
+knowledge chunk. Retrieval prefers higher-tier sources and displays their
+provenance.
+
+```bash
+python3 -m lisan librarian contract "California SDP"
+python3 -m lisan librarian approve-origin "California SDP" example.gov --tier primary --rationale "State program authority"
+python3 -m lisan librarian build "California SDP" "independent facilitator training requirements"
+python3 -m lisan librarian consolidate "California SDP"
+```
+
+The first domain contract is intentionally a placeholder: the owner must
+provide real authoritative origins and scope before autonomous subject-matter
+building begins.
+
 ## Install
 
 ```bash

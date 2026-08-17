@@ -36,6 +36,7 @@ from .record_factory import new_artifact, new_claim, new_evidence, new_entity, n
 from .ingest_batches import create_batch, update_batch_status, summarize_batch, list_batches, get_batch, artifacts_for_batch, jobs_for_batch, manifest_rows_for_batch, quarantine_batch
 from ..utils import json_loads_forgiving as _json_loads, utc_now_iso as _iso_now
 from .db import connect as _connect
+from .source_tiers import tier_confidence
 
 
 INGESTION_MANIFEST_SCHEMA_SQL = """
@@ -1921,6 +1922,12 @@ def ingest_reference_sources(
     plan_only: bool = False,
     create_entities: bool = True,
     reindex: bool = True,
+    domain_primary: str = "cross_arena",
+    domain_secondary: list[str] | None = None,
+    source_tier: str = "unverified",
+    source_origin: str | None = None,
+    source_url: str | None = None,
+    retrieved_at: str | None = None,
 ) -> dict[str, Any]:
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
@@ -1953,6 +1960,12 @@ def ingest_reference_sources(
                 plan_only=plan_only,
                 create_entities=create_entities,
                 reindex=reindex,
+                domain_primary=domain_primary,
+                domain_secondary=domain_secondary,
+                source_tier=source_tier,
+                source_origin=source_origin,
+                source_url=source_url,
+                retrieved_at=retrieved_at,
             )
             plans.extend(nested.get("documents", []))
             created_records.extend(nested.get("created_records", []))
@@ -2030,15 +2043,15 @@ def ingest_reference_sources(
                 vault,
                 title,
                     category=_knowledge_category_for_source(document["source_type"], source.suffix.lower()),
-                domain_primary="cross_arena",
-                domain_secondary=[],
+                domain_primary=domain_primary,
+                domain_secondary=domain_secondary or [],
                 privacy="personal",
                 disclosure="personal",
                 significance="medium",
                 summary=chunk.breadcrumb,
                 links=sorted(chunk_links),
-                confidence="high",
-                confidence_basis="Authoritative program documentation",
+                confidence=tier_confidence(source_tier)[0],
+                confidence_basis=tier_confidence(source_tier)[1],
                 last_confirmed=_today_iso(),
                 review_after=_one_year_from_today(),
                 source_document=document_title,
@@ -2048,6 +2061,10 @@ def ingest_reference_sources(
                 total_chunks=chunk.total_chunks,
                 source_wikilinks=document.get("wikilinks") or None,
                 source_tags=document.get("tags") or None,
+                source_url=source_url or (source_locator if str(source_locator).startswith(("http://", "https://")) else None),
+                source_origin=source_origin,
+                retrieved_at=retrieved_at,
+                source_tier=source_tier,
                 body=chunk.body,
             )
             created_records.append(

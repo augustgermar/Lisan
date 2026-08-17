@@ -158,6 +158,7 @@ ENUMS = {
         "entity",
         "episode",
         "knowledge",
+        "domain_contract",
         "artifact",
         "evidence",
         "claim",
@@ -403,7 +404,8 @@ def _validate_universal(path: Path, frontmatter: dict[str, Any], report: Validat
             continue
         if field_name == "confidence" and str(frontmatter.get("type")) in {"claim", "pattern"}:
             continue
-        if field_name in {"domain_primary", "privacy", "status", "significance", "confidence", "source", "priority", "source_type", "sensitivity", "reliability"} and str(value) not in allowed:
+        custom_domain = field_name == "domain_primary" and str(frontmatter.get("type")) in {"knowledge", "domain_contract"}
+        if field_name in {"domain_primary", "privacy", "status", "significance", "confidence", "source", "priority", "source_type", "sensitivity", "reliability"} and not custom_domain and str(value) not in allowed:
             report.add(path, f"Invalid {field_name}: {value}")
     for field_name in ["domain_secondary", "arena_secondary", "compartments", "allowed_contexts", "blocked_contexts", "links"]:
         if field_name in frontmatter and not isinstance(frontmatter[field_name], list):

@@ -222,3 +222,37 @@ Quarantine does not delete files or memory records. It only blocks them from nor
 - If a file changes, Lisan creates a new artifact record for the new hash.
 - Evidence and claims derived from a file retain the artifact link for provenance.
 - Nothing extracted from a file becomes a confirmed fact automatically.
+
+## Domain knowledge librarian
+
+Reference ingestion derives confidence from a source tier instead of assuming
+that every document is authoritative. Knowledge records may carry
+`source_url`, `source_origin`, `retrieved_at`, and `source_tier` alongside
+their existing document/chunk provenance. The tiers are `primary`,
+`official-secondary`, `community`, `owner-authored`, and `unverified`.
+
+Create and approve a domain contract before autonomous web ingestion:
+
+```bash
+python3 -m lisan librarian contract "California SDP"
+python3 -m lisan librarian approve-origin "California SDP" example.gov --tier primary --rationale "Program authority"
+python3 -m lisan librarian build "California SDP" "independent facilitator training requirements"
+```
+
+The contract is a committed Markdown artifact under `vault/domains/`. A
+build only promotes findings whose origin matches an approved contract entry.
+Retrieval prefers primary and official-secondary knowledge and shows the tier
+and source details. `librarian consolidate` supersedes exact duplicate chunks
+while preserving their files; disagreements are surfaced rather than guessed.
+The initial California SDP contract remains a placeholder until its real
+authoritative origins and scope are supplied.
+
+To correct a retrieved knowledge record, preserve the original provenance and
+record the owner’s correction explicitly:
+
+```bash
+python3 -m lisan librarian correct knowledge.example "The current requirement is ..."
+```
+
+The record becomes disputed and a review report is created; Lisan does not
+silently overwrite the source history.
