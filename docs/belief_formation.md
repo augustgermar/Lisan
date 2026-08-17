@@ -1,9 +1,11 @@
-# Belief formation (WO-10 spec — approved, not yet built)
+# Belief formation (WO-10 — implemented; belief-testing bridge added 2026-08-16)
 
 Owner decision 2026-07-05: capability-belief formation follows the
 **dreamer-proposes, owner-approves** model, mirroring the voice ceremony.
-This document is the work-order spec. Nothing here is implemented yet;
-`lisan dreamer reconcile` remains a correct no-op until it lands.
+This document is the work-order spec. The extraction and ratification
+workflow is implemented. Ratified beliefs can also serve as sources for
+prediction-ledger entries. Those predictions are scored only against future
+`self_episode` records, not web research or unrelated vault records.
 
 ## Why formation is gated
 

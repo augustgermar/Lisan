@@ -29,6 +29,7 @@ from lisan.tools.predictions import (
     run_prediction_reconcile,
 )
 from lisan.tools.record_factory import new_pattern
+from lisan.tools.self_beliefs import new_self_belief
 from lisan.tools.validator import validate_vault
 
 
@@ -81,6 +82,23 @@ class PredictionLedgerBase(unittest.TestCase):
 
 
 class CreationGateTests(PredictionLedgerBase):
+    def test_ratified_self_belief_can_be_tested(self):
+        belief = new_self_belief(
+            self.vault,
+            "I deliver scheduled tasks dependably.",
+            confidence="medium",
+            evidence_refs=["self_episode.one"],
+            basis="Owner-ratified test belief",
+        )
+        belief_id = str(load_markdown(belief).frontmatter["id"])
+        out = self._record(
+            expectation="The next scheduled task will complete successfully.",
+            source=belief_id,
+            subject="self",
+        )
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["source_type"], "self_belief")
+
     def test_happy_path_creates_valid_pending_record(self):
         out = self._record()
         self.assertTrue(out["ok"], out)

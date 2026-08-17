@@ -658,8 +658,8 @@ def new_prediction(
 ) -> CreatedRecord:
     """Ship 2 of WO-PSYCHE: one prediction-ledger entry.
 
-    Attribution is structural: ``source_id`` names the framework or pattern
-    the expectation derives from, and the caller (``record_prediction``)
+    Attribution is structural: ``source_id`` names the framework, pattern, or
+    ratified self-belief the expectation derives from, and the caller (``record_prediction``)
     verifies it resolves to a real record before this runs. The ledger is
     how a framework earns or loses standing — an unattributed prediction
     can never pay its source back, so it is not a prediction."""
@@ -668,7 +668,7 @@ def new_prediction(
         raise ValueError("a prediction needs a concrete expectation")
     source_id = str(source_id or "").strip()
     if not source_id:
-        raise ValueError("a prediction needs a source_id (framework or pattern record)")
+        raise ValueError("a prediction needs a source_id (framework, pattern, or self-belief record)")
     review_after = str(review_after or "").strip()
     if not review_after:
         raise ValueError("a prediction needs a review_after date")

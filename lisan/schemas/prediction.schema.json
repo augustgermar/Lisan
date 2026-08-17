@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "prediction",
-  "description": "Ship 2 of WO-PSYCHE: one entry in the prediction ledger. A concrete expectation derived from a named source (framework or pattern), scored hit/miss/unclear against subsequent records by the reconcile job. Attribution is mandatory — a prediction with no source is a vibe, not a record.",
+  "description": "Ship 2 of WO-PSYCHE: one entry in the prediction ledger. A concrete expectation derived from a named source (framework, pattern, or ratified self-belief), scored hit/miss/unclear against subsequent records by the reconcile job. Self-belief predictions are scored only against future self-episodes. Attribution is mandatory — a prediction with no source is a vibe, not a record.",
   "type": "object",
   "required": [
     "id",

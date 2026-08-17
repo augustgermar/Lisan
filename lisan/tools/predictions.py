@@ -44,15 +44,15 @@ from .rebuild_index import reindex_record
 MAX_SCORE_ATTEMPTS = 3
 DEFER_DAYS = 7
 
-_SOURCE_TYPES = {"pattern", "knowledge"}
+_SOURCE_TYPES = {"pattern", "knowledge", "self_belief"}
 _POOL_LIMIT = 20
 
 
 # ── Source resolution ────────────────────────────────────────────────────────
 
 def _resolve_source(vault: Path, source_id: str, db_path: Path | None = None) -> tuple[Path, str] | None:
-    """Resolve a source id to (path, type). Only frameworks (knowledge) and
-    patterns may source predictions — that is the WO's provenance model."""
+    """Resolve a source id to (path, type). Predictions require a named
+    framework, pattern, or ratified self-belief."""
     source_id = str(source_id or "").strip()
     if not source_id:
         return None
@@ -71,7 +71,7 @@ def _resolve_source(vault: Path, source_id: str, db_path: Path | None = None) ->
     except Exception:
         pass
     # Fallback: scan the two source directories (fresh vaults, unindexed records).
-    for root in (vault / "patterns", vault / "knowledge"):
+    for root in (vault / "patterns", vault / "knowledge", vault / "self" / "beliefs"):
         if not root.exists():
             continue
         for path in sorted(root.rglob("*.md")):
@@ -218,6 +218,12 @@ def _evidence_pool(vault: Path, fm: dict[str, Any], db_path: Path | None) -> lis
         try:
             item_fm = load_markdown(vault / str(item.path)).frontmatter
         except Exception:
+            continue
+        resolved_source = _resolve_source(vault, str(fm.get("source_id") or ""), db_path)
+        source_type = resolved_source[1] if resolved_source else ""
+        # A self-belief is tested against Lisan's own first-person record,
+        # never against web pages or unrelated vault material.
+        if source_type == "self_belief" and str(item_fm.get("type") or "") != "self_episode":
             continue
         stamp = str(item_fm.get("record_date") or item_fm.get("created") or "")
         if not stamp or stamp <= made:

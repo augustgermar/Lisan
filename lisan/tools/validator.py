@@ -445,7 +445,7 @@ def _validate_type_specific(path: Path, frontmatter: dict[str, Any], report: Val
         if verdict not in {"", "hit", "miss", "unclear"}:
             report.add(path, f"Invalid prediction verdict: {verdict}")
         if not str(frontmatter.get("source_id", "")).strip():
-            report.add(path, "prediction requires a source_id (framework or pattern)")
+            report.add(path, "prediction requires a source_id (framework, pattern, or self-belief)")
         if str(frontmatter.get("status")) == "scored" and verdict not in {"hit", "miss", "unclear"}:
             report.add(path, "a scored prediction must carry a verdict")
         if verdict in {"hit", "miss"} and not (frontmatter.get("verdict_evidence") or []):
