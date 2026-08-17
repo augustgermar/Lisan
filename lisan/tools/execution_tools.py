@@ -211,11 +211,12 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "librarian",
         "description": (
-            "Manage curated domain knowledge through the interactive librarian. Use action=intake "
-            "to create or inspect a domain sourcing contract and present missing owner decisions; "
-            "use action=approve_origin only when the user explicitly approves a named origin and tier; "
-            "use action=build only after a contract exists and the user explicitly asks to research/build "
-            "the domain; use action=consolidate to curate exact duplicates; use action=correct when the "
+            "Manage curated domain knowledge through the interactive librarian. Use action=propose_sources "
+            "to search and persist candidate origins for owner review, action=resume_intake to recover a "
+            "pending exchange after any delay or restart, action=approve_proposal only when the user explicitly "
+            "confirms the exact URL and tier, action=reject_proposal or down_tier_proposal for other decisions, "
+            "and action=finalize_intake once all proposals are resolved. Use action=build only after a contract "
+            "is finalized; use action=consolidate to curate exact duplicates; use action=correct when the "
             "user identifies a knowledge error. Never invent authoritative origins, silently approve an "
             "origin, or silently overwrite source history. Builds use only contract-approved authoritative "
             "origins and return source tiers/URLs so the result can be narrated back through Telegram."
@@ -223,10 +224,12 @@ TOOLS: list[dict[str, Any]] = [
         "parameters": {
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["intake", "approve_origin", "build", "consolidate", "correct"]},
+                "action": {"type": "string", "enum": ["propose_sources", "resume_intake", "approve_proposal", "reject_proposal", "down_tier_proposal", "finalize_intake", "build", "consolidate", "correct"]},
                 "domain": {"type": "string", "description": "Domain name, for example California SDP"},
                 "query": {"type": "string", "description": "Focused research question for a build"},
                 "origin": {"type": "string", "description": "Hostname or URL explicitly approved by the owner"},
+                "proposal_id": {"type": "string", "description": "Persisted proposal id, such as origin-2"},
+                "confirmed_url": {"type": "string", "description": "Exact URL shown in the proposal; required for approval"},
                 "tier": {"type": "string", "enum": ["primary", "official-secondary"], "default": "primary"},
                 "rationale": {"type": "string"},
                 "correction": {"type": "string", "description": "Owner's correction to a knowledge record"},
@@ -416,9 +419,10 @@ def build_tool_handlers(
             expectation, source, review_after, trigger=trigger, subject=subject, vault=vault, db_path=db_path),
         "research_hypothesis": lambda hypothesis, question: _research_hypothesis_tool(
             hypothesis, question, vault=vault, db_path=db_path, config=config),
-        "librarian": lambda action, domain, query=None, origin=None, tier="primary", rationale="", correction=None, record_id=None, limit=5: _librarian_tool(
+        "librarian": lambda action, domain, query=None, origin=None, proposal_id=None, confirmed_url=None, tier="primary", rationale="", correction=None, record_id=None, limit=5: _librarian_tool(
             action, domain, query=query, origin=origin, tier=tier, rationale=rationale,
-            correction=correction, record_id=record_id, limit=limit, vault=vault, db_path=db_path, config=config),
+            proposal_id=proposal_id, confirmed_url=confirmed_url, correction=correction,
+            record_id=record_id, limit=limit, vault=vault, db_path=db_path, config=config),
         "decode_message": lambda counterpart, message=None: _decode_message_tool(
             counterpart, message, vault=vault, db_path=db_path),
         "ratify_framework": lambda name, summary, source=None: _ratify_framework_tool(
@@ -825,6 +829,8 @@ def _librarian_tool(
     *,
     query: str | None = None,
     origin: str | None = None,
+    proposal_id: str | None = None,
+    confirmed_url: str | None = None,
     tier: str = "primary",
     rationale: str = "",
     correction: str | None = None,
@@ -836,21 +842,20 @@ def _librarian_tool(
 ) -> str:
     """Conversation-facing facade for the contract-driven librarian."""
     import json as _json
-    from .librarian import approve_origin, build_domain, contract_path, correct_knowledge, create_contract, load_contract, consolidate_domain
+    from .librarian import build_domain, correct_knowledge, consolidate_domain, decide_proposal, finalize_intake, propose_sources, resume_intake
 
     action = str(action or "").strip().lower()
-    if action == "intake":
-        path = contract_path(vault, domain)
-        if not path.exists():
-            path = create_contract(vault, domain)
-            return _json.dumps({"action": action, "contract": str(path), "needs_owner_input": True, "next": "Ask the owner for authoritative origins, their tier, and domain scope."}, ensure_ascii=True)
-        contract = load_contract(vault, domain)
-        return _json.dumps({"action": action, "contract": str(path), "contract_data": contract, "needs_owner_input": not bool(contract.get("approved_origins")), "next": "Ask the owner to approve or reject origins explicitly."}, ensure_ascii=True)
-    if action == "approve_origin":
-        if not origin:
-            raise ValueError("approve_origin requires an origin")
-        path = approve_origin(vault, domain, origin, tier=tier, rationale=rationale)
-        return _json.dumps({"action": action, "contract": str(path), "approved_origin": origin, "tier": tier}, ensure_ascii=True)
+    if action == "propose_sources":
+        return _json.dumps(propose_sources(vault, domain, query or "", config=config, limit=limit), ensure_ascii=True)
+    if action == "resume_intake":
+        return _json.dumps(resume_intake(vault, domain), ensure_ascii=True)
+    if action in {"approve_proposal", "reject_proposal", "down_tier_proposal"}:
+        if not proposal_id:
+            raise ValueError(f"{action} requires proposal_id")
+        decision = {"approve_proposal": "approve", "reject_proposal": "reject", "down_tier_proposal": "down_tier"}[action]
+        return _json.dumps(decide_proposal(vault, domain, proposal_id, decision=decision, confirmed_url=confirmed_url, tier=tier, rationale=rationale), ensure_ascii=True)
+    if action == "finalize_intake":
+        return _json.dumps(finalize_intake(vault, domain), ensure_ascii=True)
     if action == "build":
         if not query:
             raise ValueError("build requires a focused query")

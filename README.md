@@ -191,11 +191,20 @@ building begins.
 
 The same workflow is available through Telegram. For example:
 
-> Set up the California SDP librarian and ask me which authoritative origins I want to approve.
+> Propose authoritative sources for California SDP training requirements.
+
+Lisan persists the numbered proposals under the domain directory and waits;
+the exchange can resume after a restart or an arbitrarily long delay:
+
+> Resume my California SDP librarian intake.
 
 Then, after reviewing the proposal:
 
-> Approve dds.ca.gov as a primary California SDP source because it is the state program authority.
+> Approve proposal origin-2 at https://dds.ca.gov/training as primary because it is the state program authority.
+
+An origin remains unapproved if the exact URL is not confirmed. Other proposals
+can be explicitly rejected or down-tiered. A build request is blocked until
+all proposals are resolved and at least one origin is approved.
 
 Finally:
 

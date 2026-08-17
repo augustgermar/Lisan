@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import tempfile
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,161 @@ from .record_factory import supersede_record
 
 def contract_path(vault: Path, domain: str) -> Path:
     return vault / "domains" / slugify(domain) / "sourcing-contract.md"
+
+
+def intake_path(vault: Path, domain: str) -> Path:
+    """Durable, domain-keyed async intake state; safe across restarts."""
+    return vault / "domains" / slugify(domain) / "librarian-intake.json"
+
+
+def _save_intake(path: Path, state: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    state["updated_at"] = now_utc()
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(state, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def load_intake(vault: Path, domain: str) -> dict[str, Any] | None:
+    path = intake_path(vault, domain)
+    if not path.exists():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"invalid librarian intake state: {path}") from exc
+    return value if isinstance(value, dict) else None
+
+
+def _recommend_tier(finding: SourceFinding) -> tuple[str, str]:
+    """A proposal, never an approval: only a hint for the owner's decision."""
+    origin = origin_for_url(finding.locator)
+    if origin.endswith(".gov") or origin.endswith(".gov.uk"):
+        return "primary", "Government origin appears potentially authoritative; owner must confirm issuing authority."
+    if any(token in origin for token in ("official", "state", "agency", "university", "edu")):
+        return "official-secondary", "Origin appears institutional; owner must confirm its authority and scope."
+    return "community", "No authoritative-origin signal detected; treat as community until the owner decides otherwise."
+
+
+def propose_sources(
+    vault: Path,
+    domain: str,
+    query: str,
+    *,
+    config: dict[str, Any] | None = None,
+    limit: int = 5,
+) -> dict[str, Any]:
+    """Search for candidates and persist them as pending owner decisions."""
+    if not str(query or "").strip():
+        raise ValueError("source proposals require a focused query")
+    create_contract(vault, domain)
+    state = load_intake(vault, domain) or {
+        "domain": domain, "status": "awaiting_owner", "query": query,
+        "created_at": now_utc(), "proposals": [],
+    }
+    existing = {str(item.get("origin")) for item in state.get("proposals") or [] if isinstance(item, dict)}
+    cfg = config or load_config()
+    findings = search_published_sources(
+        query, providers=installed_published_providers(config=cfg), max_results_per_source=max(1, min(int(limit), 20))
+    )
+    next_number = len(state.get("proposals") or []) + 1
+    for finding in findings:
+        origin = origin_for_url(finding.locator)
+        if not origin or origin in existing:
+            continue
+        recommendation, basis = _recommend_tier(finding)
+        state.setdefault("proposals", []).append({
+            "proposal_id": f"origin-{next_number}", "status": "pending", "origin": origin,
+            "url": finding.locator, "title": finding.title, "publisher": finding.publisher or origin,
+            "excerpt": finding.excerpt, "recommended_tier": recommendation, "tier_basis": basis,
+            "proposed_at": finding.retrieved_at or now_utc(),
+        })
+        existing.add(origin)
+        next_number += 1
+    state["query"] = query
+    state["status"] = "awaiting_owner"
+    _save_intake(intake_path(vault, domain), state)
+    return {"domain": domain, "intake": str(intake_path(vault, domain)), "status": state["status"], "proposals": state.get("proposals", []), "needs_owner_input": True}
+
+
+def resume_intake(vault: Path, domain: str) -> dict[str, Any]:
+    state = load_intake(vault, domain)
+    if state is None:
+        return {"domain": domain, "status": "not_started", "needs_owner_input": True, "next": "Ask for a focused domain question to begin source proposals."}
+    return {"domain": domain, "intake": str(intake_path(vault, domain)), **state, "needs_owner_input": any(str(item.get("status")) == "pending" for item in state.get("proposals", []))}
+
+
+def _refresh_intake_status(vault: Path, domain: str, state: dict[str, Any]) -> None:
+    pending = any(str(item.get("status")) == "pending" for item in state.get("proposals", []))
+    approved = any(str(item.get("status")) == "approved" for item in state.get("proposals", []))
+    state["status"] = "awaiting_owner" if pending else ("approved" if approved else "rejected")
+    _save_intake(intake_path(vault, domain), state)
+    path = contract_path(vault, domain)
+    if path.exists():
+        doc = load_markdown(path)
+        fm = dict(doc.frontmatter)
+        fm["intake_status"] = state["status"]
+        fm["updated"] = today_iso()
+        write_markdown(path, fm, doc.body)
+
+
+def decide_proposal(
+    vault: Path,
+    domain: str,
+    proposal_id: str,
+    *,
+    decision: str,
+    confirmed_url: str | None = None,
+    tier: str | None = None,
+    rationale: str = "",
+) -> dict[str, Any]:
+    """Apply one explicit owner decision; missing exact provenance fails closed."""
+    state = load_intake(vault, domain)
+    if state is None:
+        raise ValueError(f"no pending intake exists for {domain}")
+    proposal = next((item for item in state.get("proposals", []) if str(item.get("proposal_id")) == proposal_id), None)
+    if not isinstance(proposal, dict):
+        raise ValueError(f"unknown source proposal: {proposal_id}")
+    if str(proposal.get("status")) != "pending":
+        raise ValueError(f"source proposal already decided: {proposal_id}")
+    decision = str(decision).strip().lower()
+    if decision == "approve":
+        if str(confirmed_url or "").strip() != str(proposal.get("url") or "").strip():
+            raise ValueError("approval requires the exact proposal URL to be confirmed")
+        selected = normalize_source_tier(tier)
+        if selected not in {"primary", "official-secondary"}:
+            raise ValueError("authoritative approval must explicitly choose primary or official-secondary")
+        approve_origin(vault, domain, str(proposal["origin"]), tier=selected, rationale=rationale or str(proposal.get("tier_basis") or ""))
+        proposal.update({"status": "approved", "owner_tier": selected, "decided_at": now_utc(), "decision": "approved"})
+    elif decision in {"reject", "down_tier"}:
+        selected = normalize_source_tier(tier) if decision == "down_tier" else "unverified"
+        if decision == "down_tier" and selected not in {"community", "owner-authored", "unverified"}:
+            raise ValueError("down-tier decisions must choose community, owner-authored, or unverified")
+        proposal.update({"status": "rejected" if decision == "reject" else "down_tiered", "owner_tier": selected, "decided_at": now_utc(), "decision": decision})
+        path = contract_path(vault, domain)
+        doc = load_markdown(path)
+        fm = dict(doc.frontmatter)
+        rejected = list(fm.get("rejected_origins") or [])
+        rejected.append({"origin": proposal["origin"], "url": proposal["url"], "decision": decision, "tier": selected, "rationale": rationale, "decided_at": today_iso()})
+        fm["rejected_origins"] = rejected
+        write_markdown(path, fm, doc.body.rstrip() + f"\n\nOrigin decision: `{proposal['origin']}` — `{decision}` ({selected}).\n")
+    else:
+        raise ValueError("decision must be approve, reject, or down_tier")
+    _refresh_intake_status(vault, domain, state)
+    return {"domain": domain, "proposal": proposal, "intake_status": state["status"], "intake": str(intake_path(vault, domain))}
+
+
+def finalize_intake(vault: Path, domain: str) -> dict[str, Any]:
+    state = load_intake(vault, domain)
+    if state is None:
+        raise ValueError(f"no intake exists for {domain}")
+    pending = [str(item.get("proposal_id")) for item in state.get("proposals", []) if str(item.get("status")) == "pending"]
+    if pending:
+        raise ValueError(f"intake still has pending owner decisions: {', '.join(pending)}")
+    if not any(str(item.get("status")) == "approved" for item in state.get("proposals", [])):
+        raise ValueError("intake cannot be finalized without at least one approved origin")
+    _refresh_intake_status(vault, domain, state)
+    return resume_intake(vault, domain)
 
 
 def create_contract(
@@ -60,6 +216,7 @@ def create_contract(
         "approved_origins": [],
         "rejected_origins": [],
         "contract_version": 1,
+        "intake_status": "draft",
     }
     body = f"""# Sourcing contract: {domain}
 
@@ -111,6 +268,10 @@ def approve_origin(
     if not any(str(item.get("origin")) == clean for item in origins):
         origins.append({"origin": clean, "tier": tier, "rationale": rationale, "approved_by": approved_by, "approved_at": today_iso()})
     fm["approved_origins"] = origins
+    # Direct CLI approval remains an explicit manual override. Conversational
+    # approval uses decide_proposal, which also persists the proposal decision.
+    if not load_intake(vault, domain):
+        fm["intake_status"] = "approved"
     fm["updated"] = today_iso()
     fm["contract_version"] = int(fm.get("contract_version") or 1) + 1
     body = doc.body.rstrip() + f"\n\nOrigin approved: `{clean}` as `{tier}` — {rationale or 'owner-approved origin'}.\n"
@@ -135,6 +296,12 @@ def build_domain(
     domain_tag: str | None = None,
 ) -> dict[str, Any]:
     contract = load_contract(vault, domain)
+    intake = load_intake(vault, domain)
+    if str(contract.get("intake_status") or "") != "approved":
+        pending = [str(item.get("proposal_id")) for item in (intake or {}).get("proposals", []) if str(item.get("status")) == "pending"]
+        if pending:
+            raise ValueError(f"build blocked: owner decisions are still pending for {', '.join(pending)}")
+        raise ValueError("build blocked: sourcing intake is not finalized; propose and resolve origins first")
     config = load_config()
     findings = search_published_sources(query, providers=installed_published_providers(config=config), max_results_per_source=limit)
     approved: list[dict[str, Any]] = []

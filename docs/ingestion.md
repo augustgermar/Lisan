@@ -250,11 +250,22 @@ authoritative origins and scope are supplied.
 The librarian is also available through the main conversation and Telegram.
 Natural-language requests are translated into the guarded `librarian` tool:
 
-> Set up the California SDP librarian and ask me which authoritative origins I want to approve.
+> Propose authoritative sources for California SDP training requirements.
+
+The numbered proposals are persisted at
+`vault/domains/<domain>/librarian-intake.json`, so the exchange survives
+Telegram gaps, process restarts, and service restarts. Resume it with:
+
+> Resume my California SDP librarian intake.
 
 After reviewing the proposal, the owner can say:
 
-> Approve dds.ca.gov as a primary California SDP source because it is the state program authority.
+> Approve proposal origin-2 at https://dds.ca.gov/training as primary because it is the state program authority.
+
+The exact proposed URL is required for approval. Origins can also be rejected
+or down-tiered. Silence never approves anything, and a build request is
+blocked while any proposal remains pending or the intake has not been
+finalized.
 
 Then:
 
