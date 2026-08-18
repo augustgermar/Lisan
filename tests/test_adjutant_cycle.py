@@ -12,6 +12,7 @@ import sqlite3
 
 import pytest
 
+from lisan.config import DEFAULT_CONFIG
 from lisan.frontmatter import dump_markdown, load_markdown, write_markdown
 from lisan.paths import ensure_vault_layout
 from lisan.tools.adjutant_gate import gate, required_capabilities
@@ -21,6 +22,23 @@ from lisan.tools.db import connect as db_connect
 from lisan.tools.intent import init_intent, intent_path, load_intent
 from lisan.tools.rebuild_index import ensure_index_schema, index_single_record
 from lisan.tools.record_factory import new_confirmation, new_open_loop, new_schedule
+
+@pytest.fixture(autouse=True)
+def shipped_config(monkeypatch):
+    """Pin the shipped posture instead of reading the developer's config.json.
+
+    `run_cycle` falls back to `load_config()`, which resolves the live install
+    — so these tests asserted dry_run against whatever the machine happened to
+    be set to. Enabling the Adjutant on this install (2026-08-18) turned two
+    of them red and would have let `test_cycle_executes_nothing` execute for
+    real. A suite that is the floor cannot depend on the operator's flags.
+    """
+    from copy import deepcopy
+
+    monkeypatch.setattr(
+        "lisan.tools.adjutant_runner.load_config", lambda *a, **k: deepcopy(DEFAULT_CONFIG)
+    )
+
 
 DELEGATIONS = {
     "defaults": {"mode": "report_only"},
