@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -150,9 +151,26 @@ def build_analyst_bundle(vault: Path, subject: dict[str, Any] | None = None) -> 
             if heading == "Dreamer Summaries" and not str(doc.frontmatter.get("id", "")).startswith("dreamer."):
                 continue
             sections.append(f"### {path.relative_to(vault)}")
-            sections.append(path.read_text(encoding="utf-8").strip())
+            if heading == "Dreamer Summaries":
+                # Summaries, as the heading says. Reading whole dreamer
+                # reports to get at their conclusions pulled 141 MB of
+                # archived bundles into this prompt — 96% of it, and every
+                # byte a duplicate of records already listed above.
+                sections.append(_dreamer_summary(doc))
+            else:
+                sections.append(path.read_text(encoding="utf-8").strip())
             sections.append("")
     return "\n".join(sections).rstrip() + "\n"
+
+
+def _dreamer_summary(doc: Any) -> str:
+    """A dreamer report's conclusions: its frontmatter summary plus the
+    response block, never the archived bundle."""
+    parts = [str(doc.frontmatter.get("summary") or "").strip()]
+    match = re.search(r"## Response\n\n```json\n(.*?)\n```", doc.body, re.DOTALL)
+    if match:
+        parts.append(match.group(1).strip())
+    return "\n\n".join(part for part in parts if part)
 
 
 

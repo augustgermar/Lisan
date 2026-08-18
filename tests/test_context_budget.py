@@ -292,3 +292,58 @@ class DreamerRunTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AmplificationTests(unittest.TestCase):
+    """The feedback loop: each dreamer run archived the whole vault into
+    reports/, and the analyst read reports/ in full on every scan — so every
+    dreamer run made the analyst's prompt permanently bigger. 105 reports had
+    reached 141 MB, 96% of a 142 MB analyst bundle."""
+
+    def setUp(self) -> None:
+        from lisan.paths import ensure_repo_layout, vault_root
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        ensure_repo_layout(self.root)
+        self.vault = vault_root(self.root)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_dreamer_report_records_the_manifest_not_the_bundle(self) -> None:
+        from lisan.tools.dreamer_ops import run_dreamer_task
+
+        entities = self.vault / "entities" / "people"
+        entities.mkdir(parents=True, exist_ok=True)
+        for i in range(6):
+            (entities / f"p{i}.md").write_text(
+                '---\n{"id": "entity.p%d", "type": "entity"}\n---\n\n' % i + "UNIQUEBODY " * 4_000,
+                encoding="utf-8",
+            )
+
+        with patch("lisan.agents.DreamerAgent.run_json", return_value={"task": "compress", "summary": "s"}):
+            out = run_dreamer_task(vault=self.vault, task="compress",
+                                   config={"context": {"provider_input_chars": 4_000_000}})
+
+        body = out.read_text(encoding="utf-8")
+        self.assertNotIn("UNIQUEBODY", body, "the report must not archive record bodies")
+        self.assertIn("## Bundle Manifest", body)
+        self.assertIn("entities/people/p0.md", body, "but it must still name what was read")
+        self.assertLess(len(body), 20_000)
+
+    def test_analyst_reads_dreamer_conclusions_not_archived_bundles(self) -> None:
+        from lisan.tools.analyst_ops import build_analyst_bundle
+
+        reports = self.vault / "reports"
+        reports.mkdir(parents=True, exist_ok=True)
+        (reports / "dreamer-compress-1.md").write_text(
+            '---\n{"id": "dreamer.compress.1", "type": "report", "summary": "KEEPSUMMARY"}\n---\n\n'
+            "# Dreamer Compress\n\n## Response\n\n```json\n{\"findings\": [\"KEEPFINDING\"]}\n```\n\n"
+            "## Bundle Manifest\n\nDROPTHIS " * 500,
+            encoding="utf-8",
+        )
+        bundle = build_analyst_bundle(self.vault)
+        self.assertIn("KEEPSUMMARY", bundle)
+        self.assertIn("KEEPFINDING", bundle)
+        self.assertNotIn("DROPTHIS", bundle)

@@ -791,8 +791,30 @@ def _render_report(
 {json.dumps(response, indent=2, ensure_ascii=True)}
 ```
 {passes}
-## Bundle
+## Bundle Manifest
 
-{bundle.strip()}
+{_bundle_manifest(bundle, plan)}
 """
     write_markdown(out, frontmatter, render_for_display(body, vault))
+
+
+def _bundle_manifest(bundle: str, plan: ChunkPlan | None) -> str:
+    """What went into this run, by reference rather than by copy.
+
+    The report used to embed the whole bundle. At 2.4 MB a run that archived
+    105 copies of the vault into `reports/` — 141 MB, which the analyst then
+    read back in full on every scan, so each dreamer run made the analyst's
+    prompt bigger. The records are already in the vault and are its ground
+    truth; a second verbatim copy is not evidence, it is amplification. What
+    the audit actually needs is which records were read, and that is cheap.
+    """
+    lines = [f"Bundle: {len(bundle):,} chars"]
+    if plan is not None:
+        lines[0] += f", {plan.record_count} record(s), {plan.chunk_count} pass(es)"
+        for note in plan.notes():
+            lines.append(f"- INCOMPLETE: {note}")
+    lines.append("")
+    for line in bundle.splitlines():
+        if line.startswith("## ") or line.startswith("### "):
+            lines.append(line)
+    return "\n".join(lines).rstrip() + "\n"
