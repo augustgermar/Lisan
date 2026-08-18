@@ -117,6 +117,17 @@
       "high": "codex"
     }
   },
+  "context": {
+    "__comment_context": "How much vault fits in one provider window. Bundles over budget are split across passes and merged, never trimmed.",
+    "__comment_provider_input_chars": "The provider's hard input ceiling in CHARACTERS (codex: 1048576). Raise only if your provider accepts more.",
+    "provider_input_chars": 1048576,
+    "__comment_reserve_chars": "Headroom for the prompt template, schema instruction and chunk banner. Budget = provider_input_chars - reserve_chars.",
+    "reserve_chars": 131072,
+    "__comment_per_record_chars": "Backstop against a single pathological record. Above this a record is truncated with an in-band marker naming the omitted size.",
+    "per_record_chars": 100000,
+    "__comment_max_chunks": "Ceiling on how many model calls one bundle may become.",
+    "max_chunks": 12
+  },
   "heuristic": {
     "thresholds": {
       "skip": 3,

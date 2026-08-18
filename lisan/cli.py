@@ -554,7 +554,7 @@ def build_parser() -> argparse.ArgumentParser:
     primer_audit = subparsers.add_parser("primer-audit", help="Run the yearly primer audit scaffold")
     primer_audit.add_argument("--vault", type=Path, default=vault_root())
     primer_audit.add_argument("--dry-run", action="store_true")
-    primer_audit.add_argument("--provider", default="anthropic")
+    primer_audit.add_argument("--provider", default=None, help="Override routing; default asks the routing table")
     primer_audit.add_argument("--model", default=None)
 
     migrate = subparsers.add_parser("migrate", help="Inspect or run vault structure migrations")

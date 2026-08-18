@@ -8,47 +8,59 @@ from ..frontmatter import load_markdown
 from ..agents import DreamerAgent
 from ..paths import vault_root
 from ..utils import today_iso
+from .context_budget import Record, Section, render
 
 
-def build_primer_audit_bundle(vault: Path | None = None) -> str:
+def _readable(path: Path) -> bool:
+    """A record that will not parse is skipped, as it always has been."""
+    try:
+        load_markdown(path)
+    except Exception:
+        return False
+    return True
+
+
+def primer_audit_sections(vault: Path | None = None) -> list[Section]:
+    """The audit bundle as packable sections — see context_budget for why
+    this is a list of records rather than one string."""
     vault = vault or vault_root()
-    lines: list[str] = []
+    sections: list[Section] = []
 
     for rel in ["primer/operating-style.md"]:
         path = vault / rel
         if path.exists():
-            lines.append(f"## {rel}")
-            lines.append(path.read_text(encoding="utf-8").strip())
-            lines.append("")
+            sections.append(
+                Section(f"## {rel}", (Record("", path.read_text(encoding="utf-8").strip()),))
+            )
 
-    lines.append("## State Files")
-    for path in sorted((vault / "state").glob("*.md")):
-        try:
-            doc = load_markdown(path)
-        except Exception:
-            continue
-        lines.append(f"### {path.name}")
-        lines.append(path.read_text(encoding="utf-8").strip())
-        lines.append("")
-
-    lines.append("## Entities")
-    for path in sorted((vault / "entities").rglob("*.md")):
-        try:
-            doc = load_markdown(path)
-        except Exception:
-            continue
-        lines.append(f"### {path.relative_to(vault)}")
-        lines.append(path.read_text(encoding="utf-8").strip())
-        lines.append("")
+    sections.append(
+        Section(
+            "## State Files",
+            tuple(
+                Record(f"### {path.name}", path.read_text(encoding="utf-8").strip())
+                for path in sorted((vault / "state").glob("*.md"))
+                if _readable(path)
+            ),
+        )
+    )
+    sections.append(
+        Section(
+            "## Entities",
+            tuple(
+                Record(f"### {path.relative_to(vault)}", path.read_text(encoding="utf-8").strip())
+                for path in sorted((vault / "entities").rglob("*.md"))
+                if _readable(path)
+            ),
+        )
+    )
 
     cutoff = date.today() - timedelta(days=90)
-    lines.append("## Recent Episodes")
+    episodes: list[Record] = []
     for path in sorted((vault / "episodes").glob("*.md")):
         try:
-            doc = load_markdown(path)
+            created = load_markdown(path).frontmatter.get("created")
         except Exception:
             continue
-        created = doc.frontmatter.get("created")
         if not created:
             continue
         try:
@@ -56,19 +68,25 @@ def build_primer_audit_bundle(vault: Path | None = None) -> str:
                 continue
         except ValueError:
             continue
-        lines.append(f"### {path.name}")
-        lines.append(path.read_text(encoding="utf-8").strip())
-        lines.append("")
+        episodes.append(Record(f"### {path.name}", path.read_text(encoding="utf-8").strip()))
+    sections.append(Section("## Recent Episodes", tuple(episodes)))
+    return sections
 
-    return "\n".join(lines).rstrip() + "\n"
+
+def build_primer_audit_bundle(vault: Path | None = None) -> str:
+    return render(primer_audit_sections(vault))
 
 
 def run_primer_audit(
     vault: Path | None = None,
     dry_run: bool = False,
-    provider: str = "anthropic",
+    provider: str | None = None,
     model: str | None = None,
 ) -> str:
+    """``provider=None`` means "ask the routing table", which is the only
+    answer that works on an arbitrary install. This defaulted to the literal
+    string "anthropic" — a provider absent from DEFAULT_CONFIG, so
+    `lisan primer-audit` failed on any install that had not hand-added it."""
     vault = vault or vault_root()
     bundle = build_primer_audit_bundle(vault)
     if dry_run:

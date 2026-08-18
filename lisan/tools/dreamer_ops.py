@@ -10,9 +10,10 @@ from ..frontmatter import load_markdown
 from ..frontmatter import write_markdown
 from ..paths import vault_root
 from ..utils import today_iso
+from .context_budget import ChunkPlan, Record, Section, budget_from_config, plan_chunks, render
 from .deixis import render_for_display
 from .epistemic import canonical_pattern_status, pattern_age_days, pattern_minimum_age_days
-from .primer_audit import build_primer_audit_bundle
+from .primer_audit import build_primer_audit_bundle, primer_audit_sections
 
 
 # Tasks whose contract is not the generic dreamer_output shape: the class
@@ -26,27 +27,119 @@ _TASK_OUTPUT_SCHEMAS = {
 }
 
 
+_CHUNK_BANNER = (
+    "This vault does not fit one provider window, so it was partitioned. "
+    "You are reading part {n} of {total}; the other parts hold different "
+    "records of the same kinds. Reason about what is in front of you and do "
+    "not infer that a record's absence means it does not exist — findings "
+    "from every part are merged afterwards."
+)
+
+
 def run_dreamer_task(
     vault: Path | None = None,
     task: str = "compress",
     provider: str | None = None,
     model: str | None = None,
+    config: dict[str, Any] | None = None,
 ) -> Path:
+    """Run one dreamer task, in as many passes as the vault requires.
+
+    Chunking exists so the dreamer keeps seeing everything as the vault
+    grows. Only the record-heavy tasks ever split, and none of those carry a
+    side effect — the side effect always receives the whole rendered bundle,
+    so contradiction/reconcile/hindsight behave exactly as before.
+
+    A provider failure raises. This job used to swallow it and return
+    ``fallback_output``, so ``dreamer.maintenance`` recorded success and
+    ``lisan self state`` reported a healthy dreamer for the seventeen days it
+    was dead. A maintenance organ that cannot do its work must say so.
+    """
+    from ..config import load_config
     from ..schemas import get_schema
 
     vault = vault or vault_root()
+    config = config if config is not None else load_config()
     prompt_file = _prompt_for_task(task)
-    bundle = _bundle_for_task(vault, task)
+    sections = _sections_for_task(vault, task)
+    bundle = render(sections)
+    plan = plan_chunks(sections, **budget_from_config(config))
+
     agent = DreamerAgent(vault=vault, prompt_file=prompt_file)
     schema = get_schema(_TASK_OUTPUT_SCHEMAS[task]) if task in _TASK_OUTPUT_SCHEMAS else None
-    response = agent.run_json(
-        bundle, significance="high", provider=provider, model=model, task=task, schema=schema
-    )
+
+    def _run(text: str) -> dict[str, Any]:
+        return agent.run_json(
+            text, significance="high", provider=provider, model=model, task=task,
+            schema=schema, provider_error_mode="raise",
+        )
+
+    if plan.chunk_count <= 1:
+        response = _run(plan.chunks[0] if plan.chunks else bundle)
+    else:
+        parts = [
+            _run(f"{_CHUNK_BANNER.format(n=n, total=plan.chunk_count)}\n\n{chunk}")
+            for n, chunk in enumerate(plan.chunks, start=1)
+        ]
+        response = _merge_dreamer_outputs(parts, task=task)
+
     artifact_path = _apply_task_side_effect(vault, task, bundle, response)
     out = _output_path(vault, task)
     out.parent.mkdir(parents=True, exist_ok=True)
-    _render_report(out, task, bundle, response, artifact_path)
+    _render_report(out, task, bundle, response, artifact_path, plan=plan)
     return out
+
+
+def _dedupe(items: list[Any]) -> list[Any]:
+    """Order-preserving dedupe across parts. The same entity can surface the
+    same finding from two chunks; the owner should read it once."""
+    seen: set[str] = set()
+    out: list[Any] = []
+    for item in items:
+        key = json.dumps(item, sort_keys=True, default=str) if not isinstance(item, str) else item
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
+def _merge_dreamer_outputs(parts: list[dict[str, Any]], *, task: str) -> dict[str, Any]:
+    """Fold per-chunk outputs into one. Lists concatenate and dedupe;
+    ``approved`` is unanimous-or-false, because one part withholding approval
+    is a reason not to approve."""
+    merged: dict[str, Any] = {"task": task}
+    summaries: list[str] = []
+    notes: list[str] = []
+    approvals: list[bool] = []
+    lists: dict[str, list[Any]] = {}
+
+    for index, part in enumerate(parts, start=1):
+        if not isinstance(part, dict):
+            continue
+        for key, value in part.items():
+            if key == "task":
+                continue
+            if key == "summary" and value:
+                summaries.append(f"(part {index}/{len(parts)}) {value}")
+            elif key == "notes" and value:
+                notes.append(str(value))
+            elif key == "approved":
+                approvals.append(bool(value))
+            elif isinstance(value, list):
+                lists.setdefault(key, []).extend(value)
+            else:
+                merged.setdefault(key, value)
+
+    merged["summary"] = "\n\n".join(summaries)
+    for key, values in lists.items():
+        merged[key] = _dedupe(values)
+    if approvals:
+        merged["approved"] = all(approvals)
+    if notes:
+        merged["notes"] = "\n\n".join(notes)
+    merged["chunked_parts"] = len(parts)
+    return merged
 
 
 def _prompt_for_task(task: str) -> str:
@@ -64,36 +157,72 @@ def _prompt_for_task(task: str) -> str:
     return mapping.get(task, "dreamer_compress_v1")
 
 
-def _bundle_for_task(vault: Path, task: str) -> str:
+def _flat(body: str) -> Section:
+    """Wrap an already-rendered small bundle as one indivisible record.
+
+    These bundles are summaries or short candidate lists — bounded by their
+    own filters and far under any provider ceiling — so there is nothing to
+    gain from splitting them, and they carry their own headings already."""
+    return Section("", (Record("", body.rstrip()),))
+
+
+def _sections_for_task(vault: Path, task: str) -> list[Section]:
+    patterns = _flat(_bundle_approved_patterns(vault))
     if task == "primer":
-        return build_primer_audit_bundle(vault) + _bundle_approved_patterns(vault)
+        return primer_audit_sections(vault) + [patterns]
     if task == "contradict":
-        return _bundle_recent_episodes(vault, days=120, include_states=True, include_entities=False) + _bundle_approved_patterns(vault)
+        return _sections_recent_episodes(vault, 120, True, False) + [patterns]
     if task == "confidence":
-        return _bundle_confidence(vault) + _bundle_approved_patterns(vault)
+        return [_flat(_bundle_confidence(vault)), patterns]
     if task == "epoch":
-        return _bundle_entities(vault) + _bundle_approved_patterns(vault)
+        return _sections_entities(vault) + [patterns]
     if task == "overfitting":
-        return _bundle_overfitting(vault) + _bundle_approved_patterns(vault)
+        return [_flat(_bundle_overfitting(vault)), patterns]
     if task == "identity_anchor":
-        return _bundle_identity(vault) + _bundle_approved_patterns(vault)
+        return [Section("## Identity Anchors")] + _sections_recent_episodes(vault, 180, True, True) + [patterns]
     if task == "reconcile":
-        return _bundle_self_reconciliation(vault)
+        return [_flat(_bundle_self_reconciliation(vault))]
     if task == "hindsight":
-        return _bundle_hindsight(vault)
-    return _bundle_recent_episodes(vault, days=365, include_states=True, include_entities=True) + _bundle_approved_patterns(vault)
+        return [_flat(_bundle_hindsight(vault))]
+    return _sections_recent_episodes(vault, 365, True, True) + [patterns]
 
 
-def _bundle_recent_episodes(vault: Path, days: int, include_states: bool, include_entities: bool) -> str:
-    lines: list[str] = []
+def _bundle_for_task(vault: Path, task: str) -> str:
+    return render(_sections_for_task(vault, task))
+
+
+def _readable(path: Path) -> bool:
+    try:
+        load_markdown(path)
+    except Exception:
+        return False
+    return True
+
+
+def _entity_records(vault: Path) -> tuple[Record, ...]:
+    return tuple(
+        Record(f"### {path.relative_to(vault)}", path.read_text(encoding="utf-8").strip())
+        for path in sorted((vault / "entities").rglob("*.md"))
+        if _readable(path)
+    )
+
+
+def _state_records(vault: Path) -> tuple[Record, ...]:
+    return tuple(
+        Record(f"### {path.name}", path.read_text(encoding="utf-8").strip())
+        for path in sorted((vault / "state").glob("*.md"))
+        if _readable(path)
+    )
+
+
+def _episode_records(vault: Path, days: int) -> tuple[Record, ...]:
     cutoff = date.today() - timedelta(days=days)
-    lines.append("## Recent Episodes")
+    records: list[Record] = []
     for path in sorted((vault / "episodes").glob("*.md")):
         try:
-            doc = load_markdown(path)
+            created = load_markdown(path).frontmatter.get("created")
         except Exception:
             continue
-        created = doc.frontmatter.get("created")
         if not created:
             continue
         try:
@@ -101,32 +230,23 @@ def _bundle_recent_episodes(vault: Path, days: int, include_states: bool, includ
                 continue
         except ValueError:
             continue
-        lines.append(f"### {path.name}")
-        lines.append(path.read_text(encoding="utf-8").strip())
-        lines.append("")
+        records.append(Record(f"### {path.name}", path.read_text(encoding="utf-8").strip()))
+    return tuple(records)
 
+
+def _sections_recent_episodes(
+    vault: Path, days: int, include_states: bool, include_entities: bool
+) -> list[Section]:
+    sections = [Section("## Recent Episodes", _episode_records(vault, days))]
     if include_states:
-        lines.append("## State Files")
-        for path in sorted((vault / "state").glob("*.md")):
-            try:
-                load_markdown(path)
-            except Exception:
-                continue
-            lines.append(f"### {path.name}")
-            lines.append(path.read_text(encoding="utf-8").strip())
-            lines.append("")
-
+        sections.append(Section("## State Files", _state_records(vault)))
     if include_entities:
-        lines.append("## Entities")
-        for path in sorted((vault / "entities").rglob("*.md")):
-            try:
-                load_markdown(path)
-            except Exception:
-                continue
-            lines.append(f"### {path.relative_to(vault)}")
-            lines.append(path.read_text(encoding="utf-8").strip())
-            lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+        sections.append(Section("## Entities", _entity_records(vault)))
+    return sections
+
+
+def _bundle_recent_episodes(vault: Path, days: int, include_states: bool, include_entities: bool) -> str:
+    return render(_sections_recent_episodes(vault, days, include_states, include_entities))
 
 
 def _bundle_confidence(vault: Path) -> str:
@@ -151,17 +271,12 @@ def _bundle_confidence(vault: Path) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _sections_entities(vault: Path) -> list[Section]:
+    return [Section("## Entity Candidates", _entity_records(vault))]
+
+
 def _bundle_entities(vault: Path) -> str:
-    lines = ["## Entity Candidates", ""]
-    for path in sorted((vault / "entities").rglob("*.md")):
-        try:
-            load_markdown(path)
-        except Exception:
-            continue
-        lines.append(f"### {path.relative_to(vault)}")
-        lines.append(path.read_text(encoding="utf-8").strip())
-        lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+    return render(_sections_entities(vault))
 
 
 def _bundle_overfitting(vault: Path) -> str:
@@ -620,7 +735,14 @@ def _write_contradiction_log(vault: Path, bundle: str, response: dict[str, Any])
     return out
 
 
-def _render_report(out: Path, task: str, bundle: str, response: dict[str, Any], artifact_path: Path | None) -> None:
+def _render_report(
+    out: Path,
+    task: str,
+    bundle: str,
+    response: dict[str, Any],
+    artifact_path: Path | None,
+    plan: ChunkPlan | None = None,
+) -> None:
     vault = out.parents[1]
     stamp = out.stem.split("-")[-1]
     frontmatter = {
@@ -642,6 +764,25 @@ def _render_report(out: Path, task: str, bundle: str, response: dict[str, Any], 
         "review_after": today_iso(),
         "task": task,
     }
+    if plan is not None:
+        frontmatter["chunks"] = plan.chunk_count
+        frontmatter["bundle_chars"] = len(bundle)
+        frontmatter["records"] = plan.record_count
+        if plan.notes():
+            # Anything not carried whole is a fact about this report's
+            # evidence, so it belongs in the record, not only in a log.
+            frontmatter["bundle_incomplete"] = plan.notes()
+
+    passes = ""
+    if plan is not None and plan.chunk_count > 1:
+        passes = (
+            f"\n## Passes\n\nThe bundle ({len(bundle):,} chars, {plan.record_count} records) "
+            f"exceeded the {plan.budget_chars:,}-char window and ran as {plan.chunk_count} "
+            f"passes; findings below are merged across all of them.\n"
+        )
+        for note in plan.notes():
+            passes += f"\n- {note}\n"
+
     body = f"""# Dreamer {task.replace('_', ' ').title()}
 
 ## Response
@@ -649,7 +790,7 @@ def _render_report(out: Path, task: str, bundle: str, response: dict[str, Any], 
 ```json
 {json.dumps(response, indent=2, ensure_ascii=True)}
 ```
-
+{passes}
 ## Bundle
 
 {bundle.strip()}

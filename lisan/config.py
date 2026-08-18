@@ -75,6 +75,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "provider_check":     {"low": "codex", "medium": "codex", "high": "codex"},
         "self_repair_author": {"low": "codex", "medium": "codex", "high": "codex"},
     },
+    # How much vault fits in one provider window. The ceiling is the
+    # provider's, not ours: codex rejects >1,048,576 characters outright.
+    # Bundles larger than the budget are PARTITIONED across passes, not
+    # trimmed — per_record_chars is a backstop against one pathological
+    # record, deliberately set above the largest real one.
+    "context": {
+        "provider_input_chars": 1_048_576,
+        "reserve_chars": 131_072,
+        "per_record_chars": 100_000,
+        "max_chunks": 12,
+    },
     "heuristic": {
         "thresholds": {"skip": 3, "lightweight": 6},
         "high_stakes_terms": None,
