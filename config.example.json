@@ -40,6 +40,12 @@
     "__comment_routing_format": "Agent routing: each agent maps low/medium/high significance turns to a provider name from the providers block.",
     "__comment_routing_default": "Default: all agents route to codex (local Claude binary). Set CODEX_BIN to your codex executable path.",
     "__comment_routing_alternatives": "To use a local OpenAI-compatible server instead, swap all 'codex' values to 'local' and set base_url above.",
+    "__comment_routing_default_entry": "'default' answers for any agent with no entry of its own, including dotted sub-agent names. Without it an unrouted agent is a hard error rather than a silent guess.",
+    "default": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
+    },
     "router": {
       "low": "codex",
       "medium": "codex",
@@ -86,6 +92,26 @@
       "high": "codex"
     },
     "analyst": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
+    },
+    "adjutant": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
+    },
+    "codex": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
+    },
+    "provider_check": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
+    },
+    "self_repair_author": {
       "low": "codex",
       "medium": "codex",
       "high": "codex"

@@ -49,17 +49,31 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "default_model": "mistralai/mistral-nemo",
         },
     },
+    # Every agent that calls an LLM needs an entry here. "default" catches
+    # anything not listed (a `lisan complete --agent` one-off, a derived
+    # sub-agent name) so an omission degrades to the ordinary provider rather
+    # than to whatever is listening on the local port — the 2026-08-16
+    # self_repair_author failure. tests/test_provider_routing.py is the gate:
+    # a new agent name without an entry fails the suite.
     "routing": {
-        "router":       {"low": "codex", "medium": "codex", "high": "codex"},
-        "listener":     {"low": "codex", "medium": "codex", "high": "codex"},
-        "assembler":    {"low": "codex", "medium": "codex", "high": "codex"},
-        "elicitor":     {"low": "codex", "medium": "codex", "high": "codex"},
-        "writer":       {"low": "codex", "medium": "codex", "high": "codex"},
-        "skeptic":      {"low": "codex", "medium": "codex", "high": "codex"},
-        "interlocutor": {"low": "codex", "medium": "codex", "high": "codex"},
-        "dreamer":      {"low": "codex", "medium": "codex", "high": "codex"},
-        "advice":       {"low": "codex", "medium": "codex", "high": "codex"},
-        "analyst":      {"low": "codex", "medium": "codex", "high": "codex"},
+        "default":            {"low": "codex", "medium": "codex", "high": "codex"},
+        "router":             {"low": "codex", "medium": "codex", "high": "codex"},
+        "listener":           {"low": "codex", "medium": "codex", "high": "codex"},
+        "assembler":          {"low": "codex", "medium": "codex", "high": "codex"},
+        "elicitor":           {"low": "codex", "medium": "codex", "high": "codex"},
+        "writer":             {"low": "codex", "medium": "codex", "high": "codex"},
+        "skeptic":            {"low": "codex", "medium": "codex", "high": "codex"},
+        "interlocutor":       {"low": "codex", "medium": "codex", "high": "codex"},
+        "dreamer":            {"low": "codex", "medium": "codex", "high": "codex"},
+        "advice":             {"low": "codex", "medium": "codex", "high": "codex"},
+        "analyst":            {"low": "codex", "medium": "codex", "high": "codex"},
+        "adjutant":           {"low": "codex", "medium": "codex", "high": "codex"},
+        # The executor label. Its two call sites construct CodexClient
+        # directly, so this entry is not consulted today; it is here so the
+        # name resolves correctly if either one ever routes through LisanLLM.
+        "codex":              {"low": "codex", "medium": "codex", "high": "codex"},
+        "provider_check":     {"low": "codex", "medium": "codex", "high": "codex"},
+        "self_repair_author": {"low": "codex", "medium": "codex", "high": "codex"},
     },
     "heuristic": {
         "thresholds": {"skip": 3, "lightweight": 6},

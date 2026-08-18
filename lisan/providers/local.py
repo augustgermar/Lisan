@@ -79,12 +79,18 @@ class LocalClient(ProviderClient):
     ) -> LLMResponse:
         base_url = self.config["providers"]["local"]["base_url"]
         chosen_model = model or self.config["providers"]["local"]["default_model"]
-        payload = {
-            "model": chosen_model,
+        payload: dict[str, Any] = {
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
             "max_tokens": 4096,
         }
+        # Omit the key entirely when no model is configured. Sending
+        # "model": null is not the same as saying nothing: llama.cpp ignores
+        # it, but mlx_lm.server closes the connection without a response, and
+        # the caller sees a bare "Remote end closed connection" with no clue
+        # that the config is the cause (2026-08-16).
+        if chosen_model:
+            payload["model"] = chosen_model
         if schema:
             payload["messages"].insert(0, {"role": "system", "content": f"Return output compatible with schema: {schema.get('$id') or schema.get('title') or 'provided schema'}"})
             payload["response_format"] = {"type": "json_object"}
