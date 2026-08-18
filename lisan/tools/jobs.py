@@ -563,6 +563,94 @@ def _promote_due_retry_wait_jobs(conn: sqlite3.Connection) -> int:
     return int(cursor.rowcount or 0)
 
 
+DEFAULT_DEFER_SECONDS = 300
+MAX_DEFERRALS = 12
+DEFERRAL_COUNT_KEY = "deferred_count"
+
+
+class JobDeferred(RuntimeError):
+    """Not now — but not a failure either.
+
+    A handler raises this when the world is temporarily in the wrong state
+    for the job to run and waiting is the correct response. The distinction
+    is not cosmetic: ``self_repair.restart`` deferred itself on 2026-08-16
+    because other jobs were mid-run, that deferral was raised as an ordinary
+    error, and the zero-backoff retry burned all three attempts in two
+    seconds against a condition that needed minutes. The advice the job
+    itself printed — wait for them to finish — was unfollowable. A deferral
+    reschedules into the future and does not spend an attempt.
+    """
+
+    def __init__(self, reason: str, retry_after_seconds: int = DEFAULT_DEFER_SECONDS) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.retry_after_seconds = max(1, int(retry_after_seconds))
+
+
+def defer_job(
+    job_id: str,
+    reason: str,
+    *,
+    retry_after_seconds: int = DEFAULT_DEFER_SECONDS,
+    max_deferrals: int = MAX_DEFERRALS,
+    db_path: Path | None = None,
+) -> dict[str, Any] | None:
+    """Reschedule a job that asked to wait, refunding the claimed attempt.
+
+    Bounded: a job that has deferred ``max_deferrals`` times has stopped
+    waiting for a transient condition and is stuck, so it fails terminally
+    and takes the ordinary escalation ladder — the owner hears about it.
+    """
+    conn = _connect(db_path)
+    try:
+        ensure_jobs_table(conn)
+        row = conn.execute("SELECT attempts, payload_json FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if row is None:
+            return None
+        payload = _json_loads(row["payload_json"]) or {}
+        if not isinstance(payload, dict):
+            payload = {}
+        deferrals = int(payload.get(DEFERRAL_COUNT_KEY) or 0) + 1
+        if deferrals > max_deferrals:
+            exhausted = True
+        else:
+            exhausted = False
+            payload[DEFERRAL_COUNT_KEY] = deferrals
+            # Refund the attempt spent on claiming: a deferral is not a try.
+            attempts = max(0, int(row["attempts"] or 0) - 1)
+            conn.execute(
+                """
+                UPDATE jobs
+                SET status = 'retry_wait',
+                    attempts = ?,
+                    payload_json = ?,
+                    scheduled_for = ?,
+                    started_at = NULL,
+                    worker_id = NULL,
+                    error = ?
+                WHERE id = ?
+                """,
+                (
+                    attempts,
+                    _json_dumps(payload),
+                    _iso(_now() + timedelta(seconds=max(1, int(retry_after_seconds)))),
+                    f"deferred ({deferrals}/{max_deferrals}): {reason}",
+                    job_id,
+                ),
+            )
+            conn.commit()
+    finally:
+        conn.close()
+    if exhausted:
+        return mark_job_failed(
+            job_id,
+            f"deferred {max_deferrals} times without the condition clearing: {reason}",
+            retry=False,
+            db_path=db_path,
+        )
+    return get_job(job_id, db_path=db_path)
+
+
 def mark_job_succeeded(
     job_id: str,
     result: Any = None,
@@ -998,7 +1086,13 @@ def dispatch_job(
 
         result = restart_service(db_path=db_path, exclude_job_id=str(job.get("id") or ""))
         if result.get("reason") == "jobs_in_flight":
-            raise RuntimeError(result.get("hint") or "safe self-repair restart deferred while jobs are running")
+            # Waiting is the whole point of the guard — come back later
+            # rather than spending an attempt on a condition that has not
+            # had time to change.
+            running = ", ".join(str(item.get("id")) for item in result.get("running_jobs") or [])
+            raise JobDeferred(
+                f"restart is waiting on jobs still mid-run: {running or 'unknown'}",
+            )
         if not result.get("restarted"):
             raise RuntimeError(result.get("reason") or "self-repair service restart failed")
         return result
@@ -1333,6 +1427,7 @@ def run_jobs_worker(
     processed: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
     successes: list[dict[str, Any]] = []
+    deferrals: list[dict[str, Any]] = []
 
     reclaimed = reclaim_stale_running_jobs(db_path)
     if reclaimed:
@@ -1361,6 +1456,35 @@ def run_jobs_worker(
             processed.append(updated or job)
             _requeue_recurring(job, db_path=db_path)
             _record_self_episode(vault, updated or job, db_path=db_path)
+        except JobDeferred as deferred:
+            # Not a failure: no attempt spent, no owner alarm, no episode.
+            # The job comes back when the condition it named has had time
+            # to clear, or fails terminally once it has waited long enough.
+            updated = defer_job(
+                job["id"],
+                deferred.reason,
+                retry_after_seconds=deferred.retry_after_seconds,
+                db_path=db_path,
+            )
+            processed.append(updated or job)
+            if updated is not None and str(updated.get("status")) == "failed":
+                failures.append(updated)
+                _record_self_episode(vault, updated, db_path=db_path)
+                _requeue_recurring(job, db_path=db_path)
+                from .escalation import escalate_terminal_failure
+
+                escalate_terminal_failure(job, str(updated.get("error") or deferred.reason), vault=vault, db_path=db_path)
+            else:
+                deferrals.append(updated or job)
+                try:
+                    from .log import get_logger
+
+                    get_logger(vault or vault_root()).info(
+                        f"jobs.deferred id={job['id']} type={job.get('job_type')} "
+                        f"retry_after={deferred.retry_after_seconds}s reason={deferred.reason}"
+                    )
+                except Exception:
+                    pass
         except Exception as exc:
             updated = mark_job_failed(job["id"], str(exc), retry=True, db_path=db_path)
             failures.append(updated or job)
@@ -1391,9 +1515,11 @@ def run_jobs_worker(
         "processed_count": len(processed),
         "success_count": len(successes),
         "failure_count": len(failures),
+        "deferral_count": len(deferrals),
         "processed_jobs": processed,
         "successes": successes,
         "failures": failures,
+        "deferrals": deferrals,
     }
 
 
