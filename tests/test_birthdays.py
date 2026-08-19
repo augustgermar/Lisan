@@ -17,6 +17,13 @@ from lisan.tools.scheduler import next_occurrence
 def _utc(monkeypatch):
     monkeypatch.setattr(birthdays, "_local_tz", lambda: timezone.utc)
     monkeypatch.setattr(scheduler, "_local_tz", lambda: timezone.utc)
+    # `birthdays` does `from .scheduler import _now_utc`, so freezing
+    # birthdays._now_utc rebinds only that module's name — schedule_task kept
+    # validating "is this in the past?" against the real clock. The fixture
+    # reminders resolve to 2026-08-19T09:00Z, so the suite went red on its own
+    # the morning of 2026-08-19 with no code change. The scheduler follows
+    # whatever clock the test froze.
+    monkeypatch.setattr(scheduler, "_now_utc", lambda: birthdays._now_utc())
 
 
 def _at(y, m, d, h=8):
