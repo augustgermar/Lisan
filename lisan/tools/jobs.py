@@ -54,6 +54,7 @@ JOB_TYPES = {
     "enrichment.retry_pending",
     "self_repair.propose",
     "self_repair.restart",
+    "self_repair.bake_check",
     "self.evaluate",
     "prediction.reconcile",
     "corpus.audit_priors",
@@ -1096,6 +1097,15 @@ def dispatch_job(
         if not result.get("restarted"):
             raise RuntimeError(result.get("reason") or "self-repair service restart failed")
         return result
+
+    if job_type == "self_repair.bake_check":
+        from .self_repair import run_bake_check
+
+        proposal_id = str(payload.get("proposal_id") or "").strip()
+        if not proposal_id:
+            raise ValueError("self_repair.bake_check requires proposal_id")
+        repo = Path(str(payload.get("repo") or Path(__file__).resolve().parents[2])).resolve()
+        return run_bake_check(vault, proposal_id, repo=repo, db_path=db_path)
 
     if job_type == "deviation.scan":
         from ..config import load_config

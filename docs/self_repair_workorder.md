@@ -1,9 +1,10 @@
 # Work Order — The Self-Repair Loop (WO-REPAIR)
 
-**Status: PHASE A/B SHIPPED 2026-08-16; PHASE C REMAINS.** The entry gate was
-reviewed, Phase A was lived through an owner-approved proposal, and Phase B
-was exercised against the live checkout. Phase C — bake monitoring and dumb
-rollback — is not yet enabled. Written 2026-07-05; where this document
+**Status: PHASE A/B SHIPPED 2026-08-16; PHASE C SHIPPED 2026-08-19.** The entry
+gate was reviewed, Phase A was lived through an owner-approved proposal, Phase B
+was exercised against the live checkout, and Phase C was proven with a
+deliberately bad disposable patch (full lifecycle test: apply, detect regression,
+rollback, reopen loop, emit episode). Written 2026-07-05; where this document
 conflicts with the code as it then exists, reality wins — report the conflict.
 
 **One-line goal:** close the last gap in the improvement cycle — the agent
@@ -128,13 +129,20 @@ eligibility tiers for which files may be improved.
   After an exact approval, apply the verified worktree as a granular local
   commit, record the proposal and approval, resolve the originating loop, and
   queue a safe service restart.
-- **Phase C — bake and rollback.** Monitor the applied commit for the bake
-  period, compare the targeted metric, and perform the pre-recorded dumb
-  rollback procedure when the rollback rule fires.
+- **Phase C — bake and rollback — SHIPPED 2026-08-19.** Monitor the applied
+  commit for a bake period (default 48h) via self-rescheduling
+  `self_repair.bake_check` jobs. Four probes: test suite, service liveness,
+  error-log delta, targeted self-eval dimension score. Regression rule: suite
+  failure or ≥0.5 drop on the targeted dimension. Inconclusive (no self-eval
+  yet) extends the bake period up to 2 times. Rollback is `git revert` of the
+  exact applied commit — refused if owner commits sit on top. Reopens the
+  origin loop. Policy kind `self_repair_rollback` at tier 4 (co-gated with
+  apply). Proven with `test_full_bake_regression_lifecycle`: a deliberately bad
+  patch applied, bake check catches the suite failure, rollback fires, file
+  restored, loop reopened, episode emitted.
 
-Phase A was lived with before Phase B was enabled. Phase C must be proven
-with a deliberately bad disposable patch before it is enabled for real
-patches.
+Phase A was lived with before Phase B was enabled. Phase C was proven with a
+deliberately bad disposable patch in the test suite before it was shipped.
 
 ## 3. Open implementation questions (resolve against the code, then)
 
@@ -180,7 +188,8 @@ Phase B additionally requires a clean-base apply and safe restart test —
 completed 2026-08-16 with local commit `1e59bd5` and a controlled service
 restart.
 Phase C additionally requires a proven rollback against a deliberately bad
-disposable patch and a documented bake result.
+disposable patch and a documented bake result — completed 2026-08-19 with
+`test_full_bake_regression_lifecycle` (22 self-repair tests total, all passing).
 
 ---
 

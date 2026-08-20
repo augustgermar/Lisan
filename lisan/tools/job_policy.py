@@ -31,6 +31,7 @@ DEFAULT_JOB_PRIORITIES = {
     "enrichment.seek": 82,
     "enrichment.retry_pending": 83,
     "self_repair.propose": 84,
+    "self_repair.bake_check": 84,
     "self.evaluate": 90,
     "entity.rewrite_story": 85,
     # User-scheduled tasks outrank maintenance: when a reminder and a dreamer
@@ -52,6 +53,7 @@ COALESCE_AGGRESSIVE = {
     "pattern.audit",
     "manifest.regenerate",
     "index.rebuild_all",
+    "self_repair.bake_check",
 }
 
 COALESCE_BY_RECORD = {

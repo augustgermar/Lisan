@@ -1,9 +1,9 @@
-"""Phase A and B of the self-repair loop.
+"""The self-repair loop: propose, apply, bake, and roll back.
 
 Phase A creates and verifies an isolated proposal. Phase B applies only an
 exactly approved proposal after revalidating the clean base and patch hash.
-The live policy clamp still keeps Phase B unreachable until the owner enables
-it explicitly.
+Phase C monitors the applied patch for a bake period and rolls back on
+regression — deterministically, no LLM, no agent health dependency.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import subprocess
 import tempfile
 import uuid
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -60,6 +60,13 @@ class AppliedProposal:
     commit: str
     restart_job_id: str | None
     report_path: Path
+
+
+DEFAULT_BAKE_HOURS = 48
+BAKE_CHECK_INTERVAL_HOURS = 12
+MAX_BAKE_EXTENSIONS = 2
+REGRESSION_DROP_THRESHOLD = 0.5
+_SELF_EVAL_DIM_PREFIX = "self-eval-dim-"
 
 
 def _run(command: list[str], *, cwd: Path, timeout: int = 120) -> subprocess.CompletedProcess[str]:
@@ -429,10 +436,399 @@ def apply_approved_proposal(
         ),
         db_path=db_path,
     )
+    bake = _bake_metadata(vault, loop_id, commit, base_commit)
+    bake_job = _enqueue_bake_check(vault, proposal_id, db_path=db_path)
     fm.update({
         "status": "applied", "updated": today, "applied_at": today,
         "applied_by": "self_repair", "applied_commit": commit,
         "approval_id": str(approval["id"]), "restart_job_id": restart_job,
+        **bake,
+        "bake_check_job_id": bake_job,
     })
     write_markdown(report, fm, doc.body + f"\n## Applied\n\nLocal commit: `{commit}`\nRestart job: `{restart_job}`\n")
     return AppliedProposal(proposal_id, commit, restart_job, report)
+
+
+# ── Phase C: bake monitoring and dumb rollback ───────────────────────────────
+
+
+def _targeted_dimension(vault: Path, loop_id: str) -> str | None:
+    """Extract the self-eval dimension from the origin loop's fingerprint."""
+    for path in sorted((vault / "open_loops").glob("*.md")):
+        try:
+            fm = load_markdown(path).frontmatter
+        except Exception:
+            continue
+        if str(fm.get("id") or "") != loop_id:
+            continue
+        fp = str(fm.get("deviation_fingerprint") or "")
+        if fp.startswith(_SELF_EVAL_DIM_PREFIX):
+            return fp[len(_SELF_EVAL_DIM_PREFIX):]
+        return None
+    return None
+
+
+def _latest_dimension_score(vault: Path, dimension: str, *, after: str | None = None) -> float | None:
+    """Most recent self-eval score for a dimension, optionally after a date."""
+    history = vault / "reports" / "self-eval-history.jsonl"
+    if not history.exists():
+        return None
+    score = None
+    try:
+        for line in history.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            entry = json.loads(line)
+            if after and str(entry.get("date") or "") <= after:
+                continue
+            dims = entry.get("dimensions") or {}
+            dim_stats = dims.get(dimension)
+            if isinstance(dim_stats, dict) and dim_stats.get("n", 0) > 0:
+                score = float(dim_stats["mean"])
+    except Exception:
+        pass
+    return score
+
+
+def _error_log_line_count(vault: Path) -> int:
+    log = vault / "logs" / "errors.log"
+    if not log.exists():
+        return 0
+    try:
+        return len(log.read_text(encoding="utf-8", errors="ignore").splitlines())
+    except Exception:
+        return 0
+
+
+def _bake_metadata(
+    vault: Path,
+    loop_id: str,
+    applied_commit: str,
+    base_commit: str,
+    *,
+    bake_hours: int = DEFAULT_BAKE_HOURS,
+) -> dict[str, Any]:
+    """Compute the rollback metadata recorded at apply time."""
+    now = datetime.now(timezone.utc)
+    dimension = _targeted_dimension(vault, loop_id)
+    pre_score = _latest_dimension_score(vault, dimension) if dimension else None
+    return {
+        "bake_status": "monitoring",
+        "bake_start": now.isoformat(),
+        "bake_end": (now + timedelta(hours=bake_hours)).isoformat(),
+        "bake_base_commit": base_commit,
+        "bake_applied_commit": applied_commit,
+        "targeted_dimension": dimension,
+        "bake_pre_score": pre_score,
+        "bake_error_log_lines": _error_log_line_count(vault),
+        "bake_extensions": 0,
+    }
+
+
+def _enqueue_bake_check(
+    vault: Path,
+    proposal_id: str,
+    *,
+    delay_hours: int = BAKE_CHECK_INTERVAL_HOURS,
+    db_path: Path | None = None,
+) -> str:
+    """Schedule the next bake check."""
+    from .jobs import enqueue_job
+
+    scheduled = datetime.now(timezone.utc) + timedelta(hours=delay_hours)
+    return enqueue_job(
+        "self_repair.bake_check",
+        {"vault": str(vault), "proposal_id": proposal_id},
+        db_path=db_path,
+        scheduled_for=scheduled.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+
+
+def _load_proposal_report(vault: Path, proposal_id: str) -> tuple[Path, dict[str, Any], str]:
+    """Load and validate a proposal report. Returns (path, frontmatter, body)."""
+    proposal_id = str(proposal_id).strip()
+    if not proposal_id or "/" in proposal_id or "\\" in proposal_id or ".." in proposal_id:
+        raise SelfRepairRefused("invalid proposal id")
+    report = vault / "reports" / "self-repair-proposals" / f"{proposal_id}.md"
+    if not report.exists():
+        raise SelfRepairRefused(f"proposal report not found: {proposal_id}")
+    doc = load_markdown(report)
+    return report, dict(doc.frontmatter), doc.body
+
+
+def run_bake_check(
+    vault: Path,
+    proposal_id: str,
+    *,
+    repo: Path | None = None,
+    db_path: Path | None = None,
+    test_command: list[str] | None = None,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """One deterministic bake-period check. No LLM calls.
+
+    Returns a report dict; handles its own rescheduling, rollback, or
+    graduation. The caller (job dispatcher) needs only to return the result.
+    """
+    from .action_policy import action_allowed
+
+    if config is None:
+        from ..config import load_config
+        config = load_config()
+
+    report_path, fm, body = _load_proposal_report(vault, proposal_id)
+
+    if str(fm.get("bake_status") or "") != "monitoring":
+        return {"proposal_id": proposal_id, "verdict": "not_monitoring",
+                "bake_status": fm.get("bake_status")}
+
+    repo = repo or Path(__file__).resolve().parents[2]
+    now = datetime.now(timezone.utc)
+    bake_end_str = str(fm.get("bake_end") or "")
+    bake_start_str = str(fm.get("bake_start") or "")
+    applied_commit = str(fm.get("bake_applied_commit") or fm.get("applied_commit") or "")
+    dimension = fm.get("targeted_dimension")
+    pre_score = fm.get("bake_pre_score")
+    extensions = int(fm.get("bake_extensions") or 0)
+
+    try:
+        bake_end = datetime.fromisoformat(bake_end_str)
+        if bake_end.tzinfo is None:
+            bake_end = bake_end.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        bake_end = now
+
+    expired = now >= bake_end
+
+    suite = _run(test_command or ["python3", "-m", "pytest", "-q"], cwd=repo, timeout=1800)
+    suite_ok = suite.returncode == 0
+
+    error_delta = _error_log_line_count(vault) - int(fm.get("bake_error_log_lines") or 0)
+
+    post_score = None
+    score_drop = None
+    if dimension and pre_score is not None:
+        post_score = _latest_dimension_score(vault, dimension, after=bake_start_str[:10])
+        if post_score is not None:
+            score_drop = round(float(pre_score) - post_score, 2)
+
+    if not suite_ok:
+        verdict = "regression"
+    elif dimension and pre_score is not None and score_drop is not None and score_drop >= REGRESSION_DROP_THRESHOLD:
+        verdict = "regression"
+    elif expired and dimension and post_score is None and extensions < MAX_BAKE_EXTENSIONS:
+        verdict = "inconclusive"
+    elif expired:
+        verdict = "passed"
+    else:
+        verdict = "ok"
+
+    result: dict[str, Any] = {
+        "proposal_id": proposal_id,
+        "check_time": now.isoformat(),
+        "suite_ok": suite_ok,
+        "error_delta": error_delta,
+        "targeted_dimension": dimension,
+        "pre_score": pre_score,
+        "post_score": post_score,
+        "score_drop": score_drop,
+        "verdict": verdict,
+    }
+
+    today = date.today().isoformat()
+
+    if verdict == "regression":
+        if action_allowed("self_repair_rollback", config):
+            try:
+                rb = rollback_applied_proposal(
+                    vault, proposal_id, repo=repo, db_path=db_path,
+                    policy_check=lambda _k, _c: True,
+                )
+                result["rolled_back"] = True
+                result["rollback_commit"] = rb.get("rollback_commit")
+            except SelfRepairRefused as exc:
+                result["rolled_back"] = False
+                result["rollback_refused"] = str(exc)
+                fm["bake_status"] = "regression_unresolved"
+                fm["updated"] = today
+                write_markdown(report_path, fm, body)
+        else:
+            result["rolled_back"] = False
+            result["rollback_refused"] = "self_repair_rollback action not enabled"
+            fm["bake_status"] = "regression_unresolved"
+            fm["updated"] = today
+            write_markdown(report_path, fm, body)
+
+    elif verdict == "inconclusive":
+        new_end = bake_end + timedelta(hours=DEFAULT_BAKE_HOURS)
+        fm["bake_end"] = new_end.isoformat()
+        fm["bake_extensions"] = extensions + 1
+        fm["updated"] = today
+        write_markdown(report_path, fm, body)
+        _enqueue_bake_check(vault, proposal_id, db_path=db_path)
+
+    elif verdict == "passed":
+        fm["bake_status"] = "passed"
+        fm["updated"] = today
+        write_markdown(report_path, fm, body)
+        from .self_episodes import SelfEvent, write_self_episode
+        write_self_episode(
+            vault,
+            SelfEvent(
+                event_id=f"self-repair-bake-passed-{proposal_id}",
+                event_kind="self_repair",
+                date=today,
+                title=f"Bake period passed for {proposal_id}",
+                narration=(
+                    f"{{{{self}}}} monitored its own self-repair patch {proposal_id} "
+                    f"through the bake period with no regression detected."
+                ),
+                outcome="succeeded",
+                source_refs=[f"reports/self-repair-proposals/{proposal_id}.md"],
+                significance="medium",
+            ),
+            db_path=db_path,
+        )
+
+    elif verdict == "ok":
+        _enqueue_bake_check(vault, proposal_id, db_path=db_path)
+
+    return result
+
+
+def _owner_commits_after(repo: Path, applied_commit: str) -> list[str]:
+    """Commits between applied_commit and HEAD (exclusive of applied_commit)."""
+    try:
+        out = _git(repo, "log", "--format=%H", f"{applied_commit}..HEAD")
+        return [h for h in out.splitlines() if h.strip()]
+    except SelfRepairRefused:
+        return []
+
+
+def _reopen_origin_loop(vault: Path, loop_id: str, *, reason: str) -> None:
+    """Set an origin loop back to active after a rollback."""
+    for path in sorted((vault / "open_loops").glob("*.md")):
+        try:
+            doc = load_markdown(path)
+        except Exception:
+            continue
+        if str(doc.frontmatter.get("id") or "") != loop_id:
+            continue
+        fm = dict(doc.frontmatter)
+        fm.update({
+            "status": "active",
+            "updated": date.today().isoformat(),
+            "reopened_reason": reason,
+        })
+        for key in ("resolved_at", "resolved_by", "resolution"):
+            fm.pop(key, None)
+        write_markdown(path, fm, doc.body)
+        return
+
+
+def rollback_applied_proposal(
+    vault: Path,
+    proposal_id: str,
+    *,
+    repo: Path | None = None,
+    db_path: Path | None = None,
+    policy_check: Callable[[str, dict[str, Any]], bool] | None = None,
+) -> dict[str, Any]:
+    """Phase C rollback: revert the exact applied commit. Dumb — no LLM."""
+    from .action_policy import action_allowed
+
+    check = policy_check or (lambda kind, cfg: action_allowed(kind, cfg))
+    config: dict[str, Any] = {}
+    if policy_check is None:
+        from ..config import load_config
+        config = load_config()
+    if not check("self_repair_rollback", config):
+        raise SelfRepairRefused("self-repair rollback is disabled by the action-policy clamp")
+
+    report_path, fm, body = _load_proposal_report(vault, proposal_id)
+    applied_commit = str(fm.get("bake_applied_commit") or fm.get("applied_commit") or "").strip()
+    base_commit = str(fm.get("bake_base_commit") or fm.get("base_commit") or "").strip()
+    loop_id = str(fm.get("loop_id") or "").strip()
+    if not applied_commit or not base_commit:
+        raise SelfRepairRefused("proposal report is missing rollback metadata")
+
+    repo = repo or Path(__file__).resolve().parents[2]
+
+    after = _owner_commits_after(repo, applied_commit)
+    if after:
+        raise SelfRepairRefused(
+            f"{len(after)} owner commit(s) exist after the applied commit; manual rollback required"
+        )
+
+    current_head = _git(repo, "rev-parse", "HEAD")
+    if current_head != applied_commit:
+        raise SelfRepairRefused(
+            f"HEAD ({current_head[:12]}) is not the applied commit ({applied_commit[:12]}); "
+            "cannot auto-revert safely"
+        )
+
+    diff_paths = _git(repo, "diff", "--name-only", f"{applied_commit}^", applied_commit)
+    for p in diff_paths.splitlines():
+        p = p.strip()
+        if not p:
+            continue
+        normalized = p.replace("\\", "/")
+        if normalized in PROTECTED_PATHS or any(normalized.endswith(item) for item in PROTECTED_PATHS if item.endswith(".py")):
+            raise SelfRepairRefused(f"rollback touches protected path: {p}")
+        if any(normalized == d or normalized.startswith(d) for d in PROTECTED_DIRECTORIES):
+            raise SelfRepairRefused(f"rollback touches protected directory: {p}")
+
+    _git(repo, "revert", "--no-edit", applied_commit)
+    rollback_commit = _git(repo, "rev-parse", "HEAD")
+
+    from .jobs import enqueue_job
+    restart_job = enqueue_job(
+        "self_repair.restart",
+        {"vault": str(vault), "proposal_id": proposal_id, "rollback_commit": rollback_commit},
+        db_path=db_path,
+    )
+
+    today = date.today().isoformat()
+    from .self_episodes import SelfEvent, write_self_episode
+    dim = fm.get("targeted_dimension")
+    pre = fm.get("bake_pre_score")
+    narration = (
+        f"{{{{self}}}} detected a regression after applying self-repair patch {proposal_id} "
+        f"and rolled it back automatically to the pre-patch state."
+    )
+    if dim and pre is not None:
+        post = _latest_dimension_score(vault, dim, after=str(fm.get("bake_start") or "")[:10])
+        if post is not None:
+            narration = (
+                f"{{{{self}}}} detected a regression after applying self-repair patch {proposal_id}: "
+                f"the targeted dimension '{dim}' dropped from {pre} to {post}. "
+                f"Rolled back automatically to the pre-patch state."
+            )
+    write_self_episode(
+        vault,
+        SelfEvent(
+            event_id=f"self-repair-rollback-{proposal_id}",
+            event_kind="self_repair",
+            date=today,
+            title=f"Rolled back self-repair proposal {proposal_id}",
+            narration=narration,
+            outcome="rolled_back",
+            source_refs=[f"reports/self-repair-proposals/{proposal_id}.md", rollback_commit],
+            significance="high",
+        ),
+        db_path=db_path,
+    )
+
+    if loop_id:
+        _reopen_origin_loop(vault, loop_id, reason=f"rolled back {proposal_id}")
+
+    fm.update({
+        "bake_status": "rolled_back",
+        "updated": today,
+        "rolled_back_at": today,
+        "rollback_commit": rollback_commit,
+        "rollback_restart_job_id": restart_job,
+    })
+    write_markdown(report_path, fm, body)
+    return {"rolled_back": True, "rollback_commit": rollback_commit, "restart_job_id": restart_job}

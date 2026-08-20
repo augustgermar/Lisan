@@ -61,13 +61,15 @@ the key.
 
 **A guarded self-repair loop.** An active `origin: self` loop can produce a
 narrow proposal in an isolated worktree, verify it with the full suite and a
-targeted probe, and send the exact patch hash for owner approval. Phase B is
-now enabled at tier 4: `lisan self apply <proposal-id>` rechecks the approval,
-patch hash, clean base, protected paths, and active origin loop before making
-one local commit and queueing a service restart. The loop resolves only after
-the commit succeeds; the owner still decides when to push. The default
-configuration keeps the action tier at 0, so applying repairs remains an
-explicit local installation choice.
+targeted probe, and send the exact patch hash for owner approval. Phase B
+applies the approved patch as one local commit; Phase C monitors it through a
+48-hour bake period — running the test suite, checking error-log deltas, and
+comparing the targeted self-eval dimension — and rolls back automatically on
+regression (`git revert`, no LLM, no agent health dependency). Rollback
+reopens the origin loop so the ache persists. Owner commits on top block
+auto-revert (manual rollback required). The default configuration keeps the
+action tier at 0; applying repairs and enabling bake monitoring remain
+explicit local installation choices.
 
 **An execution layer under commander's intent.** The Adjutant polls the
 vault for actionable records — tasked open loops, decisions with
@@ -265,7 +267,7 @@ coding-agent CLI as the executor.
   README used to be.
 
 Development follows the repo conventions: `python3 -m pytest tests/`
-(currently 1,250 passed, 7 skipped, green is the floor), deterministic logic
+(currently 1,336 passed, 7 skipped, green is the floor), deterministic logic
 in `lisan/tools/`, schema changes with their gates, prompts under version
 control in `prompts/`.
 

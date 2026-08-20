@@ -41,6 +41,7 @@ ACTION_TIERS: dict[str, int] = {
     # key turn; it remains unavailable until the clamp is explicitly raised.
     "self_repair_propose": 3,
     "self_repair_apply": 4,
+    "self_repair_rollback": 4,
 }
 
 
