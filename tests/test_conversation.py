@@ -65,9 +65,25 @@ class ConversationTurnTests(unittest.TestCase):
         self.assertEqual(payload["response"], "Sounds good.")
         self.assertEqual(result["route"], "conversation")
 
-    def test_empty_reply_is_replaced_with_honest_note(self):
+    def test_empty_reply_retries_then_succeeds(self):
+        call_count = 0
+        def complete_empty_then_ok(_self, prompt, *, agent="x", **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return LLMResponse(text=json.dumps({"response": ""}), provider="stub", model="s")
+            return LLMResponse(text=json.dumps({"response": "Here you go."}), provider="stub", model="s")
+
+        with patch.object(LisanLLM, "complete", complete_empty_then_ok):
+            result = run_conversation_turn(
+                vault=self.vault, text="tell me something", conversation_id="conv-1", db_path=self.db,
+            )
+        self.assertEqual(result["response"], "Here you go.")
+        self.assertEqual(call_count, 2)
+
+    def test_empty_reply_after_retry_shows_fallback(self):
         result = self._turn("say nothing", reply="")
-        self.assertIn("came back empty", result["response"])
+        self.assertIn("wasn't able to process", result["response"])
 
     def test_capabilities_present_every_turn(self):
         self._turn("what can you do?")
