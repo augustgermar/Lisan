@@ -77,6 +77,83 @@ INDEX_JOB_TYPES = {
 _LONG_RUNNING_MINUTES = 15
 
 
+class JobOutputEmpty(RuntimeError):
+    """dispatch_job returned but produced no meaningful output."""
+
+
+def _to_dict(result: Any) -> dict[str, Any] | None:
+    if isinstance(result, dict):
+        return result
+    if is_dataclass(result):
+        return asdict(result)
+    return None
+
+
+def _has_summary(result: Any) -> tuple[bool, str]:
+    d = _to_dict(result)
+    if d is None:
+        return False, "expected dict or dataclass result"
+    if not d.get("summary") and not d.get("response"):
+        return False, "result has no 'summary' or 'response' field"
+    return True, ""
+
+
+def _has_report_path(result: Any) -> tuple[bool, str]:
+    d = _to_dict(result)
+    if d is None:
+        return False, "expected dict or dataclass result"
+    if not d.get("report_path") and not d.get("report"):
+        return False, "result has no 'report_path' or 'report' field"
+    return True, ""
+
+
+def _self_eval_valid(result: Any) -> tuple[bool, str]:
+    d = _to_dict(result)
+    if d is None:
+        return False, "expected dict or dataclass result"
+    if d.get("enabled") is False:
+        return True, ""
+    if d.get("exchanges", 0) > 0 and d.get("judged", 0) == 0:
+        return False, "exchanges existed but none were judged"
+    return True, ""
+
+
+def _is_nonempty(result: Any) -> tuple[bool, str]:
+    if isinstance(result, Path):
+        return True, ""
+    if isinstance(result, dict) and result:
+        return True, ""
+    return False, "result is empty or not a dict/Path"
+
+
+JOB_OUTPUT_VALIDATORS: dict[str, Any] = {
+    "dreamer.maintenance": _is_nonempty,
+    "analyst.scan": _has_summary,
+    "analyst.self_scan": _has_summary,
+    "self.evaluate": _self_eval_valid,
+    "pattern.audit": _has_report_path,
+    "deviation.scan": _is_nonempty,
+    "prediction.reconcile": _is_nonempty,
+}
+
+
+def validate_job_output(job_type: str, result: Any) -> None:
+    """Check that a job produced meaningful output. Raises JobOutputEmpty
+    if a registered validator rejects the result. Job types without a
+    validator pass through — this is additive, not a gate on everything."""
+    if result is None:
+        validator = JOB_OUTPUT_VALIDATORS.get(job_type)
+        if validator is not None:
+            raise JobOutputEmpty(f"{job_type} returned None")
+        return
+    validator = JOB_OUTPUT_VALIDATORS.get(job_type)
+    if validator is None:
+        return
+    valid, reason = validator(result)
+    if not valid:
+        raise JobOutputEmpty(f"{job_type} output rejected: {reason}")
+
+
 JOBS_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
@@ -1466,6 +1543,7 @@ def run_jobs_worker(
             # (generous cap: codex runs are legitimately long).
             with hold_awake(f"job {job['id']}", cap_seconds=3600):
                 result = dispatch_job(job, vault=vault, db_path=db_path, provider=provider, model=model)
+            validate_job_output(str(job.get("job_type") or ""), result)
             result_data, result_ref = _normalize_job_result(result)
             updated = mark_job_succeeded(job["id"], result=result_data, result_ref=result_ref, db_path=db_path)
             successes.append(updated or job)

@@ -16,12 +16,15 @@ from lisan.tools.jobs import (
     enqueue_job,
     format_job_audit,
     get_job,
+    JobOutputEmpty,
+    JOB_OUTPUT_VALIDATORS,
     list_jobs,
     mark_job_failed,
     mark_job_succeeded,
     reap_stuck_jobs,
     retry_job,
     run_jobs_worker,
+    validate_job_output,
 )
 
 
@@ -334,3 +337,49 @@ class StaleReclaimTests(unittest.TestCase):
         conn.execute("UPDATE jobs SET status='running', started_at=? WHERE id=?", (now, job_id))
         conn.commit(); conn.close()
         self.assertEqual(reclaim_stale_running_jobs(self.db), 0)
+
+
+class JobOutputValidationTests(unittest.TestCase):
+    def test_none_result_raises_for_validated_job(self):
+        with self.assertRaises(JobOutputEmpty):
+            validate_job_output("dreamer.maintenance", None)
+
+    def test_none_result_passes_for_unvalidated_job(self):
+        validate_job_output("task.reminder", None)
+
+    def test_empty_dict_fails_for_dreamer(self):
+        with self.assertRaises(JobOutputEmpty):
+            validate_job_output("dreamer.maintenance", {})
+
+    def test_valid_dreamer_output_passes(self):
+        validate_job_output("dreamer.maintenance", {"summary": "compacted 3 records"})
+
+    def test_valid_analyst_output_passes(self):
+        validate_job_output("analyst.scan", {"summary": "found 2 patterns"})
+
+    def test_self_eval_disabled_passes(self):
+        validate_job_output("self.evaluate", {"enabled": False})
+
+    def test_self_eval_zero_judged_with_exchanges_fails(self):
+        with self.assertRaises(JobOutputEmpty):
+            validate_job_output("self.evaluate", {"enabled": True, "exchanges": 10, "judged": 0})
+
+    def test_self_eval_normal_passes(self):
+        validate_job_output("self.evaluate", {"enabled": True, "exchanges": 10, "judged": 8})
+
+    def test_pattern_audit_needs_report(self):
+        with self.assertRaises(JobOutputEmpty):
+            validate_job_output("pattern.audit", {"something": "else"})
+
+    def test_pattern_audit_with_report_passes(self):
+        validate_job_output("pattern.audit", {"report_path": "/tmp/r.md", "report": {}})
+
+    def test_unregistered_job_always_passes(self):
+        validate_job_output("task.run_codex", {"anything": "goes"})
+        validate_job_output("task.run_codex", None)
+        validate_job_output("capture.observe", {})
+
+    def test_all_validated_types_are_real_job_types(self):
+        from lisan.tools.jobs import JOB_TYPES
+        for jt in JOB_OUTPUT_VALIDATORS:
+            self.assertIn(jt, JOB_TYPES, f"validator for {jt} but it's not in JOB_TYPES")
