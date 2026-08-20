@@ -1,5 +1,7 @@
 # Lisan
 
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Lisan is a local-first personal agent with durable memory, a persistent
 identity, and its own drives — built on the conviction that an AI
 assistant should be *yours*: your data in plain files on your machine,
@@ -267,7 +269,7 @@ coding-agent CLI as the executor.
   README used to be.
 
 Development follows the repo conventions: `python3 -m pytest tests/`
-(currently 1,336 passed, 7 skipped, green is the floor), deterministic logic
+(currently 1,359 passed, 7 skipped, green is the floor), deterministic logic
 in `lisan/tools/`, schema changes with their gates, prompts under version
 control in `prompts/`.
 

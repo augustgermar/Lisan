@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from datetime import date, datetime, timedelta
@@ -25,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from lisan.frontmatter import load_markdown, write_markdown  # noqa: E402
 
-LIVE_VAULT = Path("/Users/august/.lisan/vault")
+LIVE_VAULT = Path(os.environ.get("LISAN_VAULT", Path.home() / ".lisan" / "vault"))
 DATE_FIELDS = ("created", "updated", "last_confirmed", "review_after", "last_callback",
                "resolved_at", "first_seen", "last_reviewed", "generated", "date")
 _DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})")

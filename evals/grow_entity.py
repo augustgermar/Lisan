@@ -8,6 +8,7 @@ how the writer structures a story as its complexity increases.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import time
@@ -15,8 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-VAULT = Path("/Users/august/.lisan/vault")
-DB = Path("/Users/august/.lisan/repo/lisan.sqlite")
+VAULT = Path(os.environ.get("LISAN_VAULT", Path.home() / ".lisan" / "vault"))
+DB = Path(os.environ.get("LISAN_DB", Path(__file__).resolve().parents[1] / "lisan.sqlite"))
 
 
 def _drain(job_types: set[str]) -> None:

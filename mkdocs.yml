@@ -1,0 +1,55 @@
+site_name: Lisan
+site_description: A local-first personal agent with durable memory, persistent identity, and its own drives
+repo_url: https://github.com/augustgermar/Lisan
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - search.highlight
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Security: security.md
+  - Specification: spec.md
+  - Design Documents:
+    - Adjutant (Execution Layer): adjutant_workorder.md
+    - Self-Repair Loop: self_repair_workorder.md
+    - Psychological Layer: psyche_workorder.md
+    - Ground Truth: ground_truth_workorder.md
+    - Enrichment (Ship 2): ship2_enable_workorder.md
+    - Person Enrichment Spec: ship2_person_enrichment.md
+    - Release Readiness: release_readiness_workorder.md
+  - Operations:
+    - Adjutant Daemon: adjutant_daemon.md
+    - Agent Skills: skills.md
+    - Feature Inventory: feature_inventory.md
+    - Jobs System: jobs.md
+  - Changelog: changelog.md

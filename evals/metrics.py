@@ -84,6 +84,6 @@ if __name__ == "__main__":
     import json
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--vault", type=Path, default=Path("/Users/august/.lisan/vault"))
+    parser.add_argument("--vault", type=Path, default=Path.home() / ".lisan" / "vault")
     args = parser.parse_args()
     print(json.dumps(compute_metrics(args.vault), indent=2))

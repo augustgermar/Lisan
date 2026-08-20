@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 from datetime import datetime
@@ -35,7 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 CLONE_MARKER = ".lisan-wipe-clone"
-LIVE_VAULT = Path("/Users/august/.lisan/vault")
+LIVE_VAULT = Path(os.environ.get("LISAN_VAULT", Path.home() / ".lisan" / "vault"))
 
 # Memory layers: wiped. The kernel (identity-core), the capability manifest,
 # and operating style survive — species disposition and procedure, not memory.
@@ -110,7 +111,7 @@ def run_wipe_experiment(*, judge_provider: str, judge_model: str, label: str | N
     workdir = repo / "evals" / "wipe-runs" / stamp
     workdir.mkdir(parents=True, exist_ok=True)
 
-    clone = make_clone(LIVE_VAULT, Path("/Users/august/.lisan") / f"wipe-clone-{stamp}")
+    clone = make_clone(LIVE_VAULT, LIVE_VAULT.parent / f"wipe-clone-{stamp}")
     wipe_manifest = wipe_memory_layers(clone)
 
     # Point the driver (and everything under it) at the clone with a fresh index.

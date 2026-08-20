@@ -69,3 +69,6 @@ browser-shots/
 # clone along with everything else. Verified, because it looks like it works.
 skills/*
 !skills/README.md
+
+# mkdocs build output
+site/

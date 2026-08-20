@@ -96,7 +96,10 @@ def browser_action(action: str, **kw: Any) -> dict[str, Any]:
     if not ensure_browser():
         return {"ok": False, "error": "browser could not be started"}
 
-    from playwright.sync_api import sync_playwright
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return {"ok": False, "error": "playwright is not installed (pip install playwright)"}
 
     pw = sync_playwright().start()
     try:
