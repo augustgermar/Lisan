@@ -24,6 +24,7 @@ DEFAULT_JOB_PRIORITIES = {
     "pattern.audit": 60,
     "manifest.regenerate": 90,
     "analyst.scan": 70,
+    "analyst.self_scan": 72,
     "prediction.reconcile": 75,
     "corpus.audit_priors": 78,
     "dreamer.maintenance": 80,
@@ -45,6 +46,7 @@ DEFAULT_JOB_PRIORITIES = {
 
 COALESCE_AGGRESSIVE = {
     "analyst.scan",
+    "analyst.self_scan",
     "prediction.reconcile",
     "corpus.audit_priors",
     "dreamer.maintenance",
@@ -226,6 +228,9 @@ def which_jobs_for_turn(turn_metadata: dict[str, Any] | None, db_path: Path | No
     if _should_queue_analyst(turn_metadata, db_path):
         jobs.append(_job_spec("analyst.scan", turn_metadata, priority_for_job_type("analyst.scan")))
 
+    if _should_queue_self_analyst(db_path):
+        jobs.append(_job_spec("analyst.self_scan", turn_metadata, priority_for_job_type("analyst.self_scan")))
+
     if _should_queue_self_eval(db_path):
         jobs.append(_job_spec("self.evaluate", turn_metadata, priority_for_job_type("self.evaluate")))
 
@@ -276,6 +281,15 @@ def _should_queue_analyst(turn_metadata: dict[str, Any], db_path: Path | None) -
     if _changed_records_since_last_job("analyst.scan", db_path) >= DEFAULT_ANALYST_DELTA_THRESHOLD:
         return True
     return False
+
+
+def _should_queue_self_analyst(db_path: Path | None) -> bool:
+    """Weekly, like self-eval. The self-analyst needs accumulated operational
+    evidence; running it more often than weekly produces noise."""
+    last = _last_successful_job_time("analyst.self_scan", db_path)
+    if last is None:
+        return True
+    return _hours_since(last) >= 168
 
 
 def _should_queue_self_eval(db_path: Path | None) -> bool:

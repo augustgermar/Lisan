@@ -38,6 +38,7 @@ JOB_TYPES = {
     "index.rebuild_all",
     "index.embed_pending",
     "analyst.scan",
+    "analyst.self_scan",
     "dreamer.maintenance",
     "manifest.regenerate",
     "pattern.audit",
@@ -1018,6 +1019,11 @@ def dispatch_job(
         from .analyst_ops import run_analyst_scan
 
         return run_analyst_scan(vault=vault, provider=provider, model=model)
+
+    if job_type == "analyst.self_scan":
+        from .analyst_ops import run_self_analyst_scan
+
+        return run_self_analyst_scan(vault=vault, provider=provider, model=model, db_path=db_path)
 
     if job_type == "self.evaluate":
         from ..config import load_config

@@ -50,6 +50,12 @@ PATTERN_TYPES = {
     "confidence_evidence_mismatch",
     "identity_claim",
     "psychological_hypothesis",
+    "quality_regression",
+    "failure_clustering",
+    "recovery_pattern",
+    "scope_creep",
+    "explanation_invention",
+    "execution_gap",
     "other",
 }
 PATTERN_STATUSES = {
@@ -673,6 +679,52 @@ def discover_pattern_hypotheses(bundle_text: str) -> list[dict[str, Any]]:
         ("authority_response", ["manager", "boss", "authority", "leadership", "supervisor"], "Authority-related cues trigger a predictable response."),
         ("value_behavior_gap", ["should", "value", "want", "wish", "but", "however"], "Stated values and observed behavior may diverge."),
         ("confidence_evidence_mismatch", ["confidence", "certain", "sure", "evidence", "proof"], "Confidence level may be misaligned with the amount of evidence."),
+    ]
+    for pattern_type, tokens, hypothesis in candidates:
+        hits = sum(1 for token in tokens if token in lowered)
+        if hits == 0:
+            continue
+        support = _extract_record_ids(bundle_text, tokens)
+        if len(support) < 2:
+            continue
+        if pattern_is_too_broad(hypothesis) or pattern_contains_diagnostic_language(hypothesis):
+            continue
+        counterexamples = _extract_counterexample_lines(bundle_text, pattern_type)
+        review = review_pattern_against_records(hypothesis, support, counterexamples)
+        patterns.append(
+            {
+                "pattern_type": pattern_type,
+                "hypothesis": hypothesis,
+                "supporting_records": support,
+                "counterexamples": review["counterexamples"],
+                "alternative_explanations": review["alternative_explanations"],
+                "confidence": review["confidence"],
+                "status": review["status"],
+                "first_seen": today(),
+                "last_reviewed": today(),
+                "predictions": review["predictions"],
+                "review_notes": review["review_notes"],
+                "evidence_needed": review["evidence_needed"],
+                "counterexample_search": review["counterexample_search"],
+                "strength_override": False,
+                "integration_override": {"enabled": False, "reason": "", "approved_by": ""},
+            }
+        )
+    return patterns[:5]
+
+
+def discover_self_pattern_hypotheses(bundle_text: str) -> list[dict[str, Any]]:
+    """Deterministic fallback for self-analysis: operational pattern candidates."""
+    lowered = bundle_text.lower()
+    patterns: list[dict[str, Any]] = []
+    candidates = [
+        ("failure_clustering", ["failed", "error", "exception", "retry", "timeout"], "Failures cluster around a recurring operational condition."),
+        ("quality_regression", ["regression", "score drop", "dimension", "below floor"], "A self-eval dimension shows repeated degradation."),
+        ("execution_gap", ["skipped", "deferred", "not executed", "blocked", "stalled"], "Planned actions are repeatedly not carried through."),
+        ("scope_creep", ["also", "additionally", "while we", "expanded", "broadened"], "Responses repeatedly exceed the scope of what was asked."),
+        ("explanation_invention", ["perhaps", "likely because", "probably", "might be", "could be"], "Explanations are offered without sufficient grounding in evidence."),
+        ("confidence_evidence_mismatch", ["confident", "certain", "sure", "unclear", "uncertain"], "Stated confidence may be misaligned with available evidence."),
+        ("recovery_pattern", ["recovered", "fixed", "resolved", "restored", "corrected"], "Recovery from failures follows a consistent pattern."),
     ]
     for pattern_type, tokens, hypothesis in candidates:
         hits = sum(1 for token in tokens if token in lowered)

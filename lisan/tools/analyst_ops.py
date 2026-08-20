@@ -7,7 +7,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from ..agents import AnalystAgent, SkepticAgent
+from ..agents import AnalystAgent, SelfAnalystAgent, SkepticAgent
 from ..config import load_config
 from ..frontmatter import load_markdown, write_markdown
 from ..paths import vault_root
@@ -395,6 +395,339 @@ def _write_report(vault: Path, response: dict[str, Any], pattern_paths: list[Pat
 ## Bundle Summary
 
 Analyst scan completed over episodes, claims, evidence, skeptical reviews, contradictions, and Dreamer summaries.
+"""
+    write_markdown(path, frontmatter, render_for_display(body, vault))
+    return path
+
+
+# ── §4.4: Agent self-analysis ──────────────────────────────────────────────────
+
+_SELF_EVAL_HISTORY_REL = "reports/self-eval-history.jsonl"
+
+_MIN_SELF_EPISODES = 5
+_MIN_SELF_EVAL_ENTRIES = 3
+
+
+def find_self_entity(vault: Path) -> dict[str, Any] | None:
+    """Locate the agent's own entity record under entities/agents/."""
+    agents_dir = vault / "entities" / "agents"
+    if not agents_dir.exists():
+        return None
+    for path in sorted(agents_dir.glob("*.md")):
+        try:
+            fm = load_markdown(path).frontmatter
+        except Exception:
+            continue
+        if str(fm.get("software") or "").lower() == "lisan":
+            return {
+                "id": str(fm.get("id") or path.stem),
+                "canonical_name": str(fm.get("canonical_name") or path.stem),
+                "path": path,
+            }
+    return None
+
+
+def self_analysis_eligible(vault: Path, *, db_path: Path | None = None) -> dict[str, Any] | None:
+    """Return the self-entity dict if enough operational evidence exists,
+    else None.  Evidence = self-episodes + self-eval history entries."""
+    self_ent = find_self_entity(vault)
+    if self_ent is None:
+        return None
+    episodes_dir = vault / "self" / "episodes"
+    episode_count = len(list(episodes_dir.glob("*.md"))) if episodes_dir.exists() else 0
+    history_path = vault / _SELF_EVAL_HISTORY_REL
+    eval_count = 0
+    if history_path.exists():
+        try:
+            eval_count = sum(1 for line in history_path.read_text(encoding="utf-8").splitlines() if line.strip())
+        except Exception:
+            pass
+    if episode_count < _MIN_SELF_EPISODES and eval_count < _MIN_SELF_EVAL_ENTRIES:
+        return None
+    self_ent["episode_count"] = episode_count
+    self_ent["eval_count"] = eval_count
+    return self_ent
+
+
+def build_self_analyst_bundle(vault: Path, *, db_path: Path | None = None) -> str:
+    """Assemble the corpus for self-analysis: first-person episodes,
+    self-eval history, job outcomes, deviation findings.
+    NOT owner check-ins — those never mention the agent."""
+    from .db import connect as _db_connect
+    from ..paths import sqlite_path
+
+    sections: list[str] = ["# Self-Analyst Bundle", ""]
+    self_ent = find_self_entity(vault)
+    if self_ent:
+        sections.extend([
+            "## Analysis Subject",
+            f"- id: {self_ent['id']}",
+            f"- name: {self_ent['canonical_name']}",
+            f"- kind: agent (self)",
+            "",
+        ])
+
+    # First-person episodes
+    episodes_dir = vault / "self" / "episodes"
+    if episodes_dir.exists():
+        sections.append("## Self-Episodes")
+        for path in sorted(episodes_dir.glob("*.md")):
+            try:
+                text = path.read_text(encoding="utf-8").strip()
+            except Exception:
+                continue
+            sections.append(f"### {path.relative_to(vault)}")
+            sections.append(text)
+            sections.append("")
+
+    # Self-eval history (dimension scores over time)
+    history_path = vault / _SELF_EVAL_HISTORY_REL
+    if history_path.exists():
+        sections.append("## Self-Evaluation History")
+        try:
+            lines = [l for l in history_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+            for line in lines[-20:]:
+                entry = json.loads(line)
+                dims = entry.get("dimensions") or {}
+                dim_summary = ", ".join(
+                    f"{d}: {s.get('mean', '?')}" for d, s in dims.items()
+                )
+                sections.append(
+                    f"- {entry.get('date', '?')}: overall={entry.get('overall_mean', '?')} "
+                    f"({dim_summary})"
+                )
+        except Exception:
+            sections.append("- (unreadable)")
+        sections.append("")
+
+    # Self-eval reports
+    reports_dir = vault / "reports"
+    if reports_dir.exists():
+        sections.append("## Self-Evaluation Reports")
+        for path in sorted(reports_dir.glob("self-eval-*.md")):
+            try:
+                doc = load_markdown(path)
+            except Exception:
+                continue
+            sections.append(f"### {path.relative_to(vault)}")
+            sections.append(_dreamer_summary(doc))
+            sections.append("")
+
+    # Job outcome summary (last 100 finished jobs)
+    db = sqlite_path(vault) if db_path is None else db_path
+    if db.exists():
+        sections.append("## Job Outcomes (recent)")
+        try:
+            conn = _db_connect(db)
+            rows = conn.execute(
+                "SELECT job_type, status, COUNT(*) as cnt "
+                "FROM jobs WHERE status IN ('succeeded', 'failed') "
+                "GROUP BY job_type, status ORDER BY job_type, status"
+            ).fetchall()
+            conn.close()
+            for job_type, status, cnt in rows:
+                sections.append(f"- {job_type}: {status}={cnt}")
+        except Exception:
+            sections.append("- (query failed)")
+        sections.append("")
+
+    # Active deviation loops (the agent's current aches)
+    loops_dir = vault / "open_loops"
+    if loops_dir.exists():
+        sections.append("## Active Deviation Loops")
+        for path in sorted(loops_dir.glob("*deviation*.md")):
+            try:
+                doc = load_markdown(path)
+                fm = doc.frontmatter
+            except Exception:
+                continue
+            if str(fm.get("status") or "") != "active":
+                continue
+            if str(fm.get("origin") or "") != "self":
+                continue
+            sections.append(f"### {path.relative_to(vault)}")
+            sections.append(
+                f"- fingerprint: {fm.get('deviation_fingerprint', '?')}"
+            )
+            sections.append(f"- summary: {fm.get('summary', '?')}")
+            sections.append("")
+
+    # Existing self-patterns (to avoid duplicates)
+    sections.append("## Existing Self-Patterns")
+    patterns_dir = vault / "patterns"
+    found_any = False
+    if patterns_dir.exists():
+        self_id = self_ent["id"] if self_ent else ""
+        for path in sorted(patterns_dir.glob("*.md")):
+            try:
+                fm = load_markdown(path).frontmatter
+            except Exception:
+                continue
+            links = fm.get("links") or []
+            if self_id and self_id not in links:
+                continue
+            found_any = True
+            sections.append(f"- {fm.get('hypothesis', path.stem)} (status={fm.get('status', '?')})")
+    if not found_any:
+        sections.append("- None yet")
+    sections.append("")
+
+    return "\n".join(sections).rstrip() + "\n"
+
+
+def run_self_analyst_scan(
+    vault: Path | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    *,
+    db_path: Path | None = None,
+) -> AnalystRunResult:
+    """Run the agent self-analysis pass (WO-PSYCHE §4.4)."""
+    vault = vault or vault_root()
+    self_ent = self_analysis_eligible(vault, db_path=db_path)
+    if self_ent is None:
+        return AnalystRunResult(
+            report_path=Path("/dev/null"),
+            pattern_paths=[],
+            review_paths=[],
+            response={
+                "summary": "Self-analysis not yet eligible: insufficient self-episodes or self-eval history.",
+                "patterns": [],
+                "notes": [
+                    f"Need {_MIN_SELF_EPISODES} self-episodes or {_MIN_SELF_EVAL_ENTRIES} self-eval entries.",
+                ],
+            },
+        )
+
+    agent = SelfAnalystAgent(vault=vault)
+    bundle = build_self_analyst_bundle(vault, db_path=db_path)
+    existing_patterns = load_existing_patterns(vault)
+    pattern_paths: list[Path] = []
+    review_paths: list[Path] = []
+
+    if provider or model:
+        response = agent.run_json(bundle, significance="high", provider=provider, model=model)
+    else:
+        response = json.loads(agent.fallback_output(bundle))
+
+    self_entity_id = self_ent["id"]
+    for pattern in response.get("patterns") or []:
+        if not isinstance(pattern, dict):
+            continue
+        created = _materialize_pattern(vault, bundle, pattern, existing_patterns)
+        if created is None:
+            continue
+        _append_pattern_link(created.path, self_entity_id)
+        pattern_paths.append(created.path)
+        existing_patterns.append({
+            "status": "active_hypothesis",
+            "pattern_type": str(pattern.get("pattern_type") or "other"),
+            "hypothesis": str(pattern.get("hypothesis") or ""),
+        })
+        review = review_pattern(vault, created.path, pattern, provider=provider, model=model)
+        if review is not None:
+            review_paths.append(review.path)
+
+    _emit_self_pattern_loops(vault, pattern_paths, db_path=db_path)
+
+    report_path = _write_self_analyst_report(vault, response, pattern_paths, review_paths)
+    response["report"] = str(report_path.relative_to(vault))
+    response["pattern_count"] = len(pattern_paths)
+    response["review_count"] = len(review_paths)
+
+    return AnalystRunResult(
+        report_path=report_path,
+        pattern_paths=pattern_paths,
+        review_paths=review_paths,
+        response=response,
+    )
+
+
+def _emit_self_pattern_loops(
+    vault: Path,
+    pattern_paths: list[Path],
+    *,
+    db_path: Path | None,
+) -> list[str]:
+    """A confirmed negative self-pattern emits an origin:self improvement loop
+    through the deviation seam, feeding into the self-repair pipeline."""
+    from .deviations import _emit, deviations_config
+
+    deviations: list[dict[str, Any]] = []
+    for path in pattern_paths:
+        try:
+            fm = load_markdown(path).frontmatter
+        except Exception:
+            continue
+        status = str(fm.get("status") or "")
+        if status not in ("supported", "active_hypothesis"):
+            continue
+        hypothesis = str(fm.get("hypothesis") or "")
+        fingerprint = f"self-pattern-{slugify(hypothesis)[:40]}"
+        rel = str(path.relative_to(vault))
+        deviations.append({
+            "klass": "self_eval",
+            "fingerprint": fingerprint,
+            "summary": f"Self-analysis pattern: {hypothesis}",
+            "links": [rel],
+        })
+
+    if not deviations:
+        return []
+    return _emit(vault, deviations, deviations_config(None), date.today(), db_path=db_path)
+
+
+def _write_self_analyst_report(
+    vault: Path,
+    response: dict[str, Any],
+    pattern_paths: list[Path],
+    review_paths: list[Path],
+) -> Path:
+    today = today_iso()
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    path = vault / "reports" / f"self-analyst-{stamp}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frontmatter = {
+        "id": f"report.self-analyst.{stamp}",
+        "type": "report",
+        "created": today,
+        "updated": today,
+        "status": "active",
+        "significance": "medium",
+        "domain_primary": "cross_arena",
+        "domain_secondary": [],
+        "privacy": "personal",
+        "disclosure": "private",
+        "summary": render_for_display(
+            str(response.get("summary") or "Self-analyst longitudinal pattern report"),
+            vault,
+        ),
+        "links": [str(p.relative_to(vault)) for p in pattern_paths + review_paths],
+        "confidence": "low",
+        "confidence_basis": "Self-analyst longitudinal scan",
+        "last_confirmed": today,
+        "review_after": today,
+        "task": "self_analyst",
+    }
+    body = f"""# Self-Analyst Longitudinal Report
+
+## Response
+
+```json
+{json.dumps(response, indent=2, ensure_ascii=True)}
+```
+
+## Patterns
+
+{chr(10).join(f"- `{p.relative_to(vault)}`" for p in pattern_paths) or "- None"}
+
+## Reviews
+
+{chr(10).join(f"- `{p.relative_to(vault)}`" for p in review_paths) or "- None"}
+
+## Bundle Summary
+
+Self-analyst scan completed over first-person episodes, self-evaluation history, job outcomes, and deviation loops.
 """
     write_markdown(path, frontmatter, render_for_display(body, vault))
     return path

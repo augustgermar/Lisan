@@ -1,7 +1,7 @@
 # Work Order — The Psychological Pattern Layer (WO-PSYCHE)
 
-**Status: SHIPS 1, 2, 3 (initial per-person analyst), AND 4 EXECUTED;
-2026-08-16.** Where this document conflicts with the code as it then exists,
+**Status: COMPLETE — Ships 1–4 and §4.4 (agent self-analysis) executed;
+2026-08-19.** Where this document conflicts with the code as it then exists,
 reality wins — report the conflict.
 
 **One-line goal:** give the agent a disciplined applied-psychology layer —
@@ -243,8 +243,35 @@ Execution notes (2026-07-15, Claude Fable 5 with the owner):
 4. Keep raw check-ins permanently and regenerate summaries on demand. No
    destructive rollup is performed.
 
-The remaining follow-up is the separately scoped self-analysis pass described
-in §4.4; it is not mixed into person check-in analysis.
+### §4.4 implementation decisions (2026-08-19)
+
+- Self-analysis runs as its own job type `analyst.self_scan`, separate from
+  person analysis (`analyst.scan`). Weekly cadence, coalesces aggressively.
+- Evidence corpus: first-person episodes, self-eval history (last 20 entries),
+  self-eval reports (conclusions only, not archived bundles), job outcome
+  counts by type and status, active `origin: self` deviation loops, and
+  existing self-linked patterns. Owner check-ins are never read.
+- Eligibility gate: at least 5 self-episodes OR 3 self-eval history entries.
+  Below both thresholds the scan returns a no-op result.
+- The agent's self-entity is located by `software: "Lisan"` under
+  `entities/agents/`. All materialized patterns are linked to it.
+- Self-analysis pattern types: `quality_regression`, `failure_clustering`,
+  `recovery_pattern`, `scope_creep`, `explanation_invention`, `execution_gap`,
+  plus shared types (`avoidance_loop`, `work_loop`, `value_behavior_gap`,
+  `confidence_evidence_mismatch`, `other`).
+- Deterministic fallback: `discover_self_pattern_hypotheses` in `epistemic.py`
+  scans for operational keywords (failure, error, regression, skipped, etc.)
+  with the same independent-source and counterexample gates as the person
+  analyst.
+- A confirmed self-pattern emits an `origin: self` improvement loop through
+  the deviation seam (fingerprint: `self-pattern-{slug}`), feeding directly
+  into the self-repair pipeline (WO-REPAIR).
+- Prompt: `analyst_self_v1.md`, agent class `SelfAnalystAgent`, same output
+  schema (`analyst_output`) as the person analyst so the skeptic review path
+  is reused without modification.
+- All existing epistemic gates apply: language gate, independent-source count,
+  counterexample duty, skeptic review.
+- 23 tests in `test_self_analyst.py`, full suite 1,359 passed.
 
 ---
 

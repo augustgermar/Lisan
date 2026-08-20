@@ -1,6 +1,7 @@
 from .advice import AdviceAgent
 from .assembler import AssemblerAgent
 from .analyst import AnalystAgent
+from .self_analyst import SelfAnalystAgent
 from .dreamer import DreamerAgent
 from .elicitor import ElicitorAgent
 from .interlocutor import InterlocutorAgent
@@ -13,6 +14,7 @@ __all__ = [
     "AdviceAgent",
     "AssemblerAgent",
     "AnalystAgent",
+    "SelfAnalystAgent",
     "DreamerAgent",
     "ElicitorAgent",
     "InterlocutorAgent",
