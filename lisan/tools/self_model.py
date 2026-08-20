@@ -29,7 +29,7 @@ from .db import connect as _db_connect
 
 from .. import __version__
 from ..config import load_config
-from ..paths import repo_root, schemas_dir, skills_root, sqlite_path, vault_root
+from ..paths import config_path, repo_root, schemas_dir, skills_root, sqlite_path, vault_root
 from ..utils import utc_now_iso
 
 # Capabilities that are designed but deliberately not built yet. Declared
@@ -50,6 +50,12 @@ NOT_BUILT: list[dict[str, str]] = [
         "name": "External communication",
         "detail": "Messaging anyone other than the owner. Scheduled reminders deliver to the "
                   "owner's allowlisted Telegram chat only; a disclosure gate comes first.",
+    },
+    {
+        "name": "Email sending",
+        "detail": "Composing or sending email on the owner's behalf. No SMTP, no API "
+                  "integration. The honest answer is 'I cannot send email' — not a workaround "
+                  "chain the owner must execute manually.",
     },
 ]
 
@@ -131,6 +137,7 @@ def build_capability_manifest(config: dict[str, Any] | None = None) -> dict[str,
             "vault": str(vault_root()),
             "database": str(sqlite_path()),
             "skills": str(skills_root()),
+            "config": str(config_path()),
         },
         "cli": _introspect_cli(),
         "tools": _tool_inventory(config),
@@ -285,6 +292,19 @@ def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) 
     # stale memory ('the Hermes token', invented setup commands). Interoception
     # beats confabulation — put the truth where self_state can see it.
     state["skill_auth"] = _skill_auth_status()
+
+    try:
+        cfg = load_config()
+        providers_cfg = cfg.get("providers", {})
+        enabled = [name for name, p in providers_cfg.items() if p.get("enabled")]
+        routing = cfg.get("routing", {})
+        default_route = routing.get("default", {})
+        state["provider"] = {
+            "enabled": enabled,
+            "default_route": default_route,
+        }
+    except Exception:
+        state["provider"] = {"error": "could not read config"}
 
     jobs_by_status: dict[str, dict[str, int]] = {}
     next_task = None

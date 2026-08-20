@@ -39,6 +39,13 @@ class ManifestTests(unittest.TestCase):
         names = " ".join(i["name"] for i in self.manifest["not_built"]).lower()
         self.assertIn("obsidian", names)
 
+    def test_not_built_includes_email(self):
+        names = [i["name"] for i in self.manifest["not_built"]]
+        self.assertIn("Email sending", names)
+
+    def test_config_path_in_manifest(self):
+        self.assertIn("config", self.manifest["paths"])
+
     def test_index_is_compact_and_complete(self):
         index = capability_index(self.manifest)
         self.assertLess(len(index), 2000, "index must stay cheap enough for every turn")
@@ -203,6 +210,15 @@ class SelfStateTests(unittest.TestCase):
             state = snapshot_self_state(vault=vault, db_path=root / "jobs.sqlite")
         for line in state["recent_log_tail"]:
             self.assertRegex(line, r"^\d{4}-\d{2}-\d{2} ")
+
+    def test_snapshot_includes_provider_info(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ensure_repo_layout(root)
+            state = snapshot_self_state(vault=vault_root(root), db_path=root / "jobs.sqlite")
+            self.assertIn("provider", state)
+            self.assertIn("enabled", state["provider"])
+            self.assertIn("default_route", state["provider"])
 
     def test_snapshot_survives_missing_database(self):
         with tempfile.TemporaryDirectory() as tmp:
