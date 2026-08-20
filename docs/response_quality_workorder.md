@@ -1,6 +1,6 @@
 # Work Order — Response Quality (WO-QUALITY)
 
-**Status: SPECIFIED, NOT SCHEDULED.** Five concrete improvements derived
+**Status: COMPLETE.** Five concrete improvements derived
 from a transcript quality audit of the 2026-08-19 session. Each item is
 independently shippable; ordered by impact.
 
@@ -165,6 +165,22 @@ auto-updates.
 
 ---
 
-## Implementation decisions (to be recorded here when each item ships)
+## Implementation decisions
 
-*(Empty — work not yet started.)*
+1. **Proactive investigation rule** — committed `6800f5d`. Added between
+   GROUND_TRUTH and CONTRADICTIONS in `prompts/conversation_v1.md`.
+
+2. **Empty response retry** — committed `788939c`. One silent retry via
+   the existing `_call_agent` closure; fallback reworded. Two new tests
+   replace the old single test.
+
+3. **Job output validation** — committed `aa09345`. Per-type validator
+   registry (`JOB_OUTPUT_VALIDATORS`), `_to_dict` helper handles both
+   dicts and dataclasses. 12 new tests in `JobOutputValidationTests`.
+
+4. **Self-state instrument gaps** — committed `1d330ac`. Config path
+   added to manifest; provider/model routing added to snapshot.
+
+5. **Email NOT_BUILT** — committed `1d330ac` (same commit as item 4,
+   both in `self_model.py`). Explicit entry so the capability index
+   surfaces "cannot send email" every turn.
