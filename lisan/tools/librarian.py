@@ -72,8 +72,11 @@ def _verified_standards_findings(query: str, providers: list[Any]) -> list[Sourc
     for terms such as "authoritative". These verified, narrow seeds improve
     recall without granting authority: the owner still approves each origin.
     """
-    lowered = query.lower()
-    if "http" not in lowered or "status" not in lowered:
+    # Match whole words, and never inside a URL: every "https://..." the
+    # owner supplies contains the substring "http", which made this
+    # standards-only path fire on unrelated domains.
+    lowered = re.sub(r"https?://\S+", " ", query.lower())
+    if not re.search(r"\bhttp\b", lowered) or not re.search(r"\bstatus\b", lowered):
         return []
     seeds = [
         ("https://www.rfc-editor.org/rfc/rfc9110.html", "RFC 9110: HTTP Semantics"),
@@ -99,15 +102,84 @@ def _verified_standards_findings(query: str, providers: list[Any]) -> list[Sourc
     return findings
 
 
+# Sentence-ending punctuation is ambiguous: the period in "Dr." or "U.S."
+# ends an abbreviation, not a clause. Splitting on those truncated the
+# 2026-08-21 Psyhacks intake to "... a chronological study of Dr".
+_ABBREVIATIONS = {
+    "dr", "mr", "mrs", "ms", "prof", "st", "sr", "jr", "vs", "etc", "inc",
+    "ltd", "co", "corp", "no", "vol", "ed", "eds", "approx", "fig", "al",
+}
+
+# Scaffolding the model wraps around a subject when it calls this tool.
+# Every pattern here must describe the *task* ("propose sources for"),
+# never a subject: domain vocabulary in this function is a defect, not a
+# tuning knob — see the 2026-08-21 incident note in propose_sources.
+_TASK_PREFIXES = (
+    r"^(?:please\s+)?(?:propose|find|discover|identify|search\s+for|gather|collect|compile|gather\s+up)\s+",
+    r"^(?:please\s+)?(?:use|build|create|start)\s+(?:a\s+|an\s+|the\s+)?(?:knowledge\s+base\s+(?:about|for|on|of)\s+)?",
+    r"^(?:authoritative\s+|official\s+|primary\s+)*sources?\s+(?:for|about|defining\s+and\s+documenting|defining|documenting|on|of)\s+",
+    r"^(?:and\s+)?documenting\s+",
+)
+
+# Instruction clauses that can appear mid-string once a URL is the subject.
+_TASK_CLAUSES = (
+    r"\bas\s+the\s+(?:sole|only|single|primary|definitive)\s+(?:authoritative\s+)?sources?\s*(?:for|of|on)?\b",
+    r"\bas\s+(?:the\s+)?(?:authoritative\s+)?sources?\s*(?:for|of|on)?\b",
+)
+
+# Function words may legitimately repeat; content words may not.
+_QUERY_STOPWORDS = {"a", "an", "the", "of", "and", "or", "for", "to", "in", "on", "with"}
+
+_MAX_QUERY_WORDS = 16
+
+
+def _first_sentence(text: str) -> str:
+    """The first clause that a period actually ends.
+
+    A period followed by whitespace only ends a sentence when the token
+    before it is neither an abbreviation nor a single initial.
+    """
+    for match in re.finditer(r"[.;]\s+", text):
+        head = text[: match.start()]
+        token = re.search(r"([A-Za-z.]+)$", head)
+        word = (token.group(1) if token else "").lower().strip(".")
+        if len(word) <= 1 or word in _ABBREVIATIONS:
+            continue
+        return head
+    return text
+
+
+def _url_terms(match: "re.Match[str]") -> str:
+    """Turn a URL into the words a search engine can match.
+
+    The raw URL is preserved by the caller as the owner's intended origin;
+    here we want its readable identity ("youtube.com psychacks"), because
+    search engines rank poorly on a bare URL string.
+    """
+    host = match.group(1)
+    path = match.group(2) or ""
+    tail = [part for part in re.split(r"[/@._-]+", path) if len(part) > 1]
+    return " ".join([host, *tail[:2]])
+
+
 def _normalize_source_query(query: str, domain: str | None = None) -> str:
-    """Remove conversational intent words before sending a web query."""
+    """Reduce a conversational instruction to the subject worth searching.
+
+    Subject-agnostic by contract. This runs ahead of every domain intake,
+    so any vocabulary specific to one subject added here poisons all the
+    others — which is exactly what happened between 2026-08-16 and
+    2026-08-21.
+    """
     clean = " ".join(str(query or "").strip().split())
-    # The model often supplies a complete instruction as the tool argument.
-    # Keep the subject clause and discard narration/instructions after it.
-    clean = re.split(r"[.;]\s+|,\s*(?:prioritizing|provide|show|do not|without)\b", clean, maxsplit=1, flags=re.I)[0]
-    clean = re.sub(r"^(?:please\s+)?(?:propose|find|discover|identify|search\s+for)\s+", "", clean, flags=re.I)
-    clean = re.sub(r"^(?:authoritative\s+)?sources?\s+(?:for|about|defining\s+and\s+documenting|defining|documenting)\s+", "", clean, flags=re.I)
-    clean = re.sub(r"^(?:and\s+)?documenting\s+", "", clean, flags=re.I)
+    if not clean:
+        return ""
+    clean = _first_sentence(clean)
+    clean = re.split(r",\s*(?:prioritizing|provide|show|do not|without|beginning|starting)\b", clean, maxsplit=1, flags=re.I)[0]
+    for pattern in _TASK_PREFIXES:
+        clean = re.sub(pattern, "", clean, flags=re.I)
+    clean = re.sub(r"https?://(?:www\.)?([^\s/]+)((?:/[^\s]*)?)", _url_terms, clean)
+    for pattern in _TASK_CLAUSES:
+        clean = re.sub(pattern, " ", clean, flags=re.I)
     if domain and str(domain).lower() in clean.lower():
         # Anchor on the requested domain, not on adjectives describing the
         # desired authority. This handles model wording such as "official
@@ -115,9 +187,25 @@ def _normalize_source_query(query: str, domain: str | None = None) -> str:
         # of prose-prefix patterns.
         start = clean.lower().find(str(domain).lower())
         clean = clean[start:]
-    if not re.search(r"\b(?:rfc\w*|ietf|standard\w*)\b", clean, flags=re.I):
-        clean = f"{clean} IETF RFC standards"
-    return clean.strip(" .")
+    elif domain:
+        # The subject the owner named is the most reliable anchor there is.
+        clean = f"{domain} {clean}"
+    clean = " ".join(clean.split())
+    words: list[str] = []
+    seen: set[str] = set()
+    for word in clean.split(" "):
+        key = re.sub(r"[^\w]", "", word).lower()
+        if not key:
+            # A stray separator from a domain label like "A / B" carries no
+            # search signal.
+            continue
+        if key not in _QUERY_STOPWORDS and key in seen:
+            # Anchoring on the domain can repeat words the query already
+            # had; a doubled term adds nothing to a search engine.
+            continue
+        seen.add(key)
+        words.append(word)
+    return " ".join(words[:_MAX_QUERY_WORDS]).strip(" .,;-")
 
 
 def propose_sources(

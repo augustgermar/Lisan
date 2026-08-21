@@ -12,9 +12,52 @@ def test_source_tier_controls_confidence_and_origin_matching():
     assert tier_confidence("unverified")[0] == "low"
     assert origin_matches("example.gov", "https://docs.example.gov/path")
     assert not origin_matches("example.gov", "https://example.com/path")
-    assert _normalize_source_query("Authoritative sources defining and documenting HTTP status codes. Provide exact URLs") == "HTTP status codes IETF RFC standards"
-    assert _normalize_source_query("Authoritative specifications and official documentation defining HTTP status codes. Show exact URLs", domain="HTTP status codes") == "HTTP status codes IETF RFC standards"
+    assert _normalize_source_query("Authoritative sources defining and documenting HTTP status codes. Provide exact URLs") == "HTTP status codes"
+    assert _normalize_source_query("Authoritative specifications and official documentation defining HTTP status codes. Show exact URLs", domain="HTTP status codes") == "HTTP status codes"
     assert _recommend_tier(SourceFinding("web_search", "https://developer.mozilla.org/en-US/docs/Web/HTTP", "", publisher="developer.mozilla.org"))[0] == "official-secondary"
+
+
+def test_source_query_carries_no_domain_vocabulary_between_subjects():
+    """The 2026-08-21 Psyhacks incident.
+
+    Source discovery appended "IETF RFC standards" to every query that was
+    not already about standards, and split sentences at the period in
+    "Dr.". The intake searched "... a chronological study of Dr IETF RFC
+    standards" and proposed Minecraft build guides and a dictionary entry.
+    This function serves every domain, so a term from one subject must
+    never reach another.
+    """
+    query = (
+        "Use https://www.youtube.com/@psychacks as the sole authoritative source "
+        "for a chronological study of Dr. Orion Taraban's Psyhacks videos, "
+        "beginning with the oldest available video."
+    )
+    normalized = _normalize_source_query(query, domain="Psyhacks / Dr. Orion Taraban")
+    lowered = normalized.lower()
+    assert "ietf" not in lowered and "rfc" not in lowered and "standards" not in lowered
+    assert not lowered.endswith(" dr")
+    assert "taraban" in lowered and "psychacks" in lowered
+    # The URL survives as searchable words, not as an opaque locator.
+    assert "youtube.com" in lowered and "https" not in lowered
+
+
+def test_source_query_keeps_abbreviations_and_anchors_on_the_domain():
+    assert _normalize_source_query("Find sources about Dr. Jane Goodall. Prefer her institute", domain="Jane Goodall").startswith("Jane Goodall")
+    assert _normalize_source_query("Build a knowledge base about the St. Louis Cardinals", domain="St. Louis Cardinals") == "St. Louis Cardinals"
+    assert _normalize_source_query("", domain="Anything") == ""
+
+
+def test_standards_seeds_stay_out_of_unrelated_domains():
+    """A "https://" URL contains the substring "http"; that must not arm
+    the HTTP-standards seed path for a domain that has nothing to do with
+    it."""
+    from lisan.tools.librarian import _verified_standards_findings
+
+    class Provider:
+        def _fetch_page(self, url):
+            raise AssertionError("unrelated domain must not fetch standards seeds")
+
+    assert _verified_standards_findings("Psyhacks https://www.youtube.com/@psychacks videos", [Provider()]) == []
 
 
 def test_contract_is_durable_and_origin_approval_is_append_only(tmp_path: Path):
