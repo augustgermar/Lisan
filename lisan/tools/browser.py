@@ -29,17 +29,48 @@ import uuid
 import time
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .log import log_error
 
+# Two lanes, because one desktop cannot hold two workers.
+#
+# LOUD is the browser above: headful, shared, on the owner's screen. It is
+# the right tool when the owner should see what happens — and the wrong
+# one the rest of the time, because a window that raises itself takes the
+# keyboard out from under whatever they were typing.
+#
+# QUIET is a second Chrome with no window at all. Not minimised, not on
+# another desktop — headless, so there is nothing that *can* be raised. It
+# does the autonomous work: searching, fetching, reading.
+LANE_LOUD = "loud"
+LANE_QUIET = "quiet"
+
 CDP_PORT = 18223
+QUIET_CDP_PORT = 18225
+
+# Headless Chrome announces itself in the User-Agent string as
+# "HeadlessChrome", and Google answers that with a CAPTCHA: measured
+# 2026-08-21, /sorry/index and zero results. The same profile with an
+# ordinary Chrome UA returns full results. This is the whole difference
+# between the quiet lane working and not.
+QUIET_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+)
+
 # Every tab this module opens starts at this marker so it can be found
 # again without guessing. The marker only survives until the tab is
 # navigated, so it identifies a tab stranded *before* navigation; tabs are
 # otherwise closed in a finally block.
 LISAN_TAB_MARKER = "lisan-agent-tab-"
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+
+def lane_port(lane: str) -> int:
+    """The debug port for a lane. Unknown lanes are loud: a visible
+    browser is the safe default, never a silent one."""
+    return QUIET_CDP_PORT if str(lane or "").strip().lower() == LANE_QUIET else CDP_PORT
 
 
 def profile_dir() -> Path:
@@ -60,47 +91,359 @@ def chrome_args() -> list[str]:
     ]
 
 
-def _cdp_alive(timeout: float = 1.5) -> bool:
+def quiet_profile_dir() -> Path:
+    from ..paths import vault_root
+
+    # sibling of the loud profile, same reasoning: inside the install,
+    # never inside the repo
+    return vault_root().parent / "browser-quiet-profile"
+
+
+def quiet_chrome_args() -> list[str]:
+    return [
+        CHROME,
+        "--headless=new",
+        f"--remote-debugging-port={QUIET_CDP_PORT}",
+        f"--user-data-dir={quiet_profile_dir()}",
+        f"--user-agent={QUIET_USER_AGENT}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-blink-features=AutomationControlled",
+        "--window-size=1440,900",
+    ]
+
+
+# Files that carry a Chrome session. "Local State" holds the key that
+# decrypts the cookie jar; both profiles belong to the same OS user, so
+# the keychain entry behind it is shared.
+_SESSION_FILES = (
+    ("Local State", ""),
+    ("Cookies", "Default"),
+    ("Preferences", "Default"),
+    ("Secure Preferences", "Default"),
+)
+
+
+def seed_quiet_profile(force: bool = False) -> bool:
+    """Give a new quiet profile the owner's existing session.
+
+    Copied from the loud profile's files rather than synced over CDP,
+    because a CDP sync would require the loud browser to be *running* —
+    which would put a window on screen for the sake of avoiding windows.
+    """
+    import shutil
+
+    source = profile_dir()
+    target = quiet_profile_dir()
+    if target.exists() and not force:
+        return False
+    if not source.is_dir():
+        target.mkdir(parents=True, exist_ok=True)
+        return False
+    (target / "Default").mkdir(parents=True, exist_ok=True)
+    for name, subdir in _SESSION_FILES:
+        src = source / subdir / name if subdir else source / name
+        dst = target / subdir / name if subdir else target / name
+        try:
+            if src.is_file():
+                shutil.copy2(src, dst)
+        except Exception as exc:  # a partial seed is fine; sync_session repairs it
+            log_error(None, f"quiet profile seed: {name}", exc)
+    return True
+
+
+def _clear_stale_singleton(profile: Path) -> bool:
+    """Remove the lock a killed Chrome leaves behind.
+
+    Chrome refuses to start on a profile holding a SingletonLock from a
+    process that no longer exists, and aborts with "Failed to create a
+    ProcessSingleton". For a headless browser nobody watches, that would
+    mean one unclean shutdown disables the quiet lane permanently. Only
+    ever called when the port is dead AND no process is using the
+    profile, so a live browser's lock is never touched.
+    """
+    if _profile_in_use(profile):
+        return False
+    removed = False
+    for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+        candidate = profile / name
+        try:
+            if candidate.is_symlink() or candidate.exists():
+                candidate.unlink()
+                removed = True
+        except Exception as exc:
+            log_error(None, f"stale singleton: {name}", exc)
+    return removed
+
+
+def _profile_in_use(profile: Path) -> bool:
+    """Whether some Chrome process is currently running on this profile."""
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{CDP_PORT}/json/version", timeout=timeout) as r:
+        found = subprocess.run(
+            ["pgrep", "-f", f"--user-data-dir={profile}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return bool(found.stdout.strip())
+    except Exception:
+        # Unknown means "assume in use": refusing to clear a lock is
+        # recoverable, clearing a live one corrupts a profile.
+        return True
+
+
+def _cdp_alive(timeout: float = 1.5, port: int = CDP_PORT) -> bool:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=timeout) as r:
             return r.status == 200
     except Exception:
         return False
 
 
-def ensure_browser(wait_seconds: float = 15.0) -> bool:
-    """The browser is running with its debug port up, launching it if
-    needed. Launched detached: it outlives every lisan process."""
-    if _cdp_alive():
+def ensure_browser(wait_seconds: float = 20.0, lane: str = LANE_LOUD) -> bool:
+    """The lane's browser is running with its debug port up, launching it
+    if needed. Launched detached: it outlives every lisan process.
+
+    Cold start is slower than it looks — Chrome's first run on a fresh
+    profile has been seen to take longer than 15s, which read as "could
+    not launch Chrome" when it was only slow.
+    """
+    quiet = str(lane or "").strip().lower() == LANE_QUIET
+    port = lane_port(lane)
+    if _cdp_alive(port=port):
         return True
-    profile_dir().mkdir(parents=True, exist_ok=True)
+    if quiet:
+        seed_quiet_profile()
+        quiet_profile_dir().mkdir(parents=True, exist_ok=True)
+        _clear_stale_singleton(quiet_profile_dir())
+    else:
+        profile_dir().mkdir(parents=True, exist_ok=True)
     try:
         subprocess.Popen(
-            chrome_args(),
+            quiet_chrome_args() if quiet else chrome_args(),
             start_new_session=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
     except Exception as exc:
-        log_error(None, "browser launch failed", exc)
+        log_error(None, f"browser launch failed ({lane})", exc)
         return False
     deadline = time.time() + wait_seconds
     while time.time() < deadline:
-        if _cdp_alive():
+        if _cdp_alive(port=port):
             return True
         time.sleep(0.4)
     return False
 
 
-def browser_action(action: str, **kw: Any) -> dict[str, Any]:
+def _connect(pw: Any, lane: str) -> Any:
+    """A Playwright context attached to one lane's running Chrome."""
+    cdp = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{lane_port(lane)}")
+    return cdp.contexts[0] if cdp.contexts else cdp.new_context()
+
+
+_COOKIE_FIELDS = ("name", "value", "domain", "path", "expires", "httpOnly", "secure", "sameSite")
+
+
+def _copy_cookies(source_ctx: Any, target_ctx: Any, *, source: str, target: str) -> dict[str, Any]:
+    """Move one lane's cookie jar into the other's.
+
+    Takes contexts rather than lane names so a caller already holding a
+    Playwright session can reuse it: starting a second sync session inside
+    the first raises "Sync API inside the asyncio loop".
+    """
+    cookies = source_ctx.cookies()
+    payload = [{key: cookie[key] for key in _COOKIE_FIELDS if key in cookie} for cookie in cookies]
+    before = len(target_ctx.cookies())
+    if payload:
+        target_ctx.add_cookies(payload)
+    return {"ok": True, "source": source, "target": target, "copied": len(payload),
+            "before": before, "after": len(target_ctx.cookies())}
+
+
+def sync_session(source: str = LANE_LOUD, target: str = LANE_QUIET) -> dict[str, Any]:
+    """Copy cookies from one lane to the other.
+
+    This is what lets the quiet lane inherit a login the owner performed
+    by hand, and what carries a fresh login back after a handoff. It is a
+    snapshot, not a mirror: a token refreshed in one lane is stale in the
+    other until the next sync, which is why handoff syncs on both sides of
+    the owner's involvement.
+    """
+    if not ensure_browser(lane=source) or not ensure_browser(lane=target):
+        return {"ok": False, "error": f"both lanes must be running to sync ({source} -> {target})"}
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return {"ok": False, "error": "playwright is not installed (pip install playwright)"}
+
+    pw = sync_playwright().start()
+    try:
+        return _copy_cookies(_connect(pw, source), _connect(pw, target), source=source, target=target)
+    except Exception as exc:
+        log_error(None, f"session sync {source}->{target}", exc)
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        try:
+            pw.stop()
+        except Exception:
+            pass
+
+
+# Signals that a page wants a human: the quiet lane can read a login form
+# but cannot satisfy one, and no amount of retrying changes that.
+_WALL_URL_MARKERS = ("/sorry/", "accounts.google.com", "/login", "/signin", "/challenge", "captcha")
+_WALL_TITLE_MARKERS = (
+    "sign in", "log in", "login", "captcha", "access denied", "403 forbidden",
+    "verify your", "just a moment",
+)
+_WALL_TEXT_MARKERS = (
+    "unusual traffic", "verify you are human", "i'm not a robot", "are you a robot",
+    "sign in to continue", "please log in", "enter your password", "two-factor",
+    "verification code", "prove you're not a robot",
+)
+
+
+def looks_like_login_wall(url: str = "", title: str = "", text: str = "") -> bool:
+    """Whether a page is asking for a human rather than answering.
+
+    Deliberately conservative. A false positive here puts a window on the
+    owner's screen for no reason, which is the exact interruption this
+    design exists to remove — so a page that merely *mentions* signing in
+    (most of the web) must not qualify. Titles count only when the phrase
+    leads the title or the title is short enough to be the page's whole
+    purpose; body text counts only for phrases a page uses when it is
+    addressing the person rather than the reader.
+    """
+    if any(marker in str(url or "").lower() for marker in _WALL_URL_MARKERS):
+        return True
+    heading = str(title or "").strip().lower()
+    if heading and any(
+        heading.startswith(marker) or (len(heading) < 60 and marker in heading)
+        for marker in _WALL_TITLE_MARKERS
+    ):
+        return True
+    body = str(text or "").lower()[:4000]
+    return any(marker in body for marker in _WALL_TEXT_MARKERS)
+
+
+def browser_handoff(
+    url: str,
+    reason: str,
+    *,
+    wait_seconds: float = 300.0,
+    poll_seconds: float = 2.0,
+    notify: Callable[[str], bool] | None = None,
+) -> dict[str, Any]:
+    """Ask the owner to do the part only they can do.
+
+    The one moment the loud lane is the right tool. The owner's session is
+    carried over, a window opens on the page that needs them, and Telegram
+    says why — a window that appears without an explanation is exactly the
+    interruption this design exists to prevent. When they are done, the
+    new cookies go back to the quiet lane and the tab closes.
+
+    Completion is detected by the page leaving the wall, so the owner
+    signals by simply finishing; there is nothing extra to click.
+    """
+    url = str(url or "").strip()
+    if not url:
+        return {"ok": False, "error": "handoff needs a url"}
+    reason = str(reason or "").strip() or "I need your help with a page."
+    if not ensure_browser(lane=LANE_LOUD):
+        return {"ok": False, "error": "the visible browser could not be started"}
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return {"ok": False, "error": "playwright is not installed (pip install playwright)"}
+
+    if not ensure_browser(lane=LANE_QUIET):
+        return {"ok": False, "error": "the quiet browser could not be started"}
+    pw = sync_playwright().start()
+    page = None
+    try:
+        context = _connect(pw, LANE_LOUD)
+        quiet_ctx = _connect(pw, LANE_QUIET)
+        # Carry the working session in, so the owner is not asked to log
+        # into something they are already logged into.
+        carried = _copy_cookies(quiet_ctx, context, source=LANE_QUIET, target=LANE_LOUD)
+        # Foreground on purpose: this is the one case where taking the
+        # owner's attention IS the point.
+        page = context.new_page()
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        _notify_owner_handoff(f"{reason}\n\nI opened it in your browser: {url}", notify=notify)
+        deadline = time.time() + max(0.0, float(wait_seconds))
+        resolved = False
+        while time.time() < deadline:
+            time.sleep(max(0.5, float(poll_seconds)))
+            try:
+                if page.is_closed():
+                    # The owner closing the tab is a valid "done".
+                    resolved = True
+                    break
+                current, title = page.url, page.title()
+            except Exception:
+                resolved = True
+                break
+            if not looks_like_login_wall(current, title):
+                resolved = True
+                break
+        returned = _copy_cookies(context, quiet_ctx, source=LANE_LOUD, target=LANE_QUIET)
+        return {
+            "ok": resolved, "url": url, "resolved": resolved,
+            "waited_seconds": round(max(0.0, float(wait_seconds)) - max(0.0, deadline - time.time()), 1),
+            "carried_to_loud": carried.get("copied", 0),
+            "returned_to_quiet": returned.get("copied", 0),
+            "error": None if resolved else "the owner did not complete the handoff in time",
+        }
+    except Exception as exc:
+        log_error(None, "browser handoff", exc)
+        return {"ok": False, "url": url, "error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        try:
+            if page is not None and not page.is_closed():
+                page.close()
+        except Exception:
+            pass
+        try:
+            pw.stop()
+        except Exception:
+            pass
+
+
+def _notify_owner_handoff(text: str, *, notify: Callable[[str], bool] | None = None) -> bool:
+    """Tell the owner why a window just appeared.
+
+    Routed through the escalation notifier so it inherits its guards: the
+    outbound kill switch, and the rule that only the resident install's
+    own vault may reach the owner's phone.
+    """
+    if notify is not None:
+        return bool(notify(text))
+    try:
+        from ..paths import vault_root
+        from .escalation import _notify_owner
+
+        return bool(_notify_owner(text, chat_id=None, vault=vault_root()))
+    except Exception as exc:
+        log_error(None, "handoff notify", exc)
+        return False
+
+
+def browser_action(action: str, lane: str = LANE_QUIET, **kw: Any) -> dict[str, Any]:
     """One browser operation: connect over CDP, act, detach. The browser
-    itself keeps running (and keeps the owner's hands on it)."""
+    itself keeps running (and keeps the owner's hands on it).
+
+    Defaults to the quiet lane. Autonomous work belongs in a browser with
+    no window; ``lane="loud"`` is for the times the owner should watch,
+    and ``browser_handoff`` for the times they must act.
+    """
     action = str(action or "").strip().lower()
+    lane = str(lane or "").strip().lower() or LANE_QUIET
     if action == "open":
-        ok = ensure_browser()
-        return {"ok": ok, "note": "browser is on screen" if ok else "could not launch Chrome"}
-    if not ensure_browser():
-        return {"ok": False, "error": "browser could not be started"}
+        ok = ensure_browser(lane=lane)
+        where = "on screen" if lane == LANE_LOUD else "running quietly (no window)"
+        return {"ok": ok, "lane": lane, "note": f"browser is {where}" if ok else "could not launch Chrome"}
+    if not ensure_browser(lane=lane):
+        return {"ok": False, "lane": lane, "error": f"the {lane} browser could not be started"}
 
     try:
         from playwright.sync_api import sync_playwright
@@ -109,7 +452,7 @@ def browser_action(action: str, **kw: Any) -> dict[str, Any]:
 
     pw = sync_playwright().start()
     try:
-        cdp = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{CDP_PORT}")
+        cdp = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{lane_port(lane)}")
         context = cdp.contexts[0] if cdp.contexts else cdp.new_context()
         pages = [p for p in context.pages if not p.url.startswith("devtools")]
         page = pages[-1] if pages else context.new_page()
@@ -320,6 +663,7 @@ def browser_search(
     limit: int = 8,
     engine: str = "duckduckgo",
     settle_seconds: float = 2.5,
+    lane: str = LANE_QUIET,
 ) -> dict[str, Any]:
     """Run one search in the owner's browser and return extracted results.
 
@@ -336,8 +680,9 @@ def browser_search(
     template = SEARCH_ENGINES.get(str(engine or "").strip().lower())
     if not template:
         return {"ok": False, "error": f"unknown search engine: {engine!r}"}
-    if not ensure_browser():
-        return {"ok": False, "error": "browser could not be started"}
+    lane = str(lane or "").strip().lower() or LANE_QUIET
+    if not ensure_browser(lane=lane):
+        return {"ok": False, "error": f"the {lane} browser could not be started"}
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -355,7 +700,7 @@ def browser_search(
     page = None
     context = None
     try:
-        cdp = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{CDP_PORT}")
+        cdp = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{lane_port(lane)}")
         context = cdp.contexts[0] if cdp.contexts else cdp.new_context()
         marker = _open_background_target(context, url)
         # Reconnect so Playwright enumerates the tab CDP just created.
@@ -363,7 +708,7 @@ def browser_search(
         deadline = time.time() + 15.0
         while time.time() < deadline and page is None:
             time.sleep(0.4)
-            cdp = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{CDP_PORT}")
+            cdp = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{lane_port(lane)}")
             context = cdp.contexts[0] if cdp.contexts else cdp.new_context()
             page = next((item for item in context.pages if item.url == marker), None)
         if page is None:
@@ -378,11 +723,17 @@ def browser_search(
         if not results:
             # An engine that shows a consent wall or a CAPTCHA renders no
             # outbound links. The owner can take the mouse and clear it.
+            walled = looks_like_login_wall(page.url, page.title())
             return {
-                "ok": False, "engine": engine, "url": page.url,
-                "error": "no results extracted (consent wall, CAPTCHA, or changed markup)",
+                "ok": False, "engine": engine, "lane": lane, "url": page.url,
+                # Tell the caller an escalation is available rather than
+                # leaving it to guess: a wall is answerable by the owner,
+                # changed markup is not.
+                "needs_handoff": walled,
+                "error": ("blocked by a consent wall or CAPTCHA" if walled
+                          else "no results extracted (changed markup?)"),
             }
-        return {"ok": True, "engine": engine, "url": page.url, "results": results}
+        return {"ok": True, "engine": engine, "lane": lane, "url": page.url, "results": results}
     except Exception as exc:
         log_error(None, "browser search failed", exc)
         return {"ok": False, "engine": engine, "error": f"{type(exc).__name__}: {exc}"}

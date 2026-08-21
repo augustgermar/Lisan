@@ -57,6 +57,8 @@ credentials/
 token.json
 # The agent's browser profile holds cookies and saved passwords
 browser-profile/
+# the quiet lane's profile: same reasoning, and it holds real cookies
+browser-quiet-profile/
 browser-shots/
 
 # Skill *contents* are the owner's; the folder itself ships. A downloader gets

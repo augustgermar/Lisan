@@ -56,19 +56,28 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "browser",
         "description": (
-            "Your own visible Chrome on the user's desktop — a SHARED session they can watch, "
-            "take the mouse in, or log into sites for you. Profile persists (cookies, logins, "
-            "tabs). Actions: 'open', 'goto' {url}, 'read' (page text), 'elements' (numbered "
+            "Your own Chrome, in two lanes. By default you work in the QUIET lane: a real "
+            "browser with the user's cookies and no window at all, so nothing you do touches "
+            "their screen, mouse, or keyboard. Use it freely. The LOUD lane (lane:'loud') is "
+            "the visible window on their desktop — use it only when they should watch. "
+            "Actions: 'open', 'goto' {url}, 'read' (page text), 'elements' (numbered "
             "clickables — use on complex pages, then click by index), 'click' {target: visible "
             "text, CSS selector, or index}, 'type' {target, text, submit?}, 'screenshot', "
-            "'tabs', 'switch_tab' {index}, 'back'. Compose small steps and read after "
-            "navigating. If a login or CAPTCHA blocks you, say so and ask them to handle it in "
-            "the window, then continue. Use for anything web."
+            "'tabs', 'switch_tab' {index}, 'back', 'search' {query, engine?}, and 'handoff' "
+            "{url, reason} — when a login or CAPTCHA blocks you, do NOT give up and do NOT ask "
+            "them to go find the page: call handoff, which opens that page in their visible "
+            "browser, tells them on Telegram why, waits while they do it, carries the new "
+            "login back to the quiet lane, and closes the window. Compose small steps and read "
+            "after navigating. Use for anything web."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["open", "goto", "read", "elements", "click", "type", "screenshot", "tabs", "switch_tab", "back"]},
+                "action": {"type": "string", "enum": ["open", "goto", "read", "elements", "click", "type", "screenshot", "tabs", "switch_tab", "back", "search", "handoff", "sync_session"]},
+                "lane": {"type": "string", "enum": ["quiet", "loud"], "description": "quiet (default, invisible) or loud (the user's visible window)"},
+                "query": {"type": "string"},
+                "engine": {"type": "string"},
+                "reason": {"type": "string", "description": "handoff only: what you need the user to do, and why"},
                 "url": {"type": "string"},
                 "target": {"type": "string"},
                 "text": {"type": "string"},
@@ -891,9 +900,22 @@ def _ratify_framework_tool(name: str, summary: str, source: str | None, *, vault
 def _browser_tool(action: str, **kw: Any) -> str:
     import json as _json
 
-    from .browser import browser_action
+    from .browser import browser_action, browser_handoff, browser_search, sync_session
 
-    result = browser_action(action, **kw)
+    verb = str(action or "").strip().lower()
+    if verb == "search":
+        result = browser_search(
+            str(kw.get("query") or kw.get("text") or ""),
+            limit=int(kw.get("limit") or 8),
+            engine=str(kw.get("engine") or "google"),
+            lane=str(kw.get("lane") or "quiet"),
+        )
+    elif verb == "handoff":
+        result = browser_handoff(str(kw.get("url") or ""), str(kw.get("reason") or ""))
+    elif verb == "sync_session":
+        result = sync_session(str(kw.get("source") or "loud"), str(kw.get("target") or "quiet"))
+    else:
+        result = browser_action(action, **kw)
     if isinstance(result, dict) and result.get("text"):
         # fetched page text is untrusted data — fence it so instructions
         # embedded in a page never read as instructions to the agent
