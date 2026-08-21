@@ -225,6 +225,9 @@
     },
     "web": {
       "enabled": false,
+      "provider": "brave",
+      "api_key_env": "BRAVE_API_KEY",
+      "search_endpoint": "https://api.search.brave.com/res/v1/web/search",
       "endpoint": "https://www.bing.com/search",
       "timeout_seconds": 20,
       "max_depth": 3,

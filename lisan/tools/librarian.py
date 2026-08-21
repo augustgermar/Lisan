@@ -236,10 +236,12 @@ def propose_sources(
             f"site:iana.org {search_query} registry",
         ])
     findings: list[SourceFinding] = []
+    search_errors: list[str] = []
     findings.extend(_verified_standards_findings(search_query, providers))
     for candidate_query in search_queries:
         findings.extend(search_published_sources(
-            candidate_query, providers=providers, max_results_per_source=max(1, min(int(limit), 20))
+            candidate_query, providers=providers, max_results_per_source=max(1, min(int(limit), 20)),
+            errors=search_errors,
         ))
     next_number = len(state.get("proposals") or []) + 1
     for finding in findings:
@@ -258,8 +260,25 @@ def propose_sources(
     state["query"] = query
     state["search_query"] = search_query
     state["status"] = "awaiting_owner"
+    # An empty proposal list has two very different causes: the search
+    # worked and matched nothing, or the backend never answered. Recording
+    # which lets the agent report the real reason instead of "it
+    # malfunctioned" — the 2026-08-21 Psyhacks intake could not tell the
+    # owner why it had nothing.
+    if search_errors:
+        state["search_errors"] = sorted(set(search_errors))
+    else:
+        state.pop("search_errors", None)
     _save_intake(intake_path(vault, domain), state)
-    return {"domain": domain, "intake": str(intake_path(vault, domain)), "status": state["status"], "search_query": search_query, "proposals": state.get("proposals", []), "needs_owner_input": True}
+    result = {
+        "domain": domain, "intake": str(intake_path(vault, domain)), "status": state["status"],
+        "search_query": search_query, "proposals": state.get("proposals", []),
+        "needs_owner_input": True,
+    }
+    if search_errors:
+        result["search_errors"] = state["search_errors"]
+        result["search_unavailable"] = not state.get("proposals")
+    return result
 
 
 def resume_intake(vault: Path, domain: str) -> dict[str, Any]:

@@ -144,3 +144,21 @@ def test_approved_proposal_url_is_fetched_directly_during_build(tmp_path: Path, 
     findings = _approved_source_findings(vault, {"domain_name": "HTTP status codes", "approved_origins": [{"origin": "www.rfc-editor.org", "tier": "primary"}]}, [Provider()])
     assert findings[0].locator.endswith("rfc9110.html")
     assert findings[0].document_text == "HTTP Semantics"
+
+
+def test_intake_reports_a_dead_search_backend_instead_of_an_empty_result(tmp_path: Path, monkeypatch):
+    """"No proposals" must not be the same answer as "search is down"."""
+    from lisan.tools.research import SearchProviderError
+
+    class Broken:
+        name = "web_search"
+
+        def search(self, query, *, limit):
+            raise SearchProviderError("key rejected")
+
+    monkeypatch.setattr("lisan.tools.librarian.installed_published_providers", lambda **_kw: [Broken()])
+    result = propose_sources(tmp_path / "vault", "Psyhacks", "Psyhacks Orion Taraban videos", config={})
+    assert result["proposals"] == []
+    assert result["search_unavailable"] is True
+    assert result["search_errors"] == ["web_search: key rejected"]
+    assert load_intake(tmp_path / "vault", "Psyhacks")["search_errors"] == ["web_search: key rejected"]

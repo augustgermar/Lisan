@@ -128,6 +128,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "roots": [],
             "include_extensions": [".md", ".txt", ".json", ".csv", ".pdf"],
         },
+        "web": {
+            "enabled": False,
+            # "brave" calls the Brave Search API and needs a key, in
+            # BRAVE_API_KEY or <credentials_root>/brave.json. "html_scrape"
+            # is the retired path: scraping a consumer engine returned
+            # results unrelated to the query (2026-08-21).
+            "provider": "brave",
+            "api_key_env": "BRAVE_API_KEY",
+            "search_endpoint": "https://api.search.brave.com/res/v1/web/search",
+            "timeout_seconds": 20,
+        },
     },
     "adjutant": {
         # Master switch (WO-ADJUTANT). False = `adjutant run` is dry-run:

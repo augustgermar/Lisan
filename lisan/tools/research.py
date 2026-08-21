@@ -6,11 +6,13 @@ never on a particular skill being installed.
 """
 from __future__ import annotations
 
+import os
 import re
 import json
 import html
 import base64
 import ipaddress
+import urllib.error
 import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
@@ -47,6 +49,7 @@ def search_owner_sources(
     *,
     providers: Iterable[SourceProvider] = (),
     max_results_per_source: int = 5,
+    errors: list[str] | None = None,
 ) -> list[SourceFinding]:
     """Search supplied Ring 1 providers without making an LLM call.
 
@@ -62,7 +65,12 @@ def search_owner_sources(
     for provider in provider_list:
         try:
             findings.extend(provider.search(query, limit=max_results_per_source))
-        except Exception:
+        except Exception as exc:
+            # One provider's outage must not stop the others, but it must not
+            # look like "nothing matched" either. A caller that passes no
+            # errors list is choosing the old silence explicitly.
+            if errors is not None:
+                errors.append(f"{getattr(provider, 'name', 'provider')}: {exc}")
             continue
     return findings[: max(1, int(max_results_per_source)) * max(1, len(provider_list))]
 
@@ -72,10 +80,12 @@ def search_published_sources(
     *,
     providers: Iterable[SourceProvider] = (),
     max_results_per_source: int = 5,
+    errors: list[str] | None = None,
 ) -> list[SourceFinding]:
     """Search explicitly enabled Ring 2 providers with bounded results."""
     return search_owner_sources(
         query, providers=providers, max_results_per_source=max_results_per_source,
+        errors=errors,
     )
 
 
@@ -453,6 +463,117 @@ class SkillSourceProvider:
         return []
 
 
+class SearchProviderError(RuntimeError):
+    """A search backend could not answer — as distinct from finding nothing.
+
+    The 2026-08-21 audit found the opposite failure: a backend that returned
+    ten well-formed results belonging to somebody else's query, with no way
+    for a caller to tell them from real ones. Every backend added here owes
+    the caller that distinction.
+    """
+
+
+def brave_credentials_path() -> Path:
+    """Where the Brave key lives: ``<credentials_root>/brave.json``."""
+    from ..paths import credentials_root
+
+    return credentials_root() / "brave.json"
+
+
+def _brave_key_from_credentials_file() -> str:
+    """Read the API key from the credentials store, or "" if absent."""
+    try:
+        path = brave_credentials_path()
+        if not path.is_file():
+            return ""
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    return str((data or {}).get("api_key") or "").strip() if isinstance(data, dict) else ""
+
+
+def resolve_brave_api_key(config: dict[str, Any] | None = None) -> str:
+    """Environment first, then the credentials store.
+
+    Detached services (jobs, telegram, adjutant) inherit no shell
+    environment, so a key that lives only in an env var works when the owner
+    tests it by hand and fails silently everywhere that matters. The
+    credentials file is visible to all of them.
+    """
+    web = ((config or {}).get("sources") or {}).get("web") or {}
+    env_name = str(web.get("api_key_env") or "BRAVE_API_KEY")
+    return str(os.getenv(env_name) or "").strip() or _brave_key_from_credentials_file()
+
+
+class BraveSearchProvider:
+    """Web discovery through the Brave Search API.
+
+    Replaces HTML scraping of a consumer search engine, which by 2026-08-21
+    returned results unrelated to the query — reproducibly, and differently
+    on each call.
+    """
+
+    name = "web_search"
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        endpoint: str = "https://api.search.brave.com/res/v1/web/search",
+        timeout: float = 20.0,
+        opener: Callable[..., Any] | None = None,
+    ) -> None:
+        self.api_key = str(api_key or "").strip()
+        self.endpoint = endpoint
+        self.timeout = float(timeout)
+        self.opener = opener or urllib.request.urlopen
+
+    def search(self, query: str, *, limit: int) -> list[SourceFinding]:
+        query = str(query or "").strip()
+        if not query:
+            return []
+        if not self.api_key:
+            raise SearchProviderError(
+                "no Brave Search API key: set BRAVE_API_KEY or write "
+                f"{brave_credentials_path()} as {{\"api_key\": \"...\"}}"
+            )
+        count = max(1, min(int(limit), 20))
+        url = f"{self.endpoint}?{urllib.parse.urlencode({'q': query, 'count': count})}"
+        request = urllib.request.Request(
+            url,
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "Lisan/1.0 scoped-research",
+                "X-Subscription-Token": self.api_key,
+            },
+            method="GET",
+        )
+        try:
+            with self.opener(request, timeout=self.timeout) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="replace"))
+        except urllib.error.HTTPError as exc:
+            detail = {401: "key rejected", 403: "key not authorized for this endpoint", 429: "rate limit or quota exhausted"}.get(exc.code, "")
+            raise SearchProviderError(f"Brave Search returned HTTP {exc.code}{': ' + detail if detail else ''}") from exc
+        except Exception as exc:
+            raise SearchProviderError(f"Brave Search unreachable: {exc}") from exc
+        results = ((payload or {}).get("web") or {}).get("results") or []
+        retrieved = datetime.now(timezone.utc).isoformat()
+        findings: list[SourceFinding] = []
+        for item in results[:count]:
+            url_value = str((item or {}).get("url") or "")
+            if not _public_http_url(url_value):
+                continue
+            title = str(item.get("title") or "")
+            excerpt = re.sub(r"<[^>]+>", "", str(item.get("description") or "")) or title
+            findings.append(SourceFinding(
+                source=self.name, locator=url_value, excerpt=excerpt[:1200], title=title[:300],
+                observed_at=retrieved, publisher=urllib.parse.urlparse(url_value).netloc,
+                published_at=str(item.get("age") or ""), retrieved_at=retrieved,
+                confidence=0.5, unverifiable=True,
+            ))
+        return findings
+
+
 def installed_owner_providers(*, vault: Path, config: dict[str, Any]) -> list[SourceProvider]:
     """Return available Ring 1 providers; missing skills are a clean miss."""
     providers: list[SourceProvider] = []
@@ -480,14 +601,26 @@ def installed_published_providers(*, config: dict[str, Any]) -> list[SourceProvi
     web = (config.get("sources") or {}).get("web") or {}
     if not web.get("enabled"):
         return []
-    return [WebSearchProvider(
-        endpoint=str(web.get("endpoint") or "https://www.bing.com/search"),
-        timeout=float(web.get("timeout_seconds") or 20),
-        max_depth=int(web.get("max_depth") or 3),
-        max_pages=int(web.get("max_pages") or 12),
-        max_links_per_page=int(web.get("max_links_per_page") or 8),
-        max_page_bytes=int(web.get("max_page_bytes") or 1_000_000),
-    )]
+    provider = str(web.get("provider") or "brave").strip().lower()
+    if provider == "brave":
+        return [BraveSearchProvider(
+            api_key=resolve_brave_api_key(config),
+            endpoint=str(web.get("search_endpoint") or "https://api.search.brave.com/res/v1/web/search"),
+            timeout=float(web.get("timeout_seconds") or 20),
+        )]
+    if provider in {"html_scrape", "bing_scrape"}:
+        # Retained for offline fixtures and for an owner who knowingly wants
+        # it. Not a default: on 2026-08-21 this path returned ten well-formed
+        # results per query, none of them related to the query.
+        return [WebSearchProvider(
+            endpoint=str(web.get("endpoint") or "https://www.bing.com/search"),
+            timeout=float(web.get("timeout_seconds") or 20),
+            max_depth=int(web.get("max_depth") or 3),
+            max_pages=int(web.get("max_pages") or 12),
+            max_links_per_page=int(web.get("max_links_per_page") or 8),
+            max_page_bytes=int(web.get("max_page_bytes") or 1_000_000),
+        )]
+    raise SearchProviderError(f"unknown sources.web.provider: {provider!r}")
 
 
 def _excerpt(text: str, terms: list[str], max_chars: int = 1200) -> str:

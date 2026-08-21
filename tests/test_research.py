@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from lisan.tools.research import WebSearchProvider, installed_published_providers
+from lisan.tools.research import BraveSearchProvider, SearchProviderError, WebSearchProvider, installed_published_providers, search_published_sources
 from lisan.tools.research import _normalize_search_result_url
 
 
@@ -98,3 +98,67 @@ def test_bing_redirect_is_resolved_before_provenance():
     encoded = "a1" + base64.urlsafe_b64encode(target.encode()).decode().rstrip("=")
     redirect = "https://www.bing.com/ck/a?" + urllib.parse.urlencode({"u": encoded})
     assert _normalize_search_result_url(redirect) == target
+
+
+def test_brave_provider_is_the_default_published_backend(monkeypatch, tmp_path):
+    monkeypatch.setenv("BRAVE_API_KEY", "test-key")
+    providers = installed_published_providers(config={"sources": {"web": {"enabled": True}}})
+    assert [type(p).__name__ for p in providers] == ["BraveSearchProvider"]
+    # The HTML scraper remains reachable, but only by explicit choice.
+    scraped = installed_published_providers(
+        config={"sources": {"web": {"enabled": True, "provider": "html_scrape"}}}
+    )
+    assert [type(p).__name__ for p in scraped] == ["WebSearchProvider"]
+
+
+def test_brave_provider_parses_results_and_sends_the_key(monkeypatch):
+    import json as _json
+
+    seen = {}
+
+    def opener(request, *, timeout):
+        seen["url"] = request.full_url
+        seen["key"] = request.get_header("X-subscription-token")
+        return _Response(_json.dumps({"web": {"results": [
+            {"url": "https://www.youtube.com/@psychacks", "title": "Orion Taraban - YouTube",
+             "description": "Psy<strong>hacks</strong> channel"},
+            {"url": "http://127.0.0.1/admin", "title": "local", "description": "private"},
+        ]}}))
+
+    provider = BraveSearchProvider(api_key="test-key", opener=opener)
+    findings = provider.search("Psyhacks Orion Taraban", limit=5)
+    assert "q=Psyhacks+Orion+Taraban" in seen["url"]
+    assert seen["key"] == "test-key"
+    # Private addresses are refused, and markup never reaches the excerpt.
+    assert [f.locator for f in findings] == ["https://www.youtube.com/@psychacks"]
+    assert findings[0].excerpt == "Psyhacks channel"
+    assert findings[0].publisher == "www.youtube.com"
+
+
+def test_search_backend_failure_is_reported_not_swallowed():
+    """A backend that cannot answer must not look like a query with no
+    matches. The 2026-08-21 audit found silent failure indistinguishable
+    from an empty result set."""
+
+    class Broken:
+        name = "web_search"
+
+        def search(self, query, *, limit):
+            raise SearchProviderError("key rejected")
+
+    errors: list[str] = []
+    findings = search_published_sources("anything", providers=[Broken()], errors=errors)
+    assert findings == []
+    assert errors == ["web_search: key rejected"]
+    # Callers that pass no list keep the old behaviour and get no exception.
+    assert search_published_sources("anything", providers=[Broken()]) == []
+
+
+def test_brave_provider_without_a_key_names_the_fix():
+    provider = BraveSearchProvider(api_key="")
+    try:
+        provider.search("anything", limit=3)
+    except SearchProviderError as exc:
+        assert "BRAVE_API_KEY" in str(exc) and "brave.json" in str(exc)
+    else:
+        raise AssertionError("a missing key must raise, never return []")
