@@ -368,6 +368,22 @@ def browser_handoff(
         # Foreground on purpose: this is the one case where taking the
         # owner's attention IS the point.
         page = context.new_page()
+        # A redirect-based flow can end at a URL the page never
+        # successfully loads: OAuth sends the browser to a local port with
+        # the code attached, nothing answers, and Chrome reports
+        # chrome-error://chromewebdata/ — losing the only copy of the
+        # result. The navigation *request* still happens, so record every
+        # destination the tab attempts.
+        visited: list[str] = []
+
+        def _record_navigation(request: Any) -> None:
+            try:
+                if request.is_navigation_request():
+                    visited.append(request.url)
+            except Exception:
+                pass
+
+        page.on("request", _record_navigation)
         page.goto(url, wait_until="domcontentloaded", timeout=30000)
         _notify_owner_handoff(f"{reason}\n\nI opened it in your browser: {url}", notify=notify)
         deadline = time.time() + max(0.0, float(wait_seconds))
@@ -386,9 +402,17 @@ def browser_handoff(
             if not looks_like_login_wall(current, title):
                 resolved = True
                 break
+        # Read the destination before closing: a redirect-based flow (OAuth
+        # consent, magic links) leaves its result in the URL bar, and
+        # closing the tab first throws it away.
+        try:
+            final_url = "" if page.is_closed() else page.url
+        except Exception:
+            final_url = ""
         returned = _copy_cookies(context, quiet_ctx, source=LANE_LOUD, target=LANE_QUIET)
         return {
-            "ok": resolved, "url": url, "resolved": resolved,
+            "ok": resolved, "url": url, "final_url": final_url, "visited": visited,
+            "resolved": resolved,
             "waited_seconds": round(max(0.0, float(wait_seconds)) - max(0.0, deadline - time.time()), 1),
             "carried_to_loud": carried.get("copied", 0),
             "returned_to_quiet": returned.get("copied", 0),
