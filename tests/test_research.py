@@ -238,3 +238,14 @@ def test_browser_provider_tries_each_engine_and_reports_total_failure():
         assert "browser could not be started" in str(exc)
     else:
         raise AssertionError("every engine failing must raise, never return []")
+
+
+def test_browser_search_refuses_an_unknown_engine_without_touching_chrome():
+    """Argument validation must not depend on a desktop session."""
+    from lisan.tools.browser import SEARCH_ENGINES, browser_search
+
+    assert "google" in SEARCH_ENGINES and "duckduckgo" in SEARCH_ENGINES
+    assert browser_search("anything", engine="altavista") == {
+        "ok": False, "error": "unknown search engine: 'altavista'",
+    }
+    assert browser_search("", engine="google")["ok"] is False

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import uuid
 import time
 import urllib.request
 from pathlib import Path
@@ -33,6 +34,11 @@ from typing import Any
 from .log import log_error
 
 CDP_PORT = 18223
+# Every tab this module opens starts at this marker so it can be found
+# again without guessing. The marker only survives until the tab is
+# navigated, so it identifies a tab stranded *before* navigation; tabs are
+# otherwise closed in a finally block.
+LISAN_TAB_MARKER = "lisan-agent-tab-"
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 
@@ -284,6 +290,30 @@ _EXTRACT_RESULTS = r"""(nodes) => {
 }"""
 
 
+def _open_background_target(context: Any, url: str) -> str:
+    """Open a tab WITHOUT taking the owner's keyboard and mouse.
+
+    Playwright's ``context.new_page()`` activates the Chrome window on
+    macOS: measured 2026-08-21, frontmost went iTerm2 -> Google Chrome on
+    every call, which stole keystrokes from the owner mid-sentence while
+    the agent searched. Chrome's own ``Target.createTarget`` takes a
+    ``background`` flag that ``new_page()`` does not expose; driving it
+    over raw CDP leaves the frontmost application untouched.
+
+    Returns the unique blank URL the tab was opened at. Playwright does
+    not enumerate targets it did not attach to, so the caller reconnects
+    to pick the tab up, then navigates it to the real destination.
+    """
+    anchor = context.pages[0] if context.pages else context.new_page()
+    session = context.new_cdp_session(anchor)
+    # A unique blank marker, not the destination: two runs of the same
+    # search would otherwise produce two tabs with identical URLs and no
+    # way to tell which one is ours.
+    marker = f"about:blank#{LISAN_TAB_MARKER}{uuid.uuid4().hex}"
+    session.send("Target.createTarget", {"url": marker, "background": True})
+    return marker
+
+
 def browser_search(
     query: str,
     *,
@@ -323,10 +353,21 @@ def browser_search(
 
     pw = sync_playwright().start()
     page = None
+    context = None
     try:
         cdp = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{CDP_PORT}")
         context = cdp.contexts[0] if cdp.contexts else cdp.new_context()
-        page = context.new_page()
+        marker = _open_background_target(context, url)
+        # Reconnect so Playwright enumerates the tab CDP just created.
+        page = None
+        deadline = time.time() + 15.0
+        while time.time() < deadline and page is None:
+            time.sleep(0.4)
+            cdp = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{CDP_PORT}")
+            context = cdp.contexts[0] if cdp.contexts else cdp.new_context()
+            page = next((item for item in context.pages if item.url == marker), None)
+        if page is None:
+            return {"ok": False, "engine": engine, "error": "background tab did not attach"}
         page.goto(url, wait_until="domcontentloaded", timeout=30000)
         time.sleep(max(0.0, float(settle_seconds)))
         page.evaluate(
@@ -349,6 +390,14 @@ def browser_search(
         try:
             if page is not None:
                 page.close()
+        except Exception:
+            pass
+        try:
+            # A run killed between opening and navigating leaves a blank
+            # marker tab in the owner's window. Sweep those.
+            for item in list(context.pages if context is not None else []):
+                if LISAN_TAB_MARKER in item.url:
+                    item.close()
         except Exception:
             pass
         try:
