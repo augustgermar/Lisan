@@ -473,17 +473,17 @@ class SearchProviderError(RuntimeError):
     """
 
 
-def brave_credentials_path() -> Path:
-    """Where the Brave key lives: ``<credentials_root>/brave.json``."""
+def search_credentials_path(provider: str) -> Path:
+    """Where a search backend's key lives: ``<credentials_root>/<provider>.json``."""
     from ..paths import credentials_root
 
-    return credentials_root() / "brave.json"
+    return credentials_root() / f"{str(provider or 'search').strip().lower()}.json"
 
 
-def _brave_key_from_credentials_file() -> str:
+def _key_from_credentials_file(provider: str) -> str:
     """Read the API key from the credentials store, or "" if absent."""
     try:
-        path = brave_credentials_path()
+        path = search_credentials_path(provider)
         if not path.is_file():
             return ""
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -492,7 +492,7 @@ def _brave_key_from_credentials_file() -> str:
     return str((data or {}).get("api_key") or "").strip() if isinstance(data, dict) else ""
 
 
-def resolve_brave_api_key(config: dict[str, Any] | None = None) -> str:
+def resolve_search_api_key(config: dict[str, Any] | None = None, *, provider: str = "tavily") -> str:
     """Environment first, then the credentials store.
 
     Detached services (jobs, telegram, adjutant) inherit no shell
@@ -501,8 +501,8 @@ def resolve_brave_api_key(config: dict[str, Any] | None = None) -> str:
     credentials file is visible to all of them.
     """
     web = ((config or {}).get("sources") or {}).get("web") or {}
-    env_name = str(web.get("api_key_env") or "BRAVE_API_KEY")
-    return str(os.getenv(env_name) or "").strip() or _brave_key_from_credentials_file()
+    env_name = str(web.get("api_key_env") or f"{provider.upper()}_API_KEY")
+    return str(os.getenv(env_name) or "").strip() or _key_from_credentials_file(provider)
 
 
 class BraveSearchProvider:
@@ -535,7 +535,7 @@ class BraveSearchProvider:
         if not self.api_key:
             raise SearchProviderError(
                 "no Brave Search API key: set BRAVE_API_KEY or write "
-                f"{brave_credentials_path()} as {{\"api_key\": \"...\"}}"
+                f"{search_credentials_path('brave')} as {{\"api_key\": \"...\"}}"
             )
         count = max(1, min(int(limit), 20))
         url = f"{self.endpoint}?{urllib.parse.urlencode({'q': query, 'count': count})}"
@@ -574,6 +574,92 @@ class BraveSearchProvider:
         return findings
 
 
+class TavilySearchProvider:
+    """Web discovery through the Tavily search API.
+
+    Chosen as the default on 2026-08-21: Brave retired its free tier in
+    February 2026, and Google's Custom Search JSON API is closed to new
+    customers and shuts down 2027-01-01. Tavily grants 1,000 credits a
+    month without a card, and returns extracted page text rather than only
+    a snippet, which is what the librarian ingests.
+    """
+
+    name = "web_search"
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        endpoint: str = "https://api.tavily.com/search",
+        timeout: float = 20.0,
+        search_depth: str = "basic",
+        include_raw_content: bool = False,
+        opener: Callable[..., Any] | None = None,
+    ) -> None:
+        self.api_key = str(api_key or "").strip()
+        self.endpoint = endpoint
+        self.timeout = float(timeout)
+        # "advanced" costs two credits per call; the owner's monthly grant is
+        # small enough that the default stays at one.
+        self.search_depth = str(search_depth or "basic")
+        self.include_raw_content = bool(include_raw_content)
+        self.opener = opener or urllib.request.urlopen
+
+    def search(self, query: str, *, limit: int) -> list[SourceFinding]:
+        query = str(query or "").strip()
+        if not query:
+            return []
+        if not self.api_key:
+            raise SearchProviderError(
+                "no Tavily API key: set TAVILY_API_KEY or write "
+                f"{search_credentials_path('tavily')} as {{\"api_key\": \"...\"}}"
+            )
+        body = json.dumps({
+            "query": query,
+            "max_results": max(1, min(int(limit), 20)),
+            "search_depth": self.search_depth,
+            "include_raw_content": self.include_raw_content,
+        }).encode("utf-8")
+        request = urllib.request.Request(
+            self.endpoint,
+            data=body,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "Lisan/1.0 scoped-research",
+            },
+            method="POST",
+        )
+        try:
+            with self.opener(request, timeout=self.timeout) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="replace"))
+        except urllib.error.HTTPError as exc:
+            detail = {401: "key rejected", 403: "key not authorized", 429: "rate limit or monthly credits exhausted", 432: "monthly credits exhausted"}.get(exc.code, "")
+            raise SearchProviderError(f"Tavily returned HTTP {exc.code}{': ' + detail if detail else ''}") from exc
+        except Exception as exc:
+            raise SearchProviderError(f"Tavily unreachable: {exc}") from exc
+        retrieved = datetime.now(timezone.utc).isoformat()
+        findings: list[SourceFinding] = []
+        for item in ((payload or {}).get("results") or [])[: max(1, int(limit))]:
+            url_value = str((item or {}).get("url") or "")
+            if not _public_http_url(url_value):
+                continue
+            title = str(item.get("title") or "")
+            content = str(item.get("content") or "") or title
+            score = item.get("score")
+            findings.append(SourceFinding(
+                source=self.name, locator=url_value, excerpt=content[:1200], title=title[:300],
+                observed_at=retrieved, publisher=urllib.parse.urlparse(url_value).netloc,
+                retrieved_at=retrieved,
+                # Relevance is not authority: the owner still approves every
+                # origin, so this never exceeds the unverified band.
+                confidence=min(0.5, float(score)) if isinstance(score, (int, float)) else 0.4,
+                unverifiable=True,
+                document_text=str(item.get("raw_content") or ""),
+            ))
+        return findings
+
+
 def installed_owner_providers(*, vault: Path, config: dict[str, Any]) -> list[SourceProvider]:
     """Return available Ring 1 providers; missing skills are a clean miss."""
     providers: list[SourceProvider] = []
@@ -601,10 +687,18 @@ def installed_published_providers(*, config: dict[str, Any]) -> list[SourceProvi
     web = (config.get("sources") or {}).get("web") or {}
     if not web.get("enabled"):
         return []
-    provider = str(web.get("provider") or "brave").strip().lower()
+    provider = str(web.get("provider") or "tavily").strip().lower()
+    if provider == "tavily":
+        return [TavilySearchProvider(
+            api_key=resolve_search_api_key(config, provider="tavily"),
+            endpoint=str(web.get("search_endpoint") or "https://api.tavily.com/search"),
+            timeout=float(web.get("timeout_seconds") or 20),
+            search_depth=str(web.get("search_depth") or "basic"),
+            include_raw_content=bool(web.get("include_raw_content") or False),
+        )]
     if provider == "brave":
         return [BraveSearchProvider(
-            api_key=resolve_brave_api_key(config),
+            api_key=resolve_search_api_key(config, provider="brave"),
             endpoint=str(web.get("search_endpoint") or "https://api.search.brave.com/res/v1/web/search"),
             timeout=float(web.get("timeout_seconds") or 20),
         )]

@@ -130,13 +130,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
         "web": {
             "enabled": False,
-            # "brave" calls the Brave Search API and needs a key, in
-            # BRAVE_API_KEY or <credentials_root>/brave.json. "html_scrape"
-            # is the retired path: scraping a consumer engine returned
-            # results unrelated to the query (2026-08-21).
-            "provider": "brave",
-            "api_key_env": "BRAVE_API_KEY",
-            "search_endpoint": "https://api.search.brave.com/res/v1/web/search",
+            # Every backend needs a key, read from api_key_env or from
+            # <credentials_root>/<provider>.json. "tavily" grants 1,000
+            # calls a month without a card; "brave" is metered as of
+            # 2026-02 and asks for attribution. "html_scrape" is the
+            # retired path: scraping a consumer engine returned results
+            # unrelated to the query (2026-08-21).
+            "provider": "tavily",
+            "api_key_env": "TAVILY_API_KEY",
+            "search_endpoint": "https://api.tavily.com/search",
+            "search_depth": "basic",
+            "include_raw_content": False,
             "timeout_seconds": 20,
         },
     },

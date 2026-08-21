@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from lisan.tools.research import BraveSearchProvider, SearchProviderError, WebSearchProvider, installed_published_providers, search_published_sources
+from lisan.tools.research import BraveSearchProvider, SearchProviderError, TavilySearchProvider, WebSearchProvider, installed_published_providers, search_published_sources
 from lisan.tools.research import _normalize_search_result_url
 
 
@@ -100,15 +100,54 @@ def test_bing_redirect_is_resolved_before_provenance():
     assert _normalize_search_result_url(redirect) == target
 
 
-def test_brave_provider_is_the_default_published_backend(monkeypatch, tmp_path):
-    monkeypatch.setenv("BRAVE_API_KEY", "test-key")
+def test_backend_is_selected_by_config_and_defaults_to_tavily(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key")
     providers = installed_published_providers(config={"sources": {"web": {"enabled": True}}})
-    assert [type(p).__name__ for p in providers] == ["BraveSearchProvider"]
+    assert [type(p).__name__ for p in providers] == ["TavilySearchProvider"]
+    brave = installed_published_providers(
+        config={"sources": {"web": {"enabled": True, "provider": "brave", "api_key_env": "BRAVE_API_KEY"}}}
+    )
+    assert [type(p).__name__ for p in brave] == ["BraveSearchProvider"]
     # The HTML scraper remains reachable, but only by explicit choice.
     scraped = installed_published_providers(
         config={"sources": {"web": {"enabled": True, "provider": "html_scrape"}}}
     )
     assert [type(p).__name__ for p in scraped] == ["WebSearchProvider"]
+
+
+def test_tavily_provider_parses_results_and_authenticates(monkeypatch):
+    import json as _json
+
+    seen = {}
+
+    def opener(request, *, timeout):
+        seen["url"] = request.full_url
+        seen["auth"] = request.get_header("Authorization")
+        seen["body"] = _json.loads(request.data.decode())
+        return _Response(_json.dumps({"results": [
+            {"url": "https://www.youtube.com/@psychacks", "title": "Orion Taraban - YouTube",
+             "content": "Psyhacks channel", "score": 0.93, "raw_content": "full page text"},
+            {"url": "http://10.0.0.1/admin", "title": "private", "content": "no"},
+        ]}))
+
+    provider = TavilySearchProvider(api_key="tvly-test", opener=opener)
+    findings = provider.search("Psyhacks Orion Taraban", limit=5)
+    assert seen["auth"] == "Bearer tvly-test"
+    assert seen["body"]["query"] == "Psyhacks Orion Taraban"
+    assert seen["body"]["search_depth"] == "basic"  # one credit, not two
+    assert [f.locator for f in findings] == ["https://www.youtube.com/@psychacks"]
+    assert findings[0].document_text == "full page text"
+    # A high relevance score is not a claim of authority.
+    assert findings[0].confidence <= 0.5
+
+
+def test_tavily_provider_without_a_key_names_the_fix():
+    try:
+        TavilySearchProvider(api_key="").search("anything", limit=3)
+    except SearchProviderError as exc:
+        assert "TAVILY_API_KEY" in str(exc) and "tavily.json" in str(exc)
+    else:
+        raise AssertionError("a missing key must raise, never return []")
 
 
 def test_brave_provider_parses_results_and_sends_the_key(monkeypatch):
