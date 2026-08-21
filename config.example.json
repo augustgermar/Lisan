@@ -225,7 +225,9 @@
     },
     "web": {
       "enabled": false,
-      "provider": "tavily",
+      "provider": "browser",
+      "engines": ["google", "duckduckgo"],
+      "settle_seconds": 2.5,
       "api_key_env": "TAVILY_API_KEY",
       "search_endpoint": "https://api.tavily.com/search",
       "search_depth": "basic",

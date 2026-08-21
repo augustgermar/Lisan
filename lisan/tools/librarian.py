@@ -65,6 +65,18 @@ def _recommend_tier(finding: SourceFinding) -> tuple[str, str]:
     return "community", "No authoritative-origin signal detected; treat as community until the owner decides otherwise."
 
 
+def _page_fetcher(providers: list[Any]) -> Any:
+    """Something that can fetch a named page.
+
+    Fetching a URL is not searching for one: it kept working through the
+    2026-08-21 discovery outage. It must not depend on which search
+    backend is configured, so fall back to a bare fetcher when the
+    configured provider is not one.
+    """
+    provider = next((item for item in providers if isinstance(item, WebSearchProvider)), None)
+    return provider if provider is not None else WebSearchProvider()
+
+
 def _verified_standards_findings(query: str, providers: list[Any]) -> list[SourceFinding]:
     """Fetch canonical standards pages when a standards-oriented HTTP query is requested.
 
@@ -83,9 +95,7 @@ def _verified_standards_findings(query: str, providers: list[Any]) -> list[Sourc
         ("https://www.iana.org/assignments/http-status-codes/http-status-codes.xhtml", "HTTP Status Code Registry"),
     ]
     findings: list[SourceFinding] = []
-    provider = next((item for item in providers if isinstance(item, WebSearchProvider)), None)
-    if provider is None:
-        return findings
+    provider = _page_fetcher(providers)
     retrieved = now_utc()
     for url, fallback_title in seeds:
         page = provider._fetch_page(url)
@@ -208,6 +218,42 @@ def _normalize_source_query(query: str, domain: str | None = None) -> str:
     return " ".join(words[:_MAX_QUERY_WORDS]).strip(" .,;-")
 
 
+def _owner_named_origins(query: str, providers: list[Any]) -> list[SourceFinding]:
+    """URLs the owner typed are candidates already — do not go looking.
+
+    On 2026-08-21 the owner wrote "use https://www.youtube.com/@psychacks
+    as the sole authoritative source" and the intake ran a web search
+    anyway, proposing a Minecraft build site. An origin the owner names is
+    the strongest signal available here; it still becomes a *pending*
+    proposal that the owner has to approve, because naming a URL in
+    passing is not the same act as ratifying it as authoritative.
+    """
+    urls: list[str] = []
+    for raw in re.findall(r"https?://[^\s<>\"')\]]+", str(query or "")):
+        candidate = raw.rstrip(".,;:!?)")
+        if candidate not in urls:
+            urls.append(candidate)
+    if not urls:
+        return []
+    provider = _page_fetcher(providers)
+    retrieved = now_utc()
+    findings: list[SourceFinding] = []
+    for url in urls[:5]:
+        title, text = "", ""
+        # Fetching a named page is unrelated to search discovery, and kept
+        # working when discovery did not.
+        page = provider._fetch_page(url)
+        if page is not None:
+            title, text, _links = page
+        findings.append(SourceFinding(
+            source="owner_named", locator=url, excerpt=(text or url)[:1200],
+            title=title or url, observed_at=retrieved, publisher=origin_for_url(url),
+            retrieved_at=retrieved, confidence=0.6, unverifiable=False,
+            document_text=text,
+        ))
+    return findings
+
+
 def propose_sources(
     vault: Path,
     domain: str,
@@ -237,8 +283,10 @@ def propose_sources(
         ])
     findings: list[SourceFinding] = []
     search_errors: list[str] = []
+    named = _owner_named_origins(query, providers)
+    findings.extend(named)
     findings.extend(_verified_standards_findings(search_query, providers))
-    for candidate_query in search_queries:
+    for candidate_query in [] if named else search_queries:
         findings.extend(search_published_sources(
             candidate_query, providers=providers, max_results_per_source=max(1, min(int(limit), 20)),
             errors=search_errors,
@@ -269,6 +317,7 @@ def propose_sources(
         state["search_errors"] = sorted(set(search_errors))
     else:
         state.pop("search_errors", None)
+    state["discovery"] = "owner_named" if named else "search"
     _save_intake(intake_path(vault, domain), state)
     result = {
         "domain": domain, "intake": str(intake_path(vault, domain)), "status": state["status"],

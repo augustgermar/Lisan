@@ -136,7 +136,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
             # 2026-02 and asks for attribution. "html_scrape" is the
             # retired path: scraping a consumer engine returned results
             # unrelated to the query (2026-08-21).
-            "provider": "tavily",
+            # "browser" needs no account: the owner's own Chrome drives a
+            # search engine and the results are read off the page. "tavily"
+            # and "brave" are keyed APIs, read from api_key_env or from
+            # <credentials_root>/<provider>.json. "html_scrape" is retired:
+            # scraping an engine without a browser session returned results
+            # unrelated to the query (2026-08-21).
+            "provider": "browser",
+            "engines": ["google", "duckduckgo"],
+            "settle_seconds": 2.5,
             "api_key_env": "TAVILY_API_KEY",
             "search_endpoint": "https://api.tavily.com/search",
             "search_depth": "basic",

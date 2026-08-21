@@ -660,6 +660,73 @@ class TavilySearchProvider:
         return findings
 
 
+class BrowserSearchProvider:
+    """Web discovery through the owner's own browser.
+
+    Costs nothing and depends on no vendor account: a real Chrome with the
+    owner's profile and cookies drives a search engine and the results are
+    read out of the rendered page. This is what made the difference on
+    2026-08-21 — the same engines served decoy results to a cookieless
+    urllib request and correct ones to the browser.
+
+    The trade is honest and worth stating: it needs a desktop session with
+    Chrome available, it takes seconds rather than milliseconds, and it
+    automates a consumer search engine rather than a paid API endpoint.
+    Volume here is a handful of queries per intake, driven by a browser the
+    owner also uses by hand.
+    """
+
+    name = "web_search"
+
+    def __init__(
+        self,
+        *,
+        engines: Iterable[str] = ("google", "duckduckgo"),
+        settle_seconds: float = 2.5,
+        searcher: Callable[..., dict[str, Any]] | None = None,
+    ) -> None:
+        self.engines = [str(item).strip().lower() for item in engines if str(item).strip()] or ["duckduckgo"]
+        self.settle_seconds = float(settle_seconds)
+        self._searcher = searcher
+
+    def _search_fn(self) -> Callable[..., dict[str, Any]]:
+        if self._searcher is not None:
+            return self._searcher
+        from .browser import browser_search
+
+        return browser_search
+
+    def search(self, query: str, *, limit: int) -> list[SourceFinding]:
+        query = str(query or "").strip()
+        if not query:
+            return []
+        search = self._search_fn()
+        failures: list[str] = []
+        for engine in self.engines:
+            outcome = search(query, limit=max(1, int(limit)), engine=engine, settle_seconds=self.settle_seconds)
+            if outcome.get("ok"):
+                return self._to_findings(outcome, limit=limit)
+            # A consent wall on one engine is not an answer about the web.
+            failures.append(f"{engine}: {outcome.get('error') or 'no results'}")
+        raise SearchProviderError("; ".join(failures) or "browser search produced nothing")
+
+    def _to_findings(self, outcome: dict[str, Any], *, limit: int) -> list[SourceFinding]:
+        retrieved = datetime.now(timezone.utc).isoformat()
+        findings: list[SourceFinding] = []
+        for item in (outcome.get("results") or [])[: max(1, int(limit))]:
+            url_value = str((item or {}).get("url") or "")
+            if not _public_http_url(url_value):
+                continue
+            title = str(item.get("title") or "")
+            findings.append(SourceFinding(
+                source=self.name, locator=url_value,
+                excerpt=(str(item.get("snippet") or "") or title)[:1200], title=title[:300],
+                observed_at=retrieved, publisher=urllib.parse.urlparse(url_value).netloc,
+                retrieved_at=retrieved, confidence=0.4, unverifiable=True,
+            ))
+        return findings
+
+
 def installed_owner_providers(*, vault: Path, config: dict[str, Any]) -> list[SourceProvider]:
     """Return available Ring 1 providers; missing skills are a clean miss."""
     providers: list[SourceProvider] = []
@@ -687,7 +754,12 @@ def installed_published_providers(*, config: dict[str, Any]) -> list[SourceProvi
     web = (config.get("sources") or {}).get("web") or {}
     if not web.get("enabled"):
         return []
-    provider = str(web.get("provider") or "tavily").strip().lower()
+    provider = str(web.get("provider") or "browser").strip().lower()
+    if provider == "browser":
+        return [BrowserSearchProvider(
+            engines=web.get("engines") or ("google", "duckduckgo"),
+            settle_seconds=float(web.get("settle_seconds") or 2.5),
+        )]
     if provider == "tavily":
         return [TavilySearchProvider(
             api_key=resolve_search_api_key(config, provider="tavily"),

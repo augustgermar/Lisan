@@ -239,3 +239,119 @@ def browser_action(action: str, **kw: Any) -> dict[str, Any]:
             pw.stop()
         except Exception:
             pass
+
+
+# Search engines the owner's own browser can drive. The browser carries a
+# real profile and real cookies, which is why this returns relevant results
+# where a cookieless urllib request to the same engine got served decoy
+# pages (2026-08-21).
+SEARCH_ENGINES = {
+    "duckduckgo": "https://duckduckgo.com/?q={query}",
+    "google": "https://www.google.com/search?q={query}",
+    "bing": "https://www.bing.com/search?q={query}",
+}
+
+# Result extraction is deliberately structural rather than class-name based:
+# every engine renames its CSS classes eventually, but "an outbound link with
+# real text, inside a result container" survives redesigns.
+_EXTRACT_RESULTS = r"""(nodes) => {
+    const junk = /^(accounts|policies|support|myaccount|maps|mail|translate|news\.google)\./;
+    const seen = new Set();
+    const out = [];
+    for (const node of nodes) {
+        const href = node.href;
+        if (!href || !/^https?:/.test(href)) continue;
+        let host = '';
+        try { host = new URL(href).hostname.replace(/^www\./, ''); } catch (err) { continue; }
+        if (window.__lisanEngineHosts.some(h => host === h || host.endsWith('.' + h))) continue;
+        if (junk.test(host)) continue;
+        const title = (node.textContent || '').replace(/\s+/g, ' ').trim();
+        if (title.length < 8) continue;
+        // Engines render a URL breadcrumb as its own anchor sharing the
+        // result's href; taking it first gives every result a URL for a
+        // title.
+        if (/^https?:\/\//.test(title) || title.includes('\u203a')) continue;
+        const key = href.split('#')[0];
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const box = node.closest('article, li, div[data-testid], div.g, div.b_algo');
+        let snippet = box ? (box.textContent || '').replace(/\s+/g, ' ').trim() : '';
+        if (snippet.startsWith(title)) snippet = snippet.slice(title.length).trim();
+        out.push({url: key, title: title.slice(0, 300), snippet: snippet.slice(0, 1200)});
+        if (out.length >= window.__lisanLimit) break;
+    }
+    return out;
+}"""
+
+
+def browser_search(
+    query: str,
+    *,
+    limit: int = 8,
+    engine: str = "duckduckgo",
+    settle_seconds: float = 2.5,
+) -> dict[str, Any]:
+    """Run one search in the owner's browser and return extracted results.
+
+    Uses a dedicated tab that is closed afterwards, so the owner's own tabs
+    are never navigated out from under them.
+
+    Every failure is returned as ``{"ok": False, "error": ...}``. A search
+    that cannot run must never look like a search that found nothing —
+    that confusion is what made the previous backend dangerous.
+    """
+    query = str(query or "").strip()
+    if not query:
+        return {"ok": False, "error": "search needs a query"}
+    template = SEARCH_ENGINES.get(str(engine or "").strip().lower())
+    if not template:
+        return {"ok": False, "error": f"unknown search engine: {engine!r}"}
+    if not ensure_browser():
+        return {"ok": False, "error": "browser could not be started"}
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return {"ok": False, "error": "playwright is not installed (pip install playwright)"}
+
+    import urllib.parse
+
+    url = template.format(query=urllib.parse.quote_plus(query))
+    engine_hosts = sorted({
+        urllib.parse.urlparse(value.format(query="x")).hostname.replace("www.", "")
+        for value in SEARCH_ENGINES.values()
+    } | {"duck.ai", "spreadprivacy.com", "microsoft.com", "bing.net"})
+
+    pw = sync_playwright().start()
+    page = None
+    try:
+        cdp = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{CDP_PORT}")
+        context = cdp.contexts[0] if cdp.contexts else cdp.new_context()
+        page = context.new_page()
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        time.sleep(max(0.0, float(settle_seconds)))
+        page.evaluate(
+            "([hosts, limit]) => { window.__lisanEngineHosts = hosts; window.__lisanLimit = limit; }",
+            [engine_hosts, max(1, int(limit))],
+        )
+        results = page.eval_on_selector_all("a[href]", _EXTRACT_RESULTS)
+        if not results:
+            # An engine that shows a consent wall or a CAPTCHA renders no
+            # outbound links. The owner can take the mouse and clear it.
+            return {
+                "ok": False, "engine": engine, "url": page.url,
+                "error": "no results extracted (consent wall, CAPTCHA, or changed markup)",
+            }
+        return {"ok": True, "engine": engine, "url": page.url, "results": results}
+    except Exception as exc:
+        log_error(None, "browser search failed", exc)
+        return {"ok": False, "engine": engine, "error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        try:
+            if page is not None:
+                page.close()
+        except Exception:
+            pass
+        try:
+            pw.stop()
+        except Exception:
+            pass
