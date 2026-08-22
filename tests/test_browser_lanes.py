@@ -114,3 +114,37 @@ def test_browser_tool_exposes_the_full_handoff_cycle():
     # reads browser.py.
     assert "quiet" in described.lower() and "handoff_finish" in described
     assert "RETURNS IMMEDIATELY" in described
+
+
+def test_irreversible_clicks_are_refused_until_the_owner_says_yes():
+    """The agent is told to ask before committing the owner to something.
+
+    Told is not enforced: the approval gate was removed on 2026-07-26, and
+    a browser click can enrol the owner in billing or sign an agreement.
+    This makes the asking structural, as gmail_send already is.
+    """
+    from lisan.tools.execution_tools import _irreversible_click_refusal as refusal
+
+    for label in ("I Agree", "Accept terms", "Create project", "Upgrade to Blaze",
+                  "Enable billing", "Sign agreement", "Delete", "Confirm purchase"):
+        assert refusal("click", {"target": label}) is not None, label
+
+    # Navigation and ordinary controls stay frictionless, and an
+    # informational link that merely contains a scary word is not a
+    # commitment.
+    for label in ("Next", "Firestore Database", "Learn more about creating projects", "Cancel"):
+        assert refusal("click", {"target": label}) is None, label
+
+    # Only clicking is gated; reading a page never is.
+    assert refusal("goto", {"target": "Accept"}) is None
+    assert refusal("read", {}) is None
+
+    # The owner's explicit yes is the key, and it is per-click.
+    assert refusal("click", {"target": "Create project", "owner_approved": True}) is None
+
+
+def test_tool_iteration_ceiling_is_configurable():
+    """Ten tool calls suits a chat turn and starves a runbook."""
+    from lisan.config import DEFAULT_CONFIG
+
+    assert DEFAULT_CONFIG["conversation"]["max_tool_iterations"] == 10

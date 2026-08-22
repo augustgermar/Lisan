@@ -69,6 +69,13 @@ class InterlocutorAgent(PromptAgent):
             conversation_id=kwargs.get("conversation_id"),
             domain=kwargs.get("domain"),
         )
+        # A multi-step task — "set up this cloud project", "work through
+        # this runbook" — dies at ten tool calls, and dies mid-step with no
+        # memory of where it was. The owner can raise the ceiling for work
+        # they are supervising; the default stays where it was.
+        conversation_cfg = (self.config or {}).get("conversation") or {}
+        max_iterations = int(conversation_cfg.get("max_tool_iterations") or 10)
+        kwargs.setdefault("max_iterations", max(1, min(max_iterations, 60)))
         result = self.complete_with_tools(
             user_input,
             significance=significance,

@@ -80,6 +80,7 @@ TOOLS: list[dict[str, Any]] = [
                 "query": {"type": "string"},
                 "engine": {"type": "string"},
                 "reason": {"type": "string", "description": "handoff only: what you need the user to do, and why"},
+                "owner_approved": {"type": "boolean", "description": "click only: set true ONLY after the user has explicitly approved this specific irreversible click (agree/accept/create/submit/upgrade/pay/sign/delete). Never set it pre-emptively."},
                 "url": {"type": "string"},
                 "target": {"type": "string"},
                 "text": {"type": "string"},
@@ -899,10 +900,45 @@ def _ratify_framework_tool(name: str, summary: str, source: str | None, *, vault
     return _json.dumps(out, ensure_ascii=True)
 
 
+# Button labels that commit the owner to something a click cannot undo:
+# money, a legal signature, an irreversible resource. The agent is told to
+# ask first; this makes asking structural rather than aspirational, the
+# same posture as gmail_send requiring approval. Matching is on the label
+# the owner would read, because that is what the agent aims at.
+_IRREVERSIBLE_CLICK = re.compile(
+    r"\b(i\s+agree|agree\s+(?:and|&)|accept(?:\s+(?:and|terms))?|"
+    r"create(?:\s+(?:project|database|account|bucket))?|submit|confirm(?:\s+purchase)?|"
+    r"upgrade|enable\s+billing|start\s+(?:trial|billing)|purchase|buy|pay|subscribe|"
+    r"sign(?:\s+(?:agreement|baa))?|delete|destroy|remove\s+project)\b",
+    re.I,
+)
+
+
+def _irreversible_click_refusal(action: str, kw: dict[str, Any]) -> str | None:
+    """The refusal text for a click the owner has not authorised, or None."""
+    if str(action or "").strip().lower() != "click":
+        return None
+    target = str(kw.get("target") or "")
+    if not target or not _IRREVERSIBLE_CLICK.search(target):
+        return None
+    if bool(kw.get("owner_approved")):
+        return None
+    return (
+        f"REFUSED: {target!r} looks irreversible — it commits money, signs something, or "
+        "creates a resource that cannot be undone. Tell the user exactly what you are about "
+        "to click and why, wait for them to say yes, then call this again with "
+        "owner_approved: true. If they should do it themselves, use action 'handoff'."
+    )
+
+
 def _browser_tool(action: str, **kw: Any) -> str:
     import json as _json
 
     from .browser import browser_action, browser_handoff, browser_handoff_finish, browser_search, sync_session
+
+    refusal = _irreversible_click_refusal(action, kw)
+    if refusal is not None:
+        return _json.dumps({"ok": False, "refused": True, "error": refusal}, ensure_ascii=True)
 
     verb = str(action or "").strip().lower()
     if verb == "search":

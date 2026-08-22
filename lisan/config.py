@@ -122,6 +122,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_candidates_per_source": 5,
         "max_model_calls_per_loop": 2,
     },
+    "conversation": {
+        # Tool calls one turn may make before the agent must answer. Ten
+        # suits a chat turn and starves a runbook: a single console step is
+        # eight calls, so anything with stages needs headroom. Capped at 60
+        # in code — a loop that cannot finish in 60 is a loop, not a task.
+        "max_tool_iterations": 10,
+    },
     "sources": {
         "local_files": {
             "enabled": False,

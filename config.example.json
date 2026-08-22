@@ -217,6 +217,9 @@
     "worktree_root": null,
     "__comment": "Phase A proposal generation requires an explicit deterministic targeted probe. It creates a Telegram confirmation but cannot apply changes. Policy and apply controls are never eligible configuration targets."
   },
+  "conversation": {
+    "max_tool_iterations": 10
+  },
   "sources": {
     "local_files": {
       "enabled": false,
