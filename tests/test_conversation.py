@@ -232,3 +232,16 @@ class SelfStoryTests(unittest.TestCase):
 
         self.assertEqual(_self_story_context(self.vault, "what's on my calendar for tomorrow?"), "")
         self.assertEqual(_self_story_context(self.vault, "tell me about Ruth"), "")
+
+
+def test_prompt_routes_sandbox_failures_to_the_tool_not_the_owner():
+    """2026-08-22: asked to run gcloud, the agent ran it inline in its own
+    read-only session, got a permission error, and told the owner the
+    environment could not write — with zero tool calls in its trace. It
+    had run_codex available the whole time."""
+    from pathlib import Path as _P
+
+    text = (_P(__file__).resolve().parents[1] / "prompts" / "conversation_v1.md").read_text(encoding="utf-8")
+    assert "SANDBOX ERRORS MEAN USE YOUR TOOL" in text
+    lowered = text.lower()
+    assert "read-only" in lowered and "run_codex" in lowered
