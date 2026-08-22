@@ -27,6 +27,7 @@ import json
 import subprocess
 import uuid
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Callable
@@ -234,9 +235,43 @@ def ensure_browser(wait_seconds: float = 20.0, lane: str = LANE_LOUD) -> bool:
     return False
 
 
+def recycle_lane(lane: str) -> bool:
+    """Kill a wedged browser and start it again.
+
+    A Chrome whose renderer has hung still answers /json/version and still
+    accepts the websocket, then never completes the CDP handshake — seen
+    after a heavy page (youtube.com) timed out in the quiet lane. Playwright's
+    default connect timeout is three minutes, so without this an agent
+    mid-conversation simply stops responding.
+    """
+    try:
+        profile = quiet_profile_dir() if str(lane).lower() == LANE_QUIET else profile_dir()
+        subprocess.run(["pkill", "-f", f"--user-data-dir={profile}"], capture_output=True, timeout=10)
+    except Exception as exc:
+        log_error(None, f"recycle {lane}", exc)
+        return False
+    time.sleep(1.5)
+    return ensure_browser(lane=lane)
+
+
+_CONNECT_TIMEOUT_MS = 20_000
+
+
 def _connect(pw: Any, lane: str) -> Any:
-    """A Playwright context attached to one lane's running Chrome."""
-    cdp = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{lane_port(lane)}")
+    """A Playwright context attached to one lane's running Chrome.
+
+    Recycles the lane once if the handshake does not complete: a browser
+    that cannot be driven is worth restarting, and the quiet lane has no
+    window whose loss anyone would notice.
+    """
+    endpoint = f"http://127.0.0.1:{lane_port(lane)}"
+    try:
+        cdp = pw.chromium.connect_over_cdp(endpoint, timeout=_CONNECT_TIMEOUT_MS)
+    except Exception as exc:
+        log_error(None, f"cdp connect ({lane}) — recycling", exc)
+        if not recycle_lane(lane):
+            raise
+        cdp = pw.chromium.connect_over_cdp(endpoint, timeout=_CONNECT_TIMEOUT_MS)
     return cdp.contexts[0] if cdp.contexts else cdp.new_context()
 
 
@@ -329,7 +364,7 @@ def browser_handoff(
     url: str,
     reason: str,
     *,
-    wait_seconds: float = 300.0,
+    wait_seconds: float = 0.0,
     poll_seconds: float = 2.0,
     notify: Callable[[str], bool] | None = None,
 ) -> dict[str, Any]:
@@ -341,8 +376,18 @@ def browser_handoff(
     interruption this design exists to prevent. When they are done, the
     new cookies go back to the quiet lane and the tab closes.
 
-    Completion is detected by the page leaving the wall, so the owner
-    signals by simply finishing; there is nothing extra to click.
+    Non-blocking by default, and that default matters: the Telegram bot
+    handles one update at a time, so an agent that sat here waiting five
+    minutes would be deaf to the owner for five minutes — unable to answer
+    the very question the handoff invites. With ``wait_seconds=0`` this
+    opens the page, sends the message, and returns; the agent stays in the
+    conversation and calls ``browser_handoff_finish`` when the owner says
+    they are done.
+
+    Passing ``wait_seconds`` blocks instead, polling until the page leaves
+    the wall. That mode also records every destination the tab attempts,
+    which a redirect-carried result (an OAuth code) needs — so a script
+    with nobody to talk to should use it.
     """
     url = str(url or "").strip()
     if not url:
@@ -385,6 +430,15 @@ def browser_handoff(
 
         page.on("request", _record_navigation)
         page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        if float(wait_seconds) <= 0:
+            _record_pending_handoff(url, reason)
+            _notify_owner_handoff(f"{reason}\n\nI opened it in your browser: {url}", notify=notify)
+            return {
+                "ok": True, "url": url, "pending": True, "resolved": False,
+                "carried_to_loud": carried.get("copied", 0),
+                "note": ("The page is open and the owner has been told why. Stay in the "
+                         "conversation; call handoff_finish when they say they are done."),
+            }
         _notify_owner_handoff(f"{reason}\n\nI opened it in your browser: {url}", notify=notify)
         deadline = time.time() + max(0.0, float(wait_seconds))
         resolved = False
@@ -423,10 +477,100 @@ def browser_handoff(
         return {"ok": False, "url": url, "error": f"{type(exc).__name__}: {exc}"}
     finally:
         try:
-            if page is not None and not page.is_closed():
+            # A pending handoff leaves its tab open on purpose: the owner is
+            # about to use it.
+            if page is not None and float(wait_seconds) > 0 and not page.is_closed():
                 page.close()
         except Exception:
             pass
+        try:
+            pw.stop()
+        except Exception:
+            pass
+
+
+def _pending_path() -> Path:
+    from ..paths import vault_root
+
+    return vault_root() / "state" / "browser-handoff.json"
+
+
+def _record_pending_handoff(url: str, reason: str) -> None:
+    """Remember what the owner was asked to do, for whoever finishes it.
+
+    On disk rather than in memory: the agent that opens a handoff may not
+    be the process that closes it (chat and the telegram service are
+    different processes against the same vault).
+    """
+    try:
+        path = _pending_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"url": url, "reason": reason, "opened_at": time.time()}), encoding="utf-8")
+    except Exception as exc:
+        log_error(None, "record pending handoff", exc)
+
+
+def browser_handoff_finish(expect_url: str = "") -> dict[str, Any]:
+    """Close out a handoff the owner says they have finished.
+
+    Carries whatever they just did — a login, a solved CAPTCHA — back to
+    the quiet lane, then closes the tab.
+    """
+    pending: dict[str, Any] = {}
+    try:
+        path = _pending_path()
+        if path.is_file():
+            pending = json.loads(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        pending = {}
+    target = str(expect_url or pending.get("url") or "").strip()
+    if not ensure_browser(lane=LANE_LOUD) or not ensure_browser(lane=LANE_QUIET):
+        return {"ok": False, "error": "both lanes must be running to finish a handoff"}
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return {"ok": False, "error": "playwright is not installed (pip install playwright)"}
+
+    host = ""
+    try:
+        host = urllib.parse.urlparse(target).netloc
+    except Exception:
+        host = ""
+    pw = sync_playwright().start()
+    try:
+        loud = _connect(pw, LANE_LOUD)
+        quiet = _connect(pw, LANE_QUIET)
+        page = None
+        if host:
+            page = next((item for item in loud.pages if host in item.url), None)
+        final_url = ""
+        if page is not None:
+            try:
+                final_url = page.url
+            except Exception:
+                final_url = ""
+        returned = _copy_cookies(loud, quiet, source=LANE_LOUD, target=LANE_QUIET)
+        if page is not None:
+            try:
+                page.close()
+            except Exception:
+                pass
+        try:
+            _pending_path().unlink(missing_ok=True)
+        except Exception:
+            pass
+        return {
+            "ok": True, "url": target, "final_url": final_url,
+            "tab_closed": page is not None,
+            "returned_to_quiet": returned.get("copied", 0),
+            "note": ("Session carried back to the quiet lane. The owner's tab was closed."
+                     if page is not None else
+                     "Session carried back. No matching tab was open — the owner may have closed it."),
+        }
+    except Exception as exc:
+        log_error(None, "handoff finish", exc)
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    finally:
         try:
             pw.stop()
         except Exception:
@@ -476,8 +620,7 @@ def browser_action(action: str, lane: str = LANE_QUIET, **kw: Any) -> dict[str, 
 
     pw = sync_playwright().start()
     try:
-        cdp = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{lane_port(lane)}")
-        context = cdp.contexts[0] if cdp.contexts else cdp.new_context()
+        context = _connect(pw, lane)
         pages = [p for p in context.pages if not p.url.startswith("devtools")]
         page = pages[-1] if pages else context.new_page()
         try:
@@ -724,16 +867,14 @@ def browser_search(
     page = None
     context = None
     try:
-        cdp = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{lane_port(lane)}")
-        context = cdp.contexts[0] if cdp.contexts else cdp.new_context()
+        context = _connect(pw, lane)
         marker = _open_background_target(context, url)
         # Reconnect so Playwright enumerates the tab CDP just created.
         page = None
         deadline = time.time() + 15.0
         while time.time() < deadline and page is None:
             time.sleep(0.4)
-            cdp = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{lane_port(lane)}")
-            context = cdp.contexts[0] if cdp.contexts else cdp.new_context()
+            context = _connect(pw, lane)
             page = next((item for item in context.pages if item.url == marker), None)
         if page is None:
             return {"ok": False, "engine": engine, "error": "background tab did not attach"}

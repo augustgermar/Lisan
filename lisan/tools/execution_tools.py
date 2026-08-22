@@ -65,15 +65,17 @@ TOOLS: list[dict[str, Any]] = [
             "text, CSS selector, or index}, 'type' {target, text, submit?}, 'screenshot', "
             "'tabs', 'switch_tab' {index}, 'back', 'search' {query, engine?}, and 'handoff' "
             "{url, reason} — when a login or CAPTCHA blocks you, do NOT give up and do NOT ask "
-            "them to go find the page: call handoff, which opens that page in their visible "
-            "browser, tells them on Telegram why, waits while they do it, carries the new "
-            "login back to the quiet lane, and closes the window. Compose small steps and read "
-            "after navigating. Use for anything web."
+            "them to go find the page themselves: call handoff, which opens that page in their "
+            "visible browser and messages them why. handoff RETURNS IMMEDIATELY and does NOT "
+            "wait — so keep talking to them while they work: say what you need, answer their "
+            "questions, and when they say they are done call 'handoff_finish', which carries "
+            "their new login back to the quiet lane and closes the window. Then continue where "
+            "you left off. Compose small steps and read after navigating. Use for anything web."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["open", "goto", "read", "elements", "click", "type", "screenshot", "tabs", "switch_tab", "back", "search", "handoff", "sync_session"]},
+                "action": {"type": "string", "enum": ["open", "goto", "read", "elements", "click", "type", "screenshot", "tabs", "switch_tab", "back", "search", "handoff", "handoff_finish", "sync_session"]},
                 "lane": {"type": "string", "enum": ["quiet", "loud"], "description": "quiet (default, invisible) or loud (the user's visible window)"},
                 "query": {"type": "string"},
                 "engine": {"type": "string"},
@@ -900,7 +902,7 @@ def _ratify_framework_tool(name: str, summary: str, source: str | None, *, vault
 def _browser_tool(action: str, **kw: Any) -> str:
     import json as _json
 
-    from .browser import browser_action, browser_handoff, browser_search, sync_session
+    from .browser import browser_action, browser_handoff, browser_handoff_finish, browser_search, sync_session
 
     verb = str(action or "").strip().lower()
     if verb == "search":
@@ -911,7 +913,12 @@ def _browser_tool(action: str, **kw: Any) -> str:
             lane=str(kw.get("lane") or "quiet"),
         )
     elif verb == "handoff":
-        result = browser_handoff(str(kw.get("url") or ""), str(kw.get("reason") or ""))
+        # Non-blocking: the telegram bot handles one update at a time, so
+        # waiting here would make the agent deaf to the owner it just
+        # asked for help.
+        result = browser_handoff(str(kw.get("url") or ""), str(kw.get("reason") or ""), wait_seconds=0)
+    elif verb == "handoff_finish":
+        result = browser_handoff_finish(str(kw.get("url") or ""))
     elif verb == "sync_session":
         result = sync_session(str(kw.get("source") or "loud"), str(kw.get("target") or "quiet"))
     else:

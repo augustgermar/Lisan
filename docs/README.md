@@ -47,6 +47,11 @@ gate — read the gate before starting):
   installability, documentation, security, and release-hygiene pass. Not
   scheduled; it is retained as a future release queue rather than mistaken
   for completed work.
+- `agent_tools_workorder.md` — WO-AGENTTOOLS, whether agents other than
+  the Interlocutor should hold tools, and the Adjutant a browser. Written
+  as a case for and a case against, because the decision is a posture
+  change rather than a feature: today the agent the owner is talking to
+  can act, and the one working unattended cannot.
 
 Executed 2026-07-15: `ground_truth_workorder.md` — WO-GROUND,
 self-referential questions answered from generated ground truth, never

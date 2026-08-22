@@ -84,3 +84,33 @@ def test_session_bridge_carries_the_owners_login_between_lanes():
 def test_handoff_refuses_without_a_destination():
     assert browser_handoff("", "reason")["ok"] is False
     assert "url" in browser_handoff("", "reason")["error"]
+
+
+def test_handoff_does_not_block_the_conversation_by_default():
+    """The telegram bot handles one update at a time.
+
+    A handoff that waited for the owner would make the agent deaf to the
+    owner for the whole wait — unable to answer the question its own
+    message invited.
+    """
+    import inspect
+
+    from lisan.tools.browser import browser_handoff_finish
+
+    signature = inspect.signature(browser_handoff)
+    assert signature.parameters["wait_seconds"].default == 0.0
+    assert callable(browser_handoff_finish)
+
+
+def test_browser_tool_exposes_the_full_handoff_cycle():
+    from lisan.tools.execution_tools import TOOLS
+
+    tool = next(item for item in TOOLS if item["name"] == "browser")
+    actions = tool["parameters"]["properties"]["action"]["enum"]
+    for verb in ("search", "handoff", "handoff_finish", "sync_session"):
+        assert verb in actions
+    described = tool["description"]
+    # The description is what actually teaches the flow; the model never
+    # reads browser.py.
+    assert "quiet" in described.lower() and "handoff_finish" in described
+    assert "RETURNS IMMEDIATELY" in described
