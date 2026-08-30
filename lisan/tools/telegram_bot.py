@@ -157,6 +157,30 @@ def _status_text(vault: Path, db_path: Path | None) -> str:
     lines = ["Lisan status (read-only)", render_self_state(state)]
     pending = list_pending(db_path)
     lines.append(f"Pending confirmations: {len(pending)}")
+    conn = None
+    try:
+        from .db import connect
+        from .rebuild_index import ensure_index_schema
+
+        conn = connect(db_path)
+        ensure_index_schema(conn)
+        approved = conn.execute(
+            "SELECT COUNT(*) FROM confirmations WHERE status='pending' AND resolution='approved'"
+        ).fetchone()[0]
+        orphaned = conn.execute(
+            """SELECT COUNT(*) FROM confirmations c
+               LEFT JOIN files f ON f.id = c.task_id
+               WHERE c.status='pending' AND c.resolution='approved'
+                 AND (f.id IS NULL OR f.task_kind IS NULL)"""
+        ).fetchone()[0]
+        lines.append(f"Approved awaiting execution: {approved}")
+        if orphaned:
+            lines.append(f"WARNING: orphaned approved confirmations: {orphaned}")
+    except Exception:
+        lines.append("Approved awaiting execution: unavailable")
+    finally:
+        if conn is not None:
+            conn.close()
     reports = vault / "reports" / "self-repair-proposals"
     proposal_states: dict[str, int] = {}
     if reports.exists():

@@ -179,6 +179,8 @@ def test_phase_b_applies_exact_approved_proposal_and_queues_restart(tmp_path: Pa
     assert applied.commit
     assert (repo / "ordinary.py").read_text(encoding="utf-8") == "VALUE = 2\n"
     assert load_markdown(proposal.report_path).frontmatter["status"] == "applied"
+    confirmation = load_markdown(vault / "confirmations" / f"{proposal.confirmation_id.removeprefix('confirmation.')}.md")
+    assert confirmation.frontmatter["status"] == "resolved"
     assert load_markdown(loop).frontmatter["resolved_by"] == "self_repair"
     episodes = list((vault / "self" / "episodes").glob("*self-repair-apply*.md"))
     assert len(episodes) == 1

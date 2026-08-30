@@ -18,6 +18,7 @@ import unittest
 from pathlib import Path
 
 from lisan.config import DEFAULT_CONFIG
+from lisan.providers.codex import _is_schema_echo
 from lisan.providers.config import (
     ProviderRoutingError,
     resolve_route,
@@ -64,6 +65,10 @@ class RoutingCoverageTests(unittest.TestCase):
         local endpoint."""
         selection = select_provider(DEFAULT_CONFIG, agent="self_repair_author", significance="high")
         self.assertEqual(selection.provider, "codex")
+
+    def test_codex_schema_echo_is_detected(self) -> None:
+        self.assertTrue(_is_schema_echo({"$schema": "https://json-schema.org", "type": "object", "properties": {}}))
+        self.assertFalse(_is_schema_echo({"narrative": "actual answer"}))
 
 
 class RouteResolutionTests(unittest.TestCase):

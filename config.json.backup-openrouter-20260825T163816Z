@@ -1,0 +1,199 @@
+{
+  "providers": {
+    "codex": {
+      "enabled": true,
+      "binary_env": "CODEX_BIN",
+      "default_model": null
+    },
+    "local": {
+      "enabled": true,
+      "api_key_env": null,
+      "base_url": "http://127.0.0.1:8080/v1/chat/completions",
+      "default_model": null
+    },
+    "openai": {
+      "enabled": false,
+      "api_key_env": "OPENAI_API_KEY",
+      "base_url": "https://api.openai.com/v1/chat/completions",
+      "default_model": "gpt-4o-mini"
+    },
+    "google": {
+      "enabled": false,
+      "api_key_env": "GOOGLE_API_KEY",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta",
+      "default_model": "gemini-2.0-flash"
+    },
+    "openrouter": {
+      "enabled": false,
+      "api_key_env": "OPENROUTER_API_KEY",
+      "base_url": "https://openrouter.ai/api/v1/chat/completions",
+      "default_model": "mistralai/mistral-nemo"
+    },
+    "rotato": {
+      "base_url": "http://localhost:8990/gemflash/chat/completions",
+      "default_model": "gemini-2.5-pro",
+      "timeout_seconds": 120
+    }
+  },
+  "routing": {
+    "router": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
+    },
+    "listener": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
+    },
+    "assembler": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
+    },
+    "elicitor": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
+    },
+    "writer": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
+    },
+    "skeptic": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
+    },
+    "interlocutor": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
+    },
+    "dreamer": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
+    },
+    "advice": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
+    },
+    "analyst": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
+    }
+  },
+  "heuristic": {
+    "thresholds": {
+      "skip": 3,
+      "lightweight": 6
+    },
+    "high_stakes_terms": null,
+    "biographical_terms": null,
+    "affect_terms": null
+  },
+  "ingest": {
+    "max_file_size_bytes": 5242880,
+    "text_preview_chars": 4000,
+    "skip_if_inside_vault": true
+  },
+  "backup": {
+    "destination_dir": "backups",
+    "encrypt_by_default": false,
+    "recipient_env": "LISAN_BACKUP_RECIPIENT",
+    "identity_env": "LISAN_BACKUP_IDENTITY",
+    "age_binary_env": "AGE_BIN"
+  },
+  "retrieval": {
+    "fusion": {
+      "enabled": true,
+      "method": "rrf",
+      "rrf_k": 60,
+      "per_layer_limit": 30,
+      "fused_limit": 20
+    },
+    "embeddings": {
+      "mode": "auto",
+      "provider": "fastembed",
+      "model": "BAAI/bge-small-en-v1.5",
+      "dimensions": 384,
+      "cache_dir": null,
+      "query_prefix": "Represent this sentence for searching relevant passages: ",
+      "passage_prefix": "",
+      "base_url": "http://127.0.0.1:8080",
+      "api_key_env": null,
+      "timeout_seconds": 30,
+      "batch_size": 64,
+      "unreachable_policy": "skip",
+      "hash_dimensions": 32
+    }
+  },
+  "telegram": {
+    "allowed_user_ids": [
+      1058643775
+    ]
+  },
+  "drive": {
+    "action_tier": 4
+  },
+  "skills": {
+    "google": {
+      "credentials_dir": "/Users/august/.lisan/credentials/google"
+    },
+    "obsidian": {
+      "vault_path": "/Users/august/Library/Mobile Documents/iCloud~md~obsidian/Documents/Vault01"
+    }
+  },
+  "sources": {
+    "local_files": {
+      "enabled": true,
+      "roots": [
+        "/Users/august/Desktop",
+        "/Users/august/Library/CloudStorage/GoogleDrive-agermar@gmail.com/My Drive",
+        "/Users/august/Library/Mobile Documents/iCloud~md~obsidian/Documents/Vault01"
+      ],
+      "include_extensions": [
+        ".md",
+        ".txt",
+        ".json",
+        ".csv",
+        ".pdf",
+        ".html",
+        ".htm"
+      ]
+    },
+    "web": {
+      "enabled": true,
+      "endpoint": "https://www.bing.com/search",
+      "timeout_seconds": 20,
+      "max_depth": 3,
+      "max_pages": 12,
+      "max_links_per_page": 8,
+      "max_page_bytes": 1000000,
+      "provider": "browser",
+      "api_key_env": "TAVILY_API_KEY",
+      "search_endpoint": "https://api.tavily.com/search",
+      "search_depth": "basic",
+      "include_raw_content": false,
+      "engines": [
+        "google",
+        "duckduckgo"
+      ],
+      "settle_seconds": 2.5
+    }
+  },
+  "adjutant": {
+    "enabled": true,
+    "calibration": false,
+    "interval_minutes": 15,
+    "script_dirs": [],
+    "collect_paths": []
+  },
+  "conversation": {
+    "max_tool_iterations": 30
+  }
+}

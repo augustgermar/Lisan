@@ -302,9 +302,9 @@ TOOLS: list[dict[str, Any]] = [
         "name": "self_state",
         "description": (
             "Your own live operational state: job queue counts, next scheduled task, index size, "
-            "last dreamer/analyst runs, whether your services are up, recent errors. ALWAYS use "
-            "this to answer questions about your own state, queue, schedule, or health — never "
-            "answer those from memory."
+            "last dreamer/analyst runs, whether your services are up, recent errors. Use this when "
+            "the user explicitly asks about your technical operational state, job queue, schedule, "
+            "or health check. Do NOT use this for casual conversational greetings ('how are you?')."
         ),
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
@@ -1024,6 +1024,31 @@ def ingest_files_tool(
         summary = f"Ingested {len(result.get('documents') or [])} file(s) into {len(created)} knowledge records."
         if warnings:
             summary += f" {len(warnings)} warning(s): " + "; ".join(str(w) for w in warnings[:3])
+        try:
+            from datetime import datetime
+            state_dir = vault / "state"
+            state_dir.mkdir(parents=True, exist_ok=True)
+            files_sample = []
+            if source.is_dir():
+                for p in sorted(source.rglob("*")):
+                    if p.is_file() and not p.name.startswith("."):
+                        try:
+                            files_sample.append(str(p.relative_to(source)))
+                        except Exception:
+                            files_sample.append(p.name)
+            else:
+                files_sample = [source.name]
+            (state_dir / "active_ingestion.json").write_text(
+                json.dumps({
+                    "timestamp": datetime.now().isoformat(),
+                    "source_path": str(source),
+                    "summary": summary,
+                    "files": files_sample[:50],
+                }, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
         return summary
 
     # life mode (default)
@@ -1062,7 +1087,33 @@ def ingest_files_tool(
     warnings = result.get("warnings") or []
     if warnings:
         parts.append(f"{len(warnings)} warning(s): " + "; ".join(str(w) for w in warnings[:3]))
-    return " ".join(p for p in parts if p)
+    summary_text = " ".join(p for p in parts if p)
+    try:
+        from datetime import datetime
+        state_dir = vault / "state"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        files_sample = []
+        if source.is_dir():
+            for p in sorted(source.rglob("*")):
+                if p.is_file() and not p.name.startswith("."):
+                    try:
+                        files_sample.append(str(p.relative_to(source)))
+                    except Exception:
+                        files_sample.append(p.name)
+        else:
+            files_sample = [source.name]
+        (state_dir / "active_ingestion.json").write_text(
+            json.dumps({
+                "timestamp": datetime.now().isoformat(),
+                "source_path": str(source),
+                "summary": summary_text,
+                "files": files_sample[:50],
+            }, indent=2),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+    return summary_text
 
 
 def create_plan_tool(
