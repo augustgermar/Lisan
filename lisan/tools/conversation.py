@@ -54,6 +54,9 @@ def run_conversation_turn(
     self_story = _self_story_context(vault, text)
     if self_story:
         context = f"{context}\n\n{self_story}" if context else self_story
+    active_focus = _active_ingestion_context(vault)
+    if active_focus:
+        context = f"{context}\n\n{active_focus}" if context else active_focus
 
     # Session open is the drive system's single delivery seam (v1 action
     # budget): a fresh conversation may carry at most one question-phrased
@@ -328,6 +331,45 @@ def _retrieval_context(*, vault: Path, text: str, conversation_id: str | None, d
         return assemble_context(text, vault=vault, conversation_id=conversation_id, db_path=db_path, lean=True)
     except Exception as exc:
         log_error(vault, "conversation.retrieval", exc)
+        return ""
+
+
+def _active_ingestion_context(vault: Path) -> str:
+    """If files or documents were recently assimilated into the vault (last 24h),
+    keep a concise focus block in context so follow-up questions have
+    immediate working awareness of those documents without relying solely
+    on cold vector retrieval."""
+    try:
+        path = vault / "state" / "active_ingestion.json"
+        if not path.exists():
+            return ""
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return ""
+        timestamp = data.get("timestamp")
+        if timestamp:
+            from datetime import datetime
+            try:
+                ingested_at = datetime.fromisoformat(timestamp)
+                if (datetime.now() - ingested_at).total_seconds() > 86400:
+                    return ""
+            except Exception:
+                pass
+        source = data.get("source_path") or "recent import"
+        summary = data.get("summary") or ""
+        files = data.get("files") or []
+        lines = [f"RECENT_INGESTION_FOCUS (documents recently assimilated from {source}):"]
+        if summary:
+            lines.append(f"Summary: {summary}")
+        if files:
+            file_sample = files[:12]
+            lines.append("Key files:")
+            for f in file_sample:
+                lines.append(f"- {f}")
+            if len(files) > 12:
+                lines.append(f"- ... and {len(files) - 12} more files")
+        return "\n".join(lines)
+    except Exception:
         return ""
 
 

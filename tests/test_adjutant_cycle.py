@@ -16,6 +16,7 @@ from lisan.config import DEFAULT_CONFIG
 from lisan.frontmatter import dump_markdown, load_markdown, write_markdown
 from lisan.paths import ensure_vault_layout
 from lisan.tools.adjutant_gate import gate, required_capabilities
+from lisan.tools.adjutant_confirmations import approve_confirmation, create_confirmation_for_task, mark_executed
 from lisan.tools.adjutant_poller import poll, priority_rank
 from lisan.tools.adjutant_runner import adjutant_status, format_status, run_cycle
 from lisan.tools.db import connect as db_connect
@@ -189,7 +190,7 @@ def test_approved_confirmation_jumps_queue(world):
     )
     doc = load_markdown(created.path)
     fm = dict(doc.frontmatter)
-    fm.update(status="resolved", resolution="approved", resolved_at="2026-07-23", resolved_by="owner")
+    fm.update(status="pending", resolution="approved", resolved_at="2026-07-23", resolved_by="owner")
     write_markdown(created.path, fm, doc.body)
     index_single_record(created.path, vault, conn)
     conn.commit()
@@ -287,6 +288,20 @@ def test_cycle_executes_nothing(world):
     check.close()
 
 
+def test_poll_ignores_resolved_approved_confirmation(world):
+    vault, db, conn = world
+    loop_id = _task_loop(vault, conn, "Send it", kind="notify")
+    conn.close()
+    created = create_confirmation_for_task(
+        vault, task_id=loop_id, task_summary="send", planned_action="m", risk="outbound", db_path=db
+    )
+    approve_confirmation(vault, created, db_path=db, capture=lambda **_: None)
+    mark_executed(vault, loop_id, db_path=db)
+    check = db_connect(db)
+    assert all(not (task.source == "confirmation" and task.task_id == loop_id) for task in poll(check, load_intent(vault), vault))
+    check.close()
+
+
 def test_invalid_intent_halts_loudly(world):
     vault, db, conn = world
     conn.close()
@@ -300,6 +315,27 @@ def test_invalid_intent_halts_loudly(world):
     assert not status["intent_valid"]
     rendered = format_status(status)
     assert "HALTED" in rendered
+
+
+def test_status_reports_approved_and_orphaned_confirmations(world):
+    vault, db, conn = world
+    conn.close()
+    created = create_confirmation_for_task(
+        vault,
+        task_id="self-repair:orphaned",
+        task_summary="orphaned repair",
+        planned_action="apply the approved repair",
+        risk="code change",
+        db_path=db,
+    )
+    approve_confirmation(vault, created, db_path=db, capture=lambda **_: None)
+    status = adjutant_status(vault, db)
+    assert status["pending_confirmations"] == 0
+    assert status["approved_pending_execution"] == 1
+    assert status["orphaned_approved_confirmations"] == 1
+    rendered = format_status(status)
+    assert "approved awaiting execution: 1" in rendered
+    assert "orphaned approved confirmations: 1" in rendered
 
 
 def test_out_of_band_intent_edit_is_absorbed_and_logged(world):

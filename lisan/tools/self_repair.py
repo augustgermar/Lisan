@@ -446,6 +446,12 @@ def apply_approved_proposal(
         "bake_check_job_id": bake_job,
     })
     write_markdown(report, fm, doc.body + f"\n## Applied\n\nLocal commit: `{commit}`\nRestart job: `{restart_job}`\n")
+    # Direct Phase-B application has no Adjutant task-run wrapper, so close the
+    # approved confirmation here. Otherwise the confirmation remains
+    # resolution=approved/status=pending and can be polled again forever.
+    from .adjutant_confirmations import mark_executed
+
+    mark_executed(vault, f"self-repair:{proposal_id}", db_path=db_path)
     return AppliedProposal(proposal_id, commit, restart_job, report)
 
 

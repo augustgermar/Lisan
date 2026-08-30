@@ -110,7 +110,7 @@ def poll(
     for row in conn.execute(
         "SELECT c.id, c.task_id, f.scope, f.task_kind, f.path, f.summary, f.created, f.blocked_contexts "
         "FROM confirmations c LEFT JOIN files f ON f.id = c.task_id "
-        "WHERE c.resolution = 'approved'"
+        "WHERE c.resolution = 'approved' AND c.status = 'pending'"
     ):
         confirmed.append(
             PolledTask(

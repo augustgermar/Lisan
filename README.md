@@ -2,17 +2,47 @@
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Lisan is a local-first personal agent with durable memory, a persistent
-identity, and its own drives — built on the conviction that an AI
-assistant should be *yours*: your data in plain files on your machine,
-your rules enforced in code, and a continuity that outlives any single
-model, provider, or conversation.
+**A research project on durable memory for AI agents — and the system
+that grew out of it.**
 
-The north star is the droid from the films: a companion that remembers
-twenty years of shared history, acts in the world on your behalf, and is
-still recognizably itself after every repair. Language models come and
-go — the substrate persists. Lisan treats the model as a replaceable
-engine mounted in a permanent airframe of memory, identity, and policy.
+Lisan began as a test of a single idea: give a language model a memory
+substrate that behaves like memory — durable, structured, owned by the
+user, and independent of any one model or provider — and find out what
+that changes. Not a chat log with vector search bolted on, but records
+with types, provenance, contradiction, and decay: entities, episodes,
+claims and the evidence under them, open loops. Plain markdown files
+with JSON frontmatter on your own disk, indexed by SQLite, rebuildable
+from the files at any time.
+
+The substrate held, and the project grew from there, because each
+answer exposed the next missing piece. Memory worth trusting needed
+retrieval that could be audited. Retrieval reaching across years needed
+compaction that never lost the original. A system speaking about its own
+past needed an identity that survived a memory wipe — and instruments
+that could tell it the truth about its own state, since a rule against
+confabulating is worthless without one. Once it remembered reliably, the
+open question became what it should *do* with what it remembered, which
+is how a capture pipeline acquired drives, a scheduler, a guarded
+self-repair loop, and an execution layer answerable to a written
+statement of the owner's intent.
+
+What exists today is a local-first personal agent with durable memory, a
+persistent identity, and its own drives: your data in plain files on your
+machine, your rules enforced in code, and a continuity that outlives any
+single model, provider, or conversation. The north star is the droid from
+the films — a companion that remembers twenty years of shared history,
+acts in the world on your behalf, and is still recognizably itself after
+every repair. Language models come and go; the substrate persists. Lisan
+treats the model as a replaceable engine mounted in a permanent airframe
+of memory, identity, and policy.
+
+It remains a research vehicle rather than a product: one author, ~440
+commits since May 2026, 1,375 passing tests with green as the floor, and
+risky capabilities that ship implemented but switched off until an owner
+deliberately turns the key. It is MIT licensed and installable today, and
+the specifications, sealed work orders, and reasoning behind each
+decision sit in the repository next to the code — the argument is meant
+to be inspectable, not just the artifact.
 
 ## What that means concretely
 
@@ -269,7 +299,7 @@ coding-agent CLI as the executor.
   README used to be.
 
 Development follows the repo conventions: `python3 -m pytest tests/`
-(currently 1,359 passed, 7 skipped, green is the floor), deterministic logic
+(currently 1,375 passed, 7 skipped, green is the floor), deterministic logic
 in `lisan/tools/`, schema changes with their gates, prompts under version
 control in `prompts/`.
 

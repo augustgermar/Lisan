@@ -129,6 +129,10 @@ class CodexClient(ProviderClient):
                 parsed = extract_json(text)
                 if not isinstance(parsed, dict):
                     raise ProviderError(f"coding agent returned non-JSON: {text[:200]!r}")
+                if _is_schema_echo(parsed):
+                    raise ProviderError(
+                        "coding agent returned the schema definition instead of a response instance"
+                    )
                 text = json.dumps(parsed, indent=2, ensure_ascii=True)
             return LLMResponse(
                 text=text,
@@ -144,4 +148,16 @@ class CodexClient(ProviderClient):
 def _is_truncated_json_error(exc: ProviderError) -> bool:
     """True when the error message indicates the coding agent returned a truncated JSON stream."""
     message = str(exc)
-    return "coding agent returned non-JSON" in message
+    return (
+        "coding agent returned non-JSON" in message
+        or "returned the schema definition instead of a response instance" in message
+    )
+
+
+def _is_schema_echo(value: dict[str, Any]) -> bool:
+    """Detect Codex emitting the supplied JSON Schema instead of its instance."""
+    return (
+        isinstance(value.get("$schema"), str)
+        and value.get("type") == "object"
+        and isinstance(value.get("properties"), dict)
+    )

@@ -22,7 +22,10 @@ from pathlib import Path
 
 from ..paths import sqlite_path
 
-BUSY_TIMEOUT_MS = 5000
+# Background maintenance and large ingestion/index transactions can legitimately
+# exceed five seconds. Waiting here is safer than turning temporary contention
+# into a terminal job failure; WAL still permits readers during the wait.
+BUSY_TIMEOUT_MS = 30000
 
 
 def connect(db_path: Path | None = None, *, readonly: bool = False) -> sqlite3.Connection:

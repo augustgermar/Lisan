@@ -491,6 +491,16 @@ def adjutant_status(vault: Path | None = None, db_path: Path | None = None) -> d
         pending = conn.execute(
             "SELECT COUNT(*) FROM confirmations WHERE status='pending' AND resolution IS NULL"
         ).fetchone()[0]
+        approved_pending = conn.execute(
+            "SELECT COUNT(*) FROM confirmations WHERE status='pending' AND resolution='approved'"
+        ).fetchone()[0]
+        orphaned_approved = conn.execute(
+            """SELECT COUNT(*)
+               FROM confirmations c
+               LEFT JOIN files f ON f.id = c.task_id
+               WHERE c.status='pending' AND c.resolution='approved'
+                 AND (f.id IS NULL OR f.task_kind IS NULL)"""
+        ).fetchone()[0]
         blocked = conn.execute(
             "SELECT COUNT(*) FROM files WHERE task_status='blocked'"
         ).fetchone()[0]
@@ -500,6 +510,8 @@ def adjutant_status(vault: Path | None = None, db_path: Path | None = None) -> d
             "last_cycle": dict(last_cycle) if last_cycle else None,
             "halted": halted_since,
             "pending_confirmations": int(pending),
+            "approved_pending_execution": int(approved_pending),
+            "orphaned_approved_confirmations": int(orphaned_approved),
             "blocked_tasks": int(blocked),
         }
     finally:
@@ -520,6 +532,11 @@ def format_status(status: dict[str, Any]) -> str:
     else:
         lines.append("no cycles recorded")
     lines.append(f"pending confirmations: {status['pending_confirmations']}")
+    lines.append(f"approved awaiting execution: {status['approved_pending_execution']}")
+    if status["orphaned_approved_confirmations"]:
+        lines.append(
+            f"WARNING: orphaned approved confirmations: {status['orphaned_approved_confirmations']}"
+        )
     lines.append(f"blocked tasks: {status['blocked_tasks']}")
     return "\n".join(lines)
 

@@ -306,6 +306,18 @@ def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) 
     except Exception:
         state["provider"] = {"error": "could not read config"}
 
+    try:
+        cfg = load_config()
+        repair_cfg = cfg.get("self_repair") or {}
+        targeted = repair_cfg.get("targeted_command")
+        state["self_repair"] = {
+            "proposal_generation": "ready" if isinstance(targeted, list) and targeted else "awaiting targeted_command",
+            "action_tier": (cfg.get("drive") or {}).get("action_tier"),
+            "targeted_command_configured": bool(isinstance(targeted, list) and targeted),
+        }
+    except Exception as exc:
+        state["self_repair"] = {"error": str(exc)}
+
     jobs_by_status: dict[str, dict[str, int]] = {}
     next_task = None
     index_records = 0
@@ -351,6 +363,12 @@ def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) 
             ).fetchone()
             state["queued_due_now"] = int(due_row[0]) if due_row else 0
             index_records = int(conn.execute("SELECT COUNT(*) FROM files").fetchone()[0])
+            state["database"] = {
+                "path": str(db),
+                "journal_mode": str(conn.execute("PRAGMA journal_mode").fetchone()[0]),
+                "busy_timeout_ms": int(conn.execute("PRAGMA busy_timeout").fetchone()[0]),
+                "integrity": str(conn.execute("PRAGMA quick_check").fetchone()[0]),
+            }
         finally:
             conn.close()
     except Exception as exc:
@@ -657,6 +675,13 @@ def render_self_state(state: dict[str, Any]) -> str:
         f"Checked at {state['checked_at']}",
         f"Index: {state.get('index_records', 0)} records",
     ]
+    database = state.get("database") or {}
+    if database:
+        lines.append(
+            f"Database: {database.get('path', 'unknown')} — {database.get('journal_mode', 'unknown')} "
+            f"WAL, busy timeout {database.get('busy_timeout_ms', 'unknown')}ms, "
+            f"integrity {database.get('integrity', 'unknown')}"
+        )
     jobs = state.get("jobs") or {}
     if jobs:
         for status in sorted(jobs):
@@ -690,6 +715,12 @@ def render_self_state(state: dict[str, Any]) -> str:
     for key in ("last_dreamer_success", "last_analyst_success"):
         label = key.replace("last_", "").replace("_success", "")
         lines.append(f"Last {label} success: {state.get(key) or 'never'}")
+    repair = state.get("self_repair") or {}
+    if repair:
+        lines.append(
+            f"Self-repair: proposals {repair.get('proposal_generation', 'unknown')} "
+            f"(action tier {repair.get('action_tier', 'unknown')})"
+        )
     enrichment = state.get("enrichment_audit") or {}
     if enrichment.get("attempts"):
         outcomes = ", ".join(
