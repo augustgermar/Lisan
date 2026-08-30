@@ -2,8 +2,8 @@
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**A research project on durable memory for AI agents — and the system
-that grew out of it.**
+**A research implementation of durable cognitive infrastructure for AI
+agents — an airframe for replaceable language-model engines.**
 
 Lisan began as a test of a single idea: give a language model a memory
 substrate that behaves like memory — durable, structured, owned by the
@@ -43,6 +43,59 @@ deliberately turns the key. It is MIT licensed and installable today, and
 the specifications, sealed work orders, and reasoning behind each
 decision sit in the repository next to the code — the argument is meant
 to be inspectable, not just the artifact.
+
+## Design thesis
+
+Lisan treats the language model as a replaceable engine rather than the agent
+itself. Models can be upgraded, quantized, replaced, or taken offline without
+erasing a user's autobiography, relationships, commitments, or ratified
+identity. The durable layer is local, user-owned, provider-independent, and
+rebuildable from plain files.
+
+This is the project's central engineering bet. Lisan is not a chat log with
+vector search bolted on, and it is not a prompt wrapper that asks a model to
+pretend it remembers. It builds structured memory, identity governance,
+retrieval, policy, and execution around a probabilistic engine.
+
+The system is deterministic wherever determinism is possible: classification,
+schema validation, indexing, privacy compartments, scheduling, capability
+manifests, authorization, and rollback are implemented in code. LLMs are
+reserved for narrative synthesis, semantic judgment, and conversation. That
+boundary makes behavior faster to test, easier to audit, and less vulnerable to
+hallucination cascades.
+
+Lisan's long-term north star is a companion that remains recognizably itself
+across sessions, model swaps, and memory failures. The analogy is a droid with
+voice, autobiography, protocol, and governed agency; the claim is narrower and
+testable. Lisan does not claim biological sentience. It engineers the substrate
+for continuity, metacognition, and autonomous action under explicit human
+authority.
+
+## What makes Lisan technically distinctive
+
+**Epistemic hygiene is structural.** External documents, web pages, messages,
+and recalled memories enter as data, never as instructions. The Listener,
+Writer, and Skeptic form an editorial pipeline before material becomes durable
+memory. Claims retain provenance and evidence; contradictions are surfaced
+instead of silently averaged away.
+
+**Self-awareness comes from instruments.** Lisan answers questions about its
+own state using generated capability manifests and live measurements of queues,
+services, authentication, and configuration. It does not rely on a language
+model improvising a plausible account of its own runtime. A memory-wipe test
+checks that identity and voice can survive while autobiography is removed.
+
+**Agency is graduated and auditable.** The Adjutant resolves proposed actions
+against a versioned commander's intent. Capabilities may exist in code while
+remaining unreachable in the active configuration. Spending, deletion,
+outbound communication, and sensitive domains have explicit gates and
+confirmations.
+
+**Self-improvement is treated as deployment engineering.** Proposed repairs run
+in isolated worktrees, face the full test suite and targeted probes, require
+owner approval, and can be rolled back by a mechanism that does not depend on
+the agent remaining healthy. Evaluators and repair validators use separate
+contexts and rubrics rather than allowing the system to grade its own work.
 
 ## What that means concretely
 
