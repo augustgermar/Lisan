@@ -58,6 +58,7 @@ class InterlocutorAgent(PromptAgent):
         model: str | None = None,
         schema: dict[str, Any] | None = None,
         provider_error_mode: str = "fallback",
+        plain_text: bool = False,
         **kwargs: Any,
     ) -> dict[str, Any]:
         self.last_tool_calls = []
@@ -76,12 +77,18 @@ class InterlocutorAgent(PromptAgent):
         conversation_cfg = (self.config or {}).get("conversation") or {}
         max_iterations = int(conversation_cfg.get("max_tool_iterations") or 10)
         kwargs.setdefault("max_iterations", max(1, min(max_iterations, 60)))
+        # plain_text callers (live recall answers, shown to the user verbatim)
+        # skip the JSON envelope entirely — nothing downstream of them reads
+        # anything but "response", so the schema only stiffens the language.
+        # draft_review / elicitor_session need the full envelope (questions,
+        # recommended_action, ...) and don't pass this, so their behavior is
+        # unchanged.
         result = self.complete_with_tools(
             user_input,
             significance=significance,
             provider=provider,
             model=model,
-            schema=schema or self.output_schema(),
+            schema=None if plain_text else (schema or self.output_schema()),
             tools=tools,
             tool_handlers=tool_handlers,
             provider_error_mode=provider_error_mode,

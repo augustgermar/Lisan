@@ -704,6 +704,11 @@ def _answer_recall_from_records(
     answerer, strictly grounded in retrieved records, no fabrication, no external
     lookup. On any provider error or empty response we fall back to a rendered
     record list so a recall turn never fails the capture.
+
+    Passes plain_text=True: this text goes to the user verbatim, and the
+    default JSON envelope (InterlocutorAgent requires a "response" field)
+    only stiffens the language — nothing here reads any field but the plain
+    answer.
     """
     records = _render_recall_records(vault, items)
     recall_input = json.dumps(
@@ -720,7 +725,7 @@ def _answer_recall_from_records(
                 "Exception: if the question is really about what you CAN DO (\"can you import/ingest/schedule...\"), "
                 "answer from the CAPABILITIES block instead — including what is not built yet — and offer "
                 "the available alternative. "
-                "Speak directly to the user as 'you'. Put your answer in the 'response' field."
+                "Speak directly to the user as 'you', in plain language — no JSON, no wrapper."
             ),
         },
         indent=2,
@@ -731,6 +736,7 @@ def _answer_recall_from_records(
         out = InterlocutorAgent(vault=vault).run_json(
             recall_input,
             significance="medium",
+            plain_text=True,
             provider_error_mode="raise",
             capabilities=cached_capability_index(),
             conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),

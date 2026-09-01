@@ -52,12 +52,22 @@ class ConversationAgent(PromptAgent):
             domain=kwargs.get("domain"),
             approval_fn=approval_fn,
         )
+        # Ordinary turns answer in plain prose: memory capture reads the
+        # finished transcript afterward (run_conversation_turn appends
+        # `response` verbatim and hands it to capture.observe) and never
+        # touches this envelope, so forcing every reply through a JSON
+        # wrapper buys the pipeline nothing but stiffer language. The one
+        # turn type that still needs structure alongside the words is an
+        # interpretation-protocol turn, where the deterministic IIP
+        # validator checks the "interpretation" object — so only request
+        # the schema then.
+        needs_schema = kwargs.get("interpretation_protocol") is not None
         result = self.complete_with_tools(
             user_input,
             significance=significance,
             provider=provider,
             model=model,
-            schema=schema or self.output_schema(),
+            schema=schema if schema is not None else (self.output_schema() if needs_schema else None),
             tools=tools,
             tool_handlers=tool_handlers,
             provider_error_mode=provider_error_mode,
