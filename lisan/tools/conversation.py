@@ -491,6 +491,7 @@ def _queue_observation(
     """Memory capture as an observer: the exchange is finished; the pipeline
     extracts what to remember without the user waiting on it."""
     try:
+        from .db import retry_locked
         from .jobs import enqueue_job
 
         payload = {
@@ -500,7 +501,11 @@ def _queue_observation(
             "tool_calls": _compact_tool_calls(tool_calls),
             "conversation_id": conversation_id,
         }
-        job_id = enqueue_job("capture.observe", payload, db_path=db_path)
+        # Retried, not just best-effort: dropping this silently is a real
+        # memory-capture loss (the turn is never seen again), not inert
+        # telemetry — worth a few hundred ms of retry against transient
+        # writer contention (e.g. a reindex mid-chunk).
+        job_id = retry_locked(lambda: enqueue_job("capture.observe", payload, db_path=db_path))
         return {"job_type": "capture.observe", "job_id": job_id}
     except Exception as exc:
         log_error(vault, "conversation.queue_observation", exc)

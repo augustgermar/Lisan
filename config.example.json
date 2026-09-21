@@ -3,7 +3,8 @@
     "codex": {
       "enabled": true,
       "binary_env": "CODEX_BIN",
-      "default_model": null
+      "default_model": null,
+      "all_agents_sandbox_mode": null
     },
     "local": {
       "enabled": true,

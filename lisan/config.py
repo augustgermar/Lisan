@@ -29,6 +29,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "enabled": True,
             "binary_env": "CODEX_BIN",
             "default_model": None,
+            # Null preserves the read-only boundary for non-executor agents.
+            # Set to "danger-full-access" only when the owner explicitly wants
+            # every Lisan agent to have unrestricted filesystem access.
+            "all_agents_sandbox_mode": None,
         },
         "openai": {
             "enabled": False,
