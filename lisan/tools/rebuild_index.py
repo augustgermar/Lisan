@@ -27,6 +27,12 @@ from .common import iter_markdown_files, parse_date
 from .vector_store import clear_index_cache, load_index, write_embeddings
 
 
+# How many records rebuild_index() indexes per commit during the full-vault
+# walk. Small enough that other writers (scheduler, capture jobs) never wait
+# out more than a fraction of a second of a rebuild; large enough that
+# committing isn't the bottleneck itself.
+REINDEX_CHUNK = 200
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS files (
     id TEXT PRIMARY KEY,
@@ -352,8 +358,18 @@ def rebuild_index(vault: Path | None = None, db_path: Path | None = None, embedd
         except sqlite3.Error:
             pass
         conn.commit()
-        for path in iter_markdown_files(vault):
+        # Committed every REINDEX_CHUNK files rather than once at the end: a
+        # full rebuild walks every record in the vault and can run for
+        # minutes, and one open transaction for the whole walk held the
+        # writer that long — the scheduler, live conversation capture, and
+        # tracing all queue behind it and time out (logged as sporadic
+        # "database is locked" bursts). WAL already lets readers run
+        # regardless; committing in chunks lets other writers get a turn
+        # between chunks instead of waiting out the entire rebuild.
+        for count, path in enumerate(iter_markdown_files(vault), start=1):
             index_single_record(path, vault, conn)
+            if count % REINDEX_CHUNK == 0:
+                conn.commit()
         conn.commit()
         embed_targets = _embed_targets_from_index(vault, conn)
         _embed_and_write(conn, embed_targets, embeddings_file)

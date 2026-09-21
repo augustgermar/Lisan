@@ -79,6 +79,7 @@ class CodexClient(ProviderClient):
         output_path: Path | None = None
         try:
             args = [binary, "exec", "--skip-git-repo-check", "--cd", str(working_directory or repo_root())]
+            codex_config = (self.config.get("providers") or {}).get("codex") or {}
             if agent == "codex":
                 # Owner decision 2026-07-06: the executor runs unsandboxed by
                 # default ("--yolo") — scheduled tasks and plans kept failing
@@ -87,7 +88,7 @@ class CodexClient(ProviderClient):
                 # touch files outside the Lisan install) remains in force at
                 # the prompt layer; an owner who wants the cage back sets
                 # codex.sandbox_mode in config ("workspace-write"/"read-only").
-                mode = str(((self.config.get("providers") or {}).get("codex") or {}).get("sandbox_mode") or "danger-full-access")
+                mode = str(codex_config.get("sandbox_mode") or "danger-full-access")
                 if mode == "danger-full-access":
                     args.append("--dangerously-bypass-approvals-and-sandbox")
                 else:
@@ -100,7 +101,16 @@ class CodexClient(ProviderClient):
                 # commands inline despite prompt instructions, so the boundary
                 # is enforced structurally: read-only sandbox for everyone but
                 # the executor agent.
-                args.extend(["--sandbox", "read-only"])
+                # The default remains read-only. The owner may explicitly opt
+                # every Lisan agent into the same filesystem posture as the
+                # executor with codex.all_agents_sandbox_mode. This is kept
+                # separate from sandbox_mode so enabling the executor cannot
+                # silently broaden every extraction/conversation agent.
+                mode = str(codex_config.get("all_agents_sandbox_mode") or "read-only")
+                if mode == "danger-full-access":
+                    args.append("--dangerously-bypass-approvals-and-sandbox")
+                else:
+                    args.extend(["--sandbox", mode])
             if chosen_model:
                 args.extend(["--model", chosen_model])
 

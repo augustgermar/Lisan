@@ -1,8 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 import re
 from typing import Iterable
+
+# Chunks are embedded as ``summary + "\n\n" + body`` (summary is the chunk
+# breadcrumb) by BAAI/bge-small-en-v1.5, which reads at most 512 tokens and
+# silently drops the rest. Keep every chunk body inside that window, with
+# headroom for the breadcrumb summary and the [CLS]/[SEP] special tokens.
+EMBEDDING_MAX_TOKENS = 512
+EMBEDDING_RESERVE_TOKENS = 64
+DEFAULT_MAX_TOKENS = EMBEDDING_MAX_TOKENS - EMBEDDING_RESERVE_TOKENS
+DEFAULT_OVERLAP_TOKENS = 64
 
 
 @dataclass(slots=True)
@@ -42,7 +53,12 @@ def chunk_document(
     max_words: int = 1500,
     window_words: int = 800,
     overlap_words: int = 100,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> list[Chunk]:
+    """Split ``text`` into chunks of at most ``max_tokens`` embedding-model
+    tokens. The word limits still apply; whichever limit is hit first wins."""
+    max_tokens = max(16, int(max_tokens))
+    overlap_tokens = min(DEFAULT_OVERLAP_TOKENS, max_tokens // 5)
     text = (text or "").strip()
     title = (title or "document").strip() or "document"
     source_ref_base = (source_ref_base or title).strip() or title
@@ -59,6 +75,8 @@ def chunk_document(
             source_ref_base=source_ref_base,
             window_words=window_words,
             overlap_words=overlap_words,
+            max_tokens=max_tokens,
+            overlap_tokens=overlap_tokens,
         )
 
     sections = _parse_sections(text, title=title, source_ref_base=source_ref_base)
@@ -69,12 +87,16 @@ def chunk_document(
             source_ref_base=source_ref_base,
             window_words=window_words,
             overlap_words=overlap_words,
+            max_tokens=max_tokens,
+            overlap_tokens=overlap_tokens,
         )
 
     merged = _merge_sections(sections, min_words=min_words)
     chunks: list[Chunk] = []
     for section in merged:
-        chunks.extend(_split_section(section, max_words=max_words))
+        chunks.extend(_split_section(
+            section, max_words=max_words, max_tokens=max_tokens, overlap_tokens=overlap_tokens,
+        ))
     return _finalize_chunks(chunks)
 
 
@@ -217,8 +239,10 @@ def _prepend_buffer(section: _Section, buffer: list[_Section]) -> _Section:
     )
 
 
-def _split_section(section: _Section, *, max_words: int) -> list[Chunk]:
-    if _word_count(section.body) <= max_words:
+def _split_section(
+    section: _Section, *, max_words: int, max_tokens: int, overlap_tokens: int,
+) -> list[Chunk]:
+    if _word_count(section.body) <= max_words and _token_count(section.body) <= max_tokens:
         return [Chunk(
             title=section.title,
             body=section.body,
@@ -233,22 +257,34 @@ def _split_section(section: _Section, *, max_words: int) -> list[Chunk]:
     # section. Treat it as a sliding window rather than emitting one
     # unbounded chunk, which would make a large standard look ingested while
     # retrieval could only see its first result-sized fragment.
-    if len(paragraphs) == 1 and _word_count(paragraphs[0]) > max_words:
+    if len(paragraphs) == 1 and _oversized(paragraphs[0], max_words, max_tokens):
         return _chunk_sliding_window(
             paragraphs[0], title=section.title, source_ref_base=section.source_ref_base,
             window_words=max_words, overlap_words=min(100, max_words // 5),
+            max_tokens=max_tokens, overlap_tokens=overlap_tokens,
         )
     chunks: list[tuple[str, str]] = []
     current: list[str] = []
     current_words = 0
+    current_tokens = 0
     for paragraph in paragraphs:
+        # A single paragraph can itself exceed the window; window it on its
+        # own so no packed chunk is ever oversized.
+        if _oversized(paragraph, max_words, max_tokens):
+            if current:
+                chunks.append(("\n\n".join(current).strip(), ""))
+                current, current_words, current_tokens = [], 0, 0
+            for window in _window_texts(paragraph, max_words, max_words // 5, max_tokens, overlap_tokens):
+                chunks.append((window, ""))
+            continue
         words = _word_count(paragraph)
-        if current and current_words + words > max_words:
+        tokens = _token_count(paragraph)
+        if current and (current_words + words > max_words or current_tokens + tokens > max_tokens):
             chunks.append(("\n\n".join(current).strip(), ""))
-            current = []
-            current_words = 0
+            current, current_words, current_tokens = [], 0, 0
         current.append(paragraph)
         current_words += words
+        current_tokens += tokens
     if current:
         chunks.append(("\n\n".join(current).strip(), ""))
 
@@ -277,11 +313,13 @@ def _chunk_sliding_window(
     source_ref_base: str,
     window_words: int,
     overlap_words: int,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    overlap_tokens: int = DEFAULT_OVERLAP_TOKENS,
 ) -> list[Chunk]:
-    words = "\n".join(_strip_marker_lines(text.splitlines())).split()
-    if not words:
+    clean = "\n".join(_strip_marker_lines(text.splitlines()))
+    if not clean.split():
         return []
-    if len(words) <= window_words:
+    if not _oversized(clean, window_words, max_tokens):
         return [Chunk(
             title=title,
             body=text.strip(),
@@ -292,11 +330,7 @@ def _chunk_sliding_window(
         )]
 
     chunks: list[Chunk] = []
-    start = 0
-    index = 0
-    while start < len(words):
-        end = min(len(words), start + window_words)
-        body = " ".join(words[start:end]).strip()
+    for index, body in enumerate(_window_texts(clean, window_words, overlap_words, max_tokens, overlap_tokens)):
         chunks.append(
             Chunk(
                 title=f"{title} — segment {index + 1}",
@@ -307,11 +341,39 @@ def _chunk_sliding_window(
                 total_chunks=0,
             )
         )
+    return _finalize_chunks(chunks)
+
+
+def _window_texts(
+    text: str, window_words: int, overlap_words: int, max_tokens: int, overlap_tokens: int,
+) -> list[str]:
+    """Greedy sliding windows over whitespace words, closed when either the
+    word or the token budget would be exceeded, with overlap on both axes."""
+    words = text.split()
+    costs = _word_token_costs(words)
+    out: list[str] = []
+    start = 0
+    while start < len(words):
+        end = start
+        tokens = 0
+        while end < len(words) and end - start < window_words and (
+            end == start or tokens + costs[end] <= max_tokens
+        ):
+            tokens += costs[end]
+            end += 1
+        out.append(" ".join(words[start:end]).strip())
         if end >= len(words):
             break
-        start = max(end - overlap_words, start + 1)
-        index += 1
-    return _finalize_chunks(chunks)
+        back_words, back_tokens = 0, 0
+        while (
+            back_words < overlap_words
+            and back_tokens + costs[end - 1 - back_words] <= overlap_tokens
+            and end - 1 - back_words > start
+        ):
+            back_tokens += costs[end - 1 - back_words]
+            back_words += 1
+        start = max(end - back_words, start + 1)
+    return out
 
 
 def _finalize_chunks(chunks: list[Chunk]) -> list[Chunk]:
@@ -329,6 +391,46 @@ def _finalize_chunks(chunks: list[Chunk]) -> list[Chunk]:
             )
         )
     return finalized
+
+
+def _oversized(text: str, max_words: int, max_tokens: int) -> bool:
+    return _word_count(text) > max_words or _token_count(text) > max_tokens
+
+
+@lru_cache(maxsize=1)
+def _tokenizer():
+    """The embedding model's own tokenizer, loaded from the local fastembed
+    cache (never downloaded). None when unavailable -> conservative estimate."""
+    try:
+        from tokenizers import Tokenizer
+    except ImportError:
+        return None
+    for root in (Path.home() / ".cache" / "lisan" / "fastembed", Path.home() / ".cache" / "fastembed"):
+        for candidate in sorted(root.glob("models--*bge-small-en-v1.5*/snapshots/*/tokenizer.json")):
+            try:
+                tok = Tokenizer.from_file(str(candidate))
+                tok.no_truncation()
+                return tok
+            except Exception:
+                continue
+    return None
+
+
+def _word_token_costs(words: list[str]) -> list[int]:
+    """Token cost of each whitespace word. WordPiece pre-tokenizes on
+    whitespace, so per-word costs sum to the cost of the joined text."""
+    if not words:
+        return []
+    tok = _tokenizer()
+    if tok is None:
+        # No tokenizer available: ~3 chars per token is deliberately pessimistic
+        # for English so chunks err small rather than getting truncated.
+        return [max(1, -(-len(word) // 3)) for word in words]
+    return [max(1, len(enc.ids)) for enc in tok.encode_batch(words, add_special_tokens=False)]
+
+
+def _token_count(text: str) -> int:
+    return sum(_word_token_costs(text.split()))
 
 
 def _word_count(text: str) -> int:

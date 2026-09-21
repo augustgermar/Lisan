@@ -52,6 +52,18 @@ Participants keep control over their budgets.
         self.assertTrue(all(len(chunk.body.split()) <= 1500 for chunk in chunks))
         self.assertTrue(all(chunk.total_chunks == len(chunks) for chunk in chunks))
 
+    def test_chunk_document_keeps_every_chunk_within_embedding_token_window(self) -> None:
+        from lisan.tools.document_chunker import DEFAULT_MAX_TOKENS, _token_count
+
+        sectioned = "# Manual\n\n## Rules\n" + "\n\n".join(
+            f"Paragraph {i} covers reallocation of individualized budgets. " * 12 for i in range(40)
+        )
+        flat = " ".join(f"regionalization{i}" for i in range(3000))
+        for text in (sectioned, flat):
+            chunks = chunk_document(text, "Manual")
+            self.assertGreater(len(chunks), 1)
+            self.assertTrue(all(_token_count(c.body) <= DEFAULT_MAX_TOKENS for c in chunks))
+
     def test_reference_ingest_creates_knowledge_and_links_entities(self) -> None:
         maya = new_entity(self.vault, "Maya", subtype="person", summary="Maya is the principal's daughter.")
         doc = self.src / "sdp-manual.md"

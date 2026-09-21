@@ -70,19 +70,36 @@ if __name__ == "__main__":
 
 
 class CodexSandboxTests(unittest.TestCase):
-    """Non-executor agents run codex read-only: the codex CLI is agentic and
-    will sometimes act inline despite instructions, which would bypass the
-    run_codex approval gate. The boundary must be structural."""
+    """Non-executor agents default to read-only, with an explicit owner opt-in
+    for deployments that want every Lisan agent to have full filesystem access."""
 
-    def _args_for(self, agent: str, sandbox_mode: str | None = None) -> list[str]:
-        return self._capture_args(agent, sandbox_mode=sandbox_mode)
+    def _args_for(
+        self,
+        agent: str,
+        sandbox_mode: str | None = None,
+        all_agents_sandbox_mode: str | None = None,
+    ) -> list[str]:
+        return self._capture_args(
+            agent,
+            sandbox_mode=sandbox_mode,
+            all_agents_sandbox_mode=all_agents_sandbox_mode,
+        )
 
-    def _capture_args(self, agent: str, sandbox_mode: str | None = None) -> list[str]:
+    def _capture_args(
+        self,
+        agent: str,
+        sandbox_mode: str | None = None,
+        all_agents_sandbox_mode: str | None = None,
+    ) -> list[str]:
         from unittest.mock import MagicMock
 
         from lisan.providers.codex import CodexClient
 
-        codex_cfg = {"sandbox_mode": sandbox_mode} if sandbox_mode else {}
+        codex_cfg = {}
+        if sandbox_mode:
+            codex_cfg["sandbox_mode"] = sandbox_mode
+        if all_agents_sandbox_mode:
+            codex_cfg["all_agents_sandbox_mode"] = all_agents_sandbox_mode
         client = CodexClient({"providers": {"codex": codex_cfg}})
         captured: list[list[str]] = []
 
@@ -115,6 +132,14 @@ class CodexSandboxTests(unittest.TestCase):
         args = self._args_for(agent="codex", sandbox_mode="workspace-write")
         self.assertIn("--sandbox", args)
         self.assertIn("workspace-write", args)
+    def test_all_agents_can_be_explicitly_made_unsandboxed(self):
+        for agent in ("interlocutor", "listener", "writer", "skeptic"):
+            args = self._args_for(
+                agent=agent,
+                all_agents_sandbox_mode="danger-full-access",
+            )
+            self.assertIn("--dangerously-bypass-approvals-and-sandbox", args)
+            self.assertNotIn("--sandbox", args)
 
 
 class CodexBinaryErrorTests(unittest.TestCase):

@@ -18,9 +18,13 @@ database into a crash.
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
+from typing import Callable, TypeVar
 
 from ..paths import sqlite_path
+
+T = TypeVar("T")
 
 # Background maintenance and large ingestion/index transactions can legitimately
 # exceed five seconds. Waiting here is safer than turning temporary contention
@@ -43,3 +47,21 @@ def connect(db_path: Path | None = None, *, readonly: bool = False) -> sqlite3.C
     except sqlite3.OperationalError:
         pass
     return conn
+
+
+def retry_locked(fn: Callable[[], T], *, attempts: int = 4, base_delay: float = 0.5) -> T:
+    """Run ``fn`` (a full connect-write-commit unit), retrying on "database
+    is locked". busy_timeout already absorbs brief contention inside one
+    connection; this is for the caller who lands mid-way through a long
+    writer (a full reindex — see rebuild_index's REINDEX_CHUNK) and would
+    otherwise drop real work — a queued capture job, an ingested file — on
+    a single unlucky attempt instead of the transient conflict it is."""
+    delay = base_delay
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower() or attempt == attempts - 1:
+                raise
+            time.sleep(delay)
+            delay *= 2
