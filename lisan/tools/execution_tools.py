@@ -444,6 +444,13 @@ def build_tool_handlers(
             config=config,
             db_path=db_path,
         ),
+        "run_codex": lambda task, working_directory=None: run_codex(
+            task,
+            working_directory=working_directory,
+            vault=vault,
+            config=config,
+            db_path=db_path,
+        ),
         "self_state": lambda: self_state(vault=vault, db_path=db_path),
         "browser": lambda action, **kw: _browser_tool(action, **kw),
         "send_email": lambda subject, body, recipients, html_body=None, sender=None, attachments=None, dry_run=False: _send_email_tool(
