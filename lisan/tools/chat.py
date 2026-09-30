@@ -5,6 +5,7 @@ import os
 import shutil
 import sqlite3
 import sys
+import textwrap
 import time
 import threading
 import uuid
@@ -15,7 +16,7 @@ from .db import connect as _db_connect
 
 from ..config import load_config
 from ..paths import sqlite_path, vault_root
-from .primer_index import assistant_name as _assistant_name
+from .primer_index import assistant_display_name
 from ..utils import today_iso
 from .chat_turns import classify_turn
 from .conversation_policy import assess_conversation_turn
@@ -24,20 +25,30 @@ from .transcripts import append_transcript
 from .tracing import finalize_turn_trace, record_inline_step, record_jobs_queued, reset_current_turn_trace, start_turn_trace
 from ..providers.base import ProviderError
 from .provider_diagnostics import ProviderDiagnosticResult, diagnose_provider
-from .term import color, BOLD, DIM, ITALIC, CYAN, GREEN, YELLOW, RED, BLUE, BLUE_DEEP, SKY, GREY, GREY_DIM, GREY_FAINT
+from .term import color, readline_prompt, BOLD, DIM, ITALIC, CYAN, GREEN, YELLOW, RED, BLUE, BLUE_DEEP, SKY, GREY, GREY_DIM, GREY_FAINT, CODEX, CODEX_DIM, CODEX_CMD
 
 
 
 
 # ── Startup check ─────────────────────────────────────────────────────────────
 
-def startup_check(vault: Path, config: dict[str, Any]) -> bool:
-    """Verify vault, index, and provider. Auto-fix what can be fixed. Returns True if ready."""
+def startup_check(vault: Path, config: dict[str, Any], *, defer_embedder: bool = False) -> bool:
+    """Verify vault, index, and provider. Auto-fix what can be fixed. Returns True if ready.
+
+    ``defer_embedder=True`` skips the eager embedding probe so the ONNX model
+    is not loaded into memory until the first real query. The Telegram service
+    uses this: an idle bot that holds ~700 MB of FastEmbed weights between
+    messages is wasteful, and the retrieval layer degrades gracefully when the
+    embedder is cold.
+    """
     print(color("  ⣿ checking system", GREY_DIM))
 
     vault_ok = _check_vault(vault)
     index_ok = _check_index(vault)
-    _check_embedder(config)
+    if defer_embedder:
+        print(color('  · ', GREY_DIM) + color('retrieval  embedder deferred (loads on first query)', GREY))
+    else:
+        _check_embedder(config)
     provider_name, provider_ok, provider_diagnostic = _check_provider(config)
 
     if provider_ok:
@@ -202,7 +213,7 @@ def run_chat(
         run_onboarding(vault)
 
     conv_id = conversation_id or today_iso()
-    agent_name = _assistant_name(vault)
+    agent_name = assistant_display_name(vault)
     _print_header(__version__, conv_id, agent_name)
 
     if not ready:
@@ -222,7 +233,7 @@ def run_chat(
 
     while True:
         try:
-            raw = input(color("  › ", SKY, BOLD)).strip()
+            raw = input(readline_prompt("  › ", SKY, BOLD)).strip()
         except (EOFError, KeyboardInterrupt):
             print()
             _farewell()
@@ -250,6 +261,14 @@ def run_chat(
 
         if lowered == "/status":
             startup_check(vault, config)
+            continue
+
+        if lowered == "/verbose" or lowered.startswith("/verbose "):
+            arg = lowered.split(maxsplit=1)[1].strip() if " " in lowered else ""
+            set_codex_verbose(arg in ("on", "1", "true", "yes") if arg else not codex_verbose())
+            state = "on — full commands, output tails, reasoning" if codex_verbose() else "off — compact Codex activity"
+            print(color(f"  ✦ codex verbose {state}", SKY))
+            print()
             continue
 
         if lowered == "/id":
@@ -395,7 +414,7 @@ def _process_chat_turn(
                 db_path=db_path,
                 approval_fn=approval_fn,
             ),
-            agent_name=_assistant_name(vault),
+            agent_name=assistant_display_name(vault),
         )
         result["route"] = "conversation"
         result["response"] = turn_result.get("response") or ""
@@ -538,7 +557,7 @@ def _render_response(result: dict[str, Any], vault: Path | None = None, conversa
     if response_text:
         if vault and conversation_id:
             append_transcript(vault=vault, conversation_id=conversation_id, speaker="LISAN", text=response_text)
-        agent_name = _assistant_name(vault) if vault else "Lisan"
+        agent_name = assistant_display_name(vault) if vault else "Lisan"
         print()
         print(color(f"  ● {agent_name}", BLUE, BOLD) + color("  ", DIM) + response_text)
         print()
@@ -594,17 +613,18 @@ def _print_help() -> None:
         ("/id", "show the current conversation ID"),
         ("/logs [N]", "show last N log lines (default 20)"),
         ("/domain [name]", "override retrieval domain (legacy /arena)"),
+        ("/verbose [on|off]", "toggle detailed Codex activity (or LISAN_CODEX_VERBOSE=1)"),
         ("/help", "show this message"),
         ("/quit", "exit"),
     ):
-        print(color(f"  {cmd:<15}", SKY) + color(desc, GREY_DIM))
+        print(color(f"  {cmd:<18}", SKY) + color(desc, GREY_DIM))
     print()
     print(color("  Prefixes", SKY, BOLD))
     for cmd, desc in (
         ("/remember", "force capture regardless of score"),
         ("/forget", "suppress capture for this turn"),
     ):
-        print(color(f"  {cmd:<15}", SKY) + color(desc, GREY_DIM))
+        print(color(f"  {cmd:<18}", SKY) + color(desc, GREY_DIM))
     print()
     print(color("  Advice questions are answered directly and are not stored in the vault.", GREY_DIM, ITALIC))
     print()
@@ -672,15 +692,40 @@ _STEP_LABELS: dict[str, str | None] = {
 }
 
 
+_CODEX_VERBOSE = os.environ.get("LISAN_CODEX_VERBOSE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def codex_verbose() -> bool:
+    return _CODEX_VERBOSE
+
+
+def set_codex_verbose(enabled: bool) -> None:
+    global _CODEX_VERBOSE
+    _CODEX_VERBOSE = bool(enabled)
+
+
+def _compact_count(value: int) -> str:
+    return f"{value / 1000:.1f}k" if value >= 1000 else str(value)
+
+
 class _ProgressRenderer:
     """Claude-Code-style live narration of a turn: one dim line per pipeline
-    stage, tool call, and finished model call, printed as events arrive."""
+    stage, tool call, and finished model call, printed as events arrive.
+    Delegated Codex activity gets its own amber gutter so it is never
+    mistaken for Lisan; verbose mode adds output tails and full text."""
 
-    def __init__(self, agent_name: str, out=print):
+    _VERBOSE_OUTPUT_LINES = 8
+    _FAILED_OUTPUT_LINES = 3
+    _VERBOSE_TEXT_LINES = 30
+
+    def __init__(self, agent_name: str, out=print, verbose: bool | None = None, width: int | None = None):
         self.agent_name = agent_name
         self.out = out
+        self.verbose = _CODEX_VERBOSE if verbose is None else verbose
+        self.width = width or shutil.get_terminal_size((100, 24)).columns
         self._lock = threading.Lock()
         self._header_shown = False
+        self._last_command = ""
 
     def ensure_header(self) -> None:
         with self._lock:
@@ -693,12 +738,17 @@ class _ProgressRenderer:
             self.out(color(f"  ● {self.agent_name}", BLUE, BOLD) + color("  thinking…", GREY_DIM, ITALIC))
 
     def __call__(self, event: dict) -> None:
-        line = self._format(event)
-        if line is None:
+        if event.get("kind") == "codex":
+            lines = self._format_codex(event)
+        else:
+            line = self._format(event)
+            lines = [color(f"  ▸ {line}", DIM)] if line is not None else []
+        if not lines:
             return
         with self._lock:
             self._ensure_header_locked()
-            self.out(color(f"  ▸ {line}", DIM))
+            for line in lines:
+                self.out(line)
 
     def _format(self, event: dict) -> str | None:
         kind = event.get("kind")
@@ -728,6 +778,164 @@ class _ProgressRenderer:
         if kind == "jobs_queued":
             return f"queued {event.get('count')} background job(s)"
         return None
+
+    # ── Codex ────────────────────────────────────────────────────────────
+
+    def _clip(self, text: str, indent: int = 8) -> str:
+        room = max(20, self.width - indent)
+        return text if len(text) <= room else text[: room - 1] + "…"
+
+    def _wrap(self, text: str, max_lines: int, indent: int = 8) -> list[str]:
+        room = max(20, self.width - indent)
+        lines: list[str] = []
+        for paragraph in text.split("\n"):
+            if not paragraph.strip():
+                if lines and lines[-1]:
+                    lines.append("")
+                continue
+            lines.extend(textwrap.wrap(paragraph, room, drop_whitespace=False, replace_whitespace=False) or [""])
+        while lines and not lines[-1]:
+            lines.pop()
+        if len(lines) > max_lines:
+            hidden = len(lines) - max_lines
+            lines = lines[:max_lines] + [f"… {hidden} more line(s)"]
+        return lines
+
+    def _cx_body(self, text: str, *codes: str) -> str:
+        return color("  │   ", CODEX_DIM) + color(text, *codes)
+
+    def _format_codex(self, event: dict) -> list[str]:
+        name = str(event.get("event") or "")
+        seconds = float(event.get("elapsed_ms") or 0) / 1000.0
+        if name == "start":
+            agent = str(event.get("agent") or "codex")
+            model = str(event.get("model") or "")
+            directory = str(event.get("working_directory") or "")
+            parts = [part for part in (agent, model, directory) if part]
+            return [color("  ┌ codex", CODEX, BOLD) + color("  " + "  ·  ".join(parts), CODEX_DIM)]
+        if name == "heartbeat":
+            detail = str(event.get("detail") or "")
+            text = f"… still working · {seconds:.0f}s" + (f" · {detail}" if detail else "")
+            return [color("  │ ", CODEX_DIM) + color(self._clip(text, 6), GREY_DIM, ITALIC)]
+        if name == "detail":
+            detail = str(event.get("detail") or "")
+            return [color("  │ ", CODEX_DIM) + color(self._clip(detail, 6), GREY_DIM)] if self.verbose and detail else []
+        if name == "failed":
+            return [color(f"  └ ✗ Codex exited with an error after {seconds:.1f}s", RED)]
+        if name == "item":
+            payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+            return self._format_codex_item(payload, seconds)
+        return []
+
+    def _format_codex_item(self, payload: dict, seconds: float) -> list[str]:
+        kind = payload.get("type")
+        verbose = self.verbose
+        lines: list[str] = []
+        if kind == "command":
+            command = str(payload.get("command") or "")
+            if payload.get("phase") == "started":
+                self._last_command = command
+                command_lines = command.split("\n")
+                shown = command_lines if verbose else command_lines[:1]
+                if not verbose and len(command_lines) > 1:
+                    shown = [shown[0] + f"  (+{len(command_lines) - 1} lines)"]
+                for index, text in enumerate(shown[:12]):
+                    prefix = "$" if index == 0 else " "
+                    lines.append(color("  │ ", CODEX_DIM) + color(f"{prefix} ", CODEX) + color(self._clip(text), CODEX_CMD))
+                return lines
+            exit_code = payload.get("exit_code")
+            failed = (exit_code not in (None, 0)) or payload.get("status") in ("failed", "declined")
+            tail = [str(line) for line in payload.get("output_tail") or []]
+            total = int(payload.get("output_lines") or 0)
+            keep = self._VERBOSE_OUTPUT_LINES if verbose else (self._FAILED_OUTPUT_LINES if failed else 0)
+            if keep and tail:
+                shown = tail[-keep:]
+                if total > len(shown):
+                    lines.append(self._cx_body(f"… {total - len(shown)} earlier line(s)", GREY_DIM, ITALIC))
+                lines.extend(self._cx_body(self._clip(text), GREY) for text in shown)
+            status = f"exit {exit_code}" if exit_code is not None else str(payload.get("status") or "done")
+            summary = f"{'✗' if failed else '✓'} {status}" + (f" · {total} line(s)" if total else " · no output")
+            if command and command != self._last_command:
+                summary += f" · {self._clip(command.split(chr(10), 1)[0], 60)}"
+            lines.append(self._cx_body(summary, RED if failed else GREEN))
+            return lines
+        if kind == "reasoning":
+            text = str(payload.get("text") or "")
+            if verbose:
+                wrapped = self._wrap(text.replace("**", ""), self._VERBOSE_TEXT_LINES)
+            else:
+                headline = next((line for line in text.split("\n") if line.strip()), "")
+                wrapped = [self._clip(headline.replace("**", "").strip())]
+            return [
+                color("  │ ", CODEX_DIM) + color("✻ " if index == 0 else "  ", CODEX) + color(text_line, GREY, ITALIC)
+                for index, text_line in enumerate(wrapped)
+            ]
+        if kind == "message":
+            text = str(payload.get("text") or "")
+            structured = text.lstrip().startswith(("{", "["))
+            if verbose:
+                wrapped = self._wrap(text, self._VERBOSE_TEXT_LINES)
+            elif structured:
+                wrapped = [f"replied with structured output ({len(text)} chars)"]
+            else:
+                first = next((line for line in text.split("\n") if line.strip()), "")
+                more = " …" if len(text.strip()) > len(first.strip()) else ""
+                wrapped = [self._clip(first.strip() + more)]
+            return [
+                color("  │ ", CODEX_DIM) + color("» " if index == 0 else "  ", CODEX, BOLD) + color(text_line, CODEX)
+                for index, text_line in enumerate(wrapped)
+            ]
+        if kind == "file_change":
+            changes = [change for change in payload.get("changes") or [] if isinstance(change, dict)]
+            failed = payload.get("status") == "failed"
+            limit = len(changes) if verbose else 6
+            for change in changes[:limit]:
+                text = f"{change.get('kind', 'update')} {change.get('path', '?')}"
+                lines.append(color("  │ ", CODEX_DIM) + color("✎ ", YELLOW) + color(self._clip(text), RED if failed else YELLOW))
+            if len(changes) > limit:
+                lines.append(self._cx_body(f"+{len(changes) - limit} more file(s)", GREY_DIM))
+            return lines
+        if kind == "tool":
+            tool = str(payload.get("name") or "tool")
+            if payload.get("phase") == "started":
+                return [color("  │ ", CODEX_DIM) + color("⚙ ", CODEX) + color(self._clip(tool), CODEX_CMD)]
+            if payload.get("status") == "failed" or payload.get("error"):
+                error = str(payload.get("error") or "failed")
+                return [self._cx_body(self._clip(f"✗ {tool}: {error}"), RED)]
+            return [self._cx_body(f"✓ {tool}", GREEN)] if verbose else []
+        if kind == "web_search":
+            return [color("  │ ", CODEX_DIM) + color("⌕ ", CODEX) + color(self._clip(f"search: {payload.get('query')}"), CODEX_CMD)]
+        if kind == "todo":
+            items = [entry for entry in payload.get("items") or [] if isinstance(entry, dict)]
+            if not items or (payload.get("phase") == "updated" and not verbose):
+                return []
+            done = sum(1 for entry in items if entry.get("done"))
+            lines.append(color("  │ ", CODEX_DIM) + color("☰ ", CODEX) + color(f"plan · {done}/{len(items)} done", CODEX))
+            if verbose:
+                for entry in items:
+                    mark = "☑" if entry.get("done") else "☐"
+                    lines.append(self._cx_body(self._clip(f"{mark} {entry.get('text')}"), GREY_DIM if entry.get("done") else GREY))
+            return lines
+        if kind == "error":
+            return [color("  │ ", CODEX_DIM) + color(self._clip(f"✗ {payload.get('message') or 'error'}"), RED)]
+        if kind == "turn":
+            phase = payload.get("phase")
+            if phase == "completed":
+                usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+                tokens = ""
+                if usage.get("input_tokens") or usage.get("output_tokens"):
+                    tokens = (
+                        f" · {_compact_count(int(usage.get('input_tokens') or 0))} in"
+                        f" / {_compact_count(int(usage.get('output_tokens') or 0))} out"
+                    )
+                return [color("  └ codex", CODEX, BOLD) + color(f"  done · {seconds:.1f}s{tokens}", CODEX_DIM)]
+            if phase == "failed":
+                message = str(payload.get("message") or "turn failed")
+                return [color("  └ ", CODEX_DIM) + color(self._clip(f"✗ Codex turn failed: {message}", 4), RED)]
+            return []
+        if kind == "other" and verbose:
+            return [color("  │ ", CODEX_DIM) + color(f"· {payload.get('item_type')}", GREY_DIM)]
+        return []
 
 
 def _refresh_capabilities_primer(vault: Path) -> None:
@@ -818,5 +1026,25 @@ def _enable_readline() -> None:
         import atexit
         atexit.register(readline.write_history_file, history)
         readline.set_history_length(500)
+        # Ask the terminal to wrap pasted multiline text in bracketed-paste
+        # markers. Readline then inserts the whole paste into one editing
+        # buffer instead of treating every embedded newline as Enter. Without
+        # this, a pasted document becomes several independent Anakin turns.
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            sys.stdout.write("\x1b[?2004h")
+            sys.stdout.flush()
+            try:
+                readline.parse_and_bind("set enable-bracketed-paste on")
+            except Exception:
+                pass
+
+            def _disable_bracketed_paste() -> None:
+                try:
+                    sys.stdout.write("\x1b[?2004l")
+                    sys.stdout.flush()
+                except Exception:
+                    pass
+
+            atexit.register(_disable_bracketed_paste)
     except ImportError:
         pass

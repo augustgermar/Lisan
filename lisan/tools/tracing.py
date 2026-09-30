@@ -36,6 +36,11 @@ def reset_progress_listener(token: Token | None) -> None:
         _PROGRESS_LISTENER.reset(token)
 
 
+def progress_listener_active() -> bool:
+    """Whether the current execution has an interactive progress consumer."""
+    return _PROGRESS_LISTENER.get() is not None
+
+
 def _notify_progress(event: dict[str, Any]) -> None:
     listener = _PROGRESS_LISTENER.get()
     if listener is None:
@@ -164,7 +169,7 @@ def record_inline_step(step: str) -> None:
 
 
 def record_tool_use(tool_name: str, args: dict[str, Any] | None = None) -> None:
-    """A tool call made mid-response (search_memory, read_file, run_codex,
+    """A tool call made mid-response (search_memory, read_file, execute_task,
     schedule_task, skills)."""
     trace = get_current_turn_trace()
     if trace is not None:
@@ -214,6 +219,40 @@ def record_llm_call(
             "elapsed_ms": elapsed_ms,
             "success": success,
             "error_type": error_type or "",
+        }
+    )
+
+
+def record_codex_progress(
+    event: str,
+    *,
+    agent: str = "",
+    provider: str = "codex",
+    model: str = "",
+    working_directory: str = "",
+    elapsed_ms: int = 0,
+    detail: str = "",
+    payload: dict[str, Any] | None = None,
+) -> None:
+    """Publish live status for a Codex subprocess.
+
+    The provider emits these events while the subprocess is still running;
+    unlike ``record_llm_call`` they are intentionally ephemeral — only the
+    interactive renderer sees them, nothing is persisted. ``payload`` may
+    carry commands, output tails, and Codex's reasoning/reply text, with
+    credentials already masked by the provider; never the delegated prompt.
+    """
+    _notify_progress(
+        {
+            "kind": "codex",
+            "event": event,
+            "agent": agent,
+            "provider": provider,
+            "model": model or "",
+            "working_directory": working_directory,
+            "elapsed_ms": int(elapsed_ms or 0),
+            "detail": detail,
+            "payload": payload or {},
         }
     )
 

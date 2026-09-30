@@ -7,14 +7,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from lisan.tools.browser import CDP_PORT, browser_action, chrome_args, ensure_browser
+from lisan.tools.browser import CHROME, CDP_PORT, browser_action, chrome_args, ensure_browser
 
 
 class LaunchContractTests(unittest.TestCase):
     def test_chrome_args_pin_the_design(self):
         args = chrome_args()
         joined = " ".join(args)
-        self.assertIn("Google Chrome", args[0])
+        # The browser is configurable and platform-specific: Chrome on macOS,
+        # Brave/Chromium on this Linux workstation.
+        self.assertEqual(CHROME, args[0])
+        self.assertTrue(Path(args[0]).name)
         self.assertIn(f"--remote-debugging-port={CDP_PORT}", joined)
         self.assertIn("browser-profile", joined)      # dedicated profile...
         gitignore = Path(__file__).resolve().parents[1] / ".gitignore"

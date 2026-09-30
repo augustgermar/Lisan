@@ -24,6 +24,9 @@ happen on screen.
 from __future__ import annotations
 
 import json
+import os
+import re
+import shutil
 import subprocess
 import uuid
 import time
@@ -65,7 +68,31 @@ QUIET_USER_AGENT = (
 # navigated, so it identifies a tab stranded *before* navigation; tabs are
 # otherwise closed in a finally block.
 LISAN_TAB_MARKER = "lisan-agent-tab-"
-CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+
+def _find_browser_binary() -> str:
+    """Find the installed Chromium-family browser for the visible lanes."""
+    configured = os.environ.get("LISAN_BROWSER_BIN")
+    candidates = [
+        configured,
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/opt/brave.com/brave/brave-browser",
+        "/usr/bin/google-chrome",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        if Path(candidate).is_file() and os.access(candidate, os.X_OK):
+            return candidate
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+    return candidates[0] or "chromium"
+
+
+CHROME = _find_browser_binary()
 
 
 def lane_port(lane: str) -> int:
@@ -366,6 +393,7 @@ def browser_handoff(
     *,
     wait_seconds: float = 0.0,
     poll_seconds: float = 2.0,
+    auto_login: bool = False,
     notify: Callable[[str], bool] | None = None,
 ) -> dict[str, Any]:
     """Ask the owner to do the part only they can do.
@@ -430,6 +458,12 @@ def browser_handoff(
 
         page.on("request", _record_navigation)
         page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        if auto_login:
+            if urllib.parse.urlparse(url).netloc != "support.csuchico.edu":
+                return {"ok": False, "url": url, "error": "auto_login is restricted to the Chico TDX host"}
+            login_result = _advance_tdx_login(page)
+            if not login_result["ok"]:
+                return {"ok": False, "url": url, **login_result}
         if float(wait_seconds) <= 0:
             _record_pending_handoff(url, reason)
             _notify_owner_handoff(f"{reason}\n\nI opened it in your browser: {url}", notify=notify)
@@ -510,7 +544,94 @@ def _record_pending_handoff(url: str, reason: str) -> None:
         log_error(None, "record pending handoff", exc)
 
 
-def browser_handoff_finish(expect_url: str = "") -> dict[str, Any]:
+def _tdx_credentials() -> tuple[str, str] | None:
+    """Resolve TDX credentials without placing them in prompts or arguments."""
+    username = os.environ.get("LISAN_TDX_USERNAME", "").strip()
+    password = os.environ.get("LISAN_TDX_PASSWORD", "")
+    if username and password:
+        return username, password
+    # Narrow migration bridge: keep using the existing encrypted vault until
+    # the new credential store has a dedicated TDX entry. The secret is only
+    # held in this process and is never returned by a browser tool call.
+    script = (
+        "require '/var/www/app/core/bootstrap.php'; "
+        "$p = lisan_config('tdx.password_secret', 'LISAN_SCCM_PASSWORD'); "
+        "echo json_encode(['username' => lisan_config('tdx.username', 'acgermar'), "
+        "'password' => lisan_secret($p)]);"
+    )
+    try:
+        result = subprocess.run(
+            ["php", "-r", script], capture_output=True, text=True,
+            check=True, timeout=15,
+        )
+        payload = json.loads(result.stdout)
+        username = str(payload.get("username") or "").strip()
+        password = str(payload.get("password") or "")
+        return (username, password) if username and password else None
+    except Exception as exc:
+        log_error(None, "resolve TDX credentials", exc)
+        return None
+
+
+def _first_visible(page: Any, selectors: list[str]) -> Any | None:
+    for selector in selectors:
+        try:
+            locator = page.locator(selector).first
+            if locator.count() and locator.is_visible():
+                return locator
+        except Exception:
+            continue
+    return None
+
+
+def _click_tdx_next(page: Any) -> bool:
+    button = _first_visible(page, [
+        'input[type="submit"][value*="Next"]',
+        'button:has-text("Next")',
+        'input[type="submit"][value*="Sign in"]',
+        'button:has-text("Sign in")',
+        'input[name="_eventId_proceed"]',
+        'input[type="submit"]',
+    ])
+    if not button:
+        return False
+    try:
+        button.click()
+        page.wait_for_timeout(1200)
+        return True
+    except Exception:
+        return False
+
+
+def _advance_tdx_login(page: Any) -> dict[str, Any]:
+    """Fill the normal TDX SSO form, then leave MFA to the owner."""
+    credentials = _tdx_credentials()
+    if not credentials:
+        return {"error": "TDX credentials are unavailable; unlock the legacy Lisan vault or set the new credential store"}
+    username = _first_visible(page, [
+        'input[type="email"]', 'input[name="loginfmt"]', 'input[name="identifier"]',
+        'input[autocomplete="username"]', 'input[name="j_username"]', '#username',
+    ])
+    if username:
+        try:
+            username.fill(credentials[0])
+            _click_tdx_next(page)
+        except Exception as exc:
+            return {"error": f"could not fill the TDX username: {type(exc).__name__}"}
+    password = _first_visible(page, [
+        'input[type="password"]', 'input[name="passwd"]',
+        'input[autocomplete="current-password"]', 'input[name="j_password"]', '#password',
+    ])
+    if password:
+        try:
+            password.fill(credentials[1])
+            _click_tdx_next(page)
+        except Exception as exc:
+            return {"error": f"could not fill the TDX password: {type(exc).__name__}"}
+    return {"ok": True, "credentials_applied": bool(username or password), "mfa_may_be_required": True}
+
+
+def browser_handoff_finish(expect_url: str = "", extract_token: bool = False) -> dict[str, Any]:
     """Close out a handoff the owner says they have finished.
 
     Carries whatever they just did — a login, a solved CAPTCHA — back to
@@ -549,6 +670,21 @@ def browser_handoff_finish(expect_url: str = "") -> dict[str, Any]:
                 final_url = page.url
             except Exception:
                 final_url = ""
+        if extract_token:
+            if page is None:
+                return {"ok": False, "error": "no matching visible handoff tab was found"}
+            token = _extract_tdx_token(page)
+            if not token:
+                return {
+                    "ok": False,
+                    "error": "no TDX API token was visible yet; leave the page open and finish the SSO flow first",
+                    "needs_user": True,
+                    "url": target,
+                }
+            try:
+                _store_tdx_token(token)
+            except Exception as exc:
+                return {"ok": False, "error": f"token was found but could not be cached: {type(exc).__name__}: {exc}"}
         returned = _copy_cookies(loud, quiet, source=LANE_LOUD, target=LANE_QUIET)
         if page is not None:
             try:
@@ -563,6 +699,7 @@ def browser_handoff_finish(expect_url: str = "") -> dict[str, Any]:
             "ok": True, "url": target, "final_url": final_url,
             "tab_closed": page is not None,
             "returned_to_quiet": returned.get("copied", 0),
+            "token_cached": bool(extract_token),
             "note": ("Session carried back to the quiet lane. The owner's tab was closed."
                      if page is not None else
                      "Session carried back. No matching tab was open — the owner may have closed it."),
@@ -575,6 +712,36 @@ def browser_handoff_finish(expect_url: str = "") -> dict[str, Any]:
             pw.stop()
         except Exception:
             pass
+
+
+_JWT_RE = re.compile(r"\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b")
+
+
+def _extract_tdx_token(page: Any) -> str | None:
+    """Read a displayed TDX JWT as data, without returning it to the caller."""
+    try:
+        text = page.locator("body").inner_text(timeout=5000)
+    except Exception:
+        try:
+            text = page.evaluate("() => document.body ? document.body.innerText : ''")
+        except Exception:
+            text = ""
+    match = _JWT_RE.search(str(text or ""))
+    return match.group(0) if match else None
+
+
+def _store_tdx_token(token: str) -> None:
+    """Atomically cache the short-lived TDX token with restrictive mode."""
+    cache = Path(os.environ.get("LISAN_TDX_TOKEN_CACHE") or "/run/lisan/secrets/tdx_api_token")
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    temporary = cache.with_name(f".{cache.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(token + "\n", encoding="utf-8")
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, cache)
+        os.chmod(cache, 0o600)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _notify_owner_handoff(text: str, *, notify: Callable[[str], bool] | None = None) -> bool:
@@ -638,7 +805,22 @@ def browser_action(action: str, lane: str = LANE_QUIET, **kw: Any) -> dict[str, 
             if "://" not in url:
                 url = "https://" + url
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            if kw.get("auto_login"):
+                if urllib.parse.urlparse(url).netloc != "support.csuchico.edu":
+                    return {"ok": False, "error": "auto_login is restricted to the Chico TDX host"}
+                login_result = _advance_tdx_login(page)
+                if not login_result["ok"]:
+                    return login_result
             return {"ok": True, "url": page.url, "title": page.title()}
+
+        if action == "cache_tdx_token":
+            if page is None or "support.csuchico.edu" not in page.url:
+                return {"ok": False, "error": "the current page is not the TDX SSO page"}
+            token = _extract_tdx_token(page)
+            if not token:
+                return {"ok": False, "needs_user": True, "error": "no TDX API token is visible yet"}
+            _store_tdx_token(token)
+            return {"ok": True, "token_cached": True, "url": page.url}
 
         if action == "read":
             # innerText forces a full layout pass and can freeze a heavy

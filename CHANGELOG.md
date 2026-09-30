@@ -1,5 +1,39 @@
 # Changelog
 
+## 26.9.30 (2026-09-30)
+
+- **Renamed the `run_codex` tool to `execute_task`.** Every conversational
+  turn is answered by a real `codex exec` subprocess, which is itself an
+  agentic coding model with its own native tools. Asked to fake a tool call
+  to something literally named `run_codex`, it would occasionally answer
+  from its own honest self-model instead of the injected protocol — "I
+  don't have the run_codex tool available in this session" — because no
+  tool by that name exists among its *native* tools, only in Lisan's
+  prompt-layer convention. Renamed everywhere the model sees it
+  (`execution_tools.py`, both conversation prompts) and added explicit
+  anti-confusion language at the point the collision happens: ignore your
+  own instincts about native tools, `execute_task` is always present in
+  AVAILABLE_TOOLS, re-read it before claiming you lack one. The underlying
+  Python function keeps its old name; only the model-facing tool identifier
+  changed.
+- **Per-agent sandbox control.** `codex.sandbox_mode_by_agent` lets the
+  owner set the filesystem/shell sandbox mode for one named agent
+  (`writer`, `skeptic`, `interlocutor`, ...) without touching every other
+  agent. Precedence: the per-agent entry, then the legacy `sandbox_mode`
+  (executor only) / `all_agents_sandbox_mode` (everyone else), then the
+  structural default (unsandboxed executor, read-only everywhere else).
+  Ships empty — no live install's permissions changed by this release.
+- **FastEmbed no longer sits in memory between messages.** The Telegram
+  bot's ~700 MB ONNX embedding model loaded at startup and stayed resident
+  for the life of the process. It now loads lazily on first query and is
+  evicted after 5 minutes of inactivity (`LISAN_FASTEMBED_TTL`, 0 to
+  disable). Idle RSS dropped from ~750 MB (plus swap growth over a day's
+  uptime) to ~25 MB.
+- **Direct-SMTP mail tool**, migrated from the legacy mail service, with no
+  hardcoded personal defaults — `mail.sender` / `mail.relay` /
+  `mail.default_domain` must come from config; a missing sender raises
+  instead of silently falling back to a maintainer's address.
+
 ## 26.8.16 (2026-08-16)
 
 - **Guarded self-repair is live through Phase B.** Lisan can propose a

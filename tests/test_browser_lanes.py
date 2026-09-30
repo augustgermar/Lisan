@@ -81,6 +81,28 @@ def test_session_bridge_carries_the_owners_login_between_lanes():
     assert "unexpected_field" not in carried
 
 
+def test_tdx_token_is_extracted_and_cached_without_being_returned(tmp_path, monkeypatch):
+    from lisan.tools.browser import _extract_tdx_token, _store_tdx_token
+
+    token = "header.payload.signature"
+
+    class _Body:
+        def inner_text(self, timeout):
+            return f"Your API token: {token}"
+
+    class _Page:
+        def locator(self, selector):
+            assert selector == "body"
+            return _Body()
+
+    assert _extract_tdx_token(_Page()) == token
+    cache = tmp_path / "run" / "tdx_api_token"
+    monkeypatch.setenv("LISAN_TDX_TOKEN_CACHE", str(cache))
+    _store_tdx_token(token)
+    assert cache.read_text() == token + "\n"
+    assert cache.stat().st_mode & 0o777 == 0o600
+
+
 def test_handoff_refuses_without_a_destination():
     assert browser_handoff("", "reason")["ok"] is False
     assert "url" in browser_handoff("", "reason")["error"]

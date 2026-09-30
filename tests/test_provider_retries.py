@@ -78,11 +78,13 @@ class CodexSandboxTests(unittest.TestCase):
         agent: str,
         sandbox_mode: str | None = None,
         all_agents_sandbox_mode: str | None = None,
+        sandbox_mode_by_agent: dict[str, str] | None = None,
     ) -> list[str]:
         return self._capture_args(
             agent,
             sandbox_mode=sandbox_mode,
             all_agents_sandbox_mode=all_agents_sandbox_mode,
+            sandbox_mode_by_agent=sandbox_mode_by_agent,
         )
 
     def _capture_args(
@@ -90,6 +92,7 @@ class CodexSandboxTests(unittest.TestCase):
         agent: str,
         sandbox_mode: str | None = None,
         all_agents_sandbox_mode: str | None = None,
+        sandbox_mode_by_agent: dict[str, str] | None = None,
     ) -> list[str]:
         from unittest.mock import MagicMock
 
@@ -100,6 +103,8 @@ class CodexSandboxTests(unittest.TestCase):
             codex_cfg["sandbox_mode"] = sandbox_mode
         if all_agents_sandbox_mode:
             codex_cfg["all_agents_sandbox_mode"] = all_agents_sandbox_mode
+        if sandbox_mode_by_agent:
+            codex_cfg["sandbox_mode_by_agent"] = sandbox_mode_by_agent
         client = CodexClient({"providers": {"codex": codex_cfg}})
         captured: list[list[str]] = []
 
@@ -140,6 +145,39 @@ class CodexSandboxTests(unittest.TestCase):
             )
             self.assertIn("--dangerously-bypass-approvals-and-sandbox", args)
             self.assertNotIn("--sandbox", args)
+
+    def test_per_agent_override_wins_over_all_agents_setting(self):
+        """sandbox_mode_by_agent.<name> is the most specific knob: it wins
+        even when all_agents_sandbox_mode says the opposite for every other
+        agent."""
+        args = self._args_for(
+            agent="writer",
+            all_agents_sandbox_mode="danger-full-access",
+            sandbox_mode_by_agent={"writer": "workspace-write"},
+        )
+        self.assertIn("--sandbox", args)
+        self.assertIn("workspace-write", args)
+        self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", args)
+
+        # An unlisted agent still falls through to all_agents_sandbox_mode.
+        args = self._args_for(
+            agent="skeptic",
+            all_agents_sandbox_mode="danger-full-access",
+            sandbox_mode_by_agent={"writer": "workspace-write"},
+        )
+        self.assertIn("--dangerously-bypass-approvals-and-sandbox", args)
+
+    def test_per_agent_override_applies_to_the_executor_too(self):
+        """sandbox_mode_by_agent.codex beats the legacy sandbox_mode setting,
+        same precedence as every other agent name."""
+        args = self._args_for(
+            agent="codex",
+            sandbox_mode="danger-full-access",
+            sandbox_mode_by_agent={"codex": "read-only"},
+        )
+        self.assertIn("--sandbox", args)
+        self.assertIn("read-only", args)
+        self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", args)
 
 
 class CodexBinaryErrorTests(unittest.TestCase):

@@ -51,12 +51,6 @@ NOT_BUILT: list[dict[str, str]] = [
         "detail": "Messaging anyone other than the owner. Scheduled reminders deliver to the "
                   "owner's allowlisted Telegram chat only; a disclosure gate comes first.",
     },
-    {
-        "name": "Email sending",
-        "detail": "Composing or sending email on the owner's behalf. No SMTP, no API "
-                  "integration. The honest answer is 'I cannot send email' — not a workaround "
-                  "chain the owner must execute manually.",
-    },
 ]
 
 
@@ -180,7 +174,7 @@ def render_capability_primer(manifest: dict[str, Any]) -> str:
     lines += ["", "## Conversation tools", ""]
     for tool in manifest["tools"]:
         lines.append(f"- `{tool['name']}` — {tool['description']}")
-    lines += ["", "## CLI commands (runnable via the run_codex tool)", ""]
+    lines += ["", "## CLI commands (runnable via the execute_task tool)", ""]
     for cmd in manifest["cli"]:
         lines.append(f"### `{cmd['command']}` — {cmd['help']}")
         for opt in cmd["options"]:
@@ -209,7 +203,7 @@ def capability_index(manifest: dict[str, Any] | None = None) -> str:
     lines = [
         f"You are {manifest['software']} v{manifest['version']}. Your capabilities (details in primer/capabilities.md; live status via the self_state tool):",
         "Tools: " + ", ".join(t["name"] for t in manifest["tools"]),
-        "CLI (via run_codex): " + ", ".join(c["command"].removeprefix("lisan ") for c in manifest["cli"]),
+        "CLI (via execute_task): " + ", ".join(c["command"].removeprefix("lisan ") for c in manifest["cli"]),
         "Not built yet: " + "; ".join(i["name"] for i in manifest["not_built"]) + ".",
     ]
     return "\n".join(lines)

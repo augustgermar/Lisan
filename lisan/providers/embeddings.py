@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -25,7 +26,15 @@ class FastEmbedUnavailable(RuntimeError):
 # Held FastEmbed ``TextEmbedding`` instances, keyed by (model_name, cache_dir).
 # Instantiation is the cold-start cost (it loads/downloads ONNX weights), so the
 # object is created exactly once per process and reused by every query/record.
+#
+# TTL eviction (default 300s): after ``_FASTEMBED_TTL_SECONDS`` of inactivity
+# the model is dropped from the cache and its memory freed.  Long-running
+# services (the Telegram bot) spend most of their time idle; holding ~700 MB
+# of ONNX weights during those stretches is wasteful.  The model reloads in
+# ~2s on the next query — acceptable latency vs. perpetual RAM pressure.
 _FASTEMBED_MODELS: dict[tuple[str, str], Any] = {}
+_FASTEMBED_LAST_USE: dict[tuple[str, str], float] = {}
+_FASTEMBED_TTL_SECONDS: float = float(os.environ.get("LISAN_FASTEMBED_TTL", "300"))
 
 # Cached "package not installed" state so we do not re-attempt the import (and
 # re-warn) on every call once we have learned it is missing.
@@ -51,6 +60,7 @@ def reset_provider_state() -> None:
     global _FASTEMBED_UNAVAILABLE
     _WARNED.clear()
     _FASTEMBED_MODELS.clear()
+    _FASTEMBED_LAST_USE.clear()
     _FASTEMBED_UNAVAILABLE = False
     _ST_MODELS.clear()
 
@@ -324,16 +334,37 @@ class EmbeddingProvider:
             )
 
 
+def _evict_stale_fastembed_models() -> None:
+    """Drop FastEmbed models that have not been used within the TTL window.
+
+    Called before every access so the cache stays bounded.  In practice there
+    is only one model (BGE-small), so this is a single dict lookup."""
+    if _FASTEMBED_TTL_SECONDS <= 0:
+        return  # TTL disabled (set LISAN_FASTEMBED_TTL=0 to keep models forever)
+    now = time.monotonic()
+    stale = [k for k, ts in _FASTEMBED_LAST_USE.items() if now - ts > _FASTEMBED_TTL_SECONDS]
+    for key in stale:
+        _FASTEMBED_MODELS.pop(key, None)
+        _FASTEMBED_LAST_USE.pop(key, None)
+
+
 def _get_fastembed_model(model_name: str, cache_dir: str) -> Any:
     """Return the held FastEmbed ``TextEmbedding`` for ``(model_name, cache_dir)``,
-    instantiating it exactly once per process. Raises :class:`FastEmbedUnavailable`
-    (cached) when the optional package is not installed."""
+    instantiating it exactly once per TTL window. Raises :class:`FastEmbedUnavailable`
+    (cached) when the optional package is not installed.
+
+    Models are evicted after ``_FASTEMBED_TTL_SECONDS`` of inactivity (default
+    300 s, override with ``LISAN_FASTEMBED_TTL``). Set ``LISAN_FASTEMBED_TTL=0``
+    to disable eviction and keep the model resident forever (the old behaviour).
+    """
     global _FASTEMBED_UNAVAILABLE
     if _FASTEMBED_UNAVAILABLE:
         raise FastEmbedUnavailable("fastembed package not installed")
+    _evict_stale_fastembed_models()
     key = (model_name, cache_dir or "")
     model = _FASTEMBED_MODELS.get(key)
     if model is not None:
+        _FASTEMBED_LAST_USE[key] = time.monotonic()
         return model
     try:
         from fastembed import TextEmbedding  # lazy, optional ([embeddings] extra)
@@ -342,6 +373,7 @@ def _get_fastembed_model(model_name: str, cache_dir: str) -> Any:
         raise FastEmbedUnavailable(str(exc)) from exc
     model = TextEmbedding(model_name=model_name, cache_dir=cache_dir or None)
     _FASTEMBED_MODELS[key] = model
+    _FASTEMBED_LAST_USE[key] = time.monotonic()
     return model
 
 
