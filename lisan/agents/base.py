@@ -186,7 +186,8 @@ class PromptAgent:
                 record_tool_use(tool_name, args)
                 handler = tool_handlers.get(tool_name)
                 if handler is None:
-                    result = f"Error: unknown tool {tool_name}"
+                    available = ", ".join(sorted(tool_handlers.keys()))
+                    result = f"Error: unknown tool {tool_name!r}. Available tools: {available}. Re-read the list and call the correct tool name."
                 else:
                     try:
                         result = handler(**args)
