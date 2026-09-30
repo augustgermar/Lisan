@@ -113,8 +113,11 @@ time; a stale approval loses to a newly added never-rule.
 
 The managed browser connects over Chrome DevTools Protocol on
 **localhost only** (port 18223). No remote connections are accepted. The
-browser is the owner's own Chrome instance; the agent connects, acts, and
-detaches — the owner's hands remain on it.
+visible handoff lane uses a dedicated persistent Chromium-family browser
+profile (`~/browser-profile`) so owner credentials and cookies can be saved
+without attaching to an unrelated personal browser session. The agent opens
+the requested page and pauses for the owner whenever interactive login or MFA
+is required; the owner remains in control of those steps.
 
 ---
 

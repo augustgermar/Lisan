@@ -31,11 +31,24 @@ GREY = "\033[38;5;245m"       # mid grey — secondary text
 GREY_DIM = "\033[38;5;240m"   # dim grey — chrome, separators
 GREY_FAINT = "\033[38;5;236m" # faintest grey — rules, backgrounds
 
+# Warm palette for delegated Codex activity, so it never reads as Lisan's voice
+CODEX = "\033[38;5;179m"      # soft amber — Codex label, gutter, replies
+CODEX_DIM = "\033[38;5;137m"  # muted tan — gutter chrome
+CODEX_CMD = "\033[38;5;223m"  # pale wheat — commands Codex runs
+
 
 def color(text: str, *codes: str) -> str:
     if not _USE_COLOR:
         return text
     return "".join(codes) + text + RESET
+
+
+def readline_prompt(text: str, *codes: str) -> str:
+    """Style a readline prompt while keeping ANSI bytes out of its width math."""
+    if not _USE_COLOR:
+        return text
+    # GNU readline uses SOH/STX markers to bracket non-printing prompt bytes.
+    return "\001" + "".join(codes) + "\002" + text + "\001" + RESET + "\002"
 
 
 def supports_color() -> bool:

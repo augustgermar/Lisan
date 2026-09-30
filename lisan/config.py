@@ -13,6 +13,12 @@ _LEGACY_OLLAMA_BASE_URL = "http://localhost:11434/v1/chat/completions"
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
+    "mail": {
+        "sender": "",
+        "relay": "localhost",
+        "port": 25,
+        "default_domain": "",
+    },
     "providers": {
         "local": {
             "enabled": True,
@@ -29,10 +35,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "enabled": True,
             "binary_env": "CODEX_BIN",
             "default_model": None,
-            # Null preserves the read-only boundary for non-executor agents.
-            # Set to "danger-full-access" only when the owner explicitly wants
-            # every Lisan agent to have unrestricted filesystem access.
-            "all_agents_sandbox_mode": None,
+            # The owner explicitly chose unrestricted local execution for the
+            # Lisan control plane. Never-rules in intent.md remain separate.
+            "sandbox_mode": "danger-full-access",
+            "all_agents_sandbox_mode": "danger-full-access",
+            # Per-agent override, e.g. {"writer": "workspace-write", "skeptic":
+            # "read-only"}. An entry here for an agent's exact name wins over
+            # both settings above. Empty until the owner dials individual
+            # agents in — see lisan/providers/codex.py:_resolve_sandbox_mode.
+            "sandbox_mode_by_agent": {},
         },
         "openai": {
             "enabled": False,

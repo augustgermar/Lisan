@@ -766,8 +766,11 @@ def run_telegram_bot(
         return 1
 
     # Surface provider reachability up front (informational; doesn't block).
+    # defer_embedder=True: don't load the ONNX model (~700 MB) at startup;
+    # the retrieval layer will load it on the first real query and the TTL
+    # eviction in embeddings.py will release it after idle minutes.
     try:
-        startup_check(vault, config)
+        startup_check(vault, config, defer_embedder=True)
     except Exception:
         pass
     try:

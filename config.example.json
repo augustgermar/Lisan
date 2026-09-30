@@ -1,10 +1,18 @@
 {
+  "mail": {
+    "sender": "you@example.com",
+    "relay": "localhost",
+    "port": 25,
+    "default_domain": "example.com"
+  },
   "providers": {
     "codex": {
       "enabled": true,
       "binary_env": "CODEX_BIN",
       "default_model": null,
-      "all_agents_sandbox_mode": null
+      "sandbox_mode": "danger-full-access",
+      "all_agents_sandbox_mode": "danger-full-access",
+      "sandbox_mode_by_agent": {}
     },
     "local": {
       "enabled": true,

@@ -126,8 +126,8 @@ def test_run_codex_uncustomized_intent_still_executes(tmp_path: Path, monkeypatc
     assert result == "ok"
 
 
-def test_run_codex_tool_description_mentions_lisan_cli_commands() -> None:
-    description = next(tool["description"] for tool in execution_tools.TOOLS if tool["name"] == "run_codex")
+def test_execute_task_tool_description_mentions_lisan_cli_commands() -> None:
+    description = next(tool["description"] for tool in execution_tools.TOOLS if tool["name"] == "execute_task")
     assert "run Lisan CLI commands" in description
     assert "run shell commands" in description
 
@@ -137,7 +137,7 @@ def test_interlocutor_prompt_strongly_prefers_action_first_rules() -> None:
     text = prompt_path.read_text(encoding="utf-8")
     assert "CRITICAL RESPONSE RULE" in text
     assert "When the user asks you to SHOW, READ, LIST, or DISPLAY a file or directory" in text
-    assert "You can run ANY Lisan CLI command via run_codex" in text
+    assert "You can run ANY Lisan CLI command via execute_task" in text
     # Stale-memory refusals: a remembered restriction must never preempt a
     # live attempt (2026-07-26: a mkdir was refused from a superseded July 18
     # "sandbox" claim the owner had already lifted).

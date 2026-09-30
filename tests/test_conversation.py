@@ -144,14 +144,14 @@ class TelegramApprovalTests(unittest.TestCase):
     def test_yes_approves(self):
         self.replies = [self._reply("yes")]
         approve = self.bot._approval_fn_for(7)
-        self.assertTrue(approve("run_codex", {"task": "ingest the folder"}))
+        self.assertTrue(approve("execute_task", {"task": "ingest the folder"}))
         self.assertIn("approval", self.sent[0].lower())
         self.assertTrue(any("Approved" in s for s in self.sent))
 
     def test_explicit_no_declines(self):
         self.replies = [self._reply("no")]
         approve = self.bot._approval_fn_for(7)
-        self.assertFalse(approve("run_codex", {"task": "ingest the folder"}))
+        self.assertFalse(approve("execute_task", {"task": "ingest the folder"}))
 
     def test_conversation_mid_prompt_buffers_then_times_out(self):
         """A non-verdict message is conversation, not a decline: it buffers,
@@ -160,7 +160,7 @@ class TelegramApprovalTests(unittest.TestCase):
         chatter = self._reply("hmm not now, tell me about the weather")
         self.replies = [chatter]
         approve = self.bot._approval_fn_for(7)
-        self.assertFalse(approve("run_codex", {"task": "ingest the folder"}))
+        self.assertFalse(approve("execute_task", {"task": "ingest the folder"}))
         self.assertIn(chatter, self.bot._pending_updates)
         self.assertTrue(any("No reply in time" in s for s in self.sent))
 
@@ -168,7 +168,7 @@ class TelegramApprovalTests(unittest.TestCase):
         other = self._reply("what's the weather", chat_id=99, update_id=5)
         self.replies = [other, self._reply("yes", update_id=6)]
         approve = self.bot._approval_fn_for(7)
-        self.assertTrue(approve("run_codex", {"task": "x"}))
+        self.assertTrue(approve("execute_task", {"task": "x"}))
         self.assertIn(other, self.bot._pending_updates)
 
 
@@ -192,7 +192,7 @@ class TelegramApprovalTests(unittest.TestCase):
 
         self.bot._call_api = call_api
         approve = self.bot._approval_fn_for(7)
-        self.assertTrue(approve("run_codex", {"task": "x"}))
+        self.assertTrue(approve("execute_task", {"task": "x"}))
         self.assertIn("inline_keyboard", sent_markup["keyboard"])
 
     def test_foreign_button_tap_is_ignored(self):
@@ -200,7 +200,7 @@ class TelegramApprovalTests(unittest.TestCase):
         yes = self._reply("yes", update_id=10)
         self.replies = [stale, yes]
         approve = self.bot._approval_fn_for(7)
-        self.assertTrue(approve("run_codex", {"task": "x"}))
+        self.assertTrue(approve("execute_task", {"task": "x"}))
 
 if __name__ == "__main__":
     unittest.main()
@@ -244,4 +244,4 @@ def test_prompt_routes_sandbox_failures_to_the_tool_not_the_owner():
     text = (_P(__file__).resolve().parents[1] / "prompts" / "conversation_v1.md").read_text(encoding="utf-8")
     assert "SANDBOX ERRORS MEAN USE YOUR TOOL" in text
     lowered = text.lower()
-    assert "read-only" in lowered and "run_codex" in lowered
+    assert "read-only" in lowered and "execute_task" in lowered

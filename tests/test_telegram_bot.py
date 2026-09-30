@@ -223,7 +223,7 @@ class TrustWindowTests(unittest.TestCase):
         self.bot.handle_update(_update("/trust 30m"))
         self.assertGreater(self.bot._state_for(99).trust_until, time.time())
         approve = self.bot._approval_fn_for(99)
-        self.assertTrue(approve("run_codex", {"task": "touch a file"}))
+        self.assertTrue(approve("execute_task", {"task": "touch a file"}))
         self.assertTrue(any("Auto-approved (standing trust)" in s for s in self._sent()))
         # no approval keyboard was ever shown
         self.assertFalse(any("I need your approval" in s for s in self._sent()))
@@ -245,7 +245,7 @@ class TrustWindowTests(unittest.TestCase):
         approve = self.bot._approval_fn_for(99)
         # No reply queued: prompt goes out, wait times out quickly via patch
         with patch.object(self.bot, "_await_approval", return_value=None):
-            self.assertFalse(approve("run_codex", {"task": "touch a file"}))
+            self.assertFalse(approve("execute_task", {"task": "touch a file"}))
         self.assertTrue(any("I need your approval" in s for s in self._sent()))
 
     def test_trust_cap_is_eight_hours(self):

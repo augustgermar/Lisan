@@ -122,7 +122,7 @@ def load_skill_handlers(
         # A skill declares `"requires_approval": true` in schema.json when its
         # action leaves the machine (send a message, post, delete). The gate
         # runs at call time with the resolved arguments, same contract as
-        # run_codex: approval_fn(tool_name, args) -> bool.
+        # execute_task: approval_fn(tool_name, args) -> bool.
         gated = bool(skill.get("requires_approval"))
 
         def _handler(*, _run=run, _name=name, _gated=gated, **args: Any) -> str:

@@ -32,16 +32,16 @@ class ManifestTests(unittest.TestCase):
 
     def test_tools_and_jobs_present(self):
         tool_names = {t["name"] for t in self.manifest["tools"]}
-        self.assertLessEqual({"search_memory", "read_file", "run_codex", "schedule_task", "self_state"}, tool_names)
+        self.assertLessEqual({"search_memory", "read_file", "execute_task", "schedule_task", "self_state"}, tool_names)
         self.assertIn("task.reminder", self.manifest["job_types"])
 
     def test_not_built_declared(self):
         names = " ".join(i["name"] for i in self.manifest["not_built"]).lower()
         self.assertIn("obsidian", names)
 
-    def test_not_built_includes_email(self):
-        names = [i["name"] for i in self.manifest["not_built"]]
-        self.assertIn("Email sending", names)
+    def test_email_tool_is_built(self):
+        names = {i["name"] for i in self.manifest["tools"]}
+        self.assertIn("send_email", names)
 
     def test_config_path_in_manifest(self):
         self.assertIn("config", self.manifest["paths"])
