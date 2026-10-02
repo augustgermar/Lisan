@@ -200,6 +200,23 @@ class EmissionTests(_Env):
 
 
 class SatiationTests(_Env):
+    def test_a_healed_ache_is_announced_with_what_the_scanner_knows(self):
+        from unittest.mock import patch
+
+        _entity(self.vault, "larkspur-place", "Larkspur", "place")
+        _entity(self.vault, "larkspur-person", "Larkspur", "person")
+        with patch("lisan.tools.escalation._notify_owner", return_value=True) as notify:
+            scan_deviations(self.vault, db_path=self.db)
+            notify.reset_mock()
+            scan_deviations(self.vault, db_path=self.db)  # still aching: silence
+            notify.assert_not_called()
+            (self.vault / "entities" / "people" / "larkspur-person.md").unlink()
+            scan_deviations(self.vault, db_path=self.db)
+        self.assertEqual(notify.call_count, 1)
+        text = notify.call_args.args[0]
+        self.assertIn("cleared up", text)
+        self.assertIn("larkspur", text)
+
     def test_healed_deviation_closes_its_own_loop(self):
         _entity(self.vault, "larkspur-place", "Larkspur", "place")
         _entity(self.vault, "larkspur-person", "Larkspur", "person")

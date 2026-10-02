@@ -4,7 +4,7 @@
 
 - **Learning notices.** The agent now tells the owner on Telegram, in a line or two,
   when it learns on its own: a skill the loop wrote, changed, trusted or flagged;
-  a belief the dreamer revised on evidence; a new ache. Off with
+  a belief the dreamer revised on evidence; a new ache, and an ache that stops being true. Off with
   `learning.notify: false`.
 - **Execution-layer hardening.** Decisions whose steps keep failing now move to
   `blocked` after two consecutive failures instead of re-running every cycle.
