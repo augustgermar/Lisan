@@ -199,6 +199,8 @@ def test_cancel_kills_a_running_child_and_the_job_stays_canceled(env, monkeypatc
     assert job["status"] == "canceled"  # not overwritten with "failed"
     assert job.get("child_pid") in (None, 0)
     assert cancel_delegation(out["delegation_id"], db_path=env.db) is False  # nothing left to cancel
+    # the ledger records what the owner did, not "exit code -9"
+    assert _ledger(env) == [(out["delegation_id"], 1, "canceled", "delegate")]
 
 
 def test_cancel_a_queued_child_and_unknown_ids(env):
@@ -230,3 +232,13 @@ def test_claim_next_job_can_exclude_types(env):
     assert claim_next_job("w", db_path=env.db, exclude_job_types={"agent.delegate"}) is None
     only = claim_next_job("w", db_path=env.db, job_types={"agent.delegate"})
     assert only["job_type"] == "agent.delegate"
+
+
+def test_structured_results_are_summarized_not_dumped_in_the_list_view():
+    item = {
+        "delegation_id": "deleg.x", "status": "succeeded", "profile": "read_only", "brief": "audit",
+        "result": {"text": '{"claims": [...]}', "data": {"claims": [1, 2, 3], "note": "x"}},
+    }
+    text = delegation.format_delegations([item])
+    assert "structured (claims: 3 item(s), note)" in text
+    assert '{"claims"' not in text

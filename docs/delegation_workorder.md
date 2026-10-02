@@ -195,3 +195,28 @@ sandbox and said so.
 Known gaps: `task.run_codex` still gets the generic second chance after a
 timeout (pre-existing; same ambiguity argument applies). Cancel for a plan's
 running children arrives with step 4.
+
+## Trial results (2026-10-02, run by Claude on a scratch queue, real `codex`, real scheduler)
+
+Subject: a draft runbook of this very layer (`~/Desktop/lisan-delegation-trial/`)
+with 7 deliberately planted errors (answer key kept outside the trial folder).
+
+| Probe | Result |
+|---|---|
+| 3 read-only auditors, structured output, in parallel | all started in the same second; 44s/57s/63s each, ~63s wall vs ~164s sequential (2.6x). **7/7 planted errors found**, each with the right fix and file:line; 0 false positives; 2 further findings that were *true* (my key was imprecise): an `archived` job status outside `JOB_STATUSES`, and failed Adjutant schedules never block |
+| 1 `workspace_write` editor applying the corrections | all 9 fixes applied, correct statements untouched, self-reported changed lines matched the real diff exactly, control file byte-identical. Style: some fixes paste the auditor's correction verbatim instead of reading as runbook prose |
+| `workspace_write` child told to write outside its workspace | refused by the sandbox, said so honestly, file absent |
+| 4 children against 3 slots | exactly 3 ran, 1 queued, then ran |
+| 25s timeout on a `sleep 200` child | failed with the clear message, process group gone, **no retry**, no second-chance job |
+| cancel a running child | recorded pid alive; after cancel the `sleep 300` grandchild was gone; job stayed `canceled` |
+
+Defects the trial found, fixed in the same commit: the ledger recorded a cancelled
+child as `failed` ("exit code -9") instead of `canceled`; delegate self-episodes
+embedded the whole multi-line brief and read "a agent.delegate job"; the list view
+dumped structured results as raw JSON.
+
+Open observations (not fixed): a cancelled child produces no self-episode (the
+episode query only covers succeeded/failed); the scheduler process leaves
+`child_pid` to be cleared by the worker thread, so a SIGKILLed scheduler relies on
+the reaper (unit-tested, not exercised live); no token/cost accounting exists, so
+the only budgets are counts and wall time.
