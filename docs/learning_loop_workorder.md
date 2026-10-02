@@ -1,9 +1,9 @@
 # Learning loop work order
 
 Status: **design reviewed; owner decisions 1-6 recorded below (2026-10-02).
-Decision 7 (retention) confirmed. **Steps 1 (observe), 2 (reviewer + gate, shadow) and 3 (auto +
-probation) built 2026-10-02**; see "Step 1/2/3 as built" below. Steps 4-6 not
-started.**
+Decision 7 (retention) confirmed. **Steps 1 (observe), 2 (reviewer + gate, shadow), 3 (auto +
+probation) and 4 (skill outcomes into self-knowledge) built 2026-10-02**; see
+"Step 1/2/3/4 as built" below. Steps 5-6 not started.**
 Author: Claude (Sonnet 5.5) with August, 2026-10-02. Builds on the
 execution-hardening branch (`4409ee0`): the delegation layer, the run ledger and
 the plan machinery are what this loop observes.
@@ -579,3 +579,54 @@ running services still hold older code until they are restarted, so nothing
 records or reviews live until then; after a restart, a `skill.review` job runs by
 itself when 6 unreviewed events have accumulated and the system has been quiet for
 5 minutes.
+
+## Step 4 as built (2026-10-02): skill outcomes become self-knowledge
+
+Nothing new was invented; each piece plugs into the mechanism that already existed.
+
+- **First-person episodes.** Every recorded skill use becomes a `self_episode`
+  (`event_kind: skill`, with a `skill` field and a `source_refs` link to the learning
+  event, or to the job for a use inside a plan). Written when the event is recorded
+  and by the catch-up pass. The wording is exactly as strong as the evidence: "ran
+  without an error", never "worked". An outcome nobody can judge is not an episode.
+  These are what the Self-Analyst and the belief extractor read.
+- **Capability beliefs.** The deterministic belief extractor gained two classes per
+  skill the agent has used: "My X skill has held up in use" and "My X skill fails
+  often enough that I should double-check what it returns". The gate is unchanged
+  (3 episodes on 2 days, contradiction under a third, counterexamples listed,
+  owner ratification); statements carry no counts, so re-extraction names the same
+  belief and ratification stays idempotent.
+- **Drives.** A new deviation class, `skill_health`: a skill that failed at least
+  half of at least five uses in 30 days, or an agent-written skill flagged for
+  repeated failure, files a first-person self-loop ("my X skill failed on 3 of its
+  last 5 uses; I cannot rely on it"). It closes itself when the skill is revised,
+  approved, rolled back, or starts working. It is never sent to the code
+  self-repair loop: the remedy is a revised skill.
+- **Not changed:** the weekly voice self-evaluation judges *replies* against the
+  kernel rubric and has nothing to do with skills. The component that reads
+  first-person episodes is the Self-Analyst, and it now receives these.
+
+### What running it on the real data showed
+
+- **A real mistake of mine, and a real trap in the system.** I ran the catch-up pass
+  (`assemble_self_episodes`) expecting 25 skill episodes; it wrote 175. The other
+  150 were job episodes, and 149 were the plan-recursion episodes from 2026-07-27
+  that the owner had quarantined on purpose (`quarantine-2026-07-27-plan-recursion/`).
+  The pass rebuilds every episode derivable from the job table, so it silently undoes
+  a quarantine. The belief artifact I then generated rested 175 plan episodes on that
+  incident. Caught by reading the counts instead of trusting them; undone exactly
+  (the 149 files matched by name to the quarantine, their index rows, the artifact;
+  a database backup was taken first); and fixed at the root: `write_self_episode`
+  now refuses any episode whose filename sits in a sibling `quarantine*/self-episodes/`
+  folder, so no route recreates one. A preview that counted only what I intended
+  would have hidden this; the lesson is to preview the function's real output.
+- With the corrected data: three skill-belief candidates, `gmail_search` (7
+  supporting, 3 counterexamples, 30%), `research`, `youtube_transcript`, awaiting the
+  owner's `lisan self ratify`. No skill currently aches: the worst, `gmail_search`,
+  fails 3 of 10, under the 50% bar.
+- `skills_root()` is now contained in a test process (like `config_path()` and
+  `data_root()`): the loop edits the real skills, and a test must not read or write them.
+- Restarting the real services brought up two more findings, fixed: a column
+  migration that raced across processes and crashed the adjutant daemon on startup
+  (`db.add_column_if_missing`), and a race in `kill_tree` (the tree was read before it
+  was frozen) that only showed once real services were competing for the machine.

@@ -116,14 +116,33 @@ _CLASSES = [
 ]
 
 
+def _skill_classes(episodes: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """One pair of classes per skill the agent has actually used: it has held up,
+    or it keeps failing. The statements are fixed text per skill (no counts), so
+    re-running the extraction names the same belief and ratification stays
+    idempotent. "Held up", not "works": an episode only knows the skill ran
+    without an error, and the belief should claim no more than that."""
+    names = sorted({str(fm.get("skill")) for fm in episodes if str(fm.get("event_kind")) == "skill" and fm.get("skill")})
+    classes: list[dict[str, str]] = []
+    for name in names:
+        classes.append({"kind": "skill", "skill": name, "support": "succeeded", "counter": "failed",
+                        "statement": f"My {name} skill has held up in use."})
+        classes.append({"kind": "skill", "skill": name, "support": "failed", "counter": "succeeded",
+                        "statement": f"My {name} skill fails often enough that I should double-check what it returns."})
+    return classes
+
+
 def extract_belief_candidates(vault: Path) -> list[BeliefCandidate]:
-    """Deterministic: same episodes → same candidates, in template order."""
+    """Deterministic: same episodes → same candidates, in template order, then
+    each skill's classes in name order."""
     episodes = _load_self_episodes(vault)
     candidates: list[BeliefCandidate] = []
-    for cls in _CLASSES:
+    for cls in [*_CLASSES, *_skill_classes(episodes)]:
         cand = BeliefCandidate(statement=cls["statement"])
         for fm in episodes:
             if str(fm.get("event_kind")) != cls["kind"]:
+                continue
+            if cls.get("skill") and str(fm.get("skill") or "") != cls["skill"]:
                 continue
             outcome = str(fm.get("outcome") or "")
             episode_id = str(fm.get("id") or "")

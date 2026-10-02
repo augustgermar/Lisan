@@ -261,7 +261,24 @@ def skills_root(base: Path | None = None) -> Path:
         return Path(env_value).expanduser()
     if base is not None:
         return base / "skills"
+    if _looks_like_a_test_process() and os.environ.get("LISAN_ALLOW_TEST_SKILLS") != "1":
+        # The learning loop now edits the owner's real skills and reads their use to
+        # decide what aches. A test must neither read them (a flagged real skill
+        # would change a test's answer) nor, worse, write to them. Same containment
+        # as data_root() and config_path(); LISAN_SKILLS_DIR or LISAN_ALLOW_TEST_SKILLS=1
+        # chooses deliberately.
+        return _test_skills_dir()
     return Path.home() / ".local" / "share" / "Lisan" / "skills"
+
+
+_TEST_SKILLS_DIR: Path | None = None
+
+
+def _test_skills_dir() -> Path:
+    global _TEST_SKILLS_DIR
+    if _TEST_SKILLS_DIR is None:
+        _TEST_SKILLS_DIR = Path(tempfile.mkdtemp(prefix="lisan-test-skills-"))
+    return _TEST_SKILLS_DIR
 
 
 def schemas_dir(base: Path | None = None) -> Path:

@@ -27,6 +27,8 @@ Deviation classes (WO-ENRICH §1.2), all inward-pointing:
                     an embedding backlog (zero privacy surface)
 - ``capture_defect`` — an answer existed in raw conversation but was not
                        carried into the distilled memory story
+- ``skill_health``   — one of the agent's own procedures keeps failing, or a skill
+                       it wrote from past work was flagged after repeated failure
 """
 from __future__ import annotations
 
@@ -54,6 +56,11 @@ DEFAULTS: dict[str, Any] = {
     "stale_after_days": 30,
     "failed_jobs_threshold": 5,
     "embedding_backlog_threshold": 25,
+    # a skill is unreliable when it failed at least this share of at least this
+    # many uses in the window
+    "skill_failure_min_uses": 5,
+    "skill_failure_ratio": 0.5,
+    "skill_window_days": 30,
 }
 
 _SIGNIFICANCE = {
@@ -64,9 +71,12 @@ _SIGNIFICANCE = {
     "interocept": "medium",
     "stale": "low",
     "capture_defect": "medium",
+    "skill_health": "medium",
 }
 # emission order under the cap: model contradictions first, housekeeping last
-_CLASS_ORDER = ["cross_kind", "near_dup", "capture_defect", "interocept", "thin", "dangling", "stale"]
+_CLASS_ORDER = ["cross_kind", "near_dup", "capture_defect", "interocept", "skill_health", "thin", "dangling", "stale"]
+# classes whose remedy is not a code change: the self-repair loop must not treat them as one
+_NOT_CODE_DEFECTS = frozenset({"skill_health"})
 
 
 def deviations_config(config: dict[str, Any] | None) -> dict[str, Any]:
@@ -113,6 +123,7 @@ def detect(vault: Path, *, db_path: Path | None = None, config: dict[str, Any] |
     found.extend(_stale_entities(entities, cfg=cfg))
     found.extend(_interoception(vault, db_path=db_path, cfg=cfg))
     found.extend(_capture_defects(vault))
+    found.extend(_skill_health(db_path=db_path, cfg=cfg))
     order = {name: i for i, name in enumerate(_CLASS_ORDER)}
     # within a class, the strongest signal aches first — under a daily cap,
     # ordering IS the appetite
@@ -335,6 +346,56 @@ def _interoception(vault: Path, *, db_path: Path | None, cfg: dict[str, Any]) ->
     return out
 
 
+# ------------------------------------------------------------ skill-health detector
+
+def _skill_health(*, db_path: Path | None, cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """The agent's own procedures aching: a skill that keeps failing, or one it
+    wrote itself that was flagged. Reads the usage ledger and the skills
+    directory; deterministic, no model. It stops being true — and the loop closes
+    itself — when the skill is revised, approved, rolled back, or simply starts
+    working."""
+    out: list[dict[str, Any]] = []
+    try:
+        from ..paths import skills_root
+        from .learning import skill_usage_summary
+        from .skill_history import SkillHistoryError, read_provenance
+    except Exception:
+        return out
+    window = int(cfg.get("skill_window_days", 30))
+    min_uses = int(cfg.get("skill_failure_min_uses", 5))
+    ratio = float(cfg.get("skill_failure_ratio", 0.5))
+    try:
+        usage = skill_usage_summary(db_path, days=window)
+    except Exception:
+        usage = []
+    for u in usage:
+        failed = int(u["outcomes"].get("tool_error", 0)) + int(u["outcomes"].get("failed", 0))
+        if u["uses"] >= min_uses and failed / u["uses"] >= ratio:
+            out.append({
+                "klass": "skill_health",
+                "fingerprint": f"skill-unreliable-{_slug(u['skill'])}",
+                "summary": f"my {u['skill']} skill failed on {failed} of its last {u['uses']} uses — I cannot rely on it",
+                "weight": failed / u["uses"],
+                "links": [],
+            })
+    root = skills_root()
+    if root.is_dir():
+        for path in sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith((".", "_"))):
+            try:
+                prov = read_provenance(root, path.name)
+            except SkillHistoryError:
+                continue
+            if prov["origin"] == "agent" and prov.get("status") == "flagged":
+                out.append({
+                    "klass": "skill_health",
+                    "fingerprint": f"skill-flagged-{_slug(path.name)}",
+                    "summary": f"I wrote my {path.name} skill from past work, and it has since failed twice in a row",
+                    "weight": 1.0,
+                    "links": [],
+                })
+    return out
+
+
 # ------------------------------------------------------- capture-quality detector
 
 def _capture_defects(vault: Path) -> list[dict[str, Any]]:
@@ -527,6 +588,8 @@ def _queue_self_repair(
     """Queue Phase A only when the owner has enabled proposal generation."""
     from .action_policy import action_allowed
 
+    if deviation.get("klass") in _NOT_CODE_DEFECTS:
+        return  # a failing skill is not a code defect; the remedy is a revised skill
     if not action_allowed("self_repair_propose", cfg):
         return
     repair_cfg = cfg.get("self_repair") or {}
