@@ -213,6 +213,21 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # for a pure-async caller that runs its own worker.
         "drain_on_capture": True,
     },
+    # The learning loop (lisan/tools/learning.py, docs/learning_loop_workorder.md).
+    "learning": {
+        # off     nothing recorded
+        # observe record events and the skill-usage ledger (deterministic, no
+        #         model call, writes nothing to any skill) — the default
+        # shadow / auto arrive with the reviewer (steps 2-3 of the work order)
+        "mode": "observe",
+        # A conversation turn is recorded at this many tool calls, or when it
+        # used a skill.
+        "min_tool_calls": 5,
+        # ...or when it hands work to one of these. One run_codex call can be an
+        # hour of shell work, so a call count undercounts it (measured: 5 of 583
+        # real turns reached 5 calls; 65 handed work to the executor).
+        "work_tools": ["execute_task", "run_codex"],
+    },
     # Delegated workers (lisan/tools/delegation.py, docs/delegation_workorder.md).
     "delegation": {
         # How many delegated children run at once (the scheduler's delegate lane).

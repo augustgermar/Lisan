@@ -25,6 +25,25 @@
   the claim transaction. Cancel kills a running child. Children are never
   auto-retried and an overdue one is failed, not requeued, if its worker dies.
   Design and decisions: `docs/delegation_workorder.md`.
+- **Learning loop, step 1: observe** (`docs/learning_loop_workorder.md`). Lisan
+  now freezes what its work did: conversation turns that hand work to the
+  executor, use a skill, or make 5+ tool calls; finished plans; delegation
+  groups; Adjutant attempts. Events are append-only plain files under
+  `<install>/learning/` (kept indefinitely) with a rebuildable index, each
+  carrying provenance (`sources`, `tainted`) that is recorded and never a gate.
+  A skill-usage ledger judges executable skills by their own calls.
+  `lisan learning status|events|show|backfill|rebuild-index`. No model call, and
+  nothing is written to any skill. Mode `learning.mode` (default `observe`).
+  Replaying 583 real turns found that a tool-call count alone would record 5 of
+  them, hence the executor-handoff rule.
+- **Skill history, rollback and portability.** `lisan skills history|diff|
+  rollback|pin|unpin|archive|export|import|usage`: snapshots before any change
+  (the owner's original is `v0`; `diff --since-owner` shows drift), rollback that
+  is itself undoable, and a hardened export/import (no path traversal or links;
+  bundled code only with `--allow-code`). `self_state` reports skill use and
+  changes. Backups now include `learning/` and the skills directory.
+- **Fixed:** `metadata:` blocks in SKILL.md frontmatter parsed as empty (every
+  nested value was dropped).
 - **Fan-out plans and the chat `delegate` tool.** A plan step of kind `fanout`
   runs several workers in parallel and joins them (`join: all` or
   `best_effort`); a durable `delegation_groups` row makes the join fire exactly

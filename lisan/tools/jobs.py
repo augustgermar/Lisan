@@ -1402,6 +1402,23 @@ def dispatch_job(
             observed_response=str(payload.get("response") or ""),
             observed_tool_calls=payload.get("tool_calls") if isinstance(payload.get("tool_calls"), list) else [],
         )
+        # Learning loop, step 1: freeze what this turn did (tool calls, skills
+        # used) for the reviewer that comes later. Deterministic, no model call,
+        # and it must never be able to fail the capture it observes.
+        try:
+            from ..config import load_config
+            from .learning import record_turn_event
+
+            record_turn_event(
+                payload, job_id=str(job.get("id")), vault=vault, db_path=db_path, config=load_config(),
+            )
+        except Exception as exc:
+            try:
+                from .log import log_error
+
+                log_error(vault, "learning.record_turn_event", exc)
+            except Exception:
+                pass
         # Living entity stories: every entity that received new material gets
         # its narrative re-told. This ran inside capture_text on the legacy
         # path; the observer bypasses that, so enqueue the rewrites here — or

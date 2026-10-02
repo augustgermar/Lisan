@@ -125,8 +125,15 @@ def parse_frontmatter(text: str) -> tuple[dict[str, Any], str]:
         rest = rest.strip()
 
         if indented and nested_key:
-            # one level of nesting, which is all `metadata:` ever needs
-            bucket = data.setdefault(nested_key, {})
+            # one level of nesting, which is all `metadata:` ever needs. A bare
+            # `key:` starts out as an empty list (it might be a block list); the
+            # first `name: value` beneath it proves it is a mapping. Before this
+            # the empty list stayed and every nested value was silently dropped,
+            # so `metadata:` — documented as supported — always parsed as [].
+            bucket = data.get(nested_key)
+            if isinstance(bucket, list) and not bucket:
+                bucket = data[nested_key] = {}
+                current_list = None
             if isinstance(bucket, dict):
                 bucket[key] = _coerce(rest)
             continue

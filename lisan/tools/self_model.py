@@ -270,6 +270,32 @@ def _skill_auth_status() -> dict:
     return out
 
 
+def _learning_state(vault: Path, db: Path) -> dict[str, Any]:
+    """What the learning loop has observed and which skills are in use — live
+    data, so "what procedures do you have, and do they work?" is answered from
+    an instrument, not from memory. Empty (not an error) if anything is missing."""
+    try:
+        from ..config import load_config
+        from .learning import learning_status, skill_usage_summary
+        from .skill_history import HISTORY_DIR, is_pinned, read_log
+
+        cfg = load_config()
+        status = learning_status(vault, db, cfg)
+        usage = skill_usage_summary(db, days=30)
+        skills_dir = skills_root()
+        changes = [e for e in read_log(skills_dir) if e.get("action") in {"snapshot", "rollback", "archive", "import"}][-5:]
+        pinned = sorted(
+            p.name for p in (skills_dir / HISTORY_DIR).iterdir() if p.is_dir() and is_pinned(skills_dir, p.name)
+        ) if (skills_dir / HISTORY_DIR).is_dir() else []
+        return {
+            "mode": status["mode"], "events": status["events"], "by_kind": status["by_kind"],
+            "tainted_events": status["tainted"], "last_event": status["last_event"],
+            "skill_usage_30d": usage[:8], "recent_skill_changes": changes, "pinned_skills": pinned,
+        }
+    except Exception:
+        return {}
+
+
 def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) -> dict[str, Any]:
     """What is actually going on right now: queue, schedule, index, services,
     recent errors. Every field comes from live data."""
@@ -384,6 +410,8 @@ def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) 
         ]
     except Exception:
         state["active_plans"] = []
+
+    state["learning"] = _learning_state(vault, db)
 
     state["services"] = _service_status()
     state["machine"] = _machine_sleep_status()
@@ -727,6 +755,23 @@ def render_self_state(state: dict[str, Any]) -> str:
     plans = state.get("active_plans") or []
     for pl in plans:
         lines.append(f"Active plan ({pl['progress']} steps): {pl['goal']}")
+    learning = state.get("learning") or {}
+    if learning:
+        line = f"Learning: mode {learning.get('mode')} — {learning.get('events', 0)} event(s) observed"
+        if learning.get("last_event"):
+            line += f", last {learning['last_event']}"
+        lines.append(line)
+        usage = learning.get("skill_usage_30d") or []
+        if usage:
+            lines.append("Skill use (30d): " + "; ".join(
+                f"{u['skill']} ×{u['uses']} ("
+                + ", ".join(f"{k} {v}" for k, v in sorted(u["outcomes"].items())) + ")"
+                for u in usage
+            ))
+        for change in learning.get("recent_skill_changes") or []:
+            lines.append(f"Skill change: {change.get('skill')} — {change.get('action')} by {change.get('actor')}: {change.get('reason')}")
+        if learning.get("pinned_skills"):
+            lines.append("Pinned skills (the loop will not change these): " + ", ".join(learning["pinned_skills"]))
     services = state.get("services") or {}
     lines.append(
         "Services: " + ", ".join(
