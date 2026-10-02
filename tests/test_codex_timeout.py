@@ -180,3 +180,48 @@ def test_real_process_pid_is_announced_before_the_run_finishes(tmp_path, monkeyp
                 "hi", agent="codex", working_directory=tmp_path, on_start=pids.append
             )
     assert len(pids) == 1 and pids[0] > 1
+
+
+# ── isolated agents: the skill reviewer is read-only and sandboxed whatever the config says ──
+
+def test_the_skill_reviewer_is_read_only_whatever_the_owners_config_says():
+    from lisan.providers.codex import _resolve_sandbox_mode
+
+    everything_open = {"all_agents_sandbox_mode": "danger-full-access", "sandbox_mode": "danger-full-access",
+                       "sandbox_mode_by_agent": {"skill_reviewer": "danger-full-access"}}
+    assert _resolve_sandbox_mode("skill_reviewer", everything_open) == "read-only"
+    assert _resolve_sandbox_mode("writer", everything_open) == "danger-full-access"  # other agents keep the owner's dial
+    assert _resolve_sandbox_mode("codex", everything_open) == "danger-full-access"
+
+
+def test_the_skill_reviewer_runs_in_an_empty_scratch_directory_that_is_cleaned_up():
+    import os
+
+    seen = {}
+
+    def fake_batch(args, **kw):
+        cd = args[args.index("--cd") + 1]
+        seen["cd"], seen["listing"] = cd, os.listdir(cd)
+        seen["args"] = list(args)
+        return MagicMock(returncode=0, stdout="{}", stderr="")
+
+    config = {"providers": {"codex": {"all_agents_sandbox_mode": "danger-full-access"}}}
+    with patch("lisan.providers.codex._run_batch", side_effect=fake_batch), \
+            patch("lisan.providers.codex.progress_listener_active", return_value=False):
+        CodexClient(config).complete("review this", agent="skill_reviewer")
+    assert seen["listing"] == [] and "read-only" in seen["args"]
+    assert "--dangerously-bypass-approvals-and-sandbox" not in seen["args"]
+    assert not os.path.exists(seen["cd"])  # removed afterwards
+
+
+def test_an_explicit_working_directory_is_still_honoured_for_isolated_agents(tmp_path):
+    seen = {}
+
+    def fake_batch(args, **kw):
+        seen["cd"] = args[args.index("--cd") + 1]
+        return MagicMock(returncode=0, stdout="{}", stderr="")
+
+    with patch("lisan.providers.codex._run_batch", side_effect=fake_batch), \
+            patch("lisan.providers.codex.progress_listener_active", return_value=False):
+        CodexClient({"providers": {"codex": {}}}).complete("x", agent="skill_reviewer", working_directory=tmp_path)
+    assert seen["cd"] == str(tmp_path)

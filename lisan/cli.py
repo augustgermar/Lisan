@@ -879,6 +879,19 @@ def build_parser() -> argparse.ArgumentParser:
     learning_show = learning_sub.add_parser("show", help="One event, exactly as frozen")
     learning_show.add_argument("event_id")
     learning_show.add_argument("--vault", type=Path, default=vault_root())
+    learning_review = learning_sub.add_parser("review", help="Run the skill reviewer now (shadow/auto mode, or --dry-run in any mode)")
+    learning_review.add_argument("--dry-run", action="store_true", help="Judge and show, but mark nothing reviewed; works in any mode")
+    learning_review.add_argument("--event", action="append", dest="events", default=None, help="Review these event ids instead of the oldest unreviewed")
+    learning_review.add_argument("--limit", type=int, default=None, help="At most this many events")
+    learning_review.add_argument("--provider", default=None)
+    learning_review.add_argument("--model", default=None)
+    learning_review.add_argument("--vault", type=Path, default=vault_root())
+    learning_review.add_argument("--db-path", type=Path, default=None)
+    learning_reviews = learning_sub.add_parser("reviews", help="List past reviews")
+    learning_reviews.add_argument("--vault", type=Path, default=vault_root())
+    learning_review_show = learning_sub.add_parser("review-show", help="Read one review: what was found, what would apply, what was refused")
+    learning_review_show.add_argument("review_id")
+    learning_review_show.add_argument("--vault", type=Path, default=vault_root())
     learning_backfill = learning_sub.add_parser("backfill", help="Record events for work that finished before learning was on")
     learning_backfill.add_argument("--since", default=None, help="YYYY-MM-DD lower bound")
     learning_backfill.add_argument("--vault", type=Path, default=vault_root())
@@ -1625,6 +1638,45 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.learning_command == "rebuild-index":
             print(json.dumps(_learning.rebuild_index(args.vault, _db), indent=2))
+            return 0
+        if args.learning_command == "review":
+            from .tools import skill_review as _review
+
+            ids = args.events
+            if ids is None and args.limit:
+                ids = _learning.unreviewed_ids(_db, limit=args.limit)
+            try:
+                res = _review.run_review(args.vault, _db, _cfg, event_ids=ids, dry_run=args.dry_run,
+                                         provider=args.provider, model=args.model)
+            except Exception as exc:
+                print(f"✗ the review did not run: {exc}")
+                return 1
+            if res.skipped:
+                print(f"Nothing reviewed: {res.skipped}")
+                return 0
+            print(_review.render_artifact(res))
+            print(f"(artifact: {res.artifact})")
+            return 0
+        if args.learning_command == "reviews":
+            from .tools import skill_review as _review
+
+            rows = _review.list_reviews(args.vault)
+            if not rows:
+                print("No reviews yet.")
+            for r in rows:
+                tag = " [dry run]" if r["dry_run"] else ""
+                print(f"{r['review_id']}  {r['events']:>2} events  {r['proposals']} proposal(s), {r['accepted']} pass the gate{tag}")
+                if r["summary"]:
+                    print(f"    {r['summary'][:140]}")
+            return 0
+        if args.learning_command == "review-show":
+            from .tools import skill_review as _review
+
+            text = _review.show_review(args.vault, args.review_id)
+            if text is None:
+                print(f"✗ No review {args.review_id}")
+                return 1
+            print(text)
             return 0
         if args.learning_command == "backfill":
             print(json.dumps(_learning.backfill(args.vault, _db, _cfg, since=args.since), indent=2))

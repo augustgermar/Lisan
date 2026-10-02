@@ -43,10 +43,12 @@ DEFAULT_JOB_PRIORITIES = {
     "plan.run": 15,
     "agent.delegate": 14,
     "agent.delegate_report": 16,
+    "skill.review": 88,
     "capture.observe": 22,
 }
 
 COALESCE_AGGRESSIVE = {
+    "skill.review",  # a burst of events wants one review, not one each
     "analyst.scan",
     "analyst.self_scan",
     "prediction.reconcile",

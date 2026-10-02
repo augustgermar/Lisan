@@ -51,6 +51,7 @@ JOB_TYPES = {
     "plan.run",
     "agent.delegate",
     "agent.delegate_report",
+    "skill.review",
     "capture.observe",
     "deviation.scan",
     "enrichment.seek",
@@ -1468,6 +1469,12 @@ def dispatch_job(
         from .delegation import run_delegation
 
         return run_delegation(job, vault=vault, db_path=db_path)
+
+    if job_type == "skill.review":
+        from .scheduler import current_send_fn
+        from .skill_review import run_review_job
+
+        return run_review_job(job, vault=vault, db_path=db_path, send_fn=current_send_fn())
 
     if job_type == "agent.delegate_report":
         from .delegation import run_delegation_report

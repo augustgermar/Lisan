@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "skill_review",
+  "type": "object",
+  "required": ["operations", "summary"],
+  "properties": {
+    "summary": { "type": "string" },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["op", "skill", "evidence", "rationale"],
+        "properties": {
+          "op": { "type": "string", "enum": ["patch", "add_reference", "create", "none"] },
+          "skill": { "type": "string" },
+          "file": { "type": "string", "description": "patch/add_reference: SKILL.md or references/<name>.md" },
+          "old_text": { "type": "string", "description": "patch: exact text to replace; must appear once" },
+          "new_text": { "type": "string", "description": "patch: its replacement" },
+          "content": { "type": "string", "description": "add_reference: the reference file's contents" },
+          "pointer": { "type": "string", "description": "add_reference: one line telling SKILL.md's reader what the file is for" },
+          "description": { "type": "string", "description": "create: one line starting 'Use when'" },
+          "body": { "type": "string", "description": "create: the SKILL.md body" },
+          "evidence": { "type": "array", "items": { "type": "string" } },
+          "rationale": { "type": "string" }
+        }
+      }
+    }
+  }
+}

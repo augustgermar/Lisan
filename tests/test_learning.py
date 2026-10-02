@@ -218,6 +218,13 @@ def test_a_fanout_steps_children_are_part_of_the_plan_event(env):
     assert event["payload"]["steps"][1]["children"] == ["look at A"] and event["payload"]["steps"][1]["join"] == "all"
 
 
+def test_a_malformed_fanout_child_cannot_lose_the_plan_event(env):
+    plan = _plan()
+    plan["steps"].append({"kind": "fanout", "description": "split", "status": "done", "children": ["a bare string", {"brief": "ok"}]})
+    event = L.get_event(L.record_plan_event(plan, "completed", vault=env.vault, db_path=env.db), vault=env.vault)
+    assert event["payload"]["steps"][1]["children"] == ["a bare string", "ok"]
+
+
 def test_plan_provenance_notices_network_use_in_results(env):
     plan = _plan()
     plan["steps"][0]["result"] = "downloaded https://example.com/report.pdf"

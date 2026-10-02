@@ -121,6 +121,11 @@
       "medium": "codex",
       "high": "codex"
     },
+    "skill_reviewer": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
+    },
     "provider_check": {
       "low": "codex",
       "medium": "codex",
@@ -201,7 +206,14 @@
     "__comment": "The learning loop. mode: off | observe (default: record events and the skill-usage ledger; no model call, nothing written to skills) | shadow | auto (the last two arrive with the reviewer). A conversation turn is recorded at min_tool_calls tool calls, or when it used a skill.",
     "mode": "observe",
     "min_tool_calls": 5,
-    "work_tools": ["execute_task", "run_codex"]
+    "work_tools": ["execute_task", "run_codex"],
+    "review_every": 6,
+    "min_idle_minutes": 5,
+    "review_char_budget": 160000,
+    "max_review_events": 12,
+    "environment_staleness_days": 14,
+    "max_skill_bytes": 16000,
+    "digest": true
   },
   "delegation": {
     "__comment": "Delegated workers. max_concurrent children run at once; max_outstanding bounds queued+running; a child's timeout is capped at 2400s because the queue requeues jobs running past 45 minutes.",

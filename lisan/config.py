@@ -91,6 +91,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # name resolves correctly if either one ever routes through LisanLLM.
         "codex":              {"low": "codex", "medium": "codex", "high": "codex"},
         "delegate":           {"low": "codex", "medium": "codex", "high": "codex"},
+        "skill_reviewer":     {"low": "codex", "medium": "codex", "high": "codex"},
         "provider_check":     {"low": "codex", "medium": "codex", "high": "codex"},
         "self_repair_author": {"low": "codex", "medium": "codex", "high": "codex"},
     },
@@ -227,6 +228,21 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # hour of shell work, so a call count undercounts it (measured: 5 of 583
         # real turns reached 5 calls; 65 handed work to the executor).
         "work_tools": ["execute_task", "run_codex"],
+        # Reviewer (shadow / auto modes). A review runs once this many events have
+        # not been reviewed and the system has been quiet for min_idle_minutes.
+        "review_every": 6,
+        "min_idle_minutes": 5,
+        # How much one review reads: bounded by the context window, never by cost.
+        "review_char_budget": 160000,
+        "max_review_events": 12,
+        # A lesson about the agent's own environment (sandbox, approvals,
+        # permissions) needs evidence from within this many days: those rules
+        # change within weeks, and old events describe a system that no longer exists.
+        "environment_staleness_days": 14,
+        # Largest SKILL.md the loop may write (a reference file may be twice this).
+        "max_skill_bytes": 16000,
+        # Tell the owner when a review proposed something.
+        "digest": True,
     },
     # Delegated workers (lisan/tools/delegation.py, docs/delegation_workorder.md).
     "delegation": {

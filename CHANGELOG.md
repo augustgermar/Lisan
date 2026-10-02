@@ -36,6 +36,16 @@
   nothing is written to any skill. Mode `learning.mode` (default `observe`).
   Replaying 583 real turns found that a tool-call count alone would record 5 of
   them, hence the executor-handoff rule.
+- **Learning loop, step 2: the reviewer, in shadow mode.** A `skill_reviewer` agent
+  reads batches of frozen events and proposes changes to skills; a deterministic
+  gate (`skill_gate.py`) decides each one and shows exactly what it would write.
+  Nothing is applied. `lisan learning review [--dry-run]|reviews|review-show`; a
+  `skill.review` job runs it when enough events pile up and the system is quiet.
+  The reviewer is always read-only in an empty directory regardless of
+  `all_agents_sandbox_mode`. Real runs over 111 historical events found that a
+  gate alone is not enough (it passed an owner-description rewrite, a stale lesson
+  about approval gates, and a skill naming a retired tool); each is now refused.
+  Configure with `learning.mode` (`shadow`), `review_every`, `min_idle_minutes`.
 - **Skill history, rollback and portability.** `lisan skills history|diff|
   rollback|pin|unpin|archive|export|import|usage`: snapshots before any change
   (the owner's original is `v0`; `diff --since-owner` shows drift), rollback that
