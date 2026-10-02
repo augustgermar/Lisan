@@ -66,7 +66,16 @@ def begin_run(db_path: Path | None, task_id: str, attempt: int, *, origin: str) 
         return None
 
 
-def finish_run(db_path: Path | None, run_id: int | None, *, ok: bool, error: str | None = None) -> None:
+def finish_run(
+    db_path: Path | None,
+    run_id: int | None,
+    *,
+    ok: bool,
+    error: str | None = None,
+    status: str | None = None,
+) -> None:
+    """Close a run row. `status` overrides the ok/failed label for outcomes
+    that are neither (a run the owner cancelled was not a failure)."""
     if run_id is None:
         return
     from .db import connect
@@ -76,7 +85,7 @@ def finish_run(db_path: Path | None, run_id: int | None, *, ok: bool, error: str
         try:
             conn.execute(
                 "UPDATE task_runs SET finished = ?, exit_status = ?, error = ? WHERE id = ?",
-                (_now(), "ok" if ok else "failed", (error or None) and error[:500], run_id),
+                (_now(), status or ("ok" if ok else "failed"), (error or None) and error[:500], run_id),
             )
             conn.commit()
         finally:

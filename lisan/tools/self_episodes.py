@@ -86,6 +86,9 @@ def job_events(db_path: Path | None = None) -> list[SelfEvent]:
             or payload.get("task") or payload.get("title") or payload.get("brief") or ""
         ).strip()
         date = str(row["finished_at"] or "")[:10]
+        if row["job_type"] == "agent.delegate":
+            # A brief is a whole prompt; the biography wants its first line.
+            subject = " ".join(subject.splitlines()[:1])[:160]
         kind = "plan" if row["job_type"] == "plan.run" else "task"
         if row["status"] == "succeeded":
             if kind == "plan":
@@ -99,10 +102,13 @@ def job_events(db_path: Path | None = None) -> list[SelfEvent]:
             outcome = "succeeded"
         else:
             what = f' "{subject}"' if subject else ""
-            narration = (
-                f"{{{{self}}}} tried to run a {row['job_type']} job{what} and failed "
-                f"after {row['attempts']} attempt(s)"
-            )
+            if row["job_type"] == "agent.delegate":
+                narration = f"{{{{self}}}} delegated a task to a worker{what}, and it failed"
+            else:
+                narration = (
+                    f"{{{{self}}}} tried to run a {row['job_type']} job{what} and failed "
+                    f"after {row['attempts']} attempt(s)"
+                )
             error = str(row["error"] or "").strip()
             if error:
                 narration += f" — {error[:160]}"

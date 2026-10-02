@@ -233,7 +233,14 @@ def run_delegation(
             on_start=lambda pid: set_child_pid(str(job["id"]), pid, db_path=db_path),
         )
     except Exception as exc:
-        finish_run(db_path, run_id, ok=False, error=f"{exc.__class__.__name__}: {exc}")
+        from .jobs import _job_was_canceled
+
+        # The kill that cancel sends surfaces here as an exec failure; the
+        # ledger should record what the owner did, not "exit code -9".
+        if _job_was_canceled(job["id"], db_path):
+            finish_run(db_path, run_id, ok=False, status="canceled", error="canceled by owner")
+        else:
+            finish_run(db_path, run_id, ok=False, error=f"{exc.__class__.__name__}: {exc}")
         raise
     finally:
         set_child_pid(str(job["id"]), None, db_path=db_path)
@@ -324,8 +331,14 @@ def format_delegations(items: list[dict[str, Any] | None]) -> str:
         if d.get("status") == "failed" and d.get("error"):
             lines.append(f"   error: {str(d['error'])[:200]}")
         result = d.get("result")
-        if d.get("status") == "succeeded" and isinstance(result, dict) and result.get("text"):
-            lines.append(f"   result: {str(result['text'])[:300]}")
+        if d.get("status") == "succeeded" and isinstance(result, dict):
+            if isinstance(result.get("data"), dict):
+                summary = ", ".join(
+                    f"{k}: {len(v)} item(s)" if isinstance(v, list) else k for k, v in result["data"].items()
+                )
+                lines.append(f"   result: structured ({summary}) — `lisan delegate show {d['delegation_id']}`")
+            elif result.get("text"):
+                lines.append(f"   result: {str(result['text'])[:300]}")
     return "\n".join(lines)
 
 

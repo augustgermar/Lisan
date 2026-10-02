@@ -87,6 +87,28 @@ def test_a_finished_run_codex_task_becomes_an_episode(tmp_path):
     assert "rotate the logs" in events[0].narration
 
 
+def test_delegate_episodes_carry_the_first_line_of_the_brief_not_the_whole_prompt(tmp_path):
+    db = tmp_path / "lisan.sqlite"
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "CREATE TABLE jobs (id INTEGER PRIMARY KEY, job_type TEXT, status TEXT, "
+        "payload_json TEXT, result_json TEXT, finished_at TEXT, error TEXT, attempts INTEGER)"
+    )
+    brief = "Audit the ssh config on the box.\nRead only.\n" + "x" * 500
+    conn.execute("INSERT INTO jobs VALUES (1,'agent.delegate','succeeded',?, '{}', '2026-10-02T09:00:00', NULL, 1)",
+                 (json.dumps({"brief": brief}),))
+    conn.execute("INSERT INTO jobs VALUES (2,'agent.delegate','failed',?, NULL, '2026-10-02T09:05:00', 'timed out', 1)",
+                 (json.dumps({"brief": brief}),))
+    conn.commit()
+    conn.close()
+    events = {e.event_id: e for e in job_events(db)}
+    ok, bad = events["job-1"], events["job-2"]
+    assert "Audit the ssh config on the box." in ok.narration and "x" * 50 not in ok.narration
+    assert "Read only" not in ok.narration  # first line only
+    assert "a worker" in bad.narration and "agent.delegate job" not in bad.narration
+    assert "timed out" in bad.narration
+
+
 def test_ceremony_and_drift_events(tmp_path):
     reports = tmp_path / "reports"
     reports.mkdir(parents=True)
