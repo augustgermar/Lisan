@@ -25,6 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 GATE, APPLY, REVIEW = "lisan/tools/skill_gate.py", "lisan/tools/skill_apply.py", "lisan/tools/skill_review.py"
 LIFE, LEARN = "lisan/tools/skill_lifecycle.py", "lisan/tools/learning.py"
+BF, T = "lisan/tools/belief_formation.py", "tests/test_belief_ratification.py"
 TG, TA, TR, TL = "tests/test_skill_gate.py", "tests/test_skill_apply.py", "tests/test_skill_review.py", "tests/test_skill_lifecycle.py"
 
 # (label, file, exact text to find, replacement, test file, -k expression)
@@ -77,6 +78,15 @@ MUTANTS = [
     ("a failing skill goes to the code repair loop", "lisan/tools/deviations.py", '    if deviation.get("klass") in _NOT_CODE_DEFECTS:\n        return  #', '    if False:\n        return  #', "tests/test_skill_self_knowledge.py", "never_sent_to_the_code"),
     ("tests can read the real skills", "lisan/paths.py", '    if _looks_like_a_test_process() and os.environ.get("LISAN_ALLOW_TEST_SKILLS") != "1":', "    if False:", "tests/test_skill_self_knowledge.py", "contained_in_a_test_process"),
     ("quarantined episodes are recreated", "lisan/tools/self_episodes.py", "    if path.exists() or _quarantined(vault, path.name):", "    if path.exists():", "tests/test_skill_self_knowledge.py", "owner_quarantined"),
+    # ── ratification ──
+    ("--only is ignored", BF, "        numbered = [(n, c) for n, c in numbered if n in wanted]", "        numbered = numbered", T, "exactly_the_numbers"),
+    ("a bad selection is not refused", BF, "        if bad:\n            raise ValueError(", "        if False:\n            raise ValueError(", T, "bad_selection"),
+    ("beliefs are not indexed", BF, "        index_record_best_effort(vault, path, db_path)  # an unindexed", "        pass  # an unindexed", T, "indexed"),
+    ("evidence is taken on the artifact's word", BF, "        refs = [r for r in wanted_refs if r in valid_ids]", "        refs = wanted_refs", T, "fabricated_evidence"),
+    ("single-day evidence is enough", BF, "        if len(refs) < MIN_SUPPORT or len(days) < MIN_DAYS:\n            skipped.append(", "        if len(refs) < MIN_SUPPORT:\n            skipped.append(", T, "one_day"),
+    ("skips are silent", BF, '            skipped.append((statement, "already formed (ratification is idempotent)"))\n            continue', '            continue', T, "twice"),
+    ("confidence is not capped at birth", BF, 'BIRTH_CONFIDENCE = "medium"', 'BIRTH_CONFIDENCE = "high"', T, "capped_confidence"),
+    ("provenance is not stamped", BF, '                provenance="formed",\n                ratified_by="owner",', '                provenance=None,\n                ratified_by=None,', T, "capped_confidence"),
     # ── process tree ──
     ("the tree is read before it is frozen", "lisan/tools/proctree.py", "    for _ in range(_MAX_PASSES):\n        parents = _parent_map()\n        fresh = [", "    for _ in range(_MAX_PASSES):\n        fresh = [", "tests/test_proctree.py", "keeps_forking"),
     ("freezing stops at the root group", "lisan/tools/proctree.py", "        for victim in fresh:\n            try:\n                os.kill(victim, signal.SIGSTOP)", "        for victim in fresh:\n            try:\n                pass", "tests/test_proctree.py", "outside_the_roots"),

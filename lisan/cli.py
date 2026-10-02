@@ -1010,6 +1010,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     self_ratify.add_argument("--vault", type=Path, default=vault_root())
     self_ratify.add_argument("--from", dest="artifact", type=Path, required=True)
+    self_ratify.add_argument("--only", type=int, nargs="+", default=None, metavar="N",
+                             help="Belief artifacts: ratify only these candidate numbers (as listed in the artifact)")
+    self_ratify.add_argument("--db-path", type=Path, default=None)
     self_ratify.add_argument("--provisional", action="store_true",
                              help="Agent-ratified pending owner review (provenance-marked)")
     self_backfill = self_subparsers.add_parser(
@@ -2267,11 +2270,19 @@ def main(argv: list[str] | None = None) -> int:
                 if args.provisional:
                     print("Beliefs have no provisional path — they enter owner-ratified or not at all.", file=sys.stderr)
                     return 1
-                from .tools.belief_formation import ratify_beliefs
+                from .tools.belief_formation import ratify_beliefs_detailed
 
-                created = ratify_beliefs(args.vault, artifact_path=args.artifact)
+                try:
+                    created, skipped = ratify_beliefs_detailed(
+                        args.vault, artifact_path=args.artifact, only=args.only, db_path=args.db_path
+                    )
+                except ValueError as exc:
+                    print(f"✗ {exc}", file=sys.stderr)
+                    return 1
                 for path in created:
                     print(f"✓ Formed belief: {path.name}")
+                for statement, reason in skipped:
+                    print(f"– Skipped: {statement}\n    {reason}")
                 print(f"✓ Ratified {len(created)} belief(s) from {args.artifact.name}")
                 return 0
             from .tools.voice_extract import ratify_voice

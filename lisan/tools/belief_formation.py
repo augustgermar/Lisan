@@ -202,24 +202,51 @@ def run_belief_extraction(vault: Path | None = None, *, out: Path | None = None)
     }
     lines = ["# Belief formation — ratification artifact", ""]
     if payload:
-        for cand in payload:
-            lines.append(f"- **{cand['statement']}**")
-            lines.append(f"  - supporting: {len(cand['supporting'])} episodes over {len(cand['days'])} days")
+        for number, cand in enumerate(payload, start=1):
+            lines.append(f"{number}. **{cand['statement']}**")
+            lines.append(f"   - supporting: {len(cand['supporting'])} episodes over {len(cand['days'])} days")
             if cand["counterexamples"]:
-                lines.append(f"  - counterexamples (listed, not hidden): {', '.join(cand['counterexamples'])}")
+                lines.append(f"   - counterexamples (listed, not hidden): {', '.join(cand['counterexamples'])}")
     else:
         lines.append("No candidate cleared the gate — the honest common case.")
     lines.append("")
     lines.append("To ratify (owner only — beliefs have no provisional path): "
-                 "`lisan self ratify --from <this file>`. Prune lines you reject first.")
+                 "`lisan self ratify --from <this file>` ratifies every candidate above; "
+                 "`--only 1 3` ratifies just those numbers. (Editing the lines of this page changes "
+                 "nothing: the candidates are read from the record's frontmatter.)")
     write_markdown(path, frontmatter, "\n".join(lines))
     return {"artifact": str(path), "candidates": len(payload)}
 
 
-def ratify_beliefs(vault: Path | None = None, *, artifact_path: Path) -> list[Path]:
+def ratify_beliefs(
+    vault: Path | None = None,
+    *,
+    artifact_path: Path,
+    only: list[int] | None = None,
+    db_path: Path | None = None,
+) -> list[Path]:
+    """Owner ratification. Returns the belief files formed; see
+    `ratify_beliefs_detailed` for what was skipped and why."""
+    return ratify_beliefs_detailed(vault, artifact_path=artifact_path, only=only, db_path=db_path)[0]
+
+
+def ratify_beliefs_detailed(
+    vault: Path | None = None,
+    *,
+    artifact_path: Path,
+    only: list[int] | None = None,
+    db_path: Path | None = None,
+) -> tuple[list[Path], list[tuple[str, str]]]:
     """Owner ratification: every candidate's evidence is RE-verified against
     the vault (exists, has source_refs, not eval-tagged) — the artifact is a
-    proposal, never an authority. Confidence is capped at birth."""
+    proposal, never an authority. Confidence is capped at birth.
+
+    `only` selects candidates by their 1-based number in the artifact, so the owner
+    can ratify some and decline others (the artifact's own numbered list is the
+    interface; the candidates themselves are read from its frontmatter). Each belief
+    is stamped with who ratified it and from which artifact, and indexed at once: an
+    unindexed belief is invisible to retrieval. Returns (formed, skipped) where
+    skipped is (statement, reason): nothing is dropped without saying why."""
     from .self_beliefs import new_self_belief
 
     vault = vault or vault_root()
@@ -228,24 +255,53 @@ def ratify_beliefs(vault: Path | None = None, *, artifact_path: Path) -> list[Pa
     candidates = (data or {}).get("candidates") or []
     if not candidates:
         raise ValueError(f"No belief candidates in artifact {artifact_path}; nothing to ratify.")
+    numbered = list(enumerate(candidates[:MAX_CANDIDATES], start=1))
+    if only is not None:
+        wanted = {int(n) for n in only}
+        valid = {n for n, _ in numbered}
+        bad = sorted(wanted - valid)
+        if bad:
+            raise ValueError(
+                f"No candidate number(s) {', '.join(map(str, bad))} in {Path(artifact_path).name}; "
+                f"it lists 1-{len(numbered)}."
+            )
+        numbered = [(n, c) for n, c in numbered if n in wanted]
+        if not numbered:
+            raise ValueError("--only selected no candidates; nothing to ratify.")
     valid_ids = {str(fm.get("id")): fm for fm in _load_self_episodes(vault)}
-    created: list[Path] = []
-    for cand in candidates[:MAX_CANDIDATES]:
+    formed: list[Path] = []
+    skipped: list[tuple[str, str]] = []
+    artifact_id = str(doc.frontmatter.get("id") or Path(artifact_path).stem)
+    for number, cand in numbered:
         statement = str(cand.get("statement") or "").strip()
-        refs = [r for r in (cand.get("supporting") or []) if str(r) in valid_ids]
-        days = {str(valid_ids[str(r)].get("created") or "")[:10] for r in refs}
-        if not statement or len(refs) < MIN_SUPPORT or len(days) < MIN_DAYS:
+        wanted_refs = [str(r) for r in (cand.get("supporting") or [])]
+        refs = [r for r in wanted_refs if r in valid_ids]
+        days = {str(valid_ids[r].get("created") or "")[:10] for r in refs}
+        if not statement:
+            skipped.append((f"candidate {number}", "it has no statement"))
+            continue
+        if len(refs) < MIN_SUPPORT or len(days) < MIN_DAYS:
+            skipped.append((statement, (
+                f"after re-verification only {len(refs)} of its {len(wanted_refs)} cited episode(s) exist as real, "
+                f"sourced, non-rehearsal records on {len(days)} day(s); it needs {MIN_SUPPORT} on {MIN_DAYS}"
+            )))
             continue
         try:
-            created.append(
-                new_self_belief(
-                    vault,
-                    statement,
-                    confidence=BIRTH_CONFIDENCE,
-                    evidence_refs=sorted(refs),
-                    basis=f"Owner-ratified from {Path(artifact_path).name} ({today_iso()})",
-                )
+            path = new_self_belief(
+                vault,
+                statement,
+                confidence=BIRTH_CONFIDENCE,
+                evidence_refs=sorted(refs),
+                basis=f"Owner-ratified from {Path(artifact_path).name} ({today_iso()})",
+                provenance="formed",
+                ratified_by="owner",
+                formed_from=artifact_id,
             )
         except FileExistsError:
-            continue  # already formed: ratification is idempotent
-    return created
+            skipped.append((statement, "already formed (ratification is idempotent)"))
+            continue
+        formed.append(path)
+        from .rebuild_index import index_record_best_effort
+
+        index_record_best_effort(vault, path, db_path)  # an unindexed belief is invisible to retrieval
+    return formed, skipped
