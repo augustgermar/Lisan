@@ -66,6 +66,9 @@ MUTANTS = [
     ("failed applies are not undone", APPLY, "            elif snapshot:\n                try:\n                    rollback_skill(", "            elif False:\n                try:\n                    rollback_skill(", TA, "midway or not_a_valid_skill"),
     ("no lock between writers", APPLY, "        fcntl.flock(self._handle, fcntl.LOCK_EX)", "        pass", TA, "serialise"),
     ("apply is not logged", APPLY, '        _log(skills_dir, {\n            "skill": change.skill, "action": "apply"', '        (lambda *a, **k: None)(skills_dir, {\n            "skill": change.skill, "action": "apply"', TA, "logged_with_its_evidence"),
+    # ── migrations ──
+    ("a lost column race crashes", "lisan/tools/db.py", '            if "duplicate column" in message:\n                return False', '            if False:\n                return False', "tests/test_db_migrations.py", "losing_the_race or four_processes"),
+    ("a locked database is not waited out", "lisan/tools/db.py", '            if ("locked" in message or "busy" in message) and attempt < attempts - 1:', '            if False:', "tests/test_db_migrations.py", "waited_out"),
     # ── isolation ──
     ("tests can read the live config", "lisan/paths.py", '    if base is None and _looks_like_a_test_process() and os.environ.get("LISAN_ALLOW_TEST_CONFIG") != "1":', "    if False:", "tests/test_paths.py", "ConfigContainment"),
     # ── probation ──

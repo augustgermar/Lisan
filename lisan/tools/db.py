@@ -65,3 +65,39 @@ def retry_locked(fn: Callable[[], T], *, attempts: int = 4, base_delay: float = 
                 raise
             time.sleep(delay)
             delay *= 2
+
+
+def add_column_if_missing(
+    conn: sqlite3.Connection,
+    table: str,
+    column: str,
+    ddl: str,
+    *,
+    attempts: int = 4,
+    wait_seconds: float = 1.0,
+) -> bool:
+    """`ALTER TABLE ... ADD COLUMN`, safe when several processes start together.
+
+    A schema upgrade runs at every process start, and a restart brings the
+    telegram bot, the scheduler, the adjutant and the jobs worker up at once. A
+    plain "check, then ALTER" fails two ways under that: the loser of the race
+    gets "duplicate column name" (the goal is already met, so that is success),
+    and a writer holding the lock gets "database is locked" (a moment's patience
+    fixes it). Unhandled, either one crashed the adjutant daemon on startup the
+    first time a new column shipped (2026-10-02). Returns True if this call
+    added the column."""
+    for attempt in range(attempts):
+        if column in {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}:
+            return False
+        try:
+            conn.execute(ddl)
+            return True
+        except sqlite3.OperationalError as exc:
+            message = str(exc).lower()
+            if "duplicate column" in message:
+                return False  # another process added it between our check and our ALTER
+            if ("locked" in message or "busy" in message) and attempt < attempts - 1:
+                time.sleep(wait_seconds)
+                continue
+            raise
+    return False
