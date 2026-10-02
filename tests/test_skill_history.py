@@ -147,6 +147,38 @@ def test_rollback_restores_your_text_and_is_itself_undoable(skills):
     assert "rollback" in {e["action"] for e in H.read_log(skills, "server-audit")}
 
 
+def test_v0_survives_a_rollback_so_you_can_return_to_your_text_again_and_again(skills):
+    """Found on the first real rollback: the rollback's own log entry named the same
+    version and overwrote its label, so `v0` stopped resolving after one use."""
+    H.snapshot_skill(skills, "server-audit", reason="r", actor="loop")  # v0
+    for attempt in range(3):
+        edit(skills, f"loop edit {attempt}\n")
+        H.rollback_skill(skills, "server-audit", "v0")
+        assert (skills / "server-audit" / "SKILL.md").read_text(encoding="utf-8") == OWNER_SKILL
+        assert [h["label"] for h in H.list_history(skills, "server-audit") if h["label"] == "v0"] == ["v0"]
+    assert H.diff_skill(skills, "server-audit", since="owner") == ""
+    edit(skills, "one more\n")
+    assert "+one more" in H.diff_skill(skills, "server-audit", since="owner")  # still measures drift from the owner's text
+
+
+def test_logs_written_before_the_fix_still_resolve_their_labels(skills):
+    """Rollback entries used to carry `version_id` (the restored one) and clobbered
+    the snapshot's label. Logs already on disk contain such entries; reading them
+    must not depend on every writer having been fixed."""
+    v = H.snapshot_skill(skills, "server-audit", reason="r", actor="loop")  # labelled v0
+    H._log(skills, {"skill": "server-audit", "action": "rollback", "version_id": v, "actor": "owner", "reason": "legacy shape"})
+    (entry,) = H.list_history(skills, "server-audit")
+    assert entry["label"] == "v0" and entry["action"] == "snapshot"
+    assert H.diff_skill(skills, "server-audit", since="owner") == ""  # `v0` still resolves
+
+
+def test_the_label_of_a_snapshot_comes_from_the_entry_that_created_it(skills):
+    v = H.snapshot_skill(skills, "server-audit", reason="the first", actor="loop")
+    H.rollback_skill(skills, "server-audit", v)
+    (entry,) = [h for h in H.list_history(skills, "server-audit") if h["version_id"] == v]
+    assert entry["label"] == "v0" and entry["reason"] == "the first" and entry["action"] == "snapshot"
+
+
 def test_rollback_to_an_unknown_version_changes_nothing(skills):
     with pytest.raises(H.SkillHistoryError):
         H.rollback_skill(skills, "server-audit", "20250101T000000Z")

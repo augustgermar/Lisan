@@ -74,12 +74,30 @@ def config_path(base: Path | None = None) -> Path:
     exist but a legacy config.yaml does, the legacy path is used — reads and
     writes stay on the file the install actually has until it is renamed.
     """
+    if base is None and _looks_like_a_test_process() and os.environ.get("LISAN_ALLOW_TEST_CONFIG") != "1":
+        # A test process never gets the developer's live config back. It holds the
+        # Telegram token and, now, the learning mode: flipping a live switch broke
+        # three unrelated tests (they read `mode: auto` from the real file), and an
+        # ambient read is also how a test could reach a real credential. Defaults
+        # apply instead; a test that needs a config passes an explicit path, or sets
+        # LISAN_ALLOW_TEST_CONFIG=1 to opt out deliberately.
+        return _test_config_dir() / "config.json"
     root = base or repo_root()
     primary = root / "config.json"
     legacy = root / "config.yaml"
     if not primary.exists() and legacy.exists():
         return legacy
     return primary
+
+
+_TEST_CONFIG_DIR: Path | None = None
+
+
+def _test_config_dir() -> Path:
+    global _TEST_CONFIG_DIR
+    if _TEST_CONFIG_DIR is None:
+        _TEST_CONFIG_DIR = Path(tempfile.mkdtemp(prefix="lisan-test-config-"))
+    return _TEST_CONFIG_DIR
 
 
 def credentials_root() -> Path:

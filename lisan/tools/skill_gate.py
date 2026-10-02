@@ -524,17 +524,19 @@ def _validate_skill_md(op: Operation, md_text: str, old_md: str | None) -> list[
     elif description != old_description:
         # An existing skill's description is the owner's wording, and for an
         # executable skill it is also the tool description the model reads. The
-        # loop may not impose a house style on it (the first real review rewrote
-        # one to start "Use when" and lost "no credentials needed"), and may not
-        # shrink what it says. It may only extend it or correct it.
+        # loop may EXTEND it (the original must survive intact inside the new one)
+        # but never restate it. Two real reviews rewrote one into "Use when ..."
+        # style and dropped detail ("optionally timestamped"); a length limit let
+        # the second through at 15% shorter, so the rule is about the text itself.
         if len(description) > MAX_DESCRIPTION:
             problems.append(f"the description is {len(description)} characters; the limit is {MAX_DESCRIPTION}")
         if not description:
             problems.append("a patch may not empty the description")
-        elif len(description) < len(old_description) * 0.8:
+        elif old_description and old_description.rstrip(" .!;:") not in description:
+            # (trailing punctuation aside: extending "...a server." naturally turns the period into a comma)
             problems.append(
-                "a patch may not shorten an existing description by more than a fifth: it is the owner's wording "
-                "and how the agent chooses the skill; extend or correct it, do not replace it"
+                "a patch may only extend an existing description, keeping the original wording intact inside the new "
+                "one: it is the owner's text and how the agent chooses the skill; do not rewrite or restyle it"
             )
     if len(str(data.get("name") or "")) > 64:
         problems.append("the skill name is longer than 64 characters")
