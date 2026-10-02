@@ -81,6 +81,7 @@ def create_confirmation_for_task(
     planned_action: str,
     risk: str,
     scope: str = "",
+    record_links: list[str] | None = None,
     db_path: Path | None = None,
     expires_days: int = DEFAULT_EXPIRY_DAYS,
 ) -> str | None:
@@ -92,6 +93,20 @@ def create_confirmation_for_task(
     if existing:
         return None
     expires = (date.today() + timedelta(days=expires_days)).isoformat()
+    # A task id is often also a record id (for example an open loop), but
+    # self-repair and other operational queues use correlation tokens.  Only
+    # promote the id into the graph when the materialized record index proves
+    # that exact record exists.  Callers may supply other already-proven
+    # record ids explicitly (the self-repair proposal report is written just
+    # before its confirmation, but is not indexed yet).
+    links = list(record_links or [])
+    conn = _conn(db_path)
+    try:
+        if conn.execute("SELECT 1 FROM files WHERE id = ?", (task_id,)).fetchone():
+            links.insert(0, task_id)
+    finally:
+        conn.close()
+    links = list(dict.fromkeys(links))
     created = new_confirmation(
         vault,
         f"confirm {task_id}",
@@ -107,6 +122,7 @@ def create_confirmation_for_task(
         # conflation that made intent.md inert for a month.
         domain_primary="cross_arena",
         scope=scope,
+        links=links,
     )
     reindex_record(created.path, vault, db_path, quiet=True)
     return str(load_markdown(created.path).frontmatter["id"])

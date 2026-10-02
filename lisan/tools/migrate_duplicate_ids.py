@@ -45,6 +45,7 @@ class DuplicateIdResult:
     files_archived: int = 0
     survivors: list[str] = field(default_factory=list)
     archived: list[str] = field(default_factory=list)
+    blocking_references: list[str] = field(default_factory=list)
     dry_run: bool = True
 
     def as_dict(self) -> dict[str, object]:
@@ -55,7 +56,12 @@ class DuplicateIdResult:
             "files_archived": self.files_archived,
             "survivors": self.survivors,
             "archived": self.archived[:60],
+            "blocking_references": self.blocking_references[:60],
         }
+
+
+class DuplicateIdMigrationBlocked(RuntimeError):
+    """Moving a duplicate would strand an inbound path reference."""
 
 
 def _sort_key(entry: tuple[Path, dict]) -> tuple[str, str, str]:
@@ -92,6 +98,7 @@ def migrate_duplicate_ids(
             by_id[record_id.strip()].append((path, frontmatter))
 
     result.ids_examined = len(by_id)
+    planned: list[tuple[Path, Path, dict]] = []
     for record_id, entries in sorted(by_id.items()):
         if len(entries) < 2:
             continue
@@ -104,17 +111,54 @@ def migrate_duplicate_ids(
             destination = vault / "archive" / rel.parts[0] / f"superseded-{path.name}"
             result.archived.append(str(rel))
             result.files_archived += 1
-            if dry_run:
-                continue
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            updated = dict(frontmatter)
-            updated["status"] = "superseded"
-            updated["superseded_by_path"] = str(survivor_path.relative_to(vault))
+            planned.append((path, survivor_path, frontmatter))
+
+    # A path can be valid when written and become dangling only later when
+    # this migration moves its target. The write boundary cannot see a future
+    # move, so the move boundary must fail closed. Do not auto-repoint here:
+    # a successor naming its own prior version would collapse into a
+    # misleading self-edge and needs semantic review/provenance instead.
+    moving = {path.relative_to(vault).as_posix() for path, _, _ in planned}
+    if moving:
+        for source in iter_markdown_files(vault):
             try:
-                body = load_markdown(path).body
-            except (FrontmatterError, OSError):
+                document = load_markdown(source)
+                source_rel = source.relative_to(vault).as_posix()
+            except (FrontmatterError, OSError, ValueError):
                 continue
-            write_markdown(path, updated, body)
-            shutil.move(str(path), str(destination))
+            for field_name in ("links", "supporting_records"):
+                values = document.frontmatter.get(field_name)
+                if not isinstance(values, list):
+                    continue
+                for value in values:
+                    if isinstance(value, str) and value in moving:
+                        result.blocking_references.append(
+                            f"{source_rel}:{field_name} -> {value}"
+                        )
+
+    if result.blocking_references and not dry_run:
+        examples = "; ".join(result.blocking_references[:8])
+        raise DuplicateIdMigrationBlocked(
+            f"refusing to archive {len(moving)} path(s): "
+            f"{len(result.blocking_references)} inbound path reference(s) "
+            f"require semantic migration first: {examples}"
+        )
+
+    if dry_run:
+        return result
+
+    for path, survivor_path, frontmatter in planned:
+        rel = path.relative_to(vault)
+        destination = vault / "archive" / rel.parts[0] / f"superseded-{path.name}"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        updated = dict(frontmatter)
+        updated["status"] = "superseded"
+        updated["superseded_by_path"] = str(survivor_path.relative_to(vault))
+        try:
+            body = load_markdown(path).body
+        except (FrontmatterError, OSError):
+            continue
+        write_markdown(path, updated, body)
+        shutil.move(str(path), str(destination))
 
     return result

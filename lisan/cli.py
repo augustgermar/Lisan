@@ -929,8 +929,25 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_argv)
+
+    # Resolve the managed install's one vault/index pair before any command can
+    # read or write durable state.  Explicit temporary roots remain valid, but
+    # stale seed vaults, databases inside the vault, and zero-byte legacy
+    # placeholders fail closed rather than becoming a second reality.
+    if args.command not in {"init", "purge", "uninstall"}:
+        from .paths import assert_canonical_runtime_paths
+
+        assert_canonical_runtime_paths(
+            getattr(args, "vault", None),
+            getattr(args, "db_path", None),
+            deliberate_vault_override=any(
+                value == "--vault" or value.startswith("--vault=")
+                for value in raw_argv
+            ),
+        )
 
     if args.command == "checkin":
         from .tools.checkin import record_checkin

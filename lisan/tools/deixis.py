@@ -18,6 +18,42 @@ _PRINCIPAL_TOK = re.compile(r"\{\{\s*(?:principal|user)\s*\}\}")
 _SELF_TOK = re.compile(r"\{\{\s*self\s*\}\}")
 _UNRESOLVED_TOK = re.compile(r"\{\{\s*[^{}]+\s*\}\}")
 
+_MONTH_NAMES = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+_MONTH = "(?:" + "|".join(_MONTH_NAMES) + ")"
+_DAY = r"(?:0?[1-9]|[12][0-9]|3[01])(?:st|nd|rd|th)?"
+_YEAR = r"(?:19|20)\d{2}"
+_DATE_PATTERNS = tuple(re.compile(pattern, re.IGNORECASE) for pattern in (
+    rf"\b{_MONTH}\s+{_DAY}(?:\s*,?\s*{_YEAR})?\b",
+    rf"\b{_DAY}\s+{_MONTH}(?:\s*,?\s*{_YEAR})?\b",
+    rf"\b{_MONTH}\s+{_YEAR}\b",
+    rf"\b{_YEAR}[-/]{_MONTH}[-/]{_DAY}\b",
+    rf"\b{_MONTH}[-/]{_DAY}[-/]{_YEAR}\b",
+    rf"\b(?:in|during|throughout|since|until|by)\s+{_MONTH}\b",
+    rf"\bbirthday(?:\s+is|\s+falls)?(?:\s+sometime)?\s+in\s+{_MONTH}\b",
+    rf"\bsometime\s+in\s+{_MONTH}\b",
+))
+_QUOTED_PATTERNS = (
+    re.compile(r"```.*?```", re.DOTALL),
+    re.compile(r"`[^`\n]+`"),
+    re.compile(r'"[^"\n]*"'),
+    re.compile(r"“[^”\n]*”"),
+    re.compile(r"(?<!\w)'[^'\n]+'(?!\w)"),
+    re.compile(r"^\s*>.*$", re.MULTILINE),
+)
+_LITERAL_FIELD_NAMES = frozenset({
+    "name", "canonical_name",
+    "id", "ids", "links",
+    "source", "sources", "source_id", "source_ids", "source_path", "source_url",
+    "provenance", "provenance_id", "provenance_ids",
+    "quote", "quoted_text", "verbatim", "verbatim_excerpt", "excerpt",
+    "raw", "raw_text", "source_text", "original_text", "transcript",
+    "created", "updated", "observed_at", "valid_until", "review_after",
+    "first_seen", "last_seen", "last_reviewed", "last_confirmed", "timestamp", "date",
+})
+
 
 def render_deixis(
     text: str,
@@ -84,17 +120,27 @@ def tokenize_principal(text: str, vault: Path) -> str:
     """Replace the principal's literal name with the {{principal}} token.
 
     Deterministic safety net for when a Writer model emits the principal's real
-    name instead of the {{principal}} token the writer prompts request. Matches
-    whole-word principal aliases (so a possessive like "Mara's" becomes
-    "{{principal}}'s"); third-party names are never touched because only the
-    configured ``principal_aliases()`` are matched. Idempotent — text already
-    using tokens is unchanged. Run this BEFORE render_deixis on any field that
-    leaves the system, and at record-write time so stored prose is tokenized.
+    name instead of the {{principal}} token the writer prompts request. Date
+    expressions, quoted/verbatim text, and identifier-like occurrences are
+    deliberately protected: a principal called August must not turn
+    ``August 20, 2026`` into a role reference. Matches whole-word aliases (so a
+    possessive like "Mara's" becomes "{{principal}}'s") and is idempotent.
     """
     if not text:
         return text
+    protected = _protected_spans(text)
     for alias in sorted((a for a in principal_aliases(vault) if a), key=len, reverse=True):
-        text = re.sub(rf"\b{re.escape(alias)}\b", "{{principal}}", text)
+        # ``\b`` considers hyphens, slashes, dots, and colons boundaries, which
+        # made names inside IDs/paths date-like identifiers eligible.  These
+        # explicit boundaries keep such machine strings literal.
+        pattern = re.compile(rf"(?<![\w@./:#-]){re.escape(alias)}(?![\w@./:#-])")
+        text = pattern.sub(
+            lambda match: match.group(0) if _span_is_protected(match.span(), protected) else "{{principal}}",
+            text,
+        )
+        # Earlier substitutions change offsets. Recompute spans before the
+        # next alias rather than applying stale coordinates.
+        protected = _protected_spans(text)
     return text
 
 
@@ -106,10 +152,32 @@ def _tokenize_principal_obj(obj, vault: Path, *, preserve_literal: bool = False)
     if isinstance(obj, dict):
         out = {}
         for key, value in obj.items():
-            next_preserve = preserve_literal or key in {"name", "canonical_name"}
+            next_preserve = preserve_literal or _literal_field(str(key))
             out[key] = _tokenize_principal_obj(value, vault, preserve_literal=next_preserve)
         return out
     return obj
+
+
+def _protected_spans(text: str) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    for pattern in (*_DATE_PATTERNS, *_QUOTED_PATTERNS):
+        spans.extend(match.span() for match in pattern.finditer(text))
+    return spans
+
+
+def _span_is_protected(span: tuple[int, int], protected: list[tuple[int, int]]) -> bool:
+    start, end = span
+    return any(start >= protected_start and end <= protected_end for protected_start, protected_end in protected)
+
+
+def _literal_field(key: str) -> bool:
+    """Does a structured field carry identity, source, or timestamp syntax?"""
+    normalized = key.strip().lower().replace("-", "_")
+    if normalized in _LITERAL_FIELD_NAMES:
+        return True
+    if normalized.startswith(("source_", "provenance_", "raw_", "verbatim_", "quoted_")):
+        return True
+    return normalized.endswith(("_id", "_ids", "_path", "_url", "_hash", "_at", "_date", "_time"))
 
 
 def has_unresolved_token(text: str) -> bool:

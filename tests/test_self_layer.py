@@ -16,11 +16,13 @@ import pytest
 from lisan.frontmatter import load_markdown
 from lisan.tools.self_beliefs import list_self_beliefs, new_self_belief, revise_self_belief
 from lisan.tools.self_episodes import (
+    SelfEvent,
     assemble_self_episodes,
     ceremony_events,
     collect_events,
     job_events,
     record_job_episode,
+    write_self_episode,
 )
 
 
@@ -98,6 +100,32 @@ def test_assembled_episodes_pass_the_validator(tmp_path):
         fm = load_markdown(path).frontmatter
         assert fm["type"] in ENUMS["type"]
         assert fm["outcome"] in {"succeeded", "failed", "ratified", "drifted"}
+
+
+def test_self_repair_episode_is_a_valid_autobiographical_event(tmp_path):
+    db = tmp_path / "index.sqlite"
+    path = write_self_episode(
+        tmp_path,
+        SelfEvent(
+            event_id="self-repair-apply-sr-test",
+            event_kind="self_repair",
+            date="2026-08-16",
+            title="Applied an owner-approved self-repair",
+            narration="{{self}} applied an owner-approved repair for {{principal}}.",
+            outcome="succeeded",
+            source_refs=["reports/self-repair-proposals/sr-test.md", "commit:test"],
+            significance="high",
+        ),
+        db_path=db,
+    )
+    assert path is not None
+    document = load_markdown(path)
+    from lisan.tools.validator import validate_record_candidate
+
+    report = validate_record_candidate(
+        path, document.frontmatter, document.body, vault=tmp_path
+    )
+    assert not [issue.message for issue in report.issues if issue.severity == "error"]
 
 
 def test_record_job_episode_hook(tmp_path):

@@ -86,6 +86,21 @@ def test_confirmation_factory_produces_valid_record(vault):
     assert report.ok, issues
 
 
+def test_confirmation_factory_does_not_treat_task_token_as_graph_edge(vault):
+    created = new_confirmation(
+        vault,
+        "Confirm an operational task",
+        task_id="self-repair:sr-token-only",
+        task_summary="Review an isolated proposal",
+        planned_action="Review only; do not apply.",
+        risk="No live mutation.",
+        expires="2026-07-30",
+    )
+    assert load_markdown(created.path).frontmatter["links"] == []
+    report, issues = _validate(vault)
+    assert report.ok, issues
+
+
 def test_confirmation_validator_requires_substance(vault):
     loop = new_open_loop(vault, "Anchor loop")
     loop_id = load_markdown(loop.path).frontmatter["id"]

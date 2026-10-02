@@ -39,9 +39,25 @@ _TEST_CREDENTIALS_ROOT: Path | None = None
 
 
 def default_vault_root() -> Path:
+    """Return the one ambient vault for this installation.
+
+    Managed installs use ``<install>/repo`` for code and derived indices and
+    ``<install>/vault`` for durable memory.  The old fallback to
+    ``repo/lisan-vault`` was safe for a source checkout, but in a managed
+    install it silently selected a second, stale seed vault whenever
+    ``LISAN_VAULT`` was absent from an interactive shell.  Prefer the managed
+    sibling when that layout is present; an explicit environment override
+    remains authoritative for tests and deliberate alternate vaults.
+    """
     env_value = os.environ.get("LISAN_VAULT")
     if env_value:
         return Path(env_value).expanduser()
+    home_env = os.environ.get("LISAN_HOME")
+    if home_env:
+        return Path(home_env).expanduser() / "vault"
+    managed_vault = repo_root().parent / "vault"
+    if repo_root().name == "repo" and managed_vault.is_dir():
+        return managed_vault
     return repo_root() / "lisan-vault"
 
 
@@ -176,6 +192,49 @@ def sqlite_path(base: Path | None = None) -> Path:
 
 def embeddings_path(base: Path | None = None) -> Path:
     return (base or data_root()) / "embeddings.bin"
+
+
+def assert_canonical_runtime_paths(
+    vault: Path | None = None,
+    db_path: Path | None = None,
+    *,
+    deliberate_vault_override: bool = False,
+) -> tuple[Path, Path]:
+    """Fail closed when runtime paths can select an ambiguous or empty store.
+
+    This is intentionally an assertion at the resolution seam, not a cleanup
+    routine.  It never moves or repairs data.  Explicit alternate roots remain
+    supported, but the index must not live inside the vault and an existing
+    database must not be the zero-byte placeholder left by older layouts.
+    """
+    resolved_vault = Path(vault or vault_root()).expanduser().resolve()
+    resolved_db = Path(db_path or sqlite_path()).expanduser().resolve()
+
+    if resolved_db == resolved_vault or resolved_vault in resolved_db.parents:
+        raise RuntimeError(
+            f"Refusing database inside vault: {resolved_db}. "
+            "Set LISAN_DATA_HOME or --db-path to the canonical derived-data root."
+        )
+    if resolved_db.exists() and resolved_db.stat().st_size == 0:
+        raise RuntimeError(
+            f"Refusing zero-byte database placeholder: {resolved_db}. "
+            "Select the canonical populated index explicitly."
+        )
+
+    if (
+        not deliberate_vault_override
+        and not os.environ.get("LISAN_VAULT")
+        and not os.environ.get("LISAN_HOME")
+    ):
+        managed_vault = repo_root().parent / "vault"
+        if repo_root().name == "repo" and managed_vault.is_dir():
+            expected = managed_vault.resolve()
+            if resolved_vault != expected:
+                raise RuntimeError(
+                    f"Ambiguous managed-install vault: {resolved_vault}; "
+                    f"canonical vault is {expected}. Set LISAN_VAULT only for a deliberate override."
+                )
+    return resolved_vault, resolved_db
 
 
 def skills_root(base: Path | None = None) -> Path:

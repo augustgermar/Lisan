@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -61,8 +63,21 @@ def dump_markdown(frontmatter: dict[str, Any], body: str) -> str:
 
 def write_markdown(path: Path, frontmatter: dict[str, Any], body: str) -> None:
     from .tools.kernel import guard_kernel_write
+    from .tools.write_boundary import write_if_structured_record
 
     guard_kernel_write(path)
+    rendered = dump_markdown(frontmatter, body)
+    # Historical tests intentionally construct malformed records and then ask
+    # the validator to diagnose them.  They need a raw fixture seam, but that
+    # seam must be impossible in a running Lisan process.  The env flag alone
+    # is insufficient: it is honored only while a test runner is actually
+    # loaded.  Boundary-specific tests remove the flag and exercise production
+    # behavior end to end.
+    test_fixture_write = (
+        os.environ.get("LISAN_TEST_RAW_RECORD_WRITES") == "1"
+        and ("pytest" in sys.modules or "unittest" in sys.modules)
+    )
+    if not test_fixture_write and write_if_structured_record(path, frontmatter, body, rendered):
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(dump_markdown(frontmatter, body), encoding="utf-8")
-
+    path.write_text(rendered, encoding="utf-8")

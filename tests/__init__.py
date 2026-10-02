@@ -12,6 +12,11 @@ import os
 import tempfile
 
 os.environ.setdefault("LISAN_NO_OUTBOUND", "1")
+# Validator tests need to place deliberately malformed legacy fixtures on
+# disk.  The production writer honors this only while a test runner module is
+# loaded; setting the variable in a normal Lisan process cannot bypass the
+# write boundary.  tests/test_write_boundary.py removes it for its cases.
+os.environ.setdefault("LISAN_TEST_RAW_RECORD_WRITES", "1")
 
 # Same containment principle, second seam: any test that resolves a data path
 # ambiently (rather than passing an explicit tmp_path) used to write into the

@@ -196,6 +196,8 @@ def _kind_from_folders(path: Path, root: Path | None) -> str | None:
 _NON_NAME_TOKENS = {
     "with", "and", "about", "dealing", "helping", "meeting", "letter",
     "to", "from", "for", "my", "the", "a", "an", "of", "on", "vs", "re",
+    # Note/team/temporal labels are documents or groups, not person names.
+    "team", "once", "productivity", "tansydynamics",
 }
 
 
@@ -258,7 +260,10 @@ def _assimilate_entity_note(
             name,
             subtype=kind,
             summary=f"{name}, from {{{{principal}}}}'s notes.",
-            aliases=[path.stem] if path.stem.lower() != name.lower() else None,
+            # The source filename is provenance, not an identity alias. A
+            # prior version promoted note titles (e.g. Team Marisol, Once Nora)
+            # into person aliases and made later merges look authoritative.
+            aliases=None,
             confidence="medium",
             confidence_basis="Life ingestion from the owner's notes",
         )

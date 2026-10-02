@@ -76,6 +76,9 @@ jobs:
       - name: Seed vault must validate
         run: python -m lisan validate --vault lisan-vault
 
+      - name: Zero new validation errors (baseline gate)
+        run: python -m lisan.tools.validation_gate --vault lisan-vault --baseline tests/fixtures/seed-validation-errors.json
+
       - name: Shipped intent template must be valid and teach the canonical shape
         run: |
           python - <<'PY'

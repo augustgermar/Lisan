@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
 import pytest
 
 from lisan.providers import embeddings as embeddings_module
 from lisan.tools import telegram_bot as telegram_bot_module
+
+os.environ.setdefault("LISAN_TEST_RAW_RECORD_WRITES", "1")
 
 
 @pytest.fixture(autouse=True)

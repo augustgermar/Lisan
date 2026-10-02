@@ -76,3 +76,12 @@ skills/*
 site/
 youre-closer-than-you-think.md
 psyhacks/
+
+# one-off operator migrations hardcoded against this vault's real entity
+# records (names, relationships, unflattering personal claims) - not
+# reusable tooling, and not safe to publish
+lisan/tools/identity_unmerge_migration.py
+lisan/tools/jd_unmerge_migration.py
+lisan/tools/title_alias_cleanup_migration.py
+lisan/tools/deixis_date_migration.py
+tests/test_deixis_date_migration.py

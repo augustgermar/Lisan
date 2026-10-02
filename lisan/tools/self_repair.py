@@ -233,12 +233,17 @@ def propose(
             f"## Verification\n\n```json\n{json.dumps(verification, indent=2, sort_keys=True)}\n```\n\n"
             f"## Patch\n\n```diff\n{patch}\n```\n"
         )
-        write_markdown(report, {
-            "id": f"report.{proposal_id}", "type": "report", "created": date.today().isoformat(),
-            "updated": date.today().isoformat(), "status": "active", "summary": f"Self-repair proposal {proposal_id}",
-            "source": "self_repair", "loop_id": loop_id, "proposal_hash": patch_hash,
-            "base_commit": base_commit, "worktree": str(worktree),
-        }, body)
+        write_markdown(
+            report,
+            _proposal_report_frontmatter(
+                proposal_id=proposal_id,
+                loop_id=loop_id,
+                patch_hash=patch_hash,
+                base_commit=base_commit,
+                worktree=str(worktree),
+            ),
+            body,
+        )
         task_id = f"self-repair:{proposal_id}"
         confirmation = create_confirmation_for_task(
             vault, task_id=task_id,
@@ -246,7 +251,7 @@ def propose(
             planned_action=(f"Phase A proposal only; no live files will change. Review {report} and approve the exact "
                             f"proposal hash {patch_hash} with `approve <confirmation-id>`."),
             risk="The proposal is isolated and cannot apply changes in Phase A; protected paths are refused.",
-            scope="self_repair", db_path=db_path,
+            scope="self_repair", record_links=[f"report.{proposal_id}"], db_path=db_path,
         )
         confirmation_id = confirmation
         telegram = (
@@ -266,6 +271,46 @@ def propose(
             pass
         shutil.rmtree(worktree, ignore_errors=True)
         raise
+
+
+def _proposal_report_frontmatter(
+    *,
+    proposal_id: str,
+    loop_id: str,
+    patch_hash: str,
+    base_commit: str,
+    worktree: str,
+    record_date: str | None = None,
+) -> dict[str, Any]:
+    """Build a proposal report that satisfies the shared write boundary.
+
+    ``report_kind`` preserves the operational subtype without abusing the
+    episode-only ``source`` enum. Approval status does not grant authority;
+    Phase B remains separately clamped by action policy.
+    """
+    today = record_date or date.today().isoformat()
+    return {
+        "id": f"report.{proposal_id}",
+        "type": "report",
+        "created": today,
+        "updated": today,
+        "status": "active",
+        "significance": "medium",
+        "domain_primary": "competence",
+        "domain_secondary": [],
+        "privacy": "work",
+        "summary": f"Self-repair proposal {proposal_id}",
+        "links": [loop_id],
+        "confidence": "high",
+        "confidence_basis": "Isolated patch plus deterministic verification; execution still requires owner approval and policy authorization.",
+        "last_confirmed": today,
+        "review_after": today,
+        "report_kind": "self_repair",
+        "loop_id": loop_id,
+        "proposal_hash": patch_hash,
+        "base_commit": base_commit,
+        "worktree": worktree,
+    }
 
 
 def _report_patch(body: str) -> str:
