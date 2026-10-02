@@ -113,3 +113,94 @@ def test_kill_tree_refuses_init_ourselves_and_our_ancestors():
 
 def test_kill_tree_of_a_missing_process_is_a_quiet_false():
     assert kill_tree(2**22 - 3) is False
+
+
+# ── a tree that is still growing while it is being killed ───────────────────
+
+def _spawn_forker(tmp_path):
+    """A parent that keeps starting new commands, each in its OWN session (as codex
+    does), faster than a process listing takes to read. The payload is a real file:
+    an earlier version smuggled newlines through a shell string, Python rejected it,
+    nothing ever forked, and the test killed an empty tree and passed."""
+    payload = tmp_path / "forker.py"
+    payload.write_text(
+        "import subprocess, time\n"
+        "while True:\n"
+        "    subprocess.Popen(['sleep', '334'], start_new_session=True)\n"
+        "    time.sleep(0.01)\n",
+        encoding="utf-8",
+    )
+    script = tmp_path / "forker.sh"
+    script.write_text(f"#!/bin/sh\n{PY} {payload}\n", encoding="utf-8")
+    script.chmod(0o755)
+    proc = subprocess.Popen([str(script)], start_new_session=True)
+    time.sleep(0.5)  # let it build up children
+    return proc
+
+
+def _sleepers():
+    out = subprocess.run(["pgrep", "-f", "sleep 334"], capture_output=True, text=True).stdout
+    return {int(p) for p in out.split()}
+
+
+def test_a_tree_that_keeps_forking_is_killed_completely_every_time(tmp_path):
+    """The window between reading the tree and freezing it let a fresh fork escape,
+    which hung a cancelled worker on its open pipe. Repeated, because one lucky
+    pass proves nothing about a race."""
+    leaked = set()
+    try:
+        for _ in range(12):
+            before = _sleepers()
+            proc = _spawn_forker(tmp_path)
+            assert len(_sleepers() - before) >= 5, "the forker never forked: this test would be killing an empty tree"
+            assert kill_tree(proc.pid) is True
+            proc.wait(timeout=5)
+            time.sleep(0.15)
+            leaked |= _sleepers() - before
+        assert leaked == set(), f"{len(leaked)} command(s) survived the kill"
+    finally:
+        for pid in _sleepers():
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
+
+
+def _spawn_outside_forker(tmp_path):
+    """root -> a spawner in its OWN session (like a command codex ran) that keeps
+    starting more commands. Freezing the root's process group does not reach it, so
+    only freezing each descendant as it is found can stop it outrunning the kill."""
+    (tmp_path / "spawner.py").write_text(
+        "import subprocess, time\n"
+        "while True:\n"
+        "    subprocess.Popen(['sleep', '334'], start_new_session=True)\n"
+        "    time.sleep(0.005)\n", encoding="utf-8")
+    (tmp_path / "root.py").write_text(
+        "import subprocess, sys\n"
+        f"subprocess.Popen([sys.executable, r'{tmp_path / 'spawner.py'}'], start_new_session=True).wait()\n", encoding="utf-8")
+    script = tmp_path / "root.sh"
+    script.write_text(f"#!/bin/sh\n{PY} {tmp_path / 'root.py'}\n", encoding="utf-8")
+    script.chmod(0o755)
+    proc = subprocess.Popen([str(script)], start_new_session=True)
+    time.sleep(0.6)
+    return proc
+
+
+def test_a_spawner_outside_the_roots_process_group_cannot_outrun_the_kill(tmp_path):
+    leaked = set()
+    try:
+        for _ in range(10):
+            before = _sleepers()
+            proc = _spawn_outside_forker(tmp_path)
+            assert len(_sleepers() - before) >= 5, "the spawner never spawned: this test would be killing an empty tree"
+            assert kill_tree(proc.pid) is True
+            proc.wait(timeout=5)
+            time.sleep(0.2)
+            leaked |= _sleepers() - before
+        assert leaked == set(), f"{len(leaked)} command(s) outran the kill"
+    finally:
+        for pid in _sleepers():
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
