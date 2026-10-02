@@ -4,6 +4,7 @@ import json
 import os
 import re
 import selectors
+import signal
 import subprocess
 import tempfile
 import time
@@ -86,6 +87,7 @@ class CodexClient(ProviderClient):
             args = [binary, "exec", "--skip-git-repo-check", "--cd", str(working_directory or repo_root())]
             codex_config = (self.config.get("providers") or {}).get("codex") or {}
             mode = _resolve_sandbox_mode(agent, codex_config)
+            timeout = _resolve_timeout(codex_config)
             if mode == "danger-full-access":
                 args.append("--dangerously-bypass-approvals-and-sandbox")
             else:
@@ -114,15 +116,12 @@ class CodexClient(ProviderClient):
                         model=chosen_model or "",
                         working_directory=working_directory or repo_root(),
                         started=started,
+                        timeout=timeout,
                     )
                 else:
-                    proc = subprocess.run(
-                        args,
-                        input=full_prompt,
-                        capture_output=True,
-                        text=True,
-                        env=env,
-                    )
+                    proc = _run_batch(args, prompt=full_prompt, env=env, timeout=timeout)
+            except subprocess.TimeoutExpired as exc:
+                raise ProviderError(_timeout_message(exc.timeout)) from exc
             except OSError as exc:
                 # A missing/unlaunchable binary must surface as ProviderError so
                 # callers deliver an honest failure message instead of silence
@@ -155,6 +154,74 @@ class CodexClient(ProviderClient):
         finally:
             if output_path and output_path.exists():
                 output_path.unlink(missing_ok=True)
+
+
+# One hung coding-agent run must not block a chat turn, a plan step, or the
+# Adjutant forever. Generous, because real tasks (builds, audits) are long.
+DEFAULT_TIMEOUT_SECONDS = 1800
+
+
+def _resolve_timeout(codex_config: dict[str, Any]) -> float | None:
+    """Wall-clock limit for one `codex exec`, in seconds.
+
+    Precedence: LISAN_CODEX_TIMEOUT, then providers.codex.timeout_seconds,
+    then DEFAULT_TIMEOUT_SECONDS. 0 disables the limit — explicitly, never by
+    omission. A malformed value falls back to the default rather than to
+    unbounded."""
+    for raw in (os.environ.get("LISAN_CODEX_TIMEOUT"), codex_config.get("timeout_seconds")):
+        if raw in (None, ""):
+            continue
+        try:
+            seconds = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if seconds < 0:
+            continue
+        return seconds or None
+    return float(DEFAULT_TIMEOUT_SECONDS)
+
+
+def _timeout_message(seconds: float | None) -> str:
+    return (
+        f"coding agent timed out after {int(seconds or 0)}s and was killed; the task may be "
+        "partly done — check before retrying (limit: providers.codex.timeout_seconds)"
+    )
+
+
+def _kill_group(proc: subprocess.Popen) -> None:
+    """Kill codex and everything it spawned. `codex exec` runs shell commands;
+    killing only the direct child would orphan a hung one (ssh, a build)."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        proc.kill()
+
+
+def _run_batch(
+    args: list[str], *, prompt: str, env: dict[str, str], timeout: float | None
+) -> subprocess.CompletedProcess[str]:
+    """subprocess.run, but in its own session so a timeout (or Ctrl-C) can
+    take down the whole process group, not just the direct child."""
+    proc = subprocess.Popen(
+        args,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(input=prompt, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_group(proc)
+        proc.communicate()
+        raise
+    except BaseException:
+        _kill_group(proc)
+        proc.wait()
+        raise
+    return subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
 
 
 def _resolve_sandbox_mode(agent: str, codex_config: dict[str, Any]) -> str:
@@ -211,6 +278,7 @@ def _run_codex_process(
     model: str,
     working_directory: Path,
     started: float,
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run Codex while publishing bounded, non-sensitive progress events."""
     # JSONL exposes safe lifecycle events (command started/completed, turn
@@ -227,6 +295,7 @@ def _run_codex_process(
         text=True,
         bufsize=1,
         env=env,
+        start_new_session=True,
     )
     assert proc.stdin is not None
     proc.stdin.write(prompt)
@@ -244,10 +313,15 @@ def _run_codex_process(
     last_event = started
     last_heartbeat = started
     running: dict[str, str] = {}
+    timed_out = False
     try:
         while selector.get_map():
             now = time.monotonic()
             elapsed_ms = int((now - started) * 1000)
+            if timeout is not None and now - started >= timeout:
+                timed_out = True
+                _kill_group(proc)
+                break
             if now - last_event >= _HEARTBEAT_QUIET_S and now - last_heartbeat >= _HEARTBEAT_QUIET_S:
                 command = next(reversed(running.values()), "")
                 record_codex_progress(
@@ -296,11 +370,23 @@ def _run_codex_process(
                             elapsed_ms=elapsed_ms,
                             detail=detail,
                         )
+    except BaseException:
+        _kill_group(proc)  # Ctrl-C no longer reaches codex: it has its own session
+        raise
     finally:
         selector.close()
 
     returncode = proc.wait()
     elapsed_ms = int((time.monotonic() - started) * 1000)
+    if timed_out:
+        record_codex_progress(
+            "failed",
+            agent=agent,
+            model=model,
+            working_directory=str(working_directory),
+            elapsed_ms=elapsed_ms,
+        )
+        raise subprocess.TimeoutExpired(stream_args, timeout)
     if returncode:
         record_codex_progress(
             "failed",

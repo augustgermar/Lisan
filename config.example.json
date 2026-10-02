@@ -12,7 +12,8 @@
       "default_model": null,
       "sandbox_mode": "danger-full-access",
       "all_agents_sandbox_mode": "danger-full-access",
-      "sandbox_mode_by_agent": {}
+      "sandbox_mode_by_agent": {},
+      "timeout_seconds": 1800
     },
     "local": {
       "enabled": true,

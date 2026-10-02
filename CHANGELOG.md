@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- **Execution-layer hardening.** Decisions whose steps keep failing now move to
+  `blocked` after two consecutive failures instead of re-running every cycle.
+  A task left `running` by a crashed daemon is reclaimed (back to `pending`,
+  or `blocked` once its attempts are spent). Every `codex exec` now has a
+  wall-clock limit (`providers.codex.timeout_seconds`, default 1800, 0 =
+  off; `LISAN_CODEX_TIMEOUT` overrides) and a timeout kills the whole process
+  group, not just the direct child. A decision run is capped at 6x
+  `max_task_wall_seconds`; remaining steps defer to the next cycle.
+- **Fixed:** executed `task.run_codex` jobs never became self-episodes because
+  the biography list named the pre-rename `task.codex`.
+
 ## 26.9.30 (2026-09-30)
 
 - **Renamed the `run_codex` tool to `execute_task`.** Every conversational
