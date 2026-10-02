@@ -733,6 +733,10 @@ def _is_blocked_visibility_reason(reason: str) -> bool:
 
 
 def _quarantine_sets(conn: sqlite3.Connection) -> tuple[set[str], set[str]]:
+    # This set historically contained artifact ids only.  It now also carries
+    # general record ids and path-qualified keys from the reversible validator
+    # quarantine overlay. Keeping the return shape stable protects every SQL,
+    # FTS, vector, learned-edge, and graph call site from drift.
     quarantined_artifacts: set[str] = set()
     quarantined_batches: set[str] = set()
     try:
@@ -761,6 +765,12 @@ def _quarantine_sets(conn: sqlite3.Connection) -> tuple[set[str], set[str]]:
                 quarantined_artifacts.add(artifact_id)
     except sqlite3.Error:
         quarantined_artifacts = set()
+    try:
+        from .record_quarantine import active_quarantine_keys
+
+        quarantined_artifacts.update(active_quarantine_keys(conn))
+    except sqlite3.Error:
+        pass
     return quarantined_artifacts, quarantined_batches
 
 
@@ -775,9 +785,12 @@ def _visibility_block_reason(
     if include_quarantined:
         return None
     row_id = str(row["id"])
+    row_path = str(row["path"] or "")
     row_type = str(row["type"])
     row_batch_id = str(row["batch_id"] or "")
     artifact_ref = str(row["artifact_ref"] or "")
+    if row_id in quarantined_artifact_ids or f"path:{row_path}" in quarantined_artifact_ids:
+        return "quarantined"
     if row_type == "artifact" and (
         str(row["ingestion_status"] or "") == "quarantined"
         or str(row["status"] or "") == "quarantined"

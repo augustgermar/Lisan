@@ -200,6 +200,13 @@ ENUMS = {
         # WO-ADJUTANT: confirmations sit pending until resolved/expired.
         "pending",
         "expired",
+        # Self-repair proposal reports use a governed approval lifecycle.
+        # These are record states, not action authority: the action-policy
+        # gate still independently decides whether an approved proposal may
+        # execute.
+        "approved",
+        "applied",
+        "denied",
     },
     "significance": {"high", "medium", "low"},
     "domain_primary": {
@@ -381,6 +388,97 @@ def validate_vault(vault: Path | None = None, *, db_path: Path | None = None) ->
     _validate_state_staleness(vault, report)
     _validate_wikilinks(vault, seen_ids, report)
     _validate_alias_uniqueness(vault, report, db_path=db_path)
+    return report
+
+
+def validate_record_candidate(
+    path: Path,
+    frontmatter: dict[str, Any],
+    body: str,
+    *,
+    vault: Path,
+    reference_index: ReferenceIndex | None = None,
+) -> ValidationReport:
+    """Validate one proposed structured-record write before it reaches disk.
+
+    This is the validator's write-boundary API.  It deliberately reuses the
+    same checks as :func:`validate_vault`; a second, friendlier schema at the
+    writer would drift and eventually admit records the audit rejects.
+    Cross-record checks that can be decided for one candidate (duplicate ids
+    and references) are included.  Whole-vault observations such as alias
+    ambiguity and state staleness remain audit concerns rather than reasons a
+    syntactically valid record cannot be saved.
+    """
+    report = ValidationReport()
+    normalized = normalize_domain_fields(frontmatter)
+    file_type = normalized.get("type")
+    if not file_type:
+        report.add(path, "Missing required frontmatter field: type")
+        return report
+    if file_type not in TYPE_FIELDS:
+        report.add(path, f"Unsupported type: {file_type}")
+        return report
+
+    _validate_universal(path, normalized, report)
+    _validate_type_specific(path, normalized, report)
+    _validate_schema(path, normalized, load_schemas(), report)
+    _validate_frontmatter_consistency(path, body, normalized, report)
+    _warn_credential_patterns(path, body, normalized, report)
+
+    index = reference_index or build_reference_index(vault)
+    record_id = str(normalized.get("id", "")).strip()
+    try:
+        rel = path.relative_to(vault)
+    except ValueError:
+        report.add(path, f"Structured record is outside vault: {vault}")
+        return report
+
+    # Archived snapshots intentionally preserve their original ids.  Every
+    # other write must own its live id uniquely, including a candidate whose
+    # collision has not reached SQLite yet.
+    if record_id and "archive" not in rel.parts:
+        for other in iter_markdown_files(vault):
+            if other == path:
+                continue
+            try:
+                other_rel = other.relative_to(vault)
+            except ValueError:
+                continue
+            if "archive" in other_rel.parts or not _is_structured_record(other, vault):
+                continue
+            try:
+                other_id = str(load_markdown(other).frontmatter.get("id", "")).strip()
+            except (FrontmatterError, OSError):
+                continue
+            if other_id == record_id:
+                report.add(path, f"Duplicate id {record_id} also used in {other}")
+
+    for field_name in _LINK_FIELDS:
+        values = normalized.get(field_name)
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            # A newly created record can legitimately self-reference; it is
+            # not in the on-disk index yet, so recognize that one exact id.
+            if record_id and value == record_id:
+                continue
+            resolution = resolve_reference(value, vault, index)
+            if resolution.ok or resolution.kind == "unindexed":
+                continue
+            if resolution.repairable:
+                report.add(
+                    path,
+                    f"{field_name} reference is not an id and will not traverse: "
+                    f"{value} -> {resolution.target}",
+                )
+            elif resolution.kind == "prose":
+                excerpt = str(value).strip()[:70]
+                report.add(path, f"{field_name} entry is prose, not a record reference: {excerpt!r}")
+            else:
+                report.add(
+                    path,
+                    f"{field_name} target does not exist: {value} ({resolution.detail})",
+                )
     return report
 
 

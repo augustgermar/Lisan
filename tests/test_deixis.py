@@ -48,6 +48,29 @@ deixis_frame: |
 # Identity Core
 """
 
+MONTHS = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+
+
+def _single_alias_vault(tmp_path: Path, alias: str) -> Path:
+    vault = tmp_path / alias.lower()
+    (vault / "primer").mkdir(parents=True)
+    (vault / "primer" / "identity-core.md").write_text(
+        f'''---
+principal:
+  name: "{alias}"
+  aliases: ["{alias}"]
+assistant:
+  name: "Nova"
+---
+# Identity Core
+''',
+        encoding="utf-8",
+    )
+    return vault
+
 
 @pytest.fixture
 def core_vault(tmp_path: Path) -> Path:
@@ -214,6 +237,55 @@ def test_tokenize_principal_possessive(core_vault: Path) -> None:
 def test_tokenize_principal_word_boundary(core_vault: Path) -> None:
     # a substring of an alias must not match (no word boundary)
     assert tokenize_principal("Augustine arrived", core_vault) == "Augustine arrived"
+
+
+@pytest.mark.parametrize("month", MONTHS)
+def test_month_alias_is_preserved_in_dates_but_tokenized_as_person(tmp_path: Path, month: str) -> None:
+    vault = _single_alias_vault(tmp_path, month)
+    assert tokenize_principal(f"{month} 20, 2026", vault) == f"{month} 20, 2026"
+    assert tokenize_principal(f"20 {month} 2026", vault) == f"20 {month} 2026"
+    assert tokenize_principal(f"{month} 2026", vault) == f"{month} 2026"
+    assert tokenize_principal(f"The work resumed in {month}", vault) == f"The work resumed in {month}"
+    assert tokenize_principal(f"The birthday falls in {month}", vault) == f"The birthday falls in {month}"
+    assert tokenize_principal(f"I spoke with {month} yesterday", vault) == "I spoke with {{principal}} yesterday"
+
+
+def test_august_person_and_month_can_coexist(tmp_path: Path) -> None:
+    vault = _single_alias_vault(tmp_path, "August")
+    text = "August scheduled it for August 20, 2026; Augustine was not involved."
+    assert tokenize_principal(text, vault) == (
+        "{{principal}} scheduled it for August 20, 2026; Augustine was not involved."
+    )
+
+
+def test_quoted_source_text_and_identifiers_are_literal(tmp_path: Path) -> None:
+    vault = _single_alias_vault(tmp_path, "August")
+    assert tokenize_principal('August wrote "August will attend."', vault) == (
+        '{{principal}} wrote "August will attend."'
+    )
+    assert tokenize_principal("case-August-2026 /people/August August@example.test", vault) == (
+        "case-August-2026 /people/August August@example.test"
+    )
+
+
+def test_structured_source_timestamp_and_provenance_fields_are_literal(tmp_path: Path) -> None:
+    vault = _single_alias_vault(tmp_path, "August")
+    obj = {
+        "summary": "August confirmed August 20, 2026",
+        "created": "August 20, 2026",
+        "source": "Transcript: August said yes",
+        "verbatim_excerpt": "August said yes",
+        "provenance": {"original_text": "August said yes", "speaker_id": "August"},
+        "artifact_id": "capture-August-2026",
+    }
+    assert tokenize_principal_obj(obj, vault) == {
+        "summary": "{{principal}} confirmed August 20, 2026",
+        "created": "August 20, 2026",
+        "source": "Transcript: August said yes",
+        "verbatim_excerpt": "August said yes",
+        "provenance": {"original_text": "August said yes", "speaker_id": "August"},
+        "artifact_id": "capture-August-2026",
+    }
 
 
 def test_tokenize_principal_idempotent_and_empty(core_vault: Path) -> None:

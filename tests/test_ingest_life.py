@@ -10,7 +10,7 @@ from pathlib import Path
 
 from lisan.frontmatter import load_markdown
 from lisan.paths import ensure_repo_layout, vault_root
-from lisan.tools.ingest_life import _deslug, ingest_life_sources
+from lisan.tools.ingest_life import _deslug, _person_shaped, ingest_life_sources
 
 
 def _messy_vault(root: Path) -> Path:
@@ -71,6 +71,11 @@ class DeslugTests(unittest.TestCase):
         self.assertEqual(_deslug("adrienne_mcgraw"), "Adrienne Mcgraw")
         self.assertEqual(_deslug("moonpie77"), "Moonpie77")
         self.assertEqual(_deslug("Already Cased"), "Already Cased")
+
+    def test_note_and_team_titles_are_not_person_shaped(self):
+        for title in ("Dealing With Tansy", "Helping Tansy", "Nora Productivity",
+                      "Nora TansyDynamics", "Team Marisol", "Once Nora"):
+            self.assertFalse(_person_shaped(title), title)
 
 
 class ClassificationTests(_Env):

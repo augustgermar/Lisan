@@ -444,6 +444,37 @@ def test_duplicate_id_migration_keeps_newest_and_archives_rest(vault):
     assert migrate_duplicate_ids(vault, dry_run=False).files_archived == 0, "idempotent"
 
 
+def test_duplicate_id_migration_refuses_to_strand_inbound_path_reference(vault):
+    from lisan.tools.migrate_duplicate_ids import (
+        DuplicateIdMigrationBlocked,
+        migrate_duplicate_ids,
+    )
+
+    old = vault / "patterns" / "2026-07-15-work-loop.md"
+    newest = vault / "patterns" / "2026-07-29-work-loop.md"
+    _write(old, _record("pattern.work-loop", "pattern", created="2026-07-15", updated="2026-07-15",
+                        pattern_type="work_loop", hypothesis="h", supporting_records=[],
+                        counterexamples=[], alternative_explanations=[], confidence=0.4,
+                        first_seen="2026-07-15", last_reviewed="2026-07-15", predictions=[], review_notes=""))
+    _write(newest, _record("pattern.work-loop", "pattern", created="2026-07-29", updated="2026-07-29",
+                           pattern_type="work_loop", hypothesis="h", supporting_records=[],
+                           counterexamples=[], alternative_explanations=[], confidence=0.4,
+                           first_seen="2026-07-15", last_reviewed="2026-07-29", predictions=[], review_notes=""))
+    inbound = vault / "patterns" / "inbound.md"
+    _write(inbound, _record("pattern.inbound", "pattern", links=["patterns/2026-07-15-work-loop.md"],
+                            pattern_type="work_loop", hypothesis="other", supporting_records=[],
+                            counterexamples=[], alternative_explanations=[], confidence=0.4,
+                            first_seen="2026-07-29", last_reviewed="2026-07-29", predictions=[], review_notes=""))
+
+    dry = migrate_duplicate_ids(vault, dry_run=True)
+    assert dry.blocking_references == [
+        "patterns/inbound.md:links -> patterns/2026-07-15-work-loop.md"
+    ]
+    with pytest.raises(DuplicateIdMigrationBlocked):
+        migrate_duplicate_ids(vault, dry_run=False)
+    assert old.exists() and newest.exists(), "preflight must move nothing"
+
+
 def test_live_record_outranks_an_archived_one_with_the_same_id(vault):
     _write(vault / "archive" / "patterns" / "superseded-old.md",
            _record("pattern.p", "pattern", status="superseded"))

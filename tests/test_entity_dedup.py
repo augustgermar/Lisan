@@ -8,7 +8,11 @@ from pathlib import Path
 
 from lisan.frontmatter import dump_markdown, load_markdown
 from lisan.paths import ensure_repo_layout, vault_root
-from lisan.tools.entity_merge import dedup_candidates, merge_entities
+from lisan.tools.entity_merge import (
+    contradictory_structured_attributes,
+    dedup_candidates,
+    merge_entities,
+)
 from lisan.tools.entity_resolution import _qualifier_base, _suffix_fragment_target
 
 
@@ -92,6 +96,51 @@ class MergeTests(_Env):
         _entity(self.vault, "radio-work-day", "Community Radio Station work day")
         result = merge_entities(self.vault, "radio-work-day", "Community Radio Station", db_path=self.db)
         self.assertTrue(result["merged"])
+
+    def test_merge_refuses_explicit_owner_distinction_in_transcript(self):
+        hollis = _entity(self.vault, "robert-hollis", "Robert Hollis", kind="person")
+        nash = _entity(self.vault, "robert-nash", "Robert Nash", kind="person")
+        transcripts = self.vault / "transcripts"
+        transcripts.mkdir(parents=True, exist_ok=True)
+        transcript = transcripts / "2026-07-20.md"
+        transcript.write_text(
+            "## Conversation\n\n"
+            "USER: Robert Nash is his own person, distinct from Robert Hollis.\n",
+            encoding="utf-8",
+        )
+
+        result = merge_entities(
+            self.vault, "Robert Hollis", "Robert Nash", db_path=self.db
+        )
+
+        self.assertFalse(result["merged"])
+        self.assertIn("owner transcript evidence", result["reason"])
+        self.assertEqual(result["owner_distinction_evidence"][0]["line"], 3)
+        self.assertTrue(hollis.exists() and nash.exists())
+        self.assertEqual(list((self.vault / "archive" / "entities").glob("merged-*.md")), [])
+
+    def test_merge_refuses_contradictory_birthday_attributes(self):
+        mj = _entity(self.vault, "mj", "Mj", kind="person", log=[
+            {"date": "2026-04-30", "text": "Birthday: May 9", "folded": True},
+        ])
+        nora = _entity(self.vault, "nora-castellan", "Nora Castellan", kind="person", log=[
+            {"date": "2026-05-15", "text": "Born August 9", "folded": True},
+        ])
+        result = merge_entities(self.vault, "Mj", "Nora Castellan", db_path=self.db)
+        self.assertFalse(result["merged"])
+        self.assertIn("structured identity attributes conflict", result["reason"])
+        self.assertTrue(mj.exists() and nora.exists())
+        self.assertEqual(contradictory_structured_attributes(
+            load_markdown(mj).frontmatter, load_markdown(nora).frontmatter
+        )[0]["attribute"], "birthday")
+
+    def test_merge_does_not_promote_note_title_to_person_alias(self):
+        marisol = _entity(self.vault, "marisol", "Marisol", kind="person")
+        team = _entity(self.vault, "team-marisol", "Team Marisol", kind="person")
+        result = merge_entities(self.vault, "Team Marisol", "Marisol", db_path=self.db)
+        self.assertTrue(result["merged"])
+        self.assertNotIn("Team Marisol", load_markdown(marisol).frontmatter["aliases"])
+        self.assertFalse(team.exists())
 
 
 class DedupCandidateTests(_Env):

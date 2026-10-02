@@ -436,6 +436,9 @@ def ensure_index_schema(conn: sqlite3.Connection) -> None:
     ensure_jobs_table(conn)
     ensure_ingestion_manifest_table(conn)
     ensure_ingestion_batches_table(conn)
+    from .record_quarantine import ensure_record_quarantine_table
+
+    ensure_record_quarantine_table(conn)
     from .fswatch import ensure_fswatch_table
 
     ensure_fswatch_table(conn)

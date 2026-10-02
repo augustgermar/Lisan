@@ -93,6 +93,60 @@ class DataRootContainmentTests(unittest.TestCase):
                 self.assertTrue(str(paths.schemas_dir()).endswith("schemas"))
 
 
+class CanonicalRuntimePathTests(unittest.TestCase):
+    def test_managed_install_prefers_sibling_vault_over_stale_seed_vault(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            install = Path(tmp)
+            repo = install / "repo"
+            sibling = install / "vault"
+            (repo / "lisan-vault").mkdir(parents=True)
+            sibling.mkdir()
+            env = {k: v for k, v in os.environ.items() if k not in {"LISAN_VAULT", "LISAN_HOME"}}
+            with patch.dict(os.environ, env, clear=True), patch.object(paths, "repo_root", return_value=repo):
+                self.assertEqual(paths.default_vault_root(), sibling)
+
+    def test_explicit_vault_still_wins(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            explicit = Path(tmp) / "chosen"
+            with patch.dict(os.environ, {"LISAN_VAULT": str(explicit)}):
+                self.assertEqual(paths.default_vault_root(), explicit)
+
+    def test_zero_byte_database_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            vault = root / "vault"
+            vault.mkdir()
+            db = root / "empty.sqlite"
+            db.touch()
+            with self.assertRaisesRegex(RuntimeError, "zero-byte database"):
+                paths.assert_canonical_runtime_paths(vault, db)
+
+    def test_database_inside_vault_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault"
+            vault.mkdir()
+            with self.assertRaisesRegex(RuntimeError, "database inside vault"):
+                paths.assert_canonical_runtime_paths(vault, vault / "lisan.sqlite")
+
+    def test_deliberate_alternate_vault_is_allowed_but_safety_checks_remain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            install = Path(tmp) / "install"
+            repo = install / "repo"
+            canonical = install / "vault"
+            alternate = Path(tmp) / "alternate-vault"
+            db = Path(tmp) / "alternate.sqlite"
+            canonical.mkdir(parents=True)
+            alternate.mkdir()
+            env = {k: v for k, v in os.environ.items() if k not in {"LISAN_VAULT", "LISAN_HOME"}}
+            with patch.dict(os.environ, env, clear=True), patch.object(paths, "repo_root", return_value=repo):
+                resolved = paths.assert_canonical_runtime_paths(
+                    alternate,
+                    db,
+                    deliberate_vault_override=True,
+                )
+                self.assertEqual(resolved, (alternate.resolve(), db.resolve()))
+
+
 class EmptyIndexOverwriteTests(unittest.TestCase):
     """The runner-independent guard. LISAN_DATA_HOME (set in tests/__init__.py)
     protects pytest, but `unittest discover` does not import that package init

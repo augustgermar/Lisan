@@ -30,6 +30,155 @@ from ..utils import today_iso
 from .log import get_logger
 
 
+_DISTINCTION_PHRASES = (
+    "different people",
+    "distinct people",
+    "separate people",
+    "not the same person",
+    "not the same entity",
+    "not to be confused",
+)
+_MONTHS = {
+    name.lower(): index
+    for index, name in enumerate(
+        (
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December",
+        ),
+        1,
+    )
+}
+_BIRTHDAY_TEXT = re.compile(
+    r"\b(?:birthday|born)\b\s*(?:is|falls on|on|:)??\s*"
+    r"(?:(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})|"
+    r"(\d{4})-(\d{2})-(\d{2}))",
+    re.IGNORECASE,
+)
+_TITLE_ALIAS_TOKENS = frozenset({
+    "dealing", "helping", "team", "once", "productivity", "tiadynamics",
+})
+
+
+def explicit_owner_distinction(
+    vault: Path,
+    source_frontmatter: dict[str, Any],
+    target_frontmatter: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return transcript evidence in which the owner distinguishes the pair.
+
+    This is intentionally conservative and fail-closed.  It does not decide
+    that two records are different from names alone; it recognizes only owner
+    turns with explicit distinction language.  A later ambiguous assent cannot
+    erase an earlier explicit distinction—the conflict must return to the
+    owner rather than becoming an autonomous identity mutation.
+    """
+    source_names = _identity_names(source_frontmatter)
+    target_names = _identity_names(target_frontmatter)
+    evidence: list[dict[str, Any]] = []
+    transcripts = vault / "transcripts"
+    if not transcripts.exists():
+        return evidence
+    for path in sorted(transcripts.rglob("*.md")):
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line_number, line in enumerate(lines, 1):
+            if not line.lstrip().startswith("USER:"):
+                continue
+            text = line.split("USER:", 1)[1].strip()
+            normalized = _identity_text(text)
+            source_hit = any(_name_in_text(name, normalized) for name in source_names)
+            target_hit = any(_name_in_text(name, normalized) for name in target_names)
+            named = source_hit or target_hit
+            rule = ""
+            if named and "own person" in normalized:
+                rule = "owner said one named entity is its own person"
+            elif source_hit and target_hit and any(phrase in normalized for phrase in _DISTINCTION_PHRASES):
+                rule = "owner explicitly described the named pair as distinct"
+            elif source_hit and target_hit and any(word in normalized.split() for word in ("multiple", "several")):
+                rule = "owner named both entities while describing multiple people"
+            if rule:
+                evidence.append(
+                    {
+                        "path": str(path.relative_to(vault)),
+                        "line": line_number,
+                        "text": text,
+                        "rule": rule,
+                    }
+                )
+    return evidence
+
+
+def contradictory_structured_attributes(
+    source_frontmatter: dict[str, Any],
+    target_frontmatter: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return conflicts in structured identity attributes carried by records.
+
+    Birthday is the first guarded attribute because it is a high-signal,
+    owner-supplied identity field and a prior merge showed that a
+    contradiction can exist without an explicit transcript distinction.
+    Values are collected from frontmatter and source logs, then compared as
+    month/day pairs so a missing year does not hide a conflict.
+    """
+    source = _birthday_values(source_frontmatter)
+    target = _birthday_values(target_frontmatter)
+    if not source or not target or source & target:
+        return []
+    return [{
+        "attribute": "birthday",
+        "source_values": sorted(source),
+        "target_values": sorted(target),
+        "rule": "source and target carry contradictory structured birthdays",
+    }]
+
+
+def _birthday_values(frontmatter: dict[str, Any]) -> set[tuple[int, int]]:
+    values: set[tuple[int, int]] = set()
+    direct = frontmatter.get("birthday")
+    texts: list[str] = []
+    if direct:
+        texts.append(str(direct))
+    for entry in frontmatter.get("source_log") or []:
+        if isinstance(entry, dict) and entry.get("text"):
+            texts.append(str(entry["text"]))
+    for text in texts:
+        for match in _BIRTHDAY_TEXT.finditer(text):
+            if match.group(1):
+                values.add((_MONTHS[match.group(1).lower()], int(match.group(2))))
+            else:
+                values.add((int(match.group(4)), int(match.group(5))))
+    return values
+
+
+def _is_title_alias(value: str) -> bool:
+    tokens = set(_identity_text(value).split())
+    return bool(tokens & _TITLE_ALIAS_TOKENS)
+
+
+def _identity_names(frontmatter: dict[str, Any]) -> set[str]:
+    values = [frontmatter.get("canonical_name"), *(frontmatter.get("aliases") or [])]
+    names: set[str] = set()
+    for value in values:
+        normalized = _identity_text(str(value or ""))
+        # Single common-name aliases are too ambiguous to establish which
+        # entity an owner turn distinguishes. Canonical names remain eligible.
+        if normalized and (
+            value == frontmatter.get("canonical_name") or len(normalized.split()) >= 2
+        ):
+            names.add(normalized)
+    return names
+
+
+def _identity_text(value: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", value.lower()).split())
+
+
+def _name_in_text(name: str, text: str) -> bool:
+    return bool(name) and f" {name} " in f" {text} "
+
+
 def merge_entities(
     vault: Path,
     source: str,
@@ -55,6 +204,31 @@ def merge_entities(
     src_name = str(src_fm.get("canonical_name") or src.stem)
     dst_name = str(dst_fm.get("canonical_name") or dst.stem)
 
+    distinction = explicit_owner_distinction(vault, src_fm, dst_fm)
+    if distinction:
+        first = distinction[0]
+        return {
+            "merged": False,
+            "reason": (
+                "owner transcript evidence says the entities are distinct: "
+                f"{first['path']}:{first['line']} ({first['rule']})"
+            ),
+            "owner_distinction_evidence": distinction,
+        }
+
+    structured_conflicts = contradictory_structured_attributes(src_fm, dst_fm)
+    if structured_conflicts:
+        first = structured_conflicts[0]
+        return {
+            "merged": False,
+            "reason": (
+                "structured identity attributes conflict: "
+                f"{first['attribute']} source={first['source_values']} "
+                f"target={first['target_values']}"
+            ),
+            "structured_conflict_evidence": structured_conflicts,
+        }
+
     # 1. absorb content into the survivor's durable log
     log = [dict(e) for e in (dst_fm.get("source_log") or []) if isinstance(e, dict)]
     src_body = re.sub(r"^#\s+.*$", "", src_doc.body, count=1, flags=re.M).strip()
@@ -75,8 +249,13 @@ def merge_entities(
 
     # 2. names: the fragment's identity becomes reachable aliases
     aliases = {str(a).strip() for a in (dst_fm.get("aliases") or []) if str(a).strip()}
-    aliases.add(src_name)
-    aliases.update(str(a).strip() for a in (src_fm.get("aliases") or []) if str(a).strip())
+    if not _is_title_alias(src_name):
+        aliases.add(src_name)
+    aliases.update(
+        str(a).strip()
+        for a in (src_fm.get("aliases") or [])
+        if str(a).strip() and not _is_title_alias(str(a))
+    )
     aliases.discard(dst_name)
     dst_fm["aliases"] = sorted(aliases)
     dst_fm["updated"] = today_iso()

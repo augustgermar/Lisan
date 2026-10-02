@@ -37,7 +37,7 @@ BIOGRAPHY_JOB_TYPES = ("task.reminder", "task.prompt", "task.codex", "plan.run")
 @dataclass(slots=True)
 class SelfEvent:
     event_id: str  # stable, idempotency key
-    event_kind: str  # task | plan | ceremony | drift | failure
+    event_kind: str  # task | plan | ceremony | drift | failure | self_repair
     date: str  # YYYY-MM-DD the event happened
     title: str
     narration: str  # deterministic template output

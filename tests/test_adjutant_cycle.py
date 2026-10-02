@@ -338,6 +338,28 @@ def test_status_reports_approved_and_orphaned_confirmations(world):
     assert "orphaned approved confirmations: 1" in rendered
 
 
+def test_create_confirmation_links_only_an_indexed_task_record(world):
+    vault, db, conn = world
+    loop_id = _task_loop(vault, conn, "A record-backed task")
+    conn.close()
+    created_id = create_confirmation_for_task(
+        vault,
+        task_id=loop_id,
+        task_summary="record-backed",
+        planned_action="Inspect it.",
+        risk="low",
+        db_path=db,
+    )
+    check = db_connect(db)
+    check.row_factory = sqlite3.Row
+    try:
+        row = check.execute("SELECT record_path FROM confirmations WHERE id = ?", (created_id,)).fetchone()
+    finally:
+        check.close()
+    assert row is not None
+    assert load_markdown(vault / str(row["record_path"])).frontmatter["links"] == [loop_id]
+
+
 def test_out_of_band_intent_edit_is_absorbed_and_logged(world):
     vault, db, conn = world
     conn.close()
