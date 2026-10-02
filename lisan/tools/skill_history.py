@@ -142,7 +142,11 @@ def is_pinned(skills_dir: Path, name: str) -> bool:
 def list_history(skills_dir: Path, name: str) -> list[dict[str, Any]]:
     """Snapshots of a skill, oldest first, with their labels from the log."""
     hist = _history_dir(skills_dir, name)
-    labels = {e.get("version_id"): e for e in read_log(skills_dir, name) if e.get("version_id")}
+    # Only the entry that CREATED a snapshot describes it. A rollback or apply entry
+    # also names a version (the one it restored or replaced); letting it overwrite
+    # the label made `v0` vanish after the first rollback to it.
+    labels = {e.get("version_id"): e for e in read_log(skills_dir, name)
+              if e.get("version_id") and e.get("action") == "snapshot"}
     out = []
     for version in sorted(p for p in hist.iterdir() if p.is_dir()) if hist.is_dir() else []:
         entry = labels.get(version.name, {})
@@ -278,7 +282,7 @@ def rollback_skill(skills_dir: Path, name: str, version: str, *, actor: str = "o
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     _log(skills_dir, {
-        "skill": name, "action": "rollback", "version_id": target.name, "actor": actor,
+        "skill": name, "action": "rollback", "restored_version": target.name, "actor": actor,
         "reason": reason or f"rolled back to {target.name}", "replaced_snapshot": saved,
     })
     return saved

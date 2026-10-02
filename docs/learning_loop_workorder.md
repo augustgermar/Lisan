@@ -539,3 +539,43 @@ Auto mode and probation. `learning.mode: auto` applies what the gate passes.
 - `lisan learning apply <review_id> [--op N]` applies a shadow-mode proposal by
   hand, re-gated against the skills as they are now. `lisan skills approve|
   lifecycle`. The owner digest says what was applied and what changed standing.
+
+### Going live on the home machine (2026-10-02)
+
+`learning.mode: auto` was switched on in the real config after a full trial on
+copies (10 sequential reviews of the 111 historical events, real reviewer, real
+skills): 5 changes applied, 1 refused, and rolling back each changed owner skill
+restored the original bytes exactly. The first live sweep then applied three
+changes to the owner's skills: a note to `gmail_search` (a query is required),
+the stale `run_codex` -> `execute_task` fix in `research`, and a rewrite of
+`youtube_transcript`'s description.
+
+- **The third was wrong, and the gate had let it through.** It restyled the
+  owner's tool description into "Use when ..." form and lost "optionally
+  timestamped". The first fix (refuse a description shortened by more than a
+  fifth) passed this one at ~15% shorter, so the rule is now about the text, not
+  its length: an existing description may only be *extended*, with the owner's
+  sentence surviving intact inside the new one. It was undone with
+  `lisan skills rollback youtube_transcript v0`, which restored the original
+  byte for byte. A reviewer's output varies run to run, so no gate rule should be
+  trusted from one sample; that is also why every change is a snapshot away from
+  undone.
+- **The first real rollback exposed a bug**: the rollback's own log entry named
+  the restored version and overwrote that snapshot's label, so `v0` stopped
+  resolving after one use. Labels now come only from the entry that created a
+  snapshot, and rollback entries use a distinct key; logs already on disk with the
+  old shape are read correctly.
+- **Flipping a live switch broke three unrelated tests**, because tests had been
+  reading the developer's real `config.json` all along (it also holds the Telegram
+  token). `config_path()` now resolves outside the live install in a test process,
+  the way `data_root()` already did; `LISAN_ALLOW_TEST_CONFIG=1` opts out.
+- `tests/mutation_check.py` is the consolidated, re-runnable mutation check (38
+  mutants across the gate, reviewer, applier, probation, history and isolation).
+  It earned its place: it found a vacuous test, a runner flaw, and two cases where
+  a fix was only half covered.
+
+Live state: mode `auto`; the 111 backfilled events are marked reviewed. The
+running services still hold older code until they are restarted, so nothing
+records or reviews live until then; after a restart, a `skill.review` job runs by
+itself when 6 unreviewed events have accumulated and the system has been quiet for
+5 minutes.

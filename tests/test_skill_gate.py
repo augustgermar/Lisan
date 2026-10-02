@@ -200,9 +200,14 @@ def test_an_existing_description_is_the_owners_wording_the_loop_may_extend_but_n
     extended = gate(patch(old_text=old, new_text="description: Use when auditing a server, including its swap and disks."), skills)
     assert extended.accepted, extended.reasons  # extending is fine, and needs no 'Use when' policing
     restyled = gate(patch(old_text=old, new_text="description: Server audits."), skills)
-    assert not restyled.accepted and "may not shorten" in why(restyled)
+    assert not restyled.accepted and "may only extend" in why(restyled)
+    # the second real rewrite was only ~15% shorter, so a length rule let it through
+    kept_most = gate(patch(old_text=old, new_text="description: Use when a server needs auditing for disks and memory."), skills)
+    assert not kept_most.accepted and "may only extend" in why(kept_most)
     emptied = gate(patch(old_text=old, new_text="description: "), skills)
     assert not emptied.accepted
+    prefixed = gate(patch(old_text=old, new_text="description: Server work. Use when auditing a server."), skills)
+    assert prefixed.accepted, prefixed.reasons  # adding around the owner's sentence leaves it as written
     # an existing description that never said "Use when" is left in the owner's style
     path = skills / "server-audit" / "SKILL.md"
     path.write_text(OWNER.replace("Use when auditing a server.", "Audits a server: disks, memory, ports."), encoding="utf-8")

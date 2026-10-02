@@ -54,6 +54,12 @@
   agent is told so; they are established after proven use (or `lisan skills
   approve`) and flagged, never deleted, after repeated failure.
   `lisan learning apply <review_id>` applies a shadow proposal by hand.
+- **Fixed (found going live):** a skill description may now only be *extended* by the
+  loop, never restated (a real review rewrote an owner's tool description and lost
+  detail); `v0` stopped resolving after the first rollback to it; and tests no longer
+  read the developer's live `config.json` (`config_path()` is contained in a test
+  process, like `data_root()`). `tests/mutation_check.py` is a re-runnable mutation
+  check of the learning loop (38 mutants).
 - **Skill history, rollback and portability.** `lisan skills history|diff|
   rollback|pin|unpin|archive|export|import|usage`: snapshots before any change
   (the owner's original is `v0`; `diff --since-owner` shows drift), rollback that

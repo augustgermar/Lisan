@@ -250,3 +250,51 @@ class AmbientResolutionGuardTests(unittest.TestCase):
             "db_path",
             inspect.signature(validator._validate_alias_uniqueness).parameters,
         )
+
+
+class ConfigContainmentTests(unittest.TestCase):
+    """A test process never reads (or writes) the developer's live config.json.
+
+    Found when the learning switch was flipped to `auto` in the real config and three
+    unrelated tests failed, because they had been reading it all along. The same
+    ambient read is how a test could reach the real Telegram token, and a bootstrap
+    test that calls `init` through the default path was writing there too. Each test
+    here gets a fresh sandbox directory, so none depends on what another test wrote."""
+
+    def _fresh_sandbox(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patcher = patch.object(paths, "_TEST_CONFIG_DIR", Path(tmp.name))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return Path(tmp.name)
+
+    def test_a_test_process_resolves_config_outside_the_live_install(self) -> None:
+        sandbox = self._fresh_sandbox()
+        self.assertEqual(paths.config_path(), sandbox / "config.json")
+        self.assertNotEqual(paths.config_path().parent, paths.repo_root())
+        self.assertFalse(paths.config_path().exists())  # so load_config() returns the defaults
+
+    def test_load_config_in_a_test_process_is_the_defaults_not_the_live_file(self) -> None:
+        from lisan.config import DEFAULT_CONFIG, load_config
+
+        self._fresh_sandbox()
+        self.assertEqual(load_config(), DEFAULT_CONFIG)
+
+    def test_writes_through_the_default_path_land_in_the_sandbox_not_the_live_install(self) -> None:
+        from lisan.config import save_default_config
+
+        sandbox = self._fresh_sandbox()
+        live_before = (paths.repo_root() / "config.json").stat().st_mtime if (paths.repo_root() / "config.json").exists() else None
+        written = save_default_config()
+        self.assertEqual(written, sandbox / "config.json") and self.assertTrue(written.exists())
+        live_after = (paths.repo_root() / "config.json").stat().st_mtime if (paths.repo_root() / "config.json").exists() else None
+        self.assertEqual(live_before, live_after)  # the real file was not touched
+
+    def test_an_explicit_base_is_untouched_and_the_opt_out_is_explicit(self) -> None:
+        import os
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(paths.config_path(Path(tmp)), Path(tmp) / "config.json")
+        with patch.dict(os.environ, {"LISAN_ALLOW_TEST_CONFIG": "1"}):
+            self.assertEqual(paths.config_path().parent, paths.repo_root())
