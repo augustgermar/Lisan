@@ -239,3 +239,20 @@ def test_generic_stale_reclaim_never_requeues_a_child(env):
     assert reclaim_stale_running_jobs(env.db) == 1  # only the reminder
     assert get_job(child, db_path=env.db)["status"] == "running"
     assert get_job(other, db_path=env.db)["status"] == "queued"
+
+
+def test_the_identity_check_asks_ps_for_the_untruncated_command(monkeypatch):
+    """Linux ps cuts the command at 80 columns unless told -ww, which hid the
+    binary name at the end of a long path and left an orphan alive on CI."""
+    from lisan.tools.delegation import _looks_like_our_child
+
+    seen = {}
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        return subprocess.CompletedProcess(args, 0, stdout="/usr/bin/codex exec\n")
+
+    monkeypatch.delenv("CODEX_BIN", raising=False)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert _looks_like_our_child(123)
+    assert "-ww" in seen["args"]

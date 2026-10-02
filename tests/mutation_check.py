@@ -93,6 +93,7 @@ MUTANTS = [
     ("dimension mismatch is silent", "lisan/tools/vector_store.py", "    elif index.dimension and len(scorer.query_vector) != index.dimension:", "    elif False:", "tests/test_embedding_terminal_note.py", "mismatch"),
     ("empty index is silent", "lisan/tools/vector_store.py", "    elif not index.vectors:", "    elif False:", "tests/test_embedding_terminal_note.py", "index_empty"),
     ("missing embedder is silent", "lisan/tools/vector_store.py", "    if not scorer.query_vector:\n        terminal_note(", "    if False:\n        terminal_note(", "tests/test_embedding_terminal_note.py", "unavailable"),
+    ("identity check lets ps truncate the command", "lisan/tools/delegation.py", '["ps", "-ww", "-o"', '["ps", "-o"', "tests/test_delegation_lanes.py", "untruncated"),
     # ── process tree ──
     ("the tree is read before it is frozen", "lisan/tools/proctree.py", "    for _ in range(_MAX_PASSES):\n        parents = _parent_map()\n        fresh = [", "    for _ in range(_MAX_PASSES):\n        fresh = [", "tests/test_proctree.py", "keeps_forking"),
     ("freezing stops at the root group", "lisan/tools/proctree.py", "        for victim in fresh:\n            try:\n                os.kill(victim, signal.SIGSTOP)", "        for victim in fresh:\n            try:\n                pass", "tests/test_proctree.py", "outside_the_roots"),

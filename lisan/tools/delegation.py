@@ -407,7 +407,10 @@ def _looks_like_our_child(pid: int) -> bool:
 
     names = {os.path.basename(os.environ.get("CODEX_BIN") or "codex"), "codex"}
     try:
-        out = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=5).stdout
+        # -ww: without it Linux procps truncates the command to 80 columns when
+        # stdout is not a terminal, cutting the script name off a long path
+        # (CI: the overdue-child test never killed its orphan).
+        out = subprocess.run(["ps", "-ww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=5).stdout
     except (OSError, subprocess.SubprocessError):
         return False
     return any(name and name in out for name in names)
