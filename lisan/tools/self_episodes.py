@@ -33,7 +33,7 @@ from .log import log_error
 # not background metabolism (capture.observe, index rebuilds, story rewrites).
 # "task.codex" is the pre-rename spelling of task.run_codex, kept for old rows.
 # Listing it alone meant executed codex tasks never reached the biography.
-BIOGRAPHY_JOB_TYPES = ("task.reminder", "task.prompt", "task.run_codex", "task.codex", "plan.run")
+BIOGRAPHY_JOB_TYPES = ("task.reminder", "task.prompt", "task.run_codex", "task.codex", "plan.run", "agent.delegate")
 
 
 @dataclass(slots=True)
@@ -83,13 +83,15 @@ def job_events(db_path: Path | None = None) -> list[SelfEvent]:
             payload = {}
         subject = str(
             payload.get("text") or payload.get("message") or payload.get("prompt")
-            or payload.get("task") or payload.get("title") or ""
+            or payload.get("task") or payload.get("title") or payload.get("brief") or ""
         ).strip()
         date = str(row["finished_at"] or "")[:10]
         kind = "plan" if row["job_type"] == "plan.run" else "task"
         if row["status"] == "succeeded":
             if kind == "plan":
                 narration = "{{self}} completed a multi-step plan for {{principal}}"
+            elif row["job_type"] == "agent.delegate":
+                narration = "{{self}} delegated a task to a worker for {{principal}}, and it finished"
             else:
                 narration = "{{self}} carried out a scheduled task for {{principal}}"
             if subject: narration += f': "{subject}"'

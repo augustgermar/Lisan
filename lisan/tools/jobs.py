@@ -49,6 +49,7 @@ JOB_TYPES = {
     "task.prompt",
     "task.run_codex",
     "plan.run",
+    "agent.delegate",
     "capture.observe",
     "deviation.scan",
     "enrichment.seek",
@@ -257,6 +258,9 @@ def _ensure_jobs_columns(conn: sqlite3.Connection) -> None:
         "replaces_job_id": "ALTER TABLE jobs ADD COLUMN replaces_job_id TEXT",
         "coalesced_count": "ALTER TABLE jobs ADD COLUMN coalesced_count INTEGER NOT NULL DEFAULT 0",
         "recurrence": "ALTER TABLE jobs ADD COLUMN recurrence TEXT",
+        # pid of the child process a running job spawned (agent.delegate), so
+        # cancel can signal it. NULL whenever nothing is running.
+        "child_pid": "ALTER TABLE jobs ADD COLUMN child_pid INTEGER",
     }
     for column, sql in additions.items():
         if column not in existing:
@@ -580,9 +584,15 @@ def claim_next_job(
     worker_id: str,
     db_path: Path | None = None,
     job_types: set[str] | None = None,
+    exclude_job_types: set[str] | None = None,
+    type_limits: dict[str, int] | None = None,
 ) -> dict[str, Any] | None:
     """Claim the next queued job. When ``job_types`` is given, only jobs of
-    those types are eligible (used by the end-of-capture index drain)."""
+    those types are eligible (used by the end-of-capture index drain);
+    ``exclude_job_types`` removes types from consideration (the main lane
+    leaves long-running work to its own lanes). ``type_limits`` caps how many
+    jobs of a type may be ``running`` at once, counted inside the claiming
+    transaction so the cap holds across every worker and process."""
     conn = _connect(db_path)
     try:
         ensure_jobs_table(conn)
@@ -594,6 +604,17 @@ def claim_next_job(
             placeholders = ", ".join("?" for _ in job_types)
             type_clause = f" AND jobs.job_type IN ({placeholders})"
             params.extend(sorted(job_types))
+        blocked_types = set(exclude_job_types or ())
+        for limited_type, limit in (type_limits or {}).items():
+            running = conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE status = 'running' AND job_type = ?", (limited_type,)
+            ).fetchone()[0]
+            if int(running) >= int(limit):
+                blocked_types.add(limited_type)
+        if blocked_types:
+            placeholders = ", ".join("?" for _ in blocked_types)
+            type_clause += f" AND jobs.job_type NOT IN ({placeholders})"
+            params.extend(sorted(blocked_types))
         row = conn.execute(
             f"""
             SELECT jobs.*
@@ -840,11 +861,44 @@ def get_job(job_id: str, db_path: Path | None = None) -> dict[str, Any] | None:
         conn.close()
 
 
+def set_child_pid(job_id: str, pid: int | None, db_path: Path | None = None) -> None:
+    """Record (or clear) the process a running job spawned. Best-effort."""
+    try:
+        conn = _connect(db_path)
+        try:
+            ensure_jobs_table(conn)
+            conn.execute("UPDATE jobs SET child_pid = ? WHERE id = ?", (pid, job_id))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def _kill_child_group(pid: int) -> bool:
+    """SIGKILL the child's process group (it was started in its own session).
+    False when there was nothing to kill."""
+    import os
+    import signal
+
+    try:
+        os.killpg(pid, signal.SIGKILL)
+        return True
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+
+
 def cancel_job(job_id: str, db_path: Path | None = None) -> dict[str, Any] | None:
     conn = _connect(db_path)
     try:
         ensure_jobs_table(conn)
         now_iso = _iso()
+        # A running job with a recorded child is killed, not just relabelled:
+        # canceling a delegation must stop the work, not hide it. Mark it
+        # canceled first so the worker, seeing the process die, does not
+        # overwrite the status with "failed".
+        row = conn.execute("SELECT status, child_pid FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        child_pid = int(row["child_pid"]) if row is not None and row["status"] == "running" and row["child_pid"] else None
         conn.execute(
             """
             UPDATE jobs
@@ -856,9 +910,19 @@ def cancel_job(job_id: str, db_path: Path | None = None) -> dict[str, Any] | Non
             (now_iso, job_id),
         )
         conn.commit()
+        if child_pid:
+            _kill_child_group(child_pid)
         return get_job(job_id, db_path=db_path)
     finally:
         conn.close()
+
+
+def _job_was_canceled(job_id: Any, db_path: Path | None) -> bool:
+    try:
+        job = get_job(str(job_id), db_path=db_path)
+    except Exception:
+        return False
+    return bool(job) and job.get("status") == "canceled"
 
 
 def archive_stale_failures(older_than_days: int = 14, db_path: Path | None = None) -> dict[str, Any]:
@@ -1376,6 +1440,11 @@ def dispatch_job(
             send_fn=current_send_fn(),
         )
 
+    if job_type == "agent.delegate":
+        from .delegation import run_delegation
+
+        return run_delegation(job, vault=vault, db_path=db_path)
+
     if job_type == "adjutant.cycle":
         # The alarm clock for materialized schedule records: the job only
         # says "check now" — the records decide what is actually due, the
@@ -1511,6 +1580,8 @@ def run_jobs_worker(
     worker_id: str | None = None,
     max_jobs: int | None = None,
     job_types: set[str] | None = None,
+    exclude_job_types: set[str] | None = None,
+    type_limits: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Drain the queue once and return — claims jobs until none remain (it does
     not sleep waiting for new work). ``job_types`` restricts which job types are
@@ -1522,6 +1593,13 @@ def run_jobs_worker(
     successes: list[dict[str, Any]] = []
     deferrals: list[dict[str, Any]] = []
 
+    try:
+        from .delegation import reap_overdue_delegations
+
+        # Before the generic reclaim: an overdue child is failed, never requeued.
+        reap_overdue_delegations(db_path, vault=vault)
+    except Exception:
+        pass
     reclaimed = reclaim_stale_running_jobs(db_path)
     if reclaimed:
         try:
@@ -1532,7 +1610,10 @@ def run_jobs_worker(
             pass
     while True:
         _promote_ready_retry_wait_jobs(db_path)
-        job = claim_next_job(worker_id, db_path=db_path, job_types=job_types)
+        job = claim_next_job(
+            worker_id, db_path=db_path, job_types=job_types,
+            exclude_job_types=exclude_job_types, type_limits=type_limits,
+        )
         if job is None:
             break
         try:
@@ -1543,6 +1624,9 @@ def run_jobs_worker(
             # (generous cap: codex runs are legitimately long).
             with hold_awake(f"job {job['id']}", cap_seconds=3600):
                 result = dispatch_job(job, vault=vault, db_path=db_path, provider=provider, model=model)
+            if _job_was_canceled(job["id"], db_path):
+                processed.append(get_job(job["id"], db_path=db_path) or job)
+                continue  # canceled mid-run: the owner's decision stands
             validate_job_output(str(job.get("job_type") or ""), result)
             result_data, result_ref = _normalize_job_result(result)
             updated = mark_job_succeeded(job["id"], result=result_data, result_ref=result_ref, db_path=db_path)
@@ -1580,6 +1664,9 @@ def run_jobs_worker(
                 except Exception:
                     pass
         except Exception as exc:
+            if _job_was_canceled(job["id"], db_path):
+                processed.append(get_job(job["id"], db_path=db_path) or job)
+                continue  # the kill we sent, not a failure to report
             updated = mark_job_failed(job["id"], str(exc), retry=True, db_path=db_path)
             failures.append(updated or job)
             processed.append(updated or job)
@@ -1698,7 +1785,10 @@ def reclaim_stale_running_jobs(db_path: Path | None = None, *, stale_minutes: in
         conn.execute("BEGIN IMMEDIATE")
         cur = conn.execute(
             "UPDATE jobs SET status = 'queued', started_at = NULL "
-            "WHERE status = 'running' AND started_at IS NOT NULL AND started_at < ?",
+            "WHERE status = 'running' AND started_at IS NOT NULL AND started_at < ? "
+            # a delegated child is never silently re-run: delegation.reap_overdue_delegations
+            # fails it instead, because its side effects are unknown
+            "AND job_type != 'agent.delegate'",
             (cutoff,),
         )
         conn.commit()

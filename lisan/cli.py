@@ -834,6 +834,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Only schedule the reminder; do not record the birthday on the person's entity",
     )
 
+    delegate_cmd = subparsers.add_parser("delegate", help="Delegated workers: scoped, parallel, durable children")
+    delegate_sub = delegate_cmd.add_subparsers(dest="delegate_command", required=True)
+    delegate_run = delegate_sub.add_parser("run", help="Queue a delegated task (runs on the scheduler's delegate lane)")
+    delegate_run.add_argument("brief", help="The child's whole task; it sees nothing else")
+    delegate_run.add_argument("--profile", choices=["read_only", "workspace_write", "full"], default=None,
+                              help="Sandbox profile (default: the caller's own authority)")
+    delegate_run.add_argument("--dir", dest="working_directory", default=None)
+    delegate_run.add_argument("--timeout", dest="timeout_seconds", type=int, default=None,
+                              help="Wall limit in seconds (max 2400)")
+    delegate_run.add_argument("--now", action="store_true", help="Run it inline now instead of waiting for the scheduler")
+    delegate_run.add_argument("--db-path", type=Path, default=None)
+    delegate_list = delegate_sub.add_parser("list", help="List delegated tasks")
+    delegate_list.add_argument("--db-path", type=Path, default=None)
+    delegate_show = delegate_sub.add_parser("show", help="Show one delegated task and its result")
+    delegate_show.add_argument("delegation_id")
+    delegate_show.add_argument("--db-path", type=Path, default=None)
+    delegate_cancel = delegate_sub.add_parser("cancel", help="Cancel a delegated task, killing it if running")
+    delegate_cancel.add_argument("delegation_id")
+    delegate_cancel.add_argument("--db-path", type=Path, default=None)
     plan_cmd = subparsers.add_parser("plan", help="Durable multi-step background plans")
     plan_subparsers = plan_cmd.add_subparsers(dest="plan_command", required=True)
     plan_add = plan_subparsers.add_parser("add", help="Create a plan")
@@ -1770,6 +1789,42 @@ def main(argv: list[str] | None = None) -> int:
                 elif ent.get("reason") == "no_entity":
                     print(f"  · no entity for {summary['person']!r} — reminder only")
             return 0
+
+    if args.command == "delegate":
+        from .tools.delegation import cancel_delegation, delegate, format_delegations, list_delegations, show_delegation
+
+        if args.delegate_command == "run":
+            try:
+                summary = delegate(
+                    args.brief, profile=args.profile, working_directory=args.working_directory,
+                    timeout_seconds=args.timeout_seconds, vault=vault_root(), db_path=args.db_path,
+                )
+            except ValueError as exc:
+                print(f"✗ {exc}")
+                return 1
+            print(f"✓ {summary['delegation_id']} queued ({summary['profile']}, {summary['timeout_seconds']}s limit)")
+            if args.now:
+                run_jobs_worker(vault=vault_root(), db_path=args.db_path, job_types={"agent.delegate"}, max_jobs=1)
+                print(format_delegations([show_delegation(summary["delegation_id"], db_path=args.db_path)]))
+            else:
+                print("  It runs in the background; see `lisan delegate list`.")
+            return 0
+        if args.delegate_command == "list":
+            print(format_delegations(list_delegations(db_path=args.db_path)))
+            return 0
+        if args.delegate_command == "show":
+            record = show_delegation(args.delegation_id, db_path=args.db_path)
+            if record is None:
+                print(f"✗ No delegation {args.delegation_id}")
+                return 1
+            print(json.dumps(record, indent=2, default=str))
+            return 0
+        if args.delegate_command == "cancel":
+            if cancel_delegation(args.delegation_id, db_path=args.db_path):
+                print(f"✓ Canceled {args.delegation_id}")
+                return 0
+            print(f"✗ No active delegation {args.delegation_id}")
+            return 1
 
     if args.command == "plan":
         from .tools.plans import cancel_plan, create_plan, format_plans, list_plans

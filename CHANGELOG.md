@@ -17,6 +17,17 @@
   the capture front door, so the Skeptic reads plan outcomes. Steps may opt
   into `retries` (0-2, never after a timeout), and `lisan plan resume
   <plan_id>` restarts a failed plan from the step that failed.
+- **Delegated workers (`lisan delegate`).** A child is one durable
+  `agent.delegate` job: its own brief, sandbox profile (`read_only` /
+  `workspace_write` / `full`, never above its parent's), timeout (max 2400s,
+  under the queue's 45-minute stale reclaim) and no memory access. Up to
+  `delegation.max_concurrent` (3) run in parallel; the cap is enforced inside
+  the claim transaction. Cancel kills a running child. Children are never
+  auto-retried and an overdue one is failed, not requeued, if its worker dies.
+  Design and decisions: `docs/delegation_workorder.md`.
+- **The scheduler now runs three lanes** (main, long, delegate), so a
+  30-minute `plan.run` / `task.run_codex` no longer delays reminders and
+  background jobs. `run_scheduler_loop(lanes=False)` restores the old behavior.
 - **Fixed:** executed `task.run_codex` jobs never became self-episodes because
   the biography list named the pre-rename `task.codex`.
 

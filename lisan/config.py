@@ -90,6 +90,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # directly, so this entry is not consulted today; it is here so the
         # name resolves correctly if either one ever routes through LisanLLM.
         "codex":              {"low": "codex", "medium": "codex", "high": "codex"},
+        "delegate":           {"low": "codex", "medium": "codex", "high": "codex"},
         "provider_check":     {"low": "codex", "medium": "codex", "high": "codex"},
         "self_repair_author": {"low": "codex", "medium": "codex", "high": "codex"},
     },
@@ -211,6 +212,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # maintenance (analyst/dreamer) stays queued for batch/cron. Set False
         # for a pure-async caller that runs its own worker.
         "drain_on_capture": True,
+    },
+    # Delegated workers (lisan/tools/delegation.py, docs/delegation_workorder.md).
+    "delegation": {
+        # How many delegated children run at once (the scheduler's delegate lane).
+        "max_concurrent": 3,
+        # Queued + running children allowed at once; delegate() refuses beyond it.
+        "max_outstanding": 12,
+        # Wall limit for a child that does not name one. Hard ceiling is 2400s:
+        # the queue requeues any job "running" past 45 minutes, so a longer
+        # child would be run twice.
+        "default_timeout_seconds": 900,
     },
     "backup": {
         "destination_dir": "backups",

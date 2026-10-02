@@ -502,16 +502,33 @@ def _deliver_owner_message(
 
 # ── The resident scheduler loop ──────────────────────────────────────────────
 
-def seconds_until_next_due(*, db_path: Path | None = None, ceiling: float = 30.0) -> float:
+def seconds_until_next_due(
+    *,
+    db_path: Path | None = None,
+    ceiling: float = 30.0,
+    job_types: frozenset[str] | set[str] | None = None,
+    exclude_types: frozenset[str] | set[str] | None = None,
+) -> float:
     """How long the loop may sleep: time to the earliest pending row, capped
-    at ``ceiling`` so work scheduled by other processes is noticed promptly."""
+    at ``ceiling`` so work scheduled by other processes is noticed promptly.
+    ``job_types`` / ``exclude_types`` scope the question to one lane, so a
+    queued job another lane owns never keeps this one awake."""
     import sqlite3
 
+    clause = ""
+    params: list[str] = []
+    if job_types:
+        clause += f" AND job_type IN ({', '.join('?' for _ in job_types)})"
+        params += sorted(job_types)
+    if exclude_types:
+        clause += f" AND job_type NOT IN ({', '.join('?' for _ in exclude_types)})"
+        params += sorted(exclude_types)
     conn = _db_connect(db_path)
     try:
         try:
             immediate = conn.execute(
-                "SELECT 1 FROM jobs WHERE status = 'queued' AND scheduled_for IS NULL LIMIT 1"
+                "SELECT 1 FROM jobs WHERE status = 'queued' AND scheduled_for IS NULL" + clause + " LIMIT 1",
+                params,
             ).fetchone()
             if immediate:
                 return 0.0
@@ -520,6 +537,8 @@ def seconds_until_next_due(*, db_path: Path | None = None, ceiling: float = 30.0
                 SELECT MIN(scheduled_for) FROM jobs
                 WHERE status IN ('queued', 'retry_wait') AND scheduled_for IS NOT NULL
                 """
+                + clause,
+                params,
             ).fetchone()
         except sqlite3.OperationalError:
             return ceiling
@@ -534,6 +553,95 @@ def seconds_until_next_due(*, db_path: Path | None = None, ceiling: float = 30.0
     return min(max(delta, 0.0), ceiling)
 
 
+# Lanes. Long-running work must not hold up short work: before lanes, one
+# 30-minute codex plan step delayed every reminder behind it.
+#   main     everything not named below, serially, as always
+#   long     plan.run and task.run_codex: one at a time, as before, but off main
+#   delegate agent.delegate children: up to delegation.max_concurrent at once
+LONG_LANE_TYPES = frozenset({"plan.run", "task.run_codex"})
+DELEGATE_LANE_TYPES = frozenset({"agent.delegate"})
+LANE_TYPES = LONG_LANE_TYPES | DELEGATE_LANE_TYPES
+_LANE_POLL_SECONDS = 5.0
+_LANE_BLOCKED_WAIT_SECONDS = 1.0
+
+
+def _lane_loop(
+    *,
+    job_types: frozenset[str],
+    type_limits: dict[str, int] | None,
+    vault: Path,
+    db_path: Path | None,
+    provider: str | None,
+    model: str | None,
+    poll_seconds: float,
+    stop_event: threading.Event,
+    send_fn: Callable[[str, int | None], Any] | None,
+    on_tick: Callable[[dict[str, Any]], None] | None,
+) -> None:
+    """One worker thread draining a lane, one job at a time, until stopped."""
+    from .log import log_error
+
+    while not stop_event.is_set():
+        processed = 0
+        try:
+            summary = _run_worker_with_delivery(
+                vault=vault, db_path=db_path, provider=provider, model=model, send_fn=send_fn,
+                job_types=set(job_types), max_jobs=1, type_limits=type_limits,
+            )
+            processed = int(summary.get("processed_count") or 0)
+            if on_tick is not None and processed:
+                on_tick(summary)
+        except Exception as exc:
+            try:
+                log_error(vault, "scheduler lane failed", exc)
+            except Exception:
+                pass
+        if processed:
+            continue  # look for the next one straight away
+        # Nothing claimed. If a job is queued anyway the lane is at its cap:
+        # wait briefly rather than spin.
+        wait = seconds_until_next_due(db_path=db_path, ceiling=poll_seconds, job_types=job_types)
+        stop_event.wait(max(wait, _LANE_BLOCKED_WAIT_SECONDS))
+
+
+def _start_lanes(
+    *,
+    vault: Path,
+    db_path: Path | None,
+    provider: str | None,
+    model: str | None,
+    stop_event: threading.Event,
+    send_fn: Callable[[str, int | None], Any] | None,
+    on_tick: Callable[[dict[str, Any]], None] | None,
+) -> list[threading.Thread]:
+    from ..config import load_config
+    from .delegation import JOB_TYPE as DELEGATE_JOB, max_concurrent
+
+    workers = max_concurrent(load_config())
+    common = dict(
+        vault=vault, db_path=db_path, provider=provider, model=model,
+        poll_seconds=_LANE_POLL_SECONDS, stop_event=stop_event, send_fn=send_fn, on_tick=on_tick,
+    )
+    threads = [
+        threading.Thread(
+            target=_lane_loop, name="lisan-lane-long", daemon=True,
+            kwargs=dict(common, job_types=LONG_LANE_TYPES, type_limits=None),
+        )
+    ]
+    for i in range(workers):
+        threads.append(
+            threading.Thread(
+                target=_lane_loop, name=f"lisan-lane-delegate-{i + 1}", daemon=True,
+                # the limit is checked inside the claim transaction, so it holds
+                # across every thread and process sharing this queue
+                kwargs=dict(common, job_types=DELEGATE_LANE_TYPES, type_limits={DELEGATE_JOB: workers}),
+            )
+        )
+    for thread in threads:
+        thread.start()
+    return threads
+
+
 def run_scheduler_loop(
     *,
     vault: Path,
@@ -545,6 +653,7 @@ def run_scheduler_loop(
     max_ticks: int | None = None,
     send_fn: Callable[[str, int | None], Any] | None = None,
     on_tick: Callable[[dict[str, Any]], None] | None = None,
+    lanes: bool = True,
 ) -> int:
     """Tick until stopped: drain everything due, sleep until the next row.
 
@@ -558,10 +667,25 @@ def run_scheduler_loop(
 
     stop_event = stop_event or threading.Event()
     ticks = 0
+    lane_threads: list[threading.Thread] = []
+    exclude = LANE_TYPES if lanes else None
+    if lanes:
+        try:
+            lane_threads = _start_lanes(
+                vault=vault, db_path=db_path, provider=provider, model=model,
+                stop_event=stop_event, send_fn=send_fn, on_tick=on_tick,
+            )
+        except Exception as exc:
+            exclude = None  # lanes failed to start: the main lane takes everything, as before
+            try:
+                log_error(vault, "scheduler lanes failed to start", exc)
+            except Exception:
+                pass
     while not stop_event.is_set():
         try:
             summary = _run_worker_with_delivery(
-                vault=vault, db_path=db_path, provider=provider, model=model, send_fn=send_fn
+                vault=vault, db_path=db_path, provider=provider, model=model, send_fn=send_fn,
+                exclude_job_types=set(exclude) if exclude else None,
             )
             if on_tick is not None and summary.get("processed_count"):
                 on_tick(summary)
@@ -573,7 +697,11 @@ def run_scheduler_loop(
         ticks += 1
         if max_ticks is not None and ticks >= max_ticks:
             break
-        stop_event.wait(seconds_until_next_due(db_path=db_path, ceiling=poll_seconds))
+        stop_event.wait(seconds_until_next_due(db_path=db_path, ceiling=poll_seconds, exclude_types=exclude))
+    if lane_threads:
+        stop_event.set()  # max_ticks ended the loop: tell the lanes too
+        for thread in lane_threads:
+            thread.join(timeout=2)  # a running child is the reaper's concern, not worth blocking exit
     return ticks
 
 
@@ -627,12 +755,13 @@ def _run_worker_with_delivery(
     provider: str | None,
     model: str | None,
     send_fn: Callable[[str, int | None], Any] | None,
+    **worker_kwargs: Any,
 ) -> dict[str, Any]:
     from .jobs import run_jobs_worker
 
     _send_fn_local.value = send_fn
     try:
-        return run_jobs_worker(vault=vault, db_path=db_path, provider=provider, model=model)
+        return run_jobs_worker(vault=vault, db_path=db_path, provider=provider, model=model, **worker_kwargs)
     finally:
         _send_fn_local.value = None
 

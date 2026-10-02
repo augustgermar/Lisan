@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..paths import repo_root
 from ..tools.structured import extract_json
@@ -29,7 +29,15 @@ class CodexClient(ProviderClient):
         significance: str = "medium",
         model: str | None = None,
         working_directory: Path | None = None,
+        sandbox_mode: str | None = None,
+        on_start: Callable[[int], None] | None = None,
+        timeout_seconds: float | None = None,
     ) -> LLMResponse:
+        # `timeout_seconds` pins this call's wall limit over the config value.
+        # `sandbox_mode` pins this one call's sandbox, beating every config
+        # knob (delegated children carry their own scoped authority).
+        # `on_start(pid)` fires once the process exists, so a caller can
+        # record who to signal if the run must be cancelled.
         # The coding agent occasionally returns a truncated JSON response — the model
         # finishes mid-key when the streaming session is cut short by the
         # backend. The reply is unrecoverable, but a single fresh invocation
@@ -41,6 +49,7 @@ class CodexClient(ProviderClient):
                     prompt=prompt, schema=schema, temperature=temperature,
                     agent=agent, significance=significance, model=model,
                     working_directory=working_directory,
+                    sandbox_mode=sandbox_mode, on_start=on_start, timeout_seconds=timeout_seconds,
                 )
             except ProviderError as exc:
                 if not _is_truncated_json_error(exc):
@@ -59,7 +68,12 @@ class CodexClient(ProviderClient):
         significance: str,
         model: str | None,
         working_directory: Path | None,
+        sandbox_mode: str | None = None,
+        on_start: Callable[[int], None] | None = None,
+        timeout_seconds: float | None = None,
     ) -> LLMResponse:
+        if sandbox_mode is not None and sandbox_mode not in SANDBOX_MODES:
+            raise ProviderError(f"unknown sandbox mode {sandbox_mode!r}; expected one of {sorted(SANDBOX_MODES)}")
         binary = os.getenv(self.config["providers"]["codex"].get("binary_env") or "", "codex")
         chosen_model = model or self.config["providers"]["codex"].get("default_model") or None
         if not binary:
@@ -86,8 +100,8 @@ class CodexClient(ProviderClient):
         try:
             args = [binary, "exec", "--skip-git-repo-check", "--cd", str(working_directory or repo_root())]
             codex_config = (self.config.get("providers") or {}).get("codex") or {}
-            mode = _resolve_sandbox_mode(agent, codex_config)
-            timeout = _resolve_timeout(codex_config)
+            mode = sandbox_mode or _resolve_sandbox_mode(agent, codex_config)
+            timeout = float(timeout_seconds) if timeout_seconds else _resolve_timeout(codex_config)
             if mode == "danger-full-access":
                 args.append("--dangerously-bypass-approvals-and-sandbox")
             else:
@@ -117,9 +131,10 @@ class CodexClient(ProviderClient):
                         working_directory=working_directory or repo_root(),
                         started=started,
                         timeout=timeout,
+                        on_start=on_start,
                     )
                 else:
-                    proc = _run_batch(args, prompt=full_prompt, env=env, timeout=timeout)
+                    proc = _run_batch(args, prompt=full_prompt, env=env, timeout=timeout, on_start=on_start)
             except subprocess.TimeoutExpired as exc:
                 raise ProviderError(_timeout_message(exc.timeout)) from exc
             except OSError as exc:
@@ -160,6 +175,18 @@ class CodexClient(ProviderClient):
 # Adjutant forever. Generous, because real tasks (builds, audits) are long.
 DEFAULT_TIMEOUT_SECONDS = 1800
 
+SANDBOX_MODES = frozenset({"read-only", "workspace-write", "danger-full-access"})
+
+
+def _announce_pid(on_start: Callable[[int], None] | None, proc: subprocess.Popen) -> None:
+    """Tell the caller who to signal. A failing callback must never fail the run."""
+    if on_start is None:
+        return
+    try:
+        on_start(proc.pid)
+    except Exception:
+        pass
+
 
 def _resolve_timeout(codex_config: dict[str, Any]) -> float | None:
     """Wall-clock limit for one `codex exec`, in seconds.
@@ -198,7 +225,12 @@ def _kill_group(proc: subprocess.Popen) -> None:
 
 
 def _run_batch(
-    args: list[str], *, prompt: str, env: dict[str, str], timeout: float | None
+    args: list[str],
+    *,
+    prompt: str,
+    env: dict[str, str],
+    timeout: float | None,
+    on_start: Callable[[int], None] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """subprocess.run, but in its own session so a timeout (or Ctrl-C) can
     take down the whole process group, not just the direct child."""
@@ -211,6 +243,7 @@ def _run_batch(
         env=env,
         start_new_session=True,
     )
+    _announce_pid(on_start, proc)
     try:
         stdout, stderr = proc.communicate(input=prompt, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -279,6 +312,7 @@ def _run_codex_process(
     working_directory: Path,
     started: float,
     timeout: float | None = None,
+    on_start: Callable[[int], None] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run Codex while publishing bounded, non-sensitive progress events."""
     # JSONL exposes safe lifecycle events (command started/completed, turn
@@ -297,6 +331,7 @@ def _run_codex_process(
         env=env,
         start_new_session=True,
     )
+    _announce_pid(on_start, proc)
     assert proc.stdin is not None
     proc.stdin.write(prompt)
     proc.stdin.close()
