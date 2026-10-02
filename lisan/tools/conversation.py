@@ -499,6 +499,11 @@ def _queue_observation(
             "text": text,
             "response": response,
             "tool_calls": _compact_tool_calls(tool_calls),
+            # For the learning loop only: the pipeline above reads the compact
+            # form (it goes into a prompt), but what an executor reported back is
+            # exactly what a reviewer needs and 1 in 5 real results was cut at
+            # 1500 characters. Generous caps; never read by the memory pipeline.
+            "tool_calls_full": _full_tool_calls(tool_calls),
             "conversation_id": conversation_id,
         }
         # Retried, not just best-effort: dropping this silently is a real
@@ -510,6 +515,20 @@ def _queue_observation(
     except Exception as exc:
         log_error(vault, "conversation.queue_observation", exc)
         return None
+
+
+_FULL_CALLS = 40
+_FULL_RESULT_CHARS = 20_000
+
+
+def _full_tool_calls(tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out = []
+    for call in tool_calls[:_FULL_CALLS]:
+        result = str(call.get("result") or "")
+        if len(result) > _FULL_RESULT_CHARS:
+            result = result[: _FULL_RESULT_CHARS - 1] + "…"
+        out.append({"tool": call.get("tool"), "args": call.get("args"), "result": result})
+    return out
 
 
 def _compact_tool_calls(tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:

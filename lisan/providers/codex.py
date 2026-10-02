@@ -481,6 +481,22 @@ _LINE_CAP = 400
 _TEXT_CAP = 6000
 
 
+# Patterns for text that is KEPT (learning events live forever and are shown to a
+# reviewing model), as opposed to text merely displayed. Everything except the
+# generic `--flag value` rule (index 9): that one is right for a progress line,
+# but it masks CLI instructions like `--client-secret-file x.json`, and a
+# procedure that is just such a command is exactly what must survive. Measured on
+# real history: its only two matches were that, never a credential.
+STRICT_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = _SECRET_PATTERNS[:9] + _SECRET_PATTERNS[10:]
+
+
+def mask_secrets_strict(text: str) -> str:
+    """Mask credentials in text that will be stored, keeping CLI instructions."""
+    for pattern, replacement in STRICT_SECRET_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
 def _mask_secrets(text: str) -> str:
     """Replace credential values with a mask, keeping the surrounding text."""
     for pattern, replacement in _SECRET_PATTERNS:

@@ -123,6 +123,22 @@ def _utc(ts: float | None = None) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
 
 
+def mask_deep(value: Any) -> Any:
+    """Mask credentials in every string of a structure before it is frozen. An
+    event is kept indefinitely, copied into backups, and later shown to a
+    reviewing model; a token the owner once pasted into chat must not ride along.
+    The originals stay where they were (the transcripts); only this copy is masked."""
+    from ..providers.codex import mask_secrets_strict
+
+    if isinstance(value, str):
+        return mask_secrets_strict(value)
+    if isinstance(value, list):
+        return [mask_deep(v) for v in value]
+    if isinstance(value, dict):
+        return {k: mask_deep(v) for k, v in value.items()}
+    return value
+
+
 def _clip(text: Any, limit: int = _MAX_TEXT) -> str:
     text = str(text if text is not None else "")
     return text if len(text) <= limit else text[: limit - 1] + "…"
@@ -345,13 +361,13 @@ def _base_event(
         "occurred_at": occurred_at or _utc(),
         "conversation_id": conversation_id,
         "outcome": outcome,
-        "summary": _clip(summary, 300),
+        "summary": mask_deep(_clip(summary, 300)),
         "tool_call_count": len(tool_calls),
         "tools": sorted({str(c.get("tool") or "") for c in tool_calls}),
         "skills_used": skills,
         "sources": sources,
         "tainted": tainted,
-        "payload": payload,
+        "payload": mask_deep(payload),
         "refs": refs or {},
     }
 
@@ -383,7 +399,10 @@ def record_turn_event(
     conversation_id = str(payload.get("conversation_id") or "") or None
     if is_eval_conversation(conversation_id):
         return None
-    calls = [c for c in (payload.get("tool_calls") or []) if isinstance(c, dict)]
+    # the full-length record when the turn carried one (newer turns), else the
+    # compact form every older capture.observe payload has
+    raw_calls = payload.get("tool_calls_full") or payload.get("tool_calls") or []
+    calls = [c for c in raw_calls if isinstance(c, dict)]
     used = skills_used(calls, known_skills(skills_dir))
     outcome = "tool_error" if _tool_error(calls) else "no_error_seen"
     external = sources_from_tool_calls(calls)
@@ -412,7 +431,10 @@ def record_turn_event(
         sources=sources, tainted=tainted,
         payload={
             "text": _clip(payload.get("text")), "response": _clip(payload.get("response")),
-            "tool_calls": calls, "tool_calls_truncated_upstream": len(calls) >= 10,
+            "tool_calls": calls,
+            # honest about what the reviewer is NOT seeing: the compact form keeps
+            # 10 calls of 1500 chars; the full form 40 of 20000
+            "tool_calls_truncated_upstream": len(calls) >= (40 if payload.get("tool_calls_full") else 10),
         },
         refs={"job_id": job_id},
     )
