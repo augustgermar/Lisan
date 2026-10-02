@@ -847,6 +847,9 @@ def build_parser() -> argparse.ArgumentParser:
     plan_cancel = plan_subparsers.add_parser("cancel", help="Cancel an active plan")
     plan_cancel.add_argument("plan_id")
     plan_cancel.add_argument("--db-path", type=Path, default=None)
+    plan_resume = plan_subparsers.add_parser("resume", help="Resume a failed plan from the step that failed")
+    plan_resume.add_argument("plan_id")
+    plan_resume.add_argument("--db-path", type=Path, default=None)
     plan_ingest = plan_subparsers.add_parser("ingest-folder", help="Autonomously ingest a folder of notes, in batches, surfacing questions")
     plan_ingest.add_argument("path", type=Path)
     plan_ingest.add_argument("--batch", type=int, default=6, help="Files per codex step")
@@ -1798,6 +1801,16 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             print(f"✗ No active plan {args.plan_id}")
             return 1
+        if args.plan_command == "resume":
+            from .tools.plans import resume_plan
+
+            try:
+                summary = resume_plan(args.plan_id, db_path=args.db_path)
+            except ValueError as exc:
+                print(f"✗ {exc}")
+                return 1
+            print(f"✓ Resumed {summary['plan_id']} from step {summary['resumed_from_step']}")
+            return 0
         if args.plan_command == "ingest-folder":
             from .tools.plans import build_folder_ingestion_plan
 

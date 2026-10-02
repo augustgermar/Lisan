@@ -354,7 +354,9 @@ def reclaim_stale_runs(
     """
     now = time.time() if now is None else now
     finished = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
-    for row in conn.execute("SELECT id, started FROM task_runs WHERE finished IS NULL").fetchall():
+    for row in conn.execute(
+        "SELECT id, started FROM task_runs WHERE finished IS NULL AND origin = 'adjutant'"
+    ).fetchall():
         age = _stamp_age_seconds(str(row[1]), now)
         if age is not None and age >= stale_seconds:
             conn.execute(
@@ -401,7 +403,7 @@ def _execute_and_report(
     attempt = _next_attempt(conn, task.task_id)
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     cursor = conn.execute(
-        "INSERT INTO task_runs (task_id, attempt, started) VALUES (?, ?, ?)",
+        "INSERT INTO task_runs (task_id, attempt, started, origin) VALUES (?, ?, ?, 'adjutant')",
         (task.task_id, attempt, started),
     )
     run_row = cursor.lastrowid

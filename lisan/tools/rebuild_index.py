@@ -434,6 +434,9 @@ def ensure_index_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_SQL)
     _ensure_files_columns(conn)
     ensure_jobs_table(conn)
+    from .run_ledger import ensure_table as ensure_task_runs_origin
+
+    ensure_task_runs_origin(conn)
     ensure_ingestion_manifest_table(conn)
     ensure_ingestion_batches_table(conn)
     from .record_quarantine import ensure_record_quarantine_table

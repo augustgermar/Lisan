@@ -8,6 +8,7 @@ from unittest.mock import patch
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools import plans
 from lisan.tools.jobs import get_job, list_jobs, run_jobs_worker
+from lisan.tools.plans import _report_to_memory as _real_report_to_memory
 from lisan.tools.plans import (
     active_plans,
     cancel_plan,
@@ -25,8 +26,13 @@ class _Env(unittest.TestCase):
         self.vault = vault_root(self.root)
         self.db = self.root / "jobs.sqlite"
         self.sent: list[tuple[str, int | None]] = []
+        # Plans report outcomes through the real capture pipeline (an LLM
+        # round trip); tests exercise that path with an injected spy instead.
+        self._memory_report = patch("lisan.tools.plans._report_to_memory")
+        self._memory_report.start()
 
     def tearDown(self):
+        self._memory_report.stop()
         self.tmp.cleanup()
 
 
@@ -307,3 +313,206 @@ class PlanRecursionContainmentTests(_Env):
         )
         self.assertIn("Plan created", out)
         self.assertEqual(len(list_plans(db_path=self.db)), 1)
+
+
+class _CaptureSpy:
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, **kw):
+        self.calls.append(kw)
+        return {"captured": True}
+
+
+def _job_row(db, plan_id):
+    jobs = [j for j in list_jobs(limit=500, db_path=db) if (j.get("payload") or {}).get("plan_id") == plan_id]
+    return jobs
+
+
+class PlanExecutionHardeningTests(_Env):
+    """Phase 2: shared run ledger, intent gate, retry, resume, memory report."""
+
+    def _run(self, complete, *, config=None):
+        with patch("lisan.tools.plans.load_config", return_value=config or {}), \
+                patch("lisan.tools.execution_tools.assemble_context", return_value="(ctx)"), \
+                patch("lisan.providers.codex.CodexClient") as client, \
+                patch("lisan.tools.scheduler._deliver_owner_message") as deliver:
+            client.return_value.complete.side_effect = complete
+            run_jobs_worker(vault=self.vault, db_path=self.db)
+        return deliver
+
+    def _runs(self):
+        import sqlite3
+
+        conn = sqlite3.connect(self.db)
+        try:
+            return conn.execute("SELECT task_id, attempt, exit_status, origin FROM task_runs ORDER BY id").fetchall()
+        finally:
+            conn.close()
+
+    def test_each_step_leaves_a_ledger_row(self):
+        from lisan.providers.base import LLMResponse
+
+        summary = create_plan(
+            goal="ledger", steps=[{"kind": "codex", "description": "a"}, {"kind": "note", "description": "b"}],
+            db_path=self.db,
+        )
+        self._run(lambda prompt, **kw: LLMResponse(text="ok", provider="stub", model="s"))
+        pid = summary["plan_id"]
+        self.assertEqual(self._runs(), [(f"{pid}#step1", 1, "ok", "plan"), (f"{pid}#step2", 1, "ok", "plan")])
+
+    def test_failed_step_is_recorded_failed(self):
+        summary = create_plan(goal="doomed", steps=[{"kind": "codex", "description": "x"}], db_path=self.db)
+        self._run(RuntimeError("boom"))
+        self.assertEqual(self._runs(), [(f"{summary['plan_id']}#step1", 1, "failed", "plan")])
+
+    def test_intent_never_rule_refuses_a_codex_step(self):
+        from types import SimpleNamespace
+
+        create_plan(goal="forbidden", steps=[{"kind": "codex", "description": "wipe it"}], db_path=self.db)
+        verdict = SimpleNamespace(decision="deny", rule="never: destructive", reasons=["no deletes"])
+        calls = []
+        with patch("lisan.tools.execution_tools._chat_intent_verdict", return_value=(verdict, 3)):
+            deliver = self._run(lambda prompt, **kw: calls.append(prompt))
+        self.assertEqual(calls, [])  # codex was never invoked
+        message = deliver.call_args.args[0]
+        self.assertIn("Plan failed", message)
+        self.assertIn("forbids this", message)
+
+    def test_opted_in_retry_reruns_the_same_step_then_succeeds(self):
+        from lisan.providers.base import LLMResponse
+
+        attempts = []
+
+        def flaky(prompt, **kw):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise RuntimeError("transient")
+            return LLMResponse(text="fine", provider="stub", model="s")
+
+        summary = create_plan(
+            goal="flaky", steps=[{"kind": "codex", "description": "try", "retries": 1}], db_path=self.db
+        )
+        deliver = self._run(flaky)
+        self.assertEqual(len(attempts), 2)
+        self.assertIn("Plan completed", deliver.call_args.args[0])
+        pid = summary["plan_id"]
+        self.assertEqual(
+            self._runs(), [(f"{pid}#step1", 1, "failed", "plan"), (f"{pid}#step1", 2, "ok", "plan")]
+        )
+
+    def test_retries_are_bounded_and_default_off(self):
+        calls = []
+
+        def always(prompt, **kw):
+            calls.append(1)
+            raise RuntimeError("nope")
+
+        create_plan(goal="no retry", steps=[{"kind": "codex", "description": "x"}], db_path=self.db)
+        self._run(always)
+        self.assertEqual(len(calls), 1)  # retries default to 0
+        with self.assertRaises(ValueError):
+            create_plan(goal="g", steps=[{"kind": "codex", "description": "x", "retries": 5}], db_path=self.db)
+
+    def test_a_timed_out_step_is_never_retried(self):
+        calls = []
+
+        def hang(prompt, **kw):
+            calls.append(1)
+            raise RuntimeError("coding agent timed out after 1800s and was killed")
+
+        create_plan(goal="slow", steps=[{"kind": "codex", "description": "x", "retries": 2}], db_path=self.db)
+        deliver = self._run(hang)
+        self.assertEqual(len(calls), 1)  # ambiguous state: do not run it twice
+        self.assertIn("Plan failed", deliver.call_args.args[0])
+
+    def test_resume_restarts_from_the_failed_step_and_keeps_earlier_results(self):
+        from lisan.providers.base import LLMResponse
+        from lisan.tools.plans import resume_plan
+
+        summary = create_plan(
+            goal="resumable",
+            steps=[
+                {"kind": "note", "description": "first"},
+                {"kind": "codex", "description": "second"},
+                {"kind": "note", "description": "third"},
+            ],
+            db_path=self.db,
+        )
+        self._run(RuntimeError("boom"))
+        plan = list_plans(db_path=self.db)[0]
+        self.assertEqual(plan["steps_done"], 1)
+        resumed = resume_plan(summary["plan_id"], db_path=self.db)
+        self.assertEqual(resumed["resumed_from_step"], 2)
+        prompts = []
+
+        def ok(prompt, **kw):
+            prompts.append(prompt)
+            return LLMResponse(text="recovered", provider="stub", model="s")
+
+        deliver = self._run(ok)
+        self.assertEqual(len(prompts), 1)  # only the failed step re-ran
+        self.assertIn("first", prompts[0])  # and it still sees the earlier result
+        self.assertIn("Plan completed", deliver.call_args.args[0])
+        self.assertEqual(list_plans(db_path=self.db)[0]["steps_done"], 3)
+
+    def test_resume_refuses_active_finished_and_unknown_plans(self):
+        from lisan.tools.plans import resume_plan
+
+        summary = create_plan(goal="live", steps=[{"kind": "note", "description": "x"}], db_path=self.db)
+        with self.assertRaisesRegex(ValueError, "still active"):
+            resume_plan(summary["plan_id"], db_path=self.db)
+        self._run(RuntimeError("unused"))  # runs the note step to completion
+        with self.assertRaisesRegex(ValueError, "no failed step"):
+            resume_plan(summary["plan_id"], db_path=self.db)
+        with self.assertRaisesRegex(ValueError, "no plan"):
+            resume_plan("plan.nope", db_path=self.db)
+
+    def test_outcome_is_reported_through_capture(self):
+        real_report = _real_report_to_memory
+        spy = _CaptureSpy()
+        payload = {
+            "plan_id": "plan.abc", "goal": "audit the box", "report_path": "/v/reports/plan.abc.md",
+            "steps": [
+                {"kind": "codex", "description": "collect", "status": "done"},
+                {"kind": "codex", "description": "analyze", "status": "failed", "result": "ssh refused"},
+            ],
+        }
+        self._memory_report.stop()
+        try:
+            real_report(payload, vault=self.vault, status="failed", capture=spy)
+        finally:
+            self._memory_report.start()
+        self.assertEqual(len(spy.calls), 1)
+        call = spy.calls[0]
+        self.assertEqual(call["conversation_id"], "adjutant")
+        self.assertIn("plan.abc (plan): FAILURE", call["text"])
+        self.assertIn("ssh refused", call["text"])
+        self.assertIn("audit the box", call["text"])
+
+    def test_a_failing_capture_never_breaks_the_plan(self):
+        real_report = _real_report_to_memory
+
+        def boom(**kw):
+            raise RuntimeError("pipeline down")
+
+        payload = {"plan_id": "plan.x", "goal": "g", "steps": [{"kind": "note", "description": "d", "status": "done"}]}
+        self._memory_report.stop()
+        try:
+            real_report(payload, vault=self.vault, status="completed", capture=boom)  # must not raise
+        finally:
+            self._memory_report.start()
+
+
+class PlanProgressOrderingTests(unittest.TestCase):
+    def test_resumed_chain_outranks_failed_chain_even_with_identical_timestamps(self):
+        stamp = "2026-10-02T12:00:00"
+        failed = {"created_at": stamp, "payload": {"current_step": 1, "steps": [{}, {"attempts": 1}]}}
+        resumed = {"created_at": stamp, "payload": {"current_step": 1, "resume_count": 1, "steps": [{}, {"attempts": 0}]}}
+        self.assertGreater(plans._plan_progress_key(resumed), plans._plan_progress_key(failed))
+
+    def test_retry_of_the_current_step_outranks_its_first_attempt(self):
+        stamp = "2026-10-02T12:00:00"
+        first = {"created_at": stamp, "payload": {"current_step": 0, "steps": [{"attempts": 1}]}}
+        retry = {"created_at": stamp, "payload": {"current_step": 0, "steps": [{"attempts": 2}]}}
+        self.assertGreater(plans._plan_progress_key(retry), plans._plan_progress_key(first))
