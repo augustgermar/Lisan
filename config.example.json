@@ -201,6 +201,7 @@
     "__comment": "Delegated workers. max_concurrent children run at once; max_outstanding bounds queued+running; a child's timeout is capped at 2400s because the queue requeues jobs running past 45 minutes.",
     "max_concurrent": 3,
     "max_outstanding": 12,
+    "max_children": 6,
     "default_timeout_seconds": 900
   },
   "retrieval": {

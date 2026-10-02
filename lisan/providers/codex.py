@@ -216,12 +216,16 @@ def _timeout_message(seconds: float | None) -> str:
 
 
 def _kill_group(proc: subprocess.Popen) -> None:
-    """Kill codex and everything it spawned. `codex exec` runs shell commands;
-    killing only the direct child would orphan a hung one (ssh, a build)."""
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, OSError):
-        proc.kill()
+    """Kill codex and everything it spawned. `codex exec` runs each shell
+    command in its OWN process group, so signalling codex's group misses the
+    real work (a build, an ssh session); the whole descendant tree goes."""
+    from ..tools.proctree import kill_tree
+
+    if not kill_tree(proc.pid):
+        try:
+            proc.kill()
+        except OSError:
+            pass
 
 
 def _run_batch(

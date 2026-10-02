@@ -219,6 +219,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_concurrent": 3,
         # Queued + running children allowed at once; delegate() refuses beyond it.
         "max_outstanding": 12,
+        # Children one fan-out step or one chat delegate call may start.
+        "max_children": 6,
         # Wall limit for a child that does not name one. Hard ceiling is 2400s:
         # the queue requeues any job "running" past 45 minutes, so a longer
         # child would be run twice.

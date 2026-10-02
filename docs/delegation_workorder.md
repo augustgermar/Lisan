@@ -1,7 +1,8 @@
 # Delegation work order
 
-Status: **steps 1-3 built (2026-10-02); paused for a real-world trial before
-steps 4-5 (plan `fanout`, chat `delegate` tool).**
+Status: **steps 1-5 built and trialled (2026-10-02).** Still to do: restart the
+Telegram bot and watch it with the lanes and the `delegate` tool; Phase 4 (the
+learning loop) builds on the briefs and results this layer keeps.
 Author: Claude (Sonnet 5.5) with August, 2026-10-02. Follows the
 execution-hardening branch (`fc2eacd`, `a7aa7d5`).
 
@@ -220,3 +221,77 @@ episode query only covers succeeded/failed); the scheduler process leaves
 `child_pid` to be cleared by the worker thread, so a SIGKILLed scheduler relies on
 the reaper (unit-tested, not exercised live); no token/cost accounting exists, so
 the only budgets are counts and wall time.
+
+## Steps 4-5: design as built (refines §4-§5 above)
+
+**The join is a table, not payload state.** `delegation_groups(group_id, kind,
+parent_ref, child_job_ids, continuation_type, continuation_payload, state)`.
+`settle_groups()` finds waiting groups whose children are all terminal
+(succeeded / failed / canceled / archived / gone), **enqueues the continuation
+job under a deterministic id** (`job.join.<group_id>`, a duplicate is a no-op),
+then marks the group `settled`. Enqueue-then-mark means a crash between the two
+is repaired by the next sweep. It runs (a) after every child finishes (fast
+path) and (b) at the start of every worker drain (the guarantee: it also covers
+a child cancelled from the CLI, or reaped after a crash).
+
+**Idempotent launch.** Children of a fan-out get deterministic job ids
+(`job.child.<group_id>.<i>`) and `enqueue_job(job_id=)` ignores a duplicate, so
+a re-run of a half-launched fan-out cannot double-launch.
+
+**Plan `fanout` step.** `{kind: "fanout", description, children: [{brief,
+profile?, timeout_seconds?, working_directory?, result_schema?}], join: "all" |
+"best_effort"}`. At most `delegation.max_children` (6). Validated at plan
+creation (profile <= the plan's ceiling, timeout bounds, brief present), so a
+bad fan-out fails fast, not at 3am. The step goes `pending -> waiting ->
+done|failed`; the plan counts as *active* while waiting. `join: all` fails the
+step if any child failed; `best_effort` fails it only if every child failed and
+otherwise continues with the failures listed in the step result. Children are
+never auto-retried; `lisan plan resume` re-runs a failed fan-out as a fresh
+group. `cancel_plan` on a waiting plan cancels its children (killing running
+ones) and ends the plan as `canceled`.
+
+**Chat `delegate` tool.** Asynchronous only: it returns a handle at once. All
+children of one call share a group; when the group settles, one
+`agent.delegate_report` job (long lane) writes **one** capture turn for the whole
+group and sends the owner **one** message with each child's outcome. Refused
+from inside a plan (`_inside_a_plan`), for the same amplification reason as
+`create_plan` and `schedule_task`.
+
+## Steps 4-5 as built, and what the real runs found (2026-10-02)
+
+Built exactly as designed above, plus: `lisan plan add --steps-file steps.json`
+(the way to write a fanout step), `cancel_plan` / `resume_plan` for waiting
+plans, and the owner's completion message for any plan now ends with the last
+step's result (before, a plan ending in a codex step said "completed" and a
+checklist, never the answer).
+
+Real runs (real `codex`, real lanes, scratch queue, owner messages captured to a
+file with `LISAN_NO_OUTBOUND` on):
+
+- A plan with a 3-way fanout (workers counted test functions in three real test
+  files) plus a final step that added them, and a chat `delegate` call with 2
+  more workers: 5 children against 3 slots, never more than 3 running, 46s
+  total. Every count matched `grep` (31, 14, 4 -> 49; 10, 15). One message per
+  group/plan, one capture turn each, both visible in the scratch vault's
+  transcript; both groups `settled`; ledger rows `delegate x5, plan x2`.
+- Cancelling a plan while its workers were running: children `canceled`, plan
+  inactive, no continuation fired.
+
+**Defect found by that second run, fixed:** `codex exec` runs every command in
+its OWN process group, so killing the child's process group (timeout, cancel,
+reaper) left the real work running — a build, an ssh session. The step-2 cancel
+trial passed by luck. Worse, a timed-out call blocked until the orphan finished,
+because the orphan held the output pipe open. Fix: `lisan/tools/proctree.py`
+kills the whole descendant tree found by parent pid (never by name: an unrelated
+Codex desktop daemon runs on this machine), freezing the root first so it cannot
+spawn mid-walk, and refusing init / ourselves / our ancestors. The test fakes
+now reproduce codex's real shape (a command in a new session); the old
+group-only kill fails 3 of them.
+
+Also fixed on the way: the cancel branches in the worker `continue`d past the
+`max_jobs` check; a plan's failure left later steps `pending` on the job row
+while the report said `skipped`; `delegate()` validation is now shared
+(`normalize_child_spec`) so plan creation rejects a bad fanout up front.
+
+Not done: no token/cost accounting; `task.run_codex` still gets the generic
+second chance after a timeout; a cancelled child writes no self-episode.

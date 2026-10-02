@@ -6,6 +6,7 @@ progress path.
 """
 from __future__ import annotations
 
+import sys
 import time
 from unittest.mock import MagicMock, patch
 
@@ -66,7 +67,12 @@ def _sleepers():
 
 def _fake_codex(tmp_path, monkeypatch):
     script = tmp_path / "fake_codex.sh"
-    script.write_text("#!/bin/sh\ncat >/dev/null\nsleep 61\n", encoding="utf-8")
+    # like the real thing: the long command runs in its OWN session below codex
+    script.write_text(
+        "#!/bin/sh\ncat >/dev/null\n"
+        f"{sys.executable} -c \"import subprocess; subprocess.Popen(['sleep','61'], start_new_session=True).wait()\"\n",
+        encoding="utf-8",
+    )
     script.chmod(0o755)
     monkeypatch.setenv("FAKE_CODEX_BIN", str(script))
     return {"providers": {"codex": {"binary_env": "FAKE_CODEX_BIN", "timeout_seconds": 1}}}

@@ -516,3 +516,26 @@ class PlanProgressOrderingTests(unittest.TestCase):
         first = {"created_at": stamp, "payload": {"current_step": 0, "steps": [{"attempts": 1}]}}
         retry = {"created_at": stamp, "payload": {"current_step": 0, "steps": [{"attempts": 2}]}}
         self.assertGreater(plans._plan_progress_key(retry), plans._plan_progress_key(first))
+
+
+class PlanSummaryTests(unittest.TestCase):
+    def _payload(self, kind, result):
+        return {"plan_id": "plan.x", "goal": "add them up", "steps": [
+            {"kind": "note", "description": "start", "status": "done", "result": "start"},
+            {"kind": kind, "description": "total them", "status": "done", "result": result},
+        ]}
+
+    def test_a_completed_plan_tells_the_owner_what_it_found(self):
+        message = plans._summary_message(self._payload("codex", "49"), status="completed")
+        self.assertIn("Plan completed: add them up", message)
+        self.assertTrue(message.rstrip().endswith("Result: 49"))
+
+    def test_long_results_are_truncated_and_a_closing_note_adds_nothing(self):
+        long = plans._summary_message(self._payload("fanout", "x" * 2000), status="completed")
+        self.assertLess(len(long), 1000)
+        self.assertNotIn("Result:", plans._summary_message(self._payload("note", "just a note"), status="completed"))
+
+    def test_a_failed_plan_shows_no_result_line(self):
+        payload = self._payload("codex", "49")
+        payload["steps"][1]["status"] = "failed"
+        self.assertNotIn("Result:", plans._summary_message(payload, status="failed"))

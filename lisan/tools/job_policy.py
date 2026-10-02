@@ -42,6 +42,7 @@ DEFAULT_JOB_PRIORITIES = {
     "task.run_codex": 12,
     "plan.run": 15,
     "agent.delegate": 14,
+    "agent.delegate_report": 16,
     "capture.observe": 22,
 }
 
@@ -77,6 +78,7 @@ NO_COALESCE = {
     "plan.run",
     # One row per child; two identical briefs are still two commitments.
     "agent.delegate",
+    "agent.delegate_report",
     "capture.observe",
 }
 

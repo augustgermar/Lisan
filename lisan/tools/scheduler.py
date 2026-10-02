@@ -556,9 +556,10 @@ def seconds_until_next_due(
 # Lanes. Long-running work must not hold up short work: before lanes, one
 # 30-minute codex plan step delayed every reminder behind it.
 #   main     everything not named below, serially, as always
-#   long     plan.run and task.run_codex: one at a time, as before, but off main
+#   long     plan.run, task.run_codex and the delegation report (a capture round
+#            trip): one at a time, as before, but off main
 #   delegate agent.delegate children: up to delegation.max_concurrent at once
-LONG_LANE_TYPES = frozenset({"plan.run", "task.run_codex"})
+LONG_LANE_TYPES = frozenset({"plan.run", "task.run_codex", "agent.delegate_report"})
 DELEGATE_LANE_TYPES = frozenset({"agent.delegate"})
 LANE_TYPES = LONG_LANE_TYPES | DELEGATE_LANE_TYPES
 _LANE_POLL_SECONDS = 5.0

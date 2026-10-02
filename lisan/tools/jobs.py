@@ -50,6 +50,7 @@ JOB_TYPES = {
     "task.run_codex",
     "plan.run",
     "agent.delegate",
+    "agent.delegate_report",
     "capture.observe",
     "deviation.scan",
     "enrichment.seek",
@@ -524,7 +525,14 @@ def enqueue_job(
     coalesced_count: int | None = None,
     recurrence: str | None = None,
     db_path: Path | None = None,
+    job_id: str | None = None,
 ) -> str:
+    """Queue a job and return its id.
+
+    ``job_id`` makes the call idempotent: when a job with that id already
+    exists (in any state) it is left untouched and its id returned. Callers
+    that must not double-enqueue across a crash and retry (a join
+    continuation, a fan-out child) derive the id from what they are doing."""
     if job_type not in JOB_TYPES:
         raise ValueError(f"Unsupported job_type: {job_type}")
     payload_obj = payload if payload is not None else {}
@@ -548,7 +556,11 @@ def enqueue_job(
             payload_obj = _payload_with_policy(payload_obj, coalesce_key=coalesce_key, unique_group=unique_group, batch_id=batch_id)
             if batch_id is None:
                 batch_id = str(payload_obj.get("batch_id") or "") or None
-        job_id = f"job.{_iso().replace(':', '').replace('-', '').replace('Z', '')}.{uuid.uuid4().hex[:12]}"
+        if job_id is not None:
+            if conn.execute("SELECT 1 FROM jobs WHERE id = ?", (job_id,)).fetchone():
+                return job_id
+        else:
+            job_id = f"job.{_iso().replace(':', '').replace('-', '').replace('Z', '')}.{uuid.uuid4().hex[:12]}"
         created_at = _iso()
         normalized_payload = payload_obj if isinstance(payload_obj, (dict, list, str)) else {}
         coalesced = _coalesce_or_insert(
@@ -876,16 +888,11 @@ def set_child_pid(job_id: str, pid: int | None, db_path: Path | None = None) -> 
 
 
 def _kill_child_group(pid: int) -> bool:
-    """SIGKILL the child's process group (it was started in its own session).
-    False when there was nothing to kill."""
-    import os
-    import signal
+    """SIGKILL the child and every process it started — including commands it
+    ran in their own process groups. False when there was nothing to kill."""
+    from .proctree import kill_tree
 
-    try:
-        os.killpg(pid, signal.SIGKILL)
-        return True
-    except (ProcessLookupError, PermissionError, OSError):
-        return False
+    return kill_tree(pid)
 
 
 def cancel_job(job_id: str, db_path: Path | None = None) -> dict[str, Any] | None:
@@ -1445,6 +1452,12 @@ def dispatch_job(
 
         return run_delegation(job, vault=vault, db_path=db_path)
 
+    if job_type == "agent.delegate_report":
+        from .delegation import run_delegation_report
+        from .scheduler import current_send_fn
+
+        return run_delegation_report(job, vault=vault, db_path=db_path, send_fn=current_send_fn())
+
     if job_type == "adjutant.cycle":
         # The alarm clock for materialized schedule records: the job only
         # says "check now" — the records decide what is actually due, the
@@ -1600,6 +1613,7 @@ def run_jobs_worker(
         reap_overdue_delegations(db_path, vault=vault)
     except Exception:
         pass
+    _settle_delegation_groups(vault, db_path)  # the guarantee; the per-child call below is the fast path
     reclaimed = reclaim_stale_running_jobs(db_path)
     if reclaimed:
         try:
@@ -1625,15 +1639,16 @@ def run_jobs_worker(
             with hold_awake(f"job {job['id']}", cap_seconds=3600):
                 result = dispatch_job(job, vault=vault, db_path=db_path, provider=provider, model=model)
             if _job_was_canceled(job["id"], db_path):
+                # canceled mid-run: the owner's decision stands
                 processed.append(get_job(job["id"], db_path=db_path) or job)
-                continue  # canceled mid-run: the owner's decision stands
-            validate_job_output(str(job.get("job_type") or ""), result)
-            result_data, result_ref = _normalize_job_result(result)
-            updated = mark_job_succeeded(job["id"], result=result_data, result_ref=result_ref, db_path=db_path)
-            successes.append(updated or job)
-            processed.append(updated or job)
-            _requeue_recurring(job, db_path=db_path)
-            _record_self_episode(vault, updated or job, db_path=db_path)
+            else:
+                validate_job_output(str(job.get("job_type") or ""), result)
+                result_data, result_ref = _normalize_job_result(result)
+                updated = mark_job_succeeded(job["id"], result=result_data, result_ref=result_ref, db_path=db_path)
+                successes.append(updated or job)
+                processed.append(updated or job)
+                _requeue_recurring(job, db_path=db_path)
+                _record_self_episode(vault, updated or job, db_path=db_path)
         except JobDeferred as deferred:
             # Not a failure: no attempt spent, no owner alarm, no episode.
             # The job comes back when the condition it named has had time
@@ -1665,29 +1680,32 @@ def run_jobs_worker(
                     pass
         except Exception as exc:
             if _job_was_canceled(job["id"], db_path):
+                # the kill we sent, not a failure to report
                 processed.append(get_job(job["id"], db_path=db_path) or job)
-                continue  # the kill we sent, not a failure to report
-            updated = mark_job_failed(job["id"], str(exc), retry=True, db_path=db_path)
-            failures.append(updated or job)
-            processed.append(updated or job)
-            # Only reschedule once the failure is terminal — retry_wait means
-            # this occurrence is still in flight and will be retried.
-            if updated is not None and str(updated.get("status")) == "failed":
-                _record_self_episode(vault, updated, db_path=db_path)
-                _requeue_recurring(job, db_path=db_path)
-                # Loud by policy: the owner hears about every terminal
-                # failure, the job gets exactly one second chance, and a
-                # second failure files an investigation. Never raises.
-                from .escalation import escalate_terminal_failure
+            else:
+                updated = mark_job_failed(job["id"], str(exc), retry=True, db_path=db_path)
+                failures.append(updated or job)
+                processed.append(updated or job)
+                # Only reschedule once the failure is terminal — retry_wait means
+                # this occurrence is still in flight and will be retried.
+                if updated is not None and str(updated.get("status")) == "failed":
+                    _record_self_episode(vault, updated, db_path=db_path)
+                    _requeue_recurring(job, db_path=db_path)
+                    # Loud by policy: the owner hears about every terminal
+                    # failure, the job gets exactly one second chance, and a
+                    # second failure files an investigation. Never raises.
+                    from .escalation import escalate_terminal_failure
 
-                escalate_terminal_failure(job, str(exc), vault=vault, db_path=db_path)
-                if str(job.get("job_type")) == "plan.run":
-                    from .plans import handle_terminal_failure
+                    escalate_terminal_failure(job, str(exc), vault=vault, db_path=db_path)
+                    if str(job.get("job_type")) == "plan.run":
+                        from .plans import handle_terminal_failure
 
-                    try:
-                        handle_terminal_failure(job, vault=vault, db_path=db_path)
-                    except Exception:
-                        pass
+                        try:
+                            handle_terminal_failure(job, vault=vault, db_path=db_path)
+                        except Exception:
+                            pass
+        if str(job.get("job_type")) == "agent.delegate":
+            _settle_delegation_groups(vault, db_path)  # fast path: a join may have just become ready
         if max_jobs is not None and len(processed) >= max_jobs:
             break
 
@@ -1702,6 +1720,23 @@ def run_jobs_worker(
         "failures": failures,
         "deferrals": deferrals,
     }
+
+
+def _settle_delegation_groups(vault: Path | None, db_path: Path | None) -> None:
+    """Enqueue the continuation of any delegation group whose children are all
+    finished. Never raises: a join that cannot settle now settles on the next
+    drain, and the group row keeps the promise in between."""
+    try:
+        from .delegation import settle_groups
+
+        settle_groups(db_path)
+    except Exception as exc:
+        try:
+            from .log import log_error
+
+            log_error(vault or vault_root(), "jobs.settle_delegation_groups", exc)
+        except Exception:
+            pass
 
 
 def _record_self_episode(vault: Path | None, job: dict[str, Any], db_path: Path | None = None) -> None:

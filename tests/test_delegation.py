@@ -7,6 +7,8 @@ running child and the worker does not overwrite that with "failed".
 from __future__ import annotations
 
 import sqlite3
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -159,7 +161,12 @@ def test_a_failed_child_raises_and_is_never_requeued(env):
 
 def _fake_codex(tmp_path, monkeypatch):
     script = tmp_path / "fake_codex.sh"
-    script.write_text("#!/bin/sh\ncat >/dev/null\nsleep 62\n", encoding="utf-8")
+    # like the real thing: the long command runs in its OWN session below codex
+    script.write_text(
+        "#!/bin/sh\ncat >/dev/null\n"
+        f"{sys.executable} -c \"import subprocess; subprocess.Popen(['sleep','62'], start_new_session=True).wait()\"\n",
+        encoding="utf-8",
+    )
     script.chmod(0o755)
     monkeypatch.setenv("CODEX_BIN", str(script))
 
@@ -195,6 +202,9 @@ def test_cancel_kills_a_running_child_and_the_job_stays_canceled(env, monkeypatc
     assert not worker.is_alive()
     time.sleep(0.3)
     assert not _alive(pid)
+    assert subprocess.run(["pgrep", "-f", "sleep 62"], capture_output=True).returncode != 0, (
+        "the command the child was running survived the cancel"
+    )
     job = get_job(out["job_id"], db_path=env.db)
     assert job["status"] == "canceled"  # not overwritten with "failed"
     assert job.get("child_pid") in (None, 0)
