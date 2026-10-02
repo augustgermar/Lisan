@@ -61,21 +61,39 @@ def _protected(pid: int, parents: dict[int, int]) -> bool:
 def kill_tree(pid: int) -> bool:
     """SIGKILL `pid` and all its descendants. True if anything was signalled.
 
-    The root's process group is stopped first so it cannot start another
-    command while the tree is being read (killing a parent reparents its
-    children to init, which would lose the link), then everything found is
-    killed, then the group is killed too in case it held anything the walk missed.
+    Killing a parent reparents its children to init, which loses the only link
+    back to them, and a process that is still running can fork while the tree is
+    being read. So: freeze first, read second, and keep freezing. The root's
+    process group is stopped, then the tree is read; every descendant found is
+    stopped too (a command codex ran sits in its OWN group, so the root's freeze
+    does not reach it) and the tree is read again, until a pass finds nothing
+    new. Only then is everything killed, deepest first, and the group last.
+
+    The first version read the tree before freezing it: a command that forked in
+    that gap escaped the kill, and a cancelled worker then hung on its still-open
+    output pipe. It never showed on a quiet machine.
     """
     parents = _parent_map()
     if _protected(pid, parents) or pid not in parents:
         return False
     try:
-        os.killpg(pid, signal.SIGSTOP)  # freeze: no new children while we look
+        os.killpg(pid, signal.SIGSTOP)
     except (ProcessLookupError, PermissionError, OSError):
         pass
-    victims = [v for v in descendants(pid, parents) if not _protected(v, parents)]
+    frozen: list[int] = []
+    for _ in range(_MAX_PASSES):
+        parents = _parent_map()
+        fresh = [v for v in descendants(pid, parents) if v not in frozen and not _protected(v, parents)]
+        if not fresh:
+            break
+        for victim in fresh:
+            try:
+                os.kill(victim, signal.SIGSTOP)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+            frozen.append(victim)
     signalled = False
-    for victim in reversed(victims):  # deepest first
+    for victim in reversed(frozen):  # deepest first
         try:
             os.kill(victim, signal.SIGKILL)
             signalled = True
@@ -89,3 +107,6 @@ def kill_tree(pid: int) -> bool:
         except (ProcessLookupError, PermissionError, OSError):
             continue
     return signalled
+
+
+_MAX_PASSES = 8
