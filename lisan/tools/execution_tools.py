@@ -591,7 +591,9 @@ def skill_tool(*, name: str) -> str:
                 "containing a SKILL.md into the skills directory."
             )
         return f"No skill named {wanted!r}. Installed: {', '.join(sorted(available))}"
-    return render_skill_body(skill)
+    from .skill_lifecycle import status_note
+
+    return status_note(skills_root(), wanted) + render_skill_body(skill)
 
 
 def load_skills_listing() -> list[dict[str, Any]]:
@@ -631,13 +633,20 @@ def agent_tools(skills_dir: Path | None = None) -> list[dict[str, Any]]:
     ]
 
     if usable:
-        catalogue = "\n".join(f"  - {s['name']}: {s['description']}" for s in instructional)
+        from .skill_lifecycle import catalogue_suffix
+
+        root = skills_dir if skills_dir is not None else skills_root()
+        catalogue = "\n".join(
+            f"  - {s['name']}: {s['description']}{catalogue_suffix(root, s['name'])}" for s in instructional
+        )
         description = (
             "Load a skill's full instructions on demand. Skills are procedures the owner "
-            "installed; you see only their names and one-line descriptions until you ask "
+            "installed or that you learned from past work; you see only their names and "
+            "one-line descriptions until you ask "
             "for one, so call this the moment a skill looks relevant and follow what it "
-            "returns. It may point you at supporting files — read those only if its "
-            "instructions send you there."
+            "returns. A skill marked provisional was written by you and has not yet proven "
+            "itself: follow it, but verify. It may point you at supporting files — read those "
+            "only if its instructions send you there."
         )
         if instructional:
             description += f"\n\nAvailable:\n{catalogue}"

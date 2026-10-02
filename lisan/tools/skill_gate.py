@@ -98,6 +98,9 @@ class PlannedChange:
     diff: str
     version_before: str | None = None
     version_after: str | None = None
+    # The text each file had when this change was planned. The applier refuses to
+    # write if the file has changed since: a plan is only valid for the text it saw.
+    old_files: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -107,6 +110,8 @@ class GateVerdict:
     reasons: list[str] = field(default_factory=list)
     change: PlannedChange | None = None
     first_attempt_reasons: list[str] | None = None  # set when this is a revision of a refused proposal
+    applied: Any = None  # skill_apply.Applied once written
+    apply_note: str | None = None  # why an accepted change was not applied (cap, stale, ...)
 
 
 # Reasons that are about safety, not form. A proposal refused for one of these is
@@ -267,7 +272,9 @@ def _provenance(events: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _metadata_updates(provenance: dict[str, Any], *, creating: bool, owner_authored: bool, today: str) -> dict[str, Any]:
+def _metadata_updates(
+    provenance: dict[str, Any], *, creating: bool, owner_authored: bool, today: str, existing_status: str | None = None
+) -> dict[str, Any]:
     updates: dict[str, Any] = {
         "sources": provenance["sources"],
         "tainted": provenance["tainted"],
@@ -278,6 +285,8 @@ def _metadata_updates(provenance: dict[str, Any], *, creating: bool, owner_autho
         updates.update({"origin": "agent", "status": "provisional", "created": today})
     else:
         updates["revised_by"] = "agent"
+        if existing_status == "flagged":
+            updates["status"] = "provisional"  # a revised skill must prove itself again
     return updates
 
 
@@ -414,7 +423,9 @@ def gate_operation(
         # an existing skill with no version is effectively 1.0.0, so its first
         # revision is 1.0.1 (0.1.0 would read as a downgrade)
         md = fm.bump_patch_version(md, default="1.0.1")
-        md = fm.set_metadata(md, _metadata_updates(prov, creating=False, owner_authored=owner_authored, today=today))
+        existing_status = read_provenance(skills_dir, op.skill).get("status")
+        md = fm.set_metadata(md, _metadata_updates(
+            prov, creating=False, owner_authored=owner_authored, today=today, existing_status=existing_status))
         new_files[SKILL_FILE] = md
         version_after = str(parse_frontmatter(md)[0].get("version") or "") or None
 
@@ -441,7 +452,7 @@ def gate_operation(
                    if old_files.get(rel, "") != text)
     change = PlannedChange(
         skill=op.skill, op=op.op, files=new_files, is_new=op.op == "create", provenance=prov, diff=diff,
-        version_before=version_before, version_after=version_after,
+        version_before=version_before, version_after=version_after, old_files=dict(old_files),
     )
     return GateVerdict(op, True, [], change)
 

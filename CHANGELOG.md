@@ -46,6 +46,14 @@
   gate alone is not enough (it passed an owner-description rewrite, a stale lesson
   about approval gates, and a skill naming a retired tool); each is now refused.
   Configure with `learning.mode` (`shadow`), `review_every`, `min_idle_minutes`.
+- **Learning loop, step 3: auto mode and probation.** With `learning.mode: auto`
+  a review applies the changes the gate passes: snapshot first (your original text
+  is kept as `v0`), refuse any plan made against text that has since changed,
+  write atomically, verify, and undo on failure; at most
+  `auto_apply_max_per_review` per review. New skills start provisional and the
+  agent is told so; they are established after proven use (or `lisan skills
+  approve`) and flagged, never deleted, after repeated failure.
+  `lisan learning apply <review_id>` applies a shadow proposal by hand.
 - **Skill history, rollback and portability.** `lisan skills history|diff|
   rollback|pin|unpin|archive|export|import|usage`: snapshots before any change
   (the owner's original is `v0`; `diff --since-owner` shows drift), rollback that

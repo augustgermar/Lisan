@@ -22,7 +22,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import learning
+from .skill_apply import Applied, ApplyRefused, apply_change
 from .skill_gate import GateVerdict, Operation, gate_batch, is_repairable, parse_operations
+from .skill_lifecycle import evaluate_lifecycle
+
+DEFAULT_AUTO_APPLY_CAP = 3  # changes applied per review: a bound on the blast radius of any one review
 
 DEFAULT_CHAR_BUDGET = 160_000
 DEFAULT_MAX_EVENTS = 12
@@ -41,6 +45,11 @@ class ReviewResult:
     reviewer: dict[str, Any] = field(default_factory=dict)
     dry_run: bool = False
     skipped: str | None = None
+    lifecycle: list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def applied(self) -> list[GateVerdict]:
+        return [v for v in self.verdicts if v.applied is not None]
 
     @property
     def accepted(self) -> list[GateVerdict]:
@@ -275,10 +284,76 @@ def run_review(
         review_id=review_id, mode=mode, event_ids=[e["id"] for e in batch],
         summary=str(data.get("summary") or "").strip(), verdicts=verdicts, reviewer=meta, dry_run=dry_run,
     )
+    if mode == "auto" and not dry_run:
+        result.lifecycle = evaluate_lifecycle(skills_dir, db_path)
+        _apply_accepted(result, skills_dir, cap=int(settings.get("auto_apply_max_per_review") or DEFAULT_AUTO_APPLY_CAP))
     result.artifact = write_artifact(vault, result)
     if not dry_run:
         learning.mark_reviewed(vault, db_path, result.event_ids, review_id)
     return result
+
+
+def _apply_accepted(result: ReviewResult, skills_dir: Path, *, cap: int) -> None:
+    """Auto mode: write the changes the gate passed, up to a per-review cap. A
+    change that cannot be applied safely (the file moved on, a pin appeared) is
+    recorded as not applied and never forced."""
+    done = 0
+    for verdict in result.accepted:
+        if done >= cap:
+            verdict.apply_note = f"deferred: this review already applied {cap} change(s) (learning.auto_apply_max_per_review)"
+            continue
+        try:
+            verdict.applied = apply_change(
+                verdict.change, skills_dir=skills_dir, review_id=result.review_id,
+                reason=verdict.op.rationale, events=verdict.change.provenance.get("source_events"),
+            )
+            done += 1
+        except ApplyRefused as exc:
+            verdict.apply_note = f"not applied: {exc}"
+
+
+def apply_review(
+    vault: Path,
+    db_path: Path | None,
+    config: dict[str, Any],
+    review_id: str,
+    *,
+    ops: list[int] | None = None,
+    skills_dir: Path | None = None,
+    today: str | None = None,
+) -> list[GateVerdict]:
+    """The owner applies proposals from a past review by hand (the way to use
+    shadow mode). Each is re-gated against the skills and events as they are NOW
+    before anything is written, so a proposal that has gone stale is refused, not
+    forced. `ops` are 1-based positions as numbered in the artifact."""
+    from ..paths import skills_root
+
+    skills_dir = skills_dir if skills_dir is not None else skills_root()
+    found = list(_artifact_dir(vault).glob(f"*/{review_id}.json"))
+    if not found:
+        raise ValueError(f"no review {review_id!r}")
+    record = json.loads(found[0].read_text(encoding="utf-8"))
+    by_id = {e["id"]: e for e in learning.iter_events(vault) if e["id"] in set(record["events"])}
+    chosen = []
+    for position, item in enumerate(record["operations"], start=1):
+        if ops is not None and position not in ops:
+            continue
+        proposal = dict(item.get("proposal") or {})
+        proposal.update(op=item["op"], skill=item["skill"], evidence=item.get("evidence") or [], rationale=item.get("rationale") or "")
+        chosen.append(Operation(**{k: v for k, v in proposal.items() if k in Operation.__dataclass_fields__}))
+    verdicts = gate_batch(chosen, skills_dir=skills_dir, events=by_id, batch_ids=set(by_id), config=config, today=today)
+    for verdict in verdicts:
+        if not verdict.accepted:
+            continue
+        try:
+            verdict.applied = apply_change(
+                verdict.change, skills_dir=skills_dir, review_id=review_id, actor="owner",
+                reason=f"applied by the owner from {review_id}: {verdict.op.rationale}",
+                events=verdict.change.provenance.get("source_events"),
+            )
+        except ApplyRefused as exc:
+            verdict.apply_note = f"not applied: {exc}"
+    return verdicts
 
 
 def _revise_once(
@@ -347,6 +422,9 @@ def write_artifact(vault: Path, result: ReviewResult) -> Path:
                 "op": v.op.op, "skill": v.op.skill, "file": v.op.file, "evidence": v.op.evidence,
                 "rationale": v.op.rationale, "accepted": v.accepted, "reasons": v.reasons,
                 "first_attempt_reasons": v.first_attempt_reasons,
+                "applied": ({"snapshot": v.applied.snapshot, "version": [v.applied.version_before, v.applied.version_after],
+                             "files": v.applied.files} if v.applied else None),
+                "apply_note": v.apply_note,
                 "diff": v.change.diff if v.change else "",
                 "provenance": v.change.provenance if v.change else None,
                 "version": [v.change.version_before, v.change.version_after] if v.change else None,
@@ -368,8 +446,11 @@ def render_artifact(result: ReviewResult) -> str:
         f"- mode: {result.mode}{' (dry run: nothing marked reviewed)' if result.dry_run else ''}",
         f"- events read: {len(result.event_ids)}",
         f"- proposals: {len([v for v in result.verdicts if v.op.op != 'none'])}"
-        f" — {len(result.accepted)} pass the gate, {len(result.rejected)} refused",
+        f" — {len(result.accepted)} pass the gate, {len(result.rejected)} refused"
+        + (f", {len(result.applied)} applied" if result.mode == "auto" and not result.dry_run else ""),
     ]
+    for change in result.lifecycle:
+        lines.append(f"- lifecycle: `{change['skill']}` {change['from'] or 'unset'} -> {change['to']} ({change['reason']})")
     if result.reviewer:
         lines.append(f"- reviewer: {result.reviewer.get('provider')} {result.reviewer.get('model') or ''}, "
                      f"{result.reviewer.get('seconds')}s, {result.reviewer.get('prompt_chars', 0):,} characters read")
@@ -377,12 +458,18 @@ def render_artifact(result: ReviewResult) -> str:
     for i, v in enumerate(result.verdicts, start=1):
         if v.op.op == "none":
             continue
-        status = "WOULD APPLY" if v.accepted else "REFUSED"
+        status = "APPLIED" if v.applied else ("NOT APPLIED" if v.accepted and v.apply_note else ("WOULD APPLY" if v.accepted else "REFUSED"))
         lines += [f"## {i}. {v.op.op} `{v.op.skill}` — {status}", "", f"Why: {v.op.rationale}", f"Evidence: {', '.join(v.op.evidence) or '-'}"]
         if v.first_attempt_reasons:
             lines.append("Revised once: the first attempt was discarded because " + "; ".join(v.first_attempt_reasons))
         if v.change and v.change.provenance.get("tainted"):
             lines.append(f"Provenance: drew on external sources ({', '.join(v.change.provenance['sources'])})")
+        if v.applied:
+            lines.append(f"Applied: previous version saved as {v.applied.snapshot or '(new skill)'}; "
+                         f"undo with `lisan skills rollback {v.op.skill} {v.applied.snapshot}`" if v.applied.snapshot
+                         else "Applied: a new skill, provisional until it has proven itself.")
+        if v.apply_note:
+            lines.append(v.apply_note)
         if v.accepted and v.change:
             lines += ["", "```diff", v.change.diff.rstrip(), "```"]
         else:
@@ -394,14 +481,18 @@ def render_artifact(result: ReviewResult) -> str:
 def digest(result: ReviewResult) -> str | None:
     """One message for the owner, or None when there is nothing to tell."""
     proposals = [v for v in result.verdicts if v.op.op != "none"]
-    if not proposals:
+    if not proposals and not result.lifecycle:
         return None
     head = f"Learning review: {len(proposals)} proposal(s) from {len(result.event_ids)} event(s) — "
     head += f"{len(result.accepted)} pass the gate, {len(result.rejected)} refused."
+    if result.applied:
+        head += f" {len(result.applied)} applied."
     lines = [head]
     for v in proposals[:6]:
-        mark = "✓" if v.accepted else "✗"
+        mark = "✓✓" if v.applied else ("✓" if v.accepted else "✗")
         lines.append(f"{mark} {v.op.op} {v.op.skill}: {v.op.rationale[:140]}")
+    for change in result.lifecycle[:4]:
+        lines.append(f"• {change['skill']} is now {change['to']} ({change['reason']})")
     lines.append(f"Read it: lisan learning review-show {result.review_id}")
     return "\n".join(lines)
 
@@ -485,7 +576,8 @@ def run_review_job(
     learning.maybe_enqueue_review(vault, db_path, config)  # a backlog drains one batch at a time
     return {
         "review_id": result.review_id, "events": len(result.event_ids), "proposals": len(result.verdicts),
-        "accepted": len(result.accepted), "refused": len(result.rejected), "delivered": delivered,
+        "accepted": len(result.accepted), "refused": len(result.rejected), "applied": len(result.applied),
+        "delivered": delivered,
         "artifact": str(result.artifact) if result.artifact else None, "skipped": result.skipped,
     }
 

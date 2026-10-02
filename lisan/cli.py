@@ -795,6 +795,13 @@ def build_parser() -> argparse.ArgumentParser:
     skills_import.add_argument("--replace", action="store_true", help="Overwrite an installed skill (snapshotted first)")
     skills_import.add_argument("--allow-code", action="store_true", help="Also import tool.py / schema.json / scripts (they would run here)")
     skills_import.add_argument("--skills-dir", type=Path, default=None)
+    skills_approve = skills_subparsers.add_parser("approve", help="Vouch for a skill the agent wrote: it is established, whatever its record")
+    skills_approve.add_argument("name")
+    skills_approve.add_argument("--skills-dir", type=Path, default=None)
+    skills_lifecycle = skills_subparsers.add_parser("lifecycle", help="Promote or flag the agent's own skills from how they have been used")
+    skills_lifecycle.add_argument("--dry-run", action="store_true")
+    skills_lifecycle.add_argument("--skills-dir", type=Path, default=None)
+    skills_lifecycle.add_argument("--db-path", type=Path, default=None)
     skills_usage = skills_subparsers.add_parser("usage", help="Which skills get used, and how it went")
     skills_usage.add_argument("--days", type=int, default=30)
     skills_usage.add_argument("--db-path", type=Path, default=None)
@@ -887,6 +894,11 @@ def build_parser() -> argparse.ArgumentParser:
     learning_review.add_argument("--model", default=None)
     learning_review.add_argument("--vault", type=Path, default=vault_root())
     learning_review.add_argument("--db-path", type=Path, default=None)
+    learning_apply = learning_sub.add_parser("apply", help="Apply proposals from a past review by hand (re-checked against the skills as they are now)")
+    learning_apply.add_argument("review_id")
+    learning_apply.add_argument("--op", type=int, action="append", dest="ops", default=None, help="Only this numbered proposal (repeatable)")
+    learning_apply.add_argument("--vault", type=Path, default=vault_root())
+    learning_apply.add_argument("--db-path", type=Path, default=None)
     learning_reviews = learning_sub.add_parser("reviews", help="List past reviews")
     learning_reviews.add_argument("--vault", type=Path, default=vault_root())
     learning_review_show = learning_sub.add_parser("review-show", help="Read one review: what was found, what would apply, what was refused")
@@ -1657,6 +1669,23 @@ def main(argv: list[str] | None = None) -> int:
             print(_review.render_artifact(res))
             print(f"(artifact: {res.artifact})")
             return 0
+        if args.learning_command == "apply":
+            from .tools import skill_review as _review
+
+            try:
+                verdicts = _review.apply_review(args.vault, _db, _cfg, args.review_id, ops=args.ops)
+            except ValueError as exc:
+                print(f"✗ {exc}")
+                return 1
+            if not verdicts:
+                print("Nothing selected.")
+            for v in verdicts:
+                if v.applied:
+                    undo = f" (undo: lisan skills rollback {v.op.skill} {v.applied.snapshot})" if v.applied.snapshot else " (new skill, provisional)"
+                    print(f"✓ applied {v.op.op} {v.op.skill}{undo}")
+                else:
+                    print(f"✗ {v.op.op} {v.op.skill}: {v.apply_note or '; '.join(v.reasons)}")
+            return 0
         if args.learning_command == "reviews":
             from .tools import skill_review as _review
 
@@ -1683,7 +1712,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
     if args.command == "skills" and args.skills_command in {
-        "history", "pin", "unpin", "archive", "diff", "rollback", "export", "import", "usage",
+        "history", "pin", "unpin", "archive", "diff", "rollback", "export", "import", "usage", "approve", "lifecycle",
     }:
         from .paths import skills_root as _active_skills_root
         from .tools import skill_history as _sh
@@ -1730,6 +1759,20 @@ def main(argv: list[str] | None = None) -> int:
                       + (f"; history versions carried: {out['history_versions']}" if out["history_versions"] else ""))
                 if out["stripped_code"]:
                     print(f"  code not imported: {', '.join(out['stripped_code'])} (use --allow-code if you trust this archive)")
+                return 0
+            if args.skills_command == "approve":
+                from .tools.skill_lifecycle import approve_skill
+
+                print(f"✓ {args.name}: {approve_skill(_dir, args.name)}")
+                return 0
+            if args.skills_command == "lifecycle":
+                from .tools.skill_lifecycle import evaluate_lifecycle
+
+                changes = evaluate_lifecycle(_dir, getattr(args, "db_path", None), apply=not args.dry_run)
+                if not changes:
+                    print("No skill changes standing.")
+                for c in changes:
+                    print(f"{'would be' if args.dry_run else 'now'} {c['to']}: {c['skill']} ({c['reason']})")
                 return 0
             if args.skills_command == "usage":
                 from .tools import learning as _learning
