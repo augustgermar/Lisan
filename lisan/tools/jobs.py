@@ -264,9 +264,11 @@ def _ensure_jobs_columns(conn: sqlite3.Connection) -> None:
         # cancel can signal it. NULL whenever nothing is running.
         "child_pid": "ALTER TABLE jobs ADD COLUMN child_pid INTEGER",
     }
+    from .db import add_column_if_missing
+
     for column, sql in additions.items():
         if column not in existing:
-            conn.execute(sql)
+            add_column_if_missing(conn, "jobs", column, sql)
 
 
 def _payload_with_policy(

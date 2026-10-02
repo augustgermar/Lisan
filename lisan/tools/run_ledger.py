@@ -40,10 +40,10 @@ def _now() -> str:
 def ensure_table(conn: sqlite3.Connection) -> None:
     """Create task_runs if absent and backfill `origin` on older databases.
     Pre-existing rows are the Adjutant's — it was the only writer."""
+    from .db import add_column_if_missing
+
     conn.execute(_DDL)
-    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(task_runs)").fetchall()}
-    if "origin" not in columns:
-        conn.execute("ALTER TABLE task_runs ADD COLUMN origin TEXT NOT NULL DEFAULT 'adjutant'")
+    add_column_if_missing(conn, "task_runs", "origin", "ALTER TABLE task_runs ADD COLUMN origin TEXT NOT NULL DEFAULT 'adjutant'")
 
 
 def begin_run(db_path: Path | None, task_id: str, attempt: int, *, origin: str) -> int | None:
