@@ -32,6 +32,9 @@ def new_self_belief(
     confidence: str = "low",
     evidence_refs: list[str] | None = None,
     basis: str = "",
+    provenance: str | None = None,
+    ratified_by: str | None = None,
+    formed_from: str | None = None,
 ) -> Path:
     statement = str(statement or "").strip()
     if not statement:
@@ -64,6 +67,15 @@ def new_self_belief(
         "evidence_refs": list(evidence_refs or []),
         "revisions": [],
     }
+    # How the belief came to be, when it was formed through the ceremony
+    # (docs/belief_formation.md: "provenance formed, ratified_by owner, the artifact").
+    if provenance:
+        frontmatter["provenance"] = provenance
+    if ratified_by:
+        frontmatter["ratified_by"] = ratified_by
+        frontmatter["ratified_on"] = today
+    if formed_from:
+        frontmatter["formed_from"] = formed_from
     body = f"# Belief\n\n{statement}\n\n## History\n\n- {today} — formed.\n"
     write_markdown(path, with_domain_fields(frontmatter), body)
     return path

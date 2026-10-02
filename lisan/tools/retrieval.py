@@ -136,6 +136,51 @@ def _record_date(path: Path) -> str:
         return ""
 
 
+_SELF_BELIEF_GENERIC = frozenset({
+    "skill", "skills", "held", "have", "that", "this", "with", "what", "about", "your",
+    "from", "does", "often", "enough", "should", "double", "check", "returns", "usually",
+    "how", "reliable", "learned", "yourself", "use", "uses",
+})
+_SELF_REFERENTIAL = re.compile(r"\b(yourself|your (?:skills?|track record|reliability|capabilit\w+)|what do you know about you)\b", re.I)
+_SELF_BELIEF_LIMIT = 4
+
+
+def _tokens(text: str) -> set[str]:
+    return {t for t in re.split(r"[^a-z0-9]+", text.lower().replace("_", " ")) if len(t) >= 3}
+
+
+def _relevant_self_beliefs(vault: Path, query: str) -> list[tuple[str, str, str]]:
+    """Active self_belief records that bear on ``query``: (summary, confidence, id).
+
+    Deterministic: a belief is relevant when the query shares a distinctive
+    word with its statement (the skill name, mostly), or when the query asks
+    about the assistant itself, in which case the strongest beliefs lead."""
+    root = vault / "self" / "beliefs"
+    if not root.is_dir():
+        return []
+    query_tokens = _tokens(query)
+    self_query = bool(_SELF_REFERENTIAL.search(query))
+    rank = {"high": 0, "medium": 1, "low": 2}
+    found: list[tuple[int, str, str, str]] = []
+    for path in sorted(root.glob("*.md")):
+        try:
+            fm = load_markdown(path).frontmatter
+        except Exception:
+            continue
+        if fm.get("type") != "self_belief" or fm.get("status") != "active":
+            continue
+        summary = str(fm.get("summary") or "").strip()
+        if not summary:
+            continue
+        distinctive = _tokens(summary) - _SELF_BELIEF_GENERIC
+        if not (query_tokens & distinctive) and not self_query:
+            continue
+        conf = str(fm.get("belief_confidence") or fm.get("confidence") or "low")
+        found.append((rank.get(conf, 3), summary, conf, str(fm.get("id") or path.stem)))
+    found.sort()
+    return [(s, c, i) for _, s, c, i in found[:_SELF_BELIEF_LIMIT]]
+
+
 def assemble_context(
     query: str,
     domain: str | None = None,
@@ -252,6 +297,14 @@ def assemble_context(
             if stamp:
                 details = details.rstrip() + f"\n- record_date: {stamp}"
             sections.append(details)
+        sections.append("")
+
+    self_beliefs = _relevant_self_beliefs(vault, query)
+    if self_beliefs:
+        sections.append("## Self-Knowledge")
+        sections.append("Owner-ratified beliefs about my own capabilities, formed from my track record:")
+        for summary, conf, belief_id in self_beliefs:
+            sections.append(f"- {summary} (confidence: {conf}; `{belief_id}`)")
         sections.append("")
 
     # Quarantine/graph-block diagnostics carry scoring internals; lean
