@@ -10,6 +10,13 @@
   off; `LISAN_CODEX_TIMEOUT` overrides) and a timeout kills the whole process
   group, not just the direct child. A decision run is capped at 6x
   `max_task_wall_seconds`; remaining steps defer to the next cycle.
+- **Plans share the Adjutant's run ledger and rails.** Each plan step records
+  a row in `task_runs` (new `origin` column; only the Adjutant daemon may
+  reclaim `adjutant` rows). Plan codex steps now honour `intent.md`
+  never-rules like `run_codex` always did. A finished plan reports through
+  the capture front door, so the Skeptic reads plan outcomes. Steps may opt
+  into `retries` (0-2, never after a timeout), and `lisan plan resume
+  <plan_id>` restarts a failed plan from the step that failed.
 - **Fixed:** executed `task.run_codex` jobs never became self-episodes because
   the biography list named the pre-rename `task.codex`.
 
