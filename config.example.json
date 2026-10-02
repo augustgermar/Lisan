@@ -116,6 +116,11 @@
       "medium": "codex",
       "high": "codex"
     },
+    "delegate": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
+    },
     "provider_check": {
       "low": "codex",
       "medium": "codex",
@@ -191,6 +196,12 @@
   "jobs": {
     "__comment_drain_on_capture": "When true (the default), a capture runs the indexing jobs it just enqueued in-process before returning, so semantic retrieval sees the new records without a manual 'lisan jobs run'. Only indexing/embedding jobs drain — LLM-heavy maintenance (analyst, dreamer) always stays queued. Set false if you run your own jobs worker.",
     "drain_on_capture": true
+  },
+  "delegation": {
+    "__comment": "Delegated workers. max_concurrent children run at once; max_outstanding bounds queued+running; a child's timeout is capped at 2400s because the queue requeues jobs running past 45 minutes.",
+    "max_concurrent": 3,
+    "max_outstanding": 12,
+    "default_timeout_seconds": 900
   },
   "retrieval": {
     "fusion": {

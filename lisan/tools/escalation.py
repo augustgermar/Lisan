@@ -31,6 +31,9 @@ from ..paths import vault_root
 
 # Payload key marking a second-chance run; its presence ends the ladder.
 SECOND_CHANCE_KEY = "second_chance_of"
+# Failures here are reported but never re-run automatically: the failed run's
+# side effects are unknown (see delegation.py).
+NO_AUTO_RETRY_JOB_TYPES = frozenset({"agent.delegate"})
 
 _FINGERPRINT_MAX = 80
 
@@ -235,6 +238,20 @@ def escalate_terminal_failure(
                 f"🚨 The retry failed too: {description}\n"
                 f"Error: {str(error)[:400]}\n"
                 f"I've {note}. I won't retry again on my own.",
+                chat_id=chat_id,
+                vault=vault,
+            )
+            return out
+
+        if job_type in NO_AUTO_RETRY_JOB_TYPES:
+            # A delegated child that failed or timed out may have done part of
+            # its work; running it again could do that part twice. Tell the
+            # owner the real cause and leave the decision to them.
+            out["notified"] = _notify_owner(
+                f"⚠️ A delegated task failed: {description}\n"
+                f"Error: {str(error)[:400]}\n"
+                "It may have partly run, so I have not retried it. "
+                f"See `lisan delegate show {payload.get('delegation_id') or job.get('id')}`.",
                 chat_id=chat_id,
                 vault=vault,
             )
