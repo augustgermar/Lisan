@@ -78,3 +78,9 @@ def beliefs_revised(vault: Path, statements: list[str], *, config=None) -> bool:
 
 def aches(vault: Path, found: list[tuple[str, str]], *, config=None) -> bool:
     return send(vault, "🩺 I noticed something off", [f"{klass}: {summary}" for klass, summary in found], config=config)
+
+
+def aches_healed(vault: Path, healed: list[tuple[str, str]], *, config=None) -> bool:
+    """An ache that stopped being true. The scanner can only say that the
+    condition is no longer detected, not what fixed it, and says exactly that."""
+    return send(vault, "💚 An ache cleared up (no longer detected)", [f"{klass}: {summary}" for klass, summary in healed], config=config)

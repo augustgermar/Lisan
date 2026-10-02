@@ -98,6 +98,7 @@ MUTANTS = [
     ("skill learning is not announced", REVIEW, "        skills_learned(vault, result.review_id, result.accepted, result.lifecycle, config=config)", "        pass", "tests/test_skill_review.py", "tells_the_owner"),
     ("belief revision is not announced", "lisan/tools/dreamer_ops.py", "    if revised:\n        from .learning_notice import beliefs_revised", "    if False:\n        from .learning_notice import beliefs_revised", "tests/test_reconcile.py", "announced"),
     ("a new ache is not announced", "lisan/tools/deviations.py", "    if found:\n        from .learning_notice import aches", "    if False:\n        from .learning_notice import aches", "tests/test_deviations.py", "announced_once"),
+    ("a healed ache is not announced", "lisan/tools/deviations.py", "    if healed:\n        from .learning_notice import aches_healed", "    if False:\n        from .learning_notice import aches_healed", "tests/test_deviations.py", "healed_ache_is_announced"),
     ("notify=false is ignored", "lisan/tools/learning_notice.py", '    return (config or {}).get("learning", {}).get("notify", True) is not False', "    return True", "tests/test_learning_notice.py", "turned_off"),
     ("lists are not cut", "lisan/tools/learning_notice.py", "        if len(lines) > MAX_LINES:", "        if False:", "tests/test_learning_notice.py", "cut"),
     # ── process tree ──

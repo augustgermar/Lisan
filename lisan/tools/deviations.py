@@ -99,7 +99,7 @@ def scan_deviations(
     now = now or date.today()
 
     current = detect(vault, db_path=db_path, config=cfg)
-    satiated = _satiate(vault, {d["fingerprint"] for d in current}, db_path=db_path)
+    satiated = _satiate(vault, {d["fingerprint"] for d in current}, db_path=db_path, config=config)
     emitted = _emit(vault, current, cfg, now, db_path=db_path, policy_config=config)
     return {
         "enabled": True,
@@ -449,12 +449,15 @@ def _self_loops(vault: Path) -> list[tuple[Path, dict[str, Any]]]:
     return out
 
 
-def _satiate(vault: Path, current_fingerprints: set[str], *, db_path: Path | None) -> int:
+def _satiate(
+    vault: Path, current_fingerprints: set[str], *, db_path: Path | None, config: dict[str, Any] | None = None
+) -> int:
     """A previously-reported deviation that is no longer true closes its own
     loop. This IS the drive being satiable — nobody has to answer a question
     about an ache that healed."""
     logger = get_logger(vault)
     resolved = 0
+    healed: list[tuple[str, str]] = []
     for path, fm in _self_loops(vault):
         if str(fm.get("status") or "") != "active":
             continue
@@ -473,6 +476,11 @@ def _satiate(vault: Path, current_fingerprints: set[str], *, db_path: Path | Non
         _index_quietly(path, vault, db_path)
         logger.info(f"deviation.satiated fingerprint={fp} loop={fm.get('id')}")
         resolved += 1
+        healed.append((str(fm.get("deviation_class") or "ache"), str(fm.get("summary") or "")))
+    if healed:
+        from .learning_notice import aches_healed
+
+        aches_healed(vault, healed, config=config)
     return resolved
 
 
