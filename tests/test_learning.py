@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import re
 import sqlite3
 import threading
 from pathlib import Path
@@ -352,3 +353,45 @@ def test_a_turn_with_no_tool_calls_or_malformed_ones_is_harmless(env):
     assert turn(env, []) is None
     assert L.record_turn_event({"text": "x", "tool_calls": "garbage"}, job_id="j", vault=env.vault, db_path=env.db) is None
     assert L.record_turn_event({"text": "x", "tool_calls": [None, 3, {}]}, job_id="j2", vault=env.vault, db_path=env.db) is None
+
+
+# ── secrets are masked before anything is frozen ────────────────────────────
+
+# (text as it might appear, the part that must not survive)
+REAL_SECRETS = [
+    ("Authorization: Bearer abcdefghijklmnop1234567890", "abcdefghijklmnop1234567890"),
+    ("token ghp_" + "a" * 36, "ghp_" + "a" * 36),
+    ("key sk-" + "b" * 32, "sk-" + "b" * 32),
+    ("postgres://admin:hunter2hunter2@db01/prod", "hunter2hunter2"),
+    ("eyJ" + "a" * 20 + "." + "b" * 20 + "." + "c" * 20, "a" * 20 + "." + "b" * 20),
+    ("-----BEGIN RSA PRIVATE KEY-----\nMIIEvQIBADANBg\n-----END RSA PRIVATE KEY-----", "MIIEvQIBADANBg"),
+    ("password: correct-horse-battery", "correct-horse-battery"),
+    ("AKIAABCDEFGHIJKLMNOP", "AKIAABCDEFGHIJKLMNOP"),
+]
+CLI_INSTRUCTIONS = [  # procedures, not secrets: the first two are real text from the owner's history
+    "Run: lisan skills setup gmail_search --client-secret-file ~/Desktop/client_secret.json",
+    "lisan skills setup gmail_search --token-file /tmp/t.json and rerun",
+    "ssh deploy@db01 'systemctl restart postgres'",
+]
+
+
+@pytest.mark.parametrize("text,core", REAL_SECRETS)
+def test_real_looking_secrets_are_masked_in_every_frozen_field(env, text, core):
+    event_id = turn(env, [call("run_codex", {"task": f"use {text}"}, f"saw {text}")], job="job.sec", text=f"here: {text}")
+    frozen = json.dumps(L.get_event(event_id, vault=env.vault))
+    assert core not in frozen and "****" in frozen
+
+
+@pytest.mark.parametrize("instruction", CLI_INSTRUCTIONS)
+def test_cli_instructions_survive_masking(env, instruction):
+    event_id = turn(env, [call("run_codex", {"task": instruction}, instruction)], job="job.cli", text=instruction)
+    frozen = L.get_event(event_id, vault=env.vault)
+    assert instruction in frozen["payload"]["text"] and instruction in frozen["payload"]["tool_calls"][0]["result"]
+
+
+def test_the_strict_pattern_set_tracks_the_display_one():
+    """STRICT drops exactly one rule (the generic --flag value one). If someone adds
+    a pattern to the display set this fails, forcing a decision about the kept set."""
+    from lisan.providers.codex import _SECRET_PATTERNS, STRICT_SECRET_PATTERNS
+
+    assert len(_SECRET_PATTERNS) == 11 and len(STRICT_SECRET_PATTERNS) == 10

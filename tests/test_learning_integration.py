@@ -264,3 +264,28 @@ def test_cli_skills_commands_work_with_no_skills_dir_flag(env, capsys):
         "---\nname: server-audit\ndescription: Use when auditing.\n---\nb\n", encoding="utf-8")
     code, out = run_cli("skills", "history", "server-audit", capsys=capsys)  # LISAN_SKILLS_DIR from the fixture
     assert code == 0 and "origin owner" in out
+
+
+def test_new_turns_carry_full_tool_results_for_learning_while_the_pipeline_keeps_the_compact_form(env):
+    """1 in 5 real tool results was cut at 1500 characters; the executor's final
+    report is the part a reviewer needs most."""
+    from lisan.tools.conversation import _compact_tool_calls, _full_tool_calls
+
+    big = {"tool": "execute_task", "args": {"task": "x"}, "result": "R" * 30_000}
+    assert len(_compact_tool_calls([big])[0]["result"]) <= 1500
+    full = _full_tool_calls([big])[0]["result"]
+    assert 19_000 < len(full) <= 20_000 and full.endswith("…")
+    assert len(_full_tool_calls([big] * 60)) == 40
+
+    payload = {"text": "t", "response": "r", "conversation_id": "telegram-1",
+               "tool_calls": _compact_tool_calls([big]), "tool_calls_full": _full_tool_calls([big])}
+    event_id = L.record_turn_event(payload, job_id="job.big", vault=env.vault, db_path=env.db, skills_dir=env.skills)
+    stored = L.get_event(event_id, vault=env.vault)["payload"]["tool_calls"][0]["result"]
+    assert len(stored) > 15_000  # the learning event kept it
+    assert stored.count("R") > 15_000
+
+
+def test_older_payloads_without_the_full_form_still_record(env):
+    payload = {"text": "t", "response": "r", "conversation_id": "telegram-1",
+               "tool_calls": [{"tool": "run_codex", "args": {}, "result": "ok"}]}
+    assert L.record_turn_event(payload, job_id="job.old", vault=env.vault, db_path=env.db, skills_dir=env.skills)
