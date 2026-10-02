@@ -115,3 +115,17 @@ def test_partial_evidence_survives_the_gate(tmp_path):
     assert applied == belief_path
     revisions = load_markdown(belief_path).frontmatter["revisions"]
     assert revisions[0]["evidence_refs"] == ["self_episode.job-2"]
+
+
+def test_a_revised_belief_is_announced_and_a_rejected_one_is_not(tmp_path):
+    from unittest.mock import patch
+
+    _seed(tmp_path)
+    good = {"belief_id": "self_belief.i-am-not-reliable-at-completing-multi-step-plans",
+            "new_statement": "I complete multi-step plans reliably when they are well-scoped.",
+            "new_confidence": "medium", "reason": "r", "evidence_refs": ["self_episode.job-0"]}
+    with patch("lisan.tools.escalation._notify_owner", return_value=True) as notify:
+        _apply_belief_revisions(tmp_path, {"revisions": [{**good, "evidence_refs": ["self_episode.fabricated"]}]})
+        notify.assert_not_called()
+        _apply_belief_revisions(tmp_path, {"revisions": [good]})
+    assert "reliably when they are well-scoped" in notify.call_args.args[0]

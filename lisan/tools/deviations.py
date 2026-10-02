@@ -493,6 +493,7 @@ def _emit(
     )
     cap = int(cfg["daily_cap"])
     emitted: list[str] = []
+    found: list[tuple[str, str]] = []
 
     root = vault / "open_loops"
     root.mkdir(parents=True, exist_ok=True)
@@ -544,6 +545,11 @@ def _emit(
             continue
         logger.info(f"deviation.emitted class={dev['klass']} fingerprint={dev['fingerprint']}")
         emitted.append(loop_id)
+        found.append((str(dev["klass"]), summary))
+    if found:
+        from .learning_notice import aches
+
+        aches(vault, found, config=policy_config)
     return emitted
 
 

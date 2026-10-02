@@ -671,6 +671,7 @@ def _apply_belief_revisions(vault: Path, response: dict[str, Any]) -> Path | Non
             except Exception:
                 continue
     applied: Path | None = None
+    revised: list[str] = []
     for prop in proposals:
         if not isinstance(prop, dict):
             continue
@@ -686,10 +687,15 @@ def _apply_belief_revisions(vault: Path, response: dict[str, Any]) -> Path | Non
                 reason=str(prop.get("reason") or ""),
                 evidence_refs=refs,
             )
+            revised.append(str(prop.get("new_statement") or ""))
         except (ValueError, OSError) as exc:
             from .log import log_error
 
             log_error(vault, f"dreamer.reconcile revision failed for {prop.get('belief_id')}", exc)
+    if revised:
+        from .learning_notice import beliefs_revised
+
+        beliefs_revised(vault, revised)
     return applied
 
 
