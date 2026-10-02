@@ -353,6 +353,8 @@ def record_event(
         conn.commit()
     finally:
         conn.close()
+    if event.get("skills_used"):
+        _episodes_for(vault, db_path, [event["id"]])
     try:  # a review may now be due; asking never affects the work that was recorded
         from ..config import load_config
 
@@ -360,6 +362,17 @@ def record_event(
     except Exception:
         pass
     return True
+
+
+def _episodes_for(vault: Path, db_path: Path | None, event_ids: list[str]) -> None:
+    """Skill use is part of the agent's autobiography: write it now (guarded; the
+    recorder must never harm the work it observes)."""
+    try:
+        from .self_episodes import record_skill_episodes
+
+        record_skill_episodes(vault, db_path, event_ids)
+    except Exception:
+        pass
 
 
 def _base_event(
@@ -432,6 +445,7 @@ def record_turn_event(
                 conn.commit()
             finally:
                 conn.close()
+            _episodes_for(vault, db_path, [f"plan-turn:{job_id}"])
         return None
     handed_off = any(str(c.get("tool") or "") in work_tools(config) for c in calls)
     if len(calls) < min_tool_calls(config) and not used and not handed_off:

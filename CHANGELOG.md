@@ -54,6 +54,18 @@
   agent is told so; they are established after proven use (or `lisan skills
   approve`) and flagged, never deleted, after repeated failure.
   `lisan learning apply <review_id>` applies a shadow proposal by hand.
+- **Learning loop, step 4: skill outcomes become self-knowledge.** Each recorded
+  skill use becomes a first-person self-episode (worded no more strongly than the
+  evidence: "ran without an error"). The belief extractor forms per-skill candidates
+  ("My X skill has held up in use" / "…fails often enough that I should double-check
+  what it returns") under the unchanged evidence gate and owner ratification. A new
+  `skill_health` deviation makes a failing skill ache until it is fixed (and keeps it
+  out of the code self-repair loop).
+- **Fixed:** the self-episode catch-up pass no longer recreates episodes the owner
+  quarantined (it had regenerated 149 from the 2026-07-27 plan-recursion incident);
+  column migrations are race-safe across simultaneously starting services; `kill_tree`
+  reads the process tree only after freezing it and keeps freezing descendants;
+  `skills_root()` is contained in test processes.
 - **Fixed (found going live):** a skill description may now only be *extended* by the
   loop, never restated (a real review rewrote an owner's tool description and lost
   detail); `v0` stopped resolving after the first rollback to it; and tests no longer

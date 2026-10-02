@@ -46,6 +46,7 @@ class SelfEvent:
     outcome: str  # succeeded | failed | ratified | drifted
     source_refs: list[str] = field(default_factory=list)
     significance: str = "low"
+    skill: str | None = None  # event_kind "skill": which skill was used
 
 
 def _safe_slug(text: str) -> str:
@@ -183,8 +184,80 @@ def ceremony_events(vault: Path) -> list[SelfEvent]:
     return events
 
 
+_SKILL_OK = {"no_error_seen", "succeeded"}
+_SKILL_FAILED = {"tool_error", "failed"}
+
+
+def _skill_event(row: Any) -> SelfEvent | None:
+    """One skill use as a first-person episode. An outcome that is neither clearly
+    fine nor clearly an error is not an episode: the belief gate must not be fed
+    guesses."""
+    import hashlib
+
+    outcome = str(row["outcome"] or "")
+    if outcome in _SKILL_OK:
+        result, wording = "succeeded", "it ran without an error"
+    elif outcome in _SKILL_FAILED:
+        result, wording = "failed", "it hit an error"
+    else:
+        return None
+    skill, event_id = str(row["skill"]), str(row["event_id"])
+    # A use inside a plan has no learning event of its own; its job is the source.
+    ref = f"jobs:{event_id.split(':', 1)[1]}" if event_id.startswith("plan-turn:") else f"learning:{event_id}"
+    return SelfEvent(
+        event_id=f"skill-{skill}-{hashlib.sha1(event_id.encode()).hexdigest()[:10]}",
+        event_kind="skill",
+        date=str(row["used_at"] or "")[:10] or today_iso(),
+        title=f"Used the {skill} skill",
+        # Honest about what is known: "without an error" is not "it worked".
+        narration=f"{{{{self}}}} used the {skill} skill for {{{{principal}}}}, and {wording}.",
+        outcome=result,
+        source_refs=[ref],
+        significance="medium" if result == "failed" else "low",
+        skill=skill,
+    )
+
+
+def skill_events(db_path: Path | None = None) -> list[SelfEvent]:
+    """Skill use, from the learning loop's usage ledger: how the agent's own
+    procedures have fared is part of its autobiography, and the belief extractor
+    forms "I can rely on X" / "X fails often" from exactly these."""
+    db = db_path or sqlite_path()
+    if not Path(db).exists():
+        return []
+    try:
+        conn = _db_connect(db)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute("SELECT skill, event_id, used_at, outcome FROM skill_usage ORDER BY used_at").fetchall()
+        finally:
+            conn.close()
+    except sqlite3.OperationalError:
+        return []  # no ledger yet: no learning has been recorded on this install
+    return [e for e in (_skill_event(r) for r in rows) if e is not None]
+
+
 def collect_events(vault: Path, db_path: Path | None = None) -> list[SelfEvent]:
-    return sorted(job_events(db_path) + ceremony_events(vault), key=lambda e: (e.date, e.event_id))
+    return sorted(job_events(db_path) + ceremony_events(vault) + skill_events(db_path), key=lambda e: (e.date, e.event_id))
+
+
+def record_skill_episodes(vault: Path, db_path: Path | None, event_ids: list[str]) -> int:
+    """Post-recording hook: the skill uses of these learning events become episodes
+    now, not at the next catch-up pass. Never raises into the work it observes."""
+    written = 0
+    try:
+        wanted = set(event_ids)
+        for event in skill_events(db_path):
+            ref = event.source_refs[0]
+            source = ref.split(":", 1)[1] if ref.startswith("learning:") else ("plan-turn:" + ref.split(":", 1)[1])
+            if source in wanted and write_self_episode(vault, event, db_path) is not None:
+                written += 1
+    except Exception as exc:
+        try:
+            log_error(vault, "self_episodes.record_skill_episodes failed", exc)
+        except Exception:
+            pass
+    return written
 
 
 # ── Assembly (idempotent writes) ─────────────────────────────────────────────
@@ -194,10 +267,24 @@ def episode_path(vault: Path, event: SelfEvent) -> Path:
     return vault / "self" / "episodes" / f"{event.date}-{_safe_slug(event.event_id)}.md"
 
 
+def _quarantined(vault: Path, filename: str) -> bool:
+    """True if the owner has set this episode aside. A quarantine is a sibling
+    `quarantine*/self-episodes/` folder beside the vault (moved, not deleted, so it
+    can be restored). The catch-up pass rebuilds every episode it can derive from
+    the job table, so without this check it would silently undo a quarantine: it
+    regenerated 149 episodes from the 2026-07-27 plan-recursion incident, which the
+    owner had deliberately removed, the first time it was run after the quarantine."""
+    try:
+        return any((d / "self-episodes" / filename).exists() for d in vault.parent.glob("quarantine*") if d.is_dir())
+    except OSError:
+        return False
+
+
 def write_self_episode(vault: Path, event: SelfEvent, db_path: Path | None = None) -> Path | None:
-    """Write one first-person episode; returns None if it already exists."""
+    """Write one first-person episode; returns None if it already exists or the
+    owner has quarantined it."""
     path = episode_path(vault, event)
-    if path.exists():
+    if path.exists() or _quarantined(vault, path.name):
         return None
     today = today_iso()
     frontmatter = {
@@ -226,6 +313,8 @@ def write_self_episode(vault: Path, event: SelfEvent, db_path: Path | None = Non
         "source_refs": event.source_refs,
         "outcome": event.outcome,
     }
+    if event.skill:
+        frontmatter["skill"] = event.skill
     body = (
         f"# {event.title}\n\n## What happened\n\n{event.narration}\n\n"
         "## Sources\n\n" + "\n".join(f"- `{ref}`" for ref in event.source_refs) + "\n"

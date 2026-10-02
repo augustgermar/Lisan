@@ -27,7 +27,8 @@
     "confidence_basis": {"type": "string"},
     "last_confirmed": {"type": "string"},
     "review_after": {"type": "string"},
-    "event_kind": {"type": "string", "enum": ["task", "plan", "ceremony", "drift", "failure", "self_repair"]},
+    "event_kind": {"type": "string", "enum": ["task", "plan", "ceremony", "drift", "failure", "self_repair", "skill"]},
+    "skill": {"type": "string", "description": "event_kind skill: the name of the skill that was used"},
     "source_refs": {"type": "array", "items": {"type": "string"}, "minItems": 1},
     "outcome": {"type": "string", "enum": ["succeeded", "failed", "ratified", "drifted"]}
   }
