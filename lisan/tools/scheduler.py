@@ -559,7 +559,7 @@ def seconds_until_next_due(
 #   long     plan.run, task.run_codex and the delegation report (a capture round
 #            trip): one at a time, as before, but off main
 #   delegate agent.delegate children: up to delegation.max_concurrent at once
-LONG_LANE_TYPES = frozenset({"plan.run", "task.run_codex", "agent.delegate_report"})
+LONG_LANE_TYPES = frozenset({"plan.run", "task.run_codex", "agent.delegate_report", "skill.review"})
 DELEGATE_LANE_TYPES = frozenset({"agent.delegate"})
 LANE_TYPES = LONG_LANE_TYPES | DELEGATE_LANE_TYPES
 _LANE_POLL_SECONDS = 5.0

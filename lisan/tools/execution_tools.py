@@ -14,6 +14,11 @@ from .skill_loader import load_skill_handlers
 from .structured import extract_json
 
 
+# Tool names that were renamed and still work as aliases. Anything written down
+# for the agent to follow later (a skill) must use the current name: an old one
+# silently goes stale. Single source of truth for the learning loop's gate.
+LEGACY_TOOL_NAMES: dict[str, str] = {"run_codex": "execute_task"}
+
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "search_memory",

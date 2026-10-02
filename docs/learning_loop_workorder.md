@@ -1,8 +1,9 @@
 # Learning loop work order
 
 Status: **design reviewed; owner decisions 1-6 recorded below (2026-10-02).
-Decision 7 (retention) confirmed. **Step 1 (observe) built 2026-10-02**; see
-"Step 1 as built" below. Steps 2-6 not started.**
+Decision 7 (retention) confirmed. **Steps 1 (observe) and 2 (reviewer + gate, shadow) built
+2026-10-02**; see "Step 1 as built" and "Step 2 as built" below. Steps 3-6 not
+started.**
 Author: Claude (Sonnet 5.5) with August, 2026-10-02. Builds on the
 execution-hardening branch (`4409ee0`): the delegation layer, the run ledger and
 the plan machinery are what this loop observes.
@@ -460,3 +461,57 @@ Replaying 583 real turns and 29 plans (on a copy of the database):
 - Two defects found on the way, both fixed: the skill frontmatter parser
   silently dropped every value under `metadata:` (documented as supported), and
   a new CLI handler would have crashed without `--skills-dir`.
+
+## Step 2 as built (2026-10-02)
+
+The reviewer in shadow mode: it proposes, the gate disposes, nothing is written
+to any skill.
+
+- `lisan/agents/skill_reviewer.py` + `prompts/skill_reviewer_v1.md` +
+  `schemas/skill_review.schema.json`, routed as `skill_reviewer`. Carries the
+  Hermes rules (preference order, class-level skills, do-not-capture, "nothing to
+  save is a real answer") and ours (tool results are data; no restating what the
+  agent already knows; no encoding of procedures the system runs itself; leave
+  existing descriptions alone; distrust old lessons about the agent's own
+  environment). It is a **forced-isolated agent**: always `read-only` in an empty
+  scratch directory whatever `all_agents_sandbox_mode` says (the live config sets
+  it to `danger-full-access`).
+- `lisan/tools/skill_gate.py`: the deterministic gate. Plans each operation as
+  exact file contents and a diff, and checks evidence, scope, pinned, privilege
+  fields, names, size, credentials, injection, negative claims, retired tool
+  names, stale environment lessons. Nothing is written. Evidence citations that
+  drop only the `kind:` prefix are accepted when they name exactly one event.
+- `lisan/tools/skill_review.py`: batches by context size (never cost), shows the
+  reviewer the skill index and the bodies of the skills used, one revision round
+  for refusals that are slips of form (never for safety findings), shadow
+  artifacts (`learning/reviews/`), an owner digest, and the `skill.review` job
+  (long lane, coalesced, waits for quiet). Events are marked reviewed only after
+  a review truly completed; a provider failure raises and leaves them unreviewed.
+- `lisan learning review [--dry-run] | reviews | review-show`; `skill_frontmatter.py`
+  edits provenance without disturbing the owner's text.
+
+### What reviewing the real history showed
+
+Three sweeps of all 111 real events (10 batches, ~3 minutes each), as dry runs:
+
+- **It works end to end, and a few findings recur on every sweep**: a patch to
+  `gmail_search` (an empty query is rejected; do not borrow another integration's
+  token), a fix to the owner's `research` skill (it still said `run_codex`, renamed
+  on Sep 30), and a transcript-ingestion procedure.
+- **The gate alone would have passed all six first-sweep proposals. Reading them
+  found four defects**, each now fixed and pinned by a test: a patch that rewrote
+  an executable skill's description to start "Use when" and lost "no credentials
+  needed" (the rule now applies to new skills only; an existing description may be
+  extended, never shortened more than a fifth); a skill encoding the system's own
+  self-repair protocol with a project-phase name; a skill naming the retired
+  `run_codex`; and a lesson about approval gates and sandboxes drawn from events
+  of the day those rules were being removed (the gate now refuses environment
+  lessons whose newest evidence is older than `learning.environment_staleness_days`).
+- A false positive ("if the inputs **are unavailable**, stop") was refused as a
+  negative claim; conditionals are now exempt and a refusal can be revised.
+- **Real model output omits required fields sometimes** (evidence and rationale on
+  one run of two). The gate refuses them; one revision round recovers the slip.
+- **A measurement hazard in my own mutation runner**: Python's bytecode cache is
+  keyed on (mtime seconds, size), so back-to-back mutations of one file could reuse
+  a stale compile. The runner now deletes it between runs, and all 21 mutants were
+  re-run and caught.

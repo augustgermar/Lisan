@@ -4,6 +4,7 @@ import json
 import os
 import re
 import selectors
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -96,6 +97,11 @@ class CodexClient(ProviderClient):
             full_prompt = prompt + schema_instruction
 
         output_path: Path | None = None
+        scratch: Path | None = None
+        if working_directory is None and agent in FORCED_ISOLATED_AGENTS:
+            # an empty directory: nothing of the owner's to read or write beside the prompt
+            scratch = Path(tempfile.mkdtemp(prefix="lisan-isolated-"))
+            working_directory = scratch
         started = time.monotonic()
         try:
             args = [binary, "exec", "--skip-git-repo-check", "--cd", str(working_directory or repo_root())]
@@ -169,6 +175,8 @@ class CodexClient(ProviderClient):
         finally:
             if output_path and output_path.exists():
                 output_path.unlink(missing_ok=True)
+            if scratch is not None:
+                shutil.rmtree(scratch, ignore_errors=True)
 
 
 # One hung coding-agent run must not block a chat turn, a plan step, or the
@@ -261,6 +269,17 @@ def _run_batch(
     return subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
 
 
+# Agents that are always read-only and always run in an empty scratch directory,
+# whatever the config says. `all_agents_sandbox_mode` (set by the owner to give
+# every Lisan agent full access) is the right dial for agents that work on the
+# owner's behalf; it is the wrong one for an agent whose entire design rule is
+# "the model proposes JSON and never touches the filesystem". The skill reviewer
+# reads transcripts that may contain text from emails and web pages, and decides
+# what becomes a standing procedure; a prompt injection that reached it must not
+# be able to do more than write a bad proposal, which the gate then judges.
+FORCED_ISOLATED_AGENTS = frozenset({"skill_reviewer"})
+
+
 def _resolve_sandbox_mode(agent: str, codex_config: dict[str, Any]) -> str:
     """The cPanel/codex sandbox mode for one agent's subprocess: read-only,
     workspace-write, or danger-full-access.
@@ -285,6 +304,9 @@ def _resolve_sandbox_mode(agent: str, codex_config: dict[str, Any]) -> str:
        agents are sandboxed structurally, not just by the prompt asking
        nicely.
     """
+    if agent in FORCED_ISOLATED_AGENTS:
+        return "read-only"
+
     by_agent = codex_config.get("sandbox_mode_by_agent")
     if isinstance(by_agent, dict) and agent in by_agent:
         explicit = str(by_agent.get(agent) or "").strip()

@@ -253,6 +253,13 @@ _INDEX_DDL = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_skill_usage_skill ON skill_usage(skill, used_at)",
+    """
+    CREATE TABLE IF NOT EXISTS learning_reviewed (
+        event_id TEXT PRIMARY KEY,
+        review_id TEXT NOT NULL,
+        reviewed_at TEXT NOT NULL
+    )
+    """,
 )
 
 
@@ -344,9 +351,15 @@ def record_event(
         _index_row(conn, event, str(path))
         _record_usage(conn, event, skills_dir)
         conn.commit()
-        return True
     finally:
         conn.close()
+    try:  # a review may now be due; asking never affects the work that was recorded
+        from ..config import load_config
+
+        maybe_enqueue_review(vault, db_path, load_config())
+    except Exception:
+        pass
+    return True
 
 
 def _base_event(
@@ -474,7 +487,8 @@ def record_plan_event(
                 {
                     "kind": s.get("kind"), "description": _clip(s.get("description"), 600), "status": s.get("status"),
                     "attempts": s.get("attempts"), "result": _clip(s.get("result"), 2000),
-                    **({"children": [_clip(c.get("brief"), 400) for c in s.get("children") or []], "join": s.get("join")}
+                    **({"children": [_clip(c.get("brief") if isinstance(c, dict) else c, 400) for c in s.get("children") or []],
+                        "join": s.get("join")}
                        if s.get("kind") == "fanout" else {}),
                 }
                 for s in steps
@@ -628,10 +642,106 @@ def rebuild_index(vault: Path, db_path: Path | None, skills_dir: Path | None = N
                 _record_usage(conn, record, skills_dir)
                 events += 1
         usage = conn.execute("SELECT COUNT(*) FROM skill_usage").fetchone()[0]
+        conn.execute("DELETE FROM learning_reviewed")
+        for record in _read_lines_any(reviewed_file(vault), key="event_id"):
+            conn.execute(
+                "INSERT OR IGNORE INTO learning_reviewed (event_id, review_id, reviewed_at) VALUES (?,?,?)",
+                (record["event_id"], record.get("review_id", ""), record.get("reviewed_at", "")),
+            )
         conn.commit()
     finally:
         conn.close()
     return {"events": events, "usage_rows": int(usage)}
+
+
+# ── Review state: which events a reviewer has already read ───────────────────
+# Same bargain as the events: an append-only file is the truth, a table is the
+# index. An event is marked reviewed only after its review completed, so a
+# reviewer that crashed or was unreachable leaves its events to be read again.
+
+def reviewed_file(vault: Path) -> Path:
+    return learning_root(vault) / "reviews" / "reviewed.jsonl"
+
+
+def _read_lines_any(path: Path, *, key: str) -> Iterator[dict[str, Any]]:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(record, dict) and record.get(key):
+                    yield record
+    except OSError:
+        return
+
+
+def mark_reviewed(vault: Path, db_path: Path | None, event_ids: list[str], review_id: str) -> int:
+    """Record that a review read these events. Returns how many were newly marked."""
+    conn = _connect(db_path)
+    marked = 0
+    try:
+        for event_id in event_ids:
+            if conn.execute("SELECT 1 FROM learning_reviewed WHERE event_id = ?", (event_id,)).fetchone():
+                continue
+            stamp = _utc()
+            _append_line(reviewed_file(vault), {"event_id": event_id, "review_id": review_id, "reviewed_at": stamp})
+            conn.execute(
+                "INSERT OR IGNORE INTO learning_reviewed (event_id, review_id, reviewed_at) VALUES (?,?,?)",
+                (event_id, review_id, stamp),
+            )
+            marked += 1
+        conn.commit()
+    finally:
+        conn.close()
+    return marked
+
+
+def unreviewed_ids(db_path: Path | None, *, limit: int | None = None) -> list[str]:
+    """Events no review has read yet, oldest first."""
+    conn = _connect(db_path)
+    try:
+        sql = ("SELECT id FROM learning_events WHERE id NOT IN (SELECT event_id FROM learning_reviewed) "
+               "ORDER BY occurred_at ASC, id ASC")
+        params: list[Any] = []
+        if limit:
+            sql += " LIMIT ?"
+            params.append(int(limit))
+        return [row["id"] for row in conn.execute(sql, params).fetchall()]
+    finally:
+        conn.close()
+
+
+def last_recorded_at(db_path: Path | None) -> str | None:
+    conn = _connect(db_path)
+    try:
+        return conn.execute("SELECT MAX(recorded_at) FROM learning_events").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def review_every(config: dict[str, Any] | None) -> int:
+    try:
+        return max(1, int(_settings(config).get("review_every", 6)))
+    except (TypeError, ValueError):
+        return 6
+
+
+def maybe_enqueue_review(vault: Path, db_path: Path | None, config: dict[str, Any] | None) -> str | None:
+    """Queue a review when enough unreviewed events have piled up. Cheap, and
+    safe to call after every event: the queue coalesces duplicates, so a burst of
+    events produces one pending review, not one each. Never raises."""
+    try:
+        if learning_mode(config) not in ("shadow", "auto"):
+            return None
+        if len(unreviewed_ids(db_path)) < review_every(config):
+            return None
+        from .jobs import enqueue_job
+
+        return enqueue_job("skill.review", {"vault": str(vault)}, db_path=db_path)
+    except Exception:
+        return None
 
 
 # ── Status and the skill ledger ──────────────────────────────────────────────
@@ -666,6 +776,7 @@ def learning_status(vault: Path, db_path: Path | None, config: dict[str, Any] | 
         by_kind = {r["kind"]: r["n"] for r in conn.execute("SELECT kind, COUNT(*) n FROM learning_events GROUP BY kind")}
         tainted = conn.execute("SELECT COUNT(*) FROM learning_events WHERE tainted = 1").fetchone()[0]
         last = conn.execute("SELECT MAX(occurred_at) FROM learning_events").fetchone()[0]
+        reviewed = conn.execute("SELECT COUNT(*) FROM learning_reviewed").fetchone()[0]
     finally:
         conn.close()
     size = sum(p.stat().st_size for p in iter_event_files(vault))
@@ -674,6 +785,7 @@ def learning_status(vault: Path, db_path: Path | None, config: dict[str, Any] | 
         "min_tool_calls": min_tool_calls(config),
         "work_tools": sorted(work_tools(config)),
         "events": int(total),
+        "reviewed": int(reviewed),
         "by_kind": by_kind,
         "tainted": int(tainted),
         "last_event": last,
@@ -691,6 +803,7 @@ def format_status(status: dict[str, Any]) -> str:
     if status["events"]:
         kinds = ", ".join(f"{k}×{n}" for k, n in sorted(status["by_kind"].items()))
         lines.append(f"  by kind: {kinds}; {status['tainted']} drew on external sources (provenance, not a gate)")
+        lines.append(f"  reviewed: {status.get('reviewed', 0)} of {status['events']}")
         lines.append(f"  stored in {status['files']} file(s), {status['bytes']:,} bytes under {status['root']}")
     lines.append(
         f"  a conversation turn is recorded at ≥ {status['min_tool_calls']} tool calls, when it uses a skill, "
