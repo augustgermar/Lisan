@@ -246,6 +246,47 @@ class VectorScorer:
         )
 
 
+_NOTED: set[str] = set()
+
+
+def terminal_note(reason: str, fix: str) -> None:
+    """Tell a person at a terminal that semantic search is off, once per reason.
+
+    ``unreachable_policy: skip`` keeps retrieval alive on keyword search, which
+    is the right fallback and a terrible secret. This is the loud half: a
+    plain-text note on stderr, only when stderr is a TTY. Services (the
+    Telegram bot, the Adjutant) run with stderr redirected to a log file, so
+    nothing here ever reaches a chat; their log still gets the warn-once line
+    from the embedding provider."""
+    if reason in _NOTED:
+        return
+    _NOTED.add(reason)
+    try:
+        if not sys.stderr.isatty():
+            return
+        print(f"\n  ! semantic search is OFF ({reason}); answers use keyword search only.\n    fix: {fix}\n",
+              file=sys.stderr, flush=True)
+    except Exception:
+        pass
+
+
+def reset_terminal_notes() -> None:
+    _NOTED.clear()
+
+
+def _check_scorer(scorer: "VectorScorer", embeddings_file: Path) -> None:
+    index = scorer.index
+    if not scorer.query_vector:
+        terminal_note("the embedder is unavailable", "pip install fastembed, then `lisan rebuild-index`")
+    elif not index.vectors:
+        terminal_note(f"no vector index at {embeddings_file.name}", "`lisan rebuild-index`")
+    elif index.dimension and len(scorer.query_vector) != index.dimension:
+        terminal_note(
+            f"index is {index.dimension}-dim but the model emits {len(scorer.query_vector)}-dim",
+            "`lisan rebuild-index`",
+        )
+
+
 def build_query_scorer(
     query: str,
     *,
@@ -263,8 +304,10 @@ def build_query_scorer(
     query_vector = query_embedding.vector
     if index.calibration is not None and query_vector:
         query_vector = apply_correction(query_vector, index.calibration)
-    return VectorScorer(
+    scorer = VectorScorer(
         query_vector=query_vector,
         index=index,
         mode_used=query_embedding.mode_used,
     )
+    _check_scorer(scorer, embeddings_file)
+    return scorer

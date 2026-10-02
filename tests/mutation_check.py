@@ -87,6 +87,12 @@ MUTANTS = [
     ("skips are silent", BF, '            skipped.append((statement, "already formed (ratification is idempotent)"))\n            continue', '            continue', T, "twice"),
     ("confidence is not capped at birth", BF, 'BIRTH_CONFIDENCE = "medium"', 'BIRTH_CONFIDENCE = "high"', T, "capped_confidence"),
     ("provenance is not stamped", BF, '                provenance="formed",\n                ratified_by="owner",', '                provenance=None,\n                ratified_by=None,', T, "capped_confidence"),
+    # ── embeddings terminal note ──
+    ("note is written to services too", "lisan/tools/vector_store.py", "        if not sys.stderr.isatty():\n            return\n", "        if False:\n            return\n", "tests/test_embedding_terminal_note.py", "not_a_tty"),
+    ("note repeats every query", "lisan/tools/vector_store.py", "    if reason in _NOTED:\n        return\n", "    if False:\n        return\n", "tests/test_embedding_terminal_note.py", "once_per_reason"),
+    ("dimension mismatch is silent", "lisan/tools/vector_store.py", "    elif index.dimension and len(scorer.query_vector) != index.dimension:", "    elif False:", "tests/test_embedding_terminal_note.py", "mismatch"),
+    ("empty index is silent", "lisan/tools/vector_store.py", "    elif not index.vectors:", "    elif False:", "tests/test_embedding_terminal_note.py", "index_empty"),
+    ("missing embedder is silent", "lisan/tools/vector_store.py", "    if not scorer.query_vector:\n        terminal_note(", "    if False:\n        terminal_note(", "tests/test_embedding_terminal_note.py", "unavailable"),
     # ── process tree ──
     ("the tree is read before it is frozen", "lisan/tools/proctree.py", "    for _ in range(_MAX_PASSES):\n        parents = _parent_map()\n        fresh = [", "    for _ in range(_MAX_PASSES):\n        fresh = [", "tests/test_proctree.py", "keeps_forking"),
     ("freezing stops at the root group", "lisan/tools/proctree.py", "        for victim in fresh:\n            try:\n                os.kill(victim, signal.SIGSTOP)", "        for victim in fresh:\n            try:\n                pass", "tests/test_proctree.py", "outside_the_roots"),
