@@ -25,6 +25,22 @@
   the claim transaction. Cancel kills a running child. Children are never
   auto-retried and an overdue one is failed, not requeued, if its worker dies.
   Design and decisions: `docs/delegation_workorder.md`.
+- **Fan-out plans and the chat `delegate` tool.** A plan step of kind `fanout`
+  runs several workers in parallel and joins them (`join: all` or
+  `best_effort`); a durable `delegation_groups` row makes the join fire exactly
+  once and survive a crash (continuation enqueued under a deterministic id,
+  then the group marked settled; a sweep at every worker start is the
+  guarantee). Waiting plans are visible, cancellable (workers are killed) and
+  resumable. The conversation agent gets an asynchronous `delegate` tool: it
+  returns a handle at once and, when the last worker finishes, one capture turn
+  and one message to the owner cover the whole group. Refused from inside a
+  plan, like `create_plan` and `schedule_task`. `lisan plan add --steps-file`
+  accepts full JSON steps.
+- **Timeouts, cancels and the crash reaper now kill the whole process tree.**
+  `codex exec` runs each command in its own process group, so killing codex's
+  group left the real work (builds, ssh) running and made a timed-out call hang
+  until it ended. `lisan/tools/proctree.py` walks parent pids (never names).
+- A completed plan's owner message now ends with its last step's result.
 - **The scheduler now runs three lanes** (main, long, delegate), so a
   30-minute `plan.run` / `task.run_codex` no longer delays reminders and
   background jobs. `run_scheduler_loop(lanes=False)` restores the old behavior.

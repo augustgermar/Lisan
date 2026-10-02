@@ -38,6 +38,7 @@ MAX_TIMEOUT_SECONDS = 2400
 DEFAULT_TIMEOUT_SECONDS = 900
 DEFAULT_MAX_OUTSTANDING = 12
 DEFAULT_MAX_CONCURRENT = 3
+DEFAULT_MAX_CHILDREN = 6  # per fan-out / per chat call
 
 _ACTIVE_STATUSES = ("queued", "running", "retry_wait")
 
@@ -77,6 +78,105 @@ def _count_active(db_path: Path | None) -> int:
     )
 
 
+def normalize_child_spec(
+    spec: dict[str, Any],
+    *,
+    ceiling: str,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate one child's request and fill its defaults. Raises ValueError
+    with the reason. Used both when a child is queued and when a plan is
+    created, so a bad fan-out fails at creation, not at 3am."""
+    from .execution_tools import codex_workspace
+
+    brief = str(spec.get("brief") or "").strip()
+    if not brief:
+        raise ValueError("a delegated task needs a brief")
+    if ceiling not in _RANK:
+        raise ValueError(f"unknown profile ceiling {ceiling!r}")
+
+    profile = spec.get("profile")
+    if profile is None:
+        profile = profile_for_mode(ceiling)  # a child defaults to its parent's own authority
+    if profile not in PROFILES:
+        raise ValueError(f"unknown profile {profile!r}; expected one of {sorted(PROFILES)}")
+    if _RANK[PROFILES[profile]] > _RANK[ceiling]:
+        raise ValueError(
+            f"profile {profile!r} exceeds the delegating caller's authority "
+            f"({profile_for_mode(ceiling)!r}); a child can never have more than its parent"
+        )
+
+    timeout_seconds = spec.get("timeout_seconds")
+    if timeout_seconds is None:
+        timeout_seconds = _settings(config).get("default_timeout_seconds") or DEFAULT_TIMEOUT_SECONDS
+    try:
+        timeout_seconds = int(timeout_seconds)
+    except (TypeError, ValueError):
+        raise ValueError("timeout_seconds must be a whole number of seconds") from None
+    if not 1 <= timeout_seconds <= MAX_TIMEOUT_SECONDS:
+        raise ValueError(
+            f"timeout_seconds must be between 1 and {MAX_TIMEOUT_SECONDS} (the queue requeues "
+            "jobs running past 45 minutes); split longer work into several children"
+        )
+
+    working_directory = spec.get("working_directory")
+    wd = Path(working_directory).expanduser() if working_directory else Path(codex_workspace())
+    if not wd.is_absolute():
+        raise ValueError("working_directory must be an absolute path")
+
+    normalized: dict[str, Any] = {
+        "brief": brief,
+        "profile": profile,
+        "timeout_seconds": timeout_seconds,
+        "working_directory": str(wd),
+    }
+    if spec.get("result_schema"):
+        normalized["result_schema"] = spec["result_schema"]
+    return normalized
+
+
+def _refuse_if_intent_denies(vault: Path | None) -> None:
+    if vault is None:
+        return
+    from .execution_tools import _chat_intent_verdict
+
+    ruling = _chat_intent_verdict(vault)
+    if ruling is not None and ruling[0].decision == "deny":
+        verdict, version = ruling
+        reasons = "; ".join(verdict.reasons or ["denied"])
+        raise ValueError(f"intent.md (v{version}) forbids this: {verdict.rule} — {reasons}")
+
+
+def _enqueue_child(
+    normalized: dict[str, Any],
+    *,
+    ceiling: str,
+    parent: dict[str, Any] | None,
+    group_id: str | None,
+    job_id: str | None,
+    db_path: Path | None,
+) -> dict[str, Any]:
+    from .jobs import enqueue_job
+
+    delegation_id = f"deleg.{uuid.uuid4().hex[:10]}"
+    payload: dict[str, Any] = {
+        "delegation_id": delegation_id,
+        "group_id": group_id or delegation_id,
+        **normalized,
+        "profile_ceiling": ceiling,
+        "parent": parent or {"kind": "cli"},
+    }
+    # max_attempts=1: never retried by the queue (see module docstring).
+    queued_id = enqueue_job(JOB_TYPE, payload, max_attempts=1, db_path=db_path, job_id=job_id)
+    return {
+        "delegation_id": delegation_id,
+        "group_id": payload["group_id"],
+        "job_id": queued_id,
+        "profile": normalized["profile"],
+        "timeout_seconds": normalized["timeout_seconds"],
+    }
+
+
 def delegate(
     brief: str,
     *,
@@ -93,74 +193,23 @@ def delegate(
 ) -> dict[str, Any]:
     """Validate and enqueue one child. Raises ValueError with the reason when
     the request is refused, so the caller can say so plainly."""
-    from .execution_tools import _chat_intent_verdict, codex_workspace
-    from .jobs import enqueue_job
-
     config = config if config is not None else load_config()
-    brief = str(brief or "").strip()
-    if not brief:
-        raise ValueError("a delegated task needs a brief")
-
     ceiling = profile_ceiling or caller_ceiling_mode(config)
-    if ceiling not in _RANK:
-        raise ValueError(f"unknown profile ceiling {ceiling!r}")
-    if profile is None:
-        profile = profile_for_mode(ceiling)  # a child defaults to its parent's own authority
-    if profile not in PROFILES:
-        raise ValueError(f"unknown profile {profile!r}; expected one of {sorted(PROFILES)}")
-    if _RANK[PROFILES[profile]] > _RANK[ceiling]:
-        raise ValueError(
-            f"profile {profile!r} exceeds the delegating caller's authority "
-            f"({profile_for_mode(ceiling)!r}); a child can never have more than its parent"
-        )
-
-    settings = _settings(config)
-    if timeout_seconds is None:
-        timeout_seconds = int(settings.get("default_timeout_seconds") or DEFAULT_TIMEOUT_SECONDS)
-    timeout_seconds = int(timeout_seconds)
-    if not 1 <= timeout_seconds <= MAX_TIMEOUT_SECONDS:
-        raise ValueError(
-            f"timeout_seconds must be between 1 and {MAX_TIMEOUT_SECONDS} (the queue requeues "
-            "jobs running past 45 minutes); split longer work into several children"
-        )
-
-    wd = Path(working_directory).expanduser() if working_directory else Path(codex_workspace())
-    if not wd.is_absolute():
-        raise ValueError("working_directory must be an absolute path")
-
-    if vault is not None:
-        ruling = _chat_intent_verdict(vault)
-        if ruling is not None and ruling[0].decision == "deny":
-            verdict, version = ruling
-            reasons = "; ".join(verdict.reasons or ["denied"])
-            raise ValueError(f"intent.md (v{version}) forbids this: {verdict.rule} — {reasons}")
-
-    cap = int(settings.get("max_outstanding") or DEFAULT_MAX_OUTSTANDING)
+    normalized = normalize_child_spec(
+        {
+            "brief": brief, "profile": profile, "working_directory": working_directory,
+            "timeout_seconds": timeout_seconds, "result_schema": result_schema,
+        },
+        ceiling=ceiling,
+        config=config,
+    )
+    _refuse_if_intent_denies(vault)
+    cap = int(_settings(config).get("max_outstanding") or DEFAULT_MAX_OUTSTANDING)
     if _count_active(db_path) >= cap:
         raise ValueError(f"{cap} delegated tasks are already queued or running; wait for some to finish")
-
-    delegation_id = f"deleg.{uuid.uuid4().hex[:10]}"
-    payload: dict[str, Any] = {
-        "delegation_id": delegation_id,
-        "group_id": group_id or delegation_id,
-        "brief": brief,
-        "profile": profile,
-        "profile_ceiling": ceiling,
-        "working_directory": str(wd),
-        "timeout_seconds": timeout_seconds,
-        "parent": parent or {"kind": "cli"},
-    }
-    if result_schema:
-        payload["result_schema"] = result_schema
-    # max_attempts=1: never retried by the queue (see module docstring).
-    job_id = enqueue_job(JOB_TYPE, payload, max_attempts=1, db_path=db_path)
-    return {
-        "delegation_id": delegation_id,
-        "group_id": payload["group_id"],
-        "job_id": job_id,
-        "profile": profile,
-        "timeout_seconds": timeout_seconds,
-    }
+    return _enqueue_child(
+        normalized, ceiling=ceiling, parent=parent, group_id=group_id, job_id=None, db_path=db_path
+    )
 
 
 def _child_prompt(brief: str, working_directory: str, result_schema: dict[str, Any] | None) -> str:
@@ -409,3 +458,373 @@ def reap_overdue_delegations(
         escalate_terminal_failure(updated or job, error, vault=vault, db_path=db_path)
         reaped.append(str(payload.get("delegation_id") or job["id"]))
     return reaped
+
+
+# ── Groups: durable fan-out and join ─────────────────────────────────────────
+#
+# A group is a set of children plus the one thing to do when they have all
+# finished (its continuation): resume a plan, or report to the owner. The join
+# is a row, not payload state, so it survives a crash anywhere in the sequence:
+#
+#   1. children are enqueued under deterministic ids (a re-run cannot double-launch)
+#   2. the group row is written
+#   3. settle_groups() enqueues the continuation under a deterministic id, THEN
+#      marks the group settled. A crash between the two is repaired by the next
+#      sweep, because enqueueing an existing id is a no-op.
+
+REPORT_JOB_TYPE = "agent.delegate_report"
+_TERMINAL_STATUSES = frozenset({"succeeded", "failed", "canceled", "archived"})
+
+_GROUPS_DDL = """
+CREATE TABLE IF NOT EXISTS delegation_groups (
+    group_id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    parent_ref TEXT,
+    child_job_ids TEXT NOT NULL,
+    continuation_type TEXT NOT NULL,
+    continuation_payload TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'waiting',
+    created_at TEXT NOT NULL,
+    settled_at TEXT
+)
+"""
+
+
+def _groups_conn(db_path: Path | None):
+    import sqlite3
+
+    from .db import connect
+
+    conn = connect(db_path)
+    conn.row_factory = sqlite3.Row
+    conn.execute(_GROUPS_DDL)
+    return conn
+
+
+def _utc_stamp() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def max_children(config: dict[str, Any] | None = None) -> int:
+    try:
+        return max(1, int(_settings(config if config is not None else load_config()).get("max_children", DEFAULT_MAX_CHILDREN)))
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_CHILDREN
+
+
+def child_job_ids_for(group_id: str, count: int) -> list[str]:
+    """Deterministic ids: re-running a half-finished launch re-uses them."""
+    return [f"job.child.{group_id}.{i + 1}" for i in range(count)]
+
+
+def launch_group(
+    specs: list[dict[str, Any]],
+    *,
+    group_id: str,
+    kind: str,
+    parent: dict[str, Any],
+    continuation_type: str,
+    continuation_payload: dict[str, Any],
+    ceiling: str,
+    config: dict[str, Any] | None = None,
+    vault: Path | None = None,
+    db_path: Path | None = None,
+) -> dict[str, Any]:
+    """Validate every child, enqueue them, record the group. All-or-nothing on
+    validation (nothing is queued if any spec is bad); idempotent on re-run."""
+    import json
+
+    from .jobs import get_job
+
+    config = config if config is not None else load_config()
+    limit = max_children(config)
+    if not specs:
+        raise ValueError("a group needs at least one child")
+    if len(specs) > limit:
+        raise ValueError(f"too many children ({len(specs)}); at most {limit} per group (delegation.max_children)")
+    normalized = [normalize_child_spec(spec, ceiling=ceiling, config=config) for spec in specs]
+    _refuse_if_intent_denies(vault)
+
+    ids = child_job_ids_for(group_id, len(normalized))
+    fresh = sum(1 for job_id in ids if get_job(job_id, db_path=db_path) is None)
+    cap = int(_settings(config).get("max_outstanding") or DEFAULT_MAX_OUTSTANDING)
+    if fresh and _count_active(db_path) + fresh > cap:
+        raise ValueError(
+            f"{cap} delegated tasks may be queued or running at once and this would exceed that; "
+            "wait for some to finish"
+        )
+
+    children = [
+        _enqueue_child(spec, ceiling=ceiling, parent=parent, group_id=group_id, job_id=job_id, db_path=db_path)
+        for spec, job_id in zip(normalized, ids)
+    ]
+    conn = _groups_conn(db_path)
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO delegation_groups "
+            "(group_id, kind, parent_ref, child_job_ids, continuation_type, continuation_payload, state, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'waiting', ?)",
+            (
+                group_id, kind, json.dumps(parent, sort_keys=True), json.dumps(ids),
+                continuation_type, json.dumps(continuation_payload), _utc_stamp(),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"group_id": group_id, "child_job_ids": ids, "children": children}
+
+
+def get_group(group_id: str, *, db_path: Path | None = None) -> dict[str, Any] | None:
+    import json
+
+    conn = _groups_conn(db_path)
+    try:
+        row = conn.execute("SELECT * FROM delegation_groups WHERE group_id = ?", (group_id,)).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    group = dict(row)
+    group["child_job_ids"] = json.loads(group["child_job_ids"])
+    group["continuation_payload"] = json.loads(group["continuation_payload"])
+    return group
+
+
+def group_children(group_id: str, *, db_path: Path | None = None) -> list[dict[str, Any]]:
+    """What each child did, in launch order."""
+    from .jobs import get_job
+
+    group = get_group(group_id, db_path=db_path)
+    if group is None:
+        return []
+    out: list[dict[str, Any]] = []
+    for job_id in group["child_job_ids"]:
+        job = get_job(job_id, db_path=db_path)
+        if job is None:
+            out.append({"job_id": job_id, "status": "missing", "error": "the job is gone"})
+            continue
+        payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+        result = job.get("result") if isinstance(job.get("result"), dict) else {}
+        out.append({
+            "job_id": job_id,
+            "delegation_id": payload.get("delegation_id"),
+            "status": job.get("status"),
+            "profile": payload.get("profile"),
+            "brief": payload.get("brief") or "",
+            "text": str(result.get("text") or ""),
+            "data": result.get("data"),
+            "error": str(job.get("error") or ""),
+            "duration_s": result.get("duration_s"),
+        })
+    return out
+
+
+def settle_groups(db_path: Path | None = None) -> list[str]:
+    """Enqueue the continuation of every waiting group whose children have all
+    finished; returns the group ids settled. Safe to call from any number of
+    workers at once, and as often as you like."""
+    import json
+
+    from .jobs import enqueue_job
+
+    conn = _groups_conn(db_path)
+    try:
+        waiting = conn.execute("SELECT * FROM delegation_groups WHERE state = 'waiting'").fetchall()
+    finally:
+        conn.close()
+    settled: list[str] = []
+    for row in waiting:
+        if not all(child["status"] in _TERMINAL_STATUSES | {"missing"} for child in group_children(row["group_id"], db_path=db_path)):
+            continue
+        enqueue_job(
+            row["continuation_type"],
+            json.loads(row["continuation_payload"]),
+            job_id=f"job.join.{row['group_id']}",  # deterministic: a second enqueue is a no-op
+            db_path=db_path,
+        )
+        conn = _groups_conn(db_path)
+        try:
+            conn.execute(
+                "UPDATE delegation_groups SET state = 'settled', settled_at = ? WHERE group_id = ? AND state = 'waiting'",
+                (_utc_stamp(), row["group_id"]),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        settled.append(row["group_id"])
+    return settled
+
+
+def cancel_group(group_id: str, *, db_path: Path | None = None) -> int:
+    """Cancel every unfinished child (killing running ones) and mark the group
+    canceled so it never enqueues its continuation. Returns children canceled."""
+    from .jobs import cancel_job, get_job
+
+    group = get_group(group_id, db_path=db_path)
+    if group is None:
+        return 0
+    conn = _groups_conn(db_path)
+    try:
+        conn.execute(
+            "UPDATE delegation_groups SET state = 'canceled', settled_at = ? WHERE group_id = ? AND state = 'waiting'",
+            (_utc_stamp(), group_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    canceled = 0
+    for job_id in group["child_job_ids"]:
+        job = get_job(job_id, db_path=db_path)
+        if job is not None and job.get("status") in _ACTIVE_STATUSES:
+            cancel_job(job_id, db_path=db_path)
+            canceled += 1
+    return canceled
+
+
+# ── Reporting a finished group ───────────────────────────────────────────────
+
+def _first_line(text: str, limit: int) -> str:
+    line = " ".join(str(text).strip().splitlines()[:1])
+    return line if len(line) <= limit else line[: limit - 1] + "…"
+
+
+def group_summary_message(goal: str, children: list[dict[str, Any]], *, text_limit: int = 600) -> str:
+    """The owner-facing message for a finished group: every child's outcome and
+    what it found, unsoftened. Failures carry their real error."""
+    failed = [c for c in children if c["status"] != "succeeded"]
+    icon = "✅" if not failed else "⚠️"
+    head = f"{icon} Delegated work finished: {goal}" if goal else f"{icon} Delegated work finished"
+    if failed:
+        head += f" ({len(children) - len(failed)} of {len(children)} succeeded)"
+    lines = [head]
+    for i, child in enumerate(children, start=1):
+        brief = _first_line(child.get("brief") or "", 80)
+        if child["status"] == "succeeded":
+            took = f", {child['duration_s']}s" if child.get("duration_s") is not None else ""
+            lines.append(f"{i}. ✓ {brief} ({child.get('profile')}{took})")
+            body = child.get("text") or ""
+            if body:
+                lines.append("   " + (body if len(body) <= text_limit else body[:text_limit] + "…").replace("\n", "\n   "))
+        else:
+            why = child.get("error") or child["status"]
+            lines.append(f"{i}. ✗ {brief} — {child['status']}: {_first_line(why, 200)}")
+    ids = [c.get("delegation_id") for c in children if c.get("delegation_id")]
+    if ids:
+        lines.append(f"Full results: lisan delegate show {ids[0]}" + (" (and the others)" if len(ids) > 1 else ""))
+    return "\n".join(lines)
+
+
+def run_delegation_report(
+    job: dict[str, Any],
+    *,
+    vault: Path | None = None,
+    db_path: Path | None = None,
+    send_fn: Any = None,
+    capture: Any = None,
+) -> dict[str, Any]:
+    """The continuation of a chat group: one capture turn for the whole group
+    (so the Skeptic reads what the workers claimed, once) and one message to
+    the owner. Both are best-effort — the children's results stay on their job
+    rows either way — but a failure to deliver is logged, not hidden."""
+    from ..paths import vault_root
+    from .adjutant_executor import ExecutionResult
+    from .adjutant_reporter import report_result
+
+    vault = vault or vault_root()
+    payload = dict(job.get("payload") or {})
+    group_id = str(payload.get("group_id") or "")
+    goal = str(payload.get("goal") or "")
+    children = group_children(group_id, db_path=db_path)
+    if not children:
+        raise RuntimeError(f"delegation group {group_id!r} has no children to report")
+    failed = [c for c in children if c["status"] != "succeeded"]
+
+    result = ExecutionResult(
+        task_id=group_id,
+        kind="delegation",
+        ok=not failed,
+        actions=[
+            f"{c.get('profile') or '?'} worker: {_first_line(c.get('brief') or '', 140)} -> {c['status']}"
+            for c in children
+        ],
+        findings=[
+            {"delegation": c.get("delegation_id"), "result": (c.get("text") or "")[:1200]}
+            for c in children if c["status"] == "succeeded" and c.get("text")
+        ],
+        errors=[
+            f"{_first_line(c.get('brief') or '', 100)}: {c['status']} — {_first_line(c.get('error') or '', 300)}"
+            for c in failed
+        ],
+    )
+    try:
+        report_result(
+            vault, result,
+            verdict_path=f"delegated from chat: {goal[:120]}" if goal else "delegated from chat",
+            db_path=db_path, capture=capture,
+        )
+    except Exception as exc:
+        _log_delegation_error(vault, "delegation report: capture failed", exc)
+
+    message = group_summary_message(goal, children)
+    chat_id = payload.get("chat_id")
+    chat_id = int(chat_id) if chat_id is not None else None
+    delivered = False
+    try:
+        if send_fn is not None:
+            send_fn(message, chat_id)
+        else:
+            from .scheduler import _deliver_owner_message
+
+            _deliver_owner_message(message, chat_id=chat_id, config=None)
+        delivered = True
+    except Exception as exc:
+        _log_delegation_error(vault, "delegation report: delivery failed", exc)
+    return {
+        "group_id": group_id,
+        "children": len(children),
+        "succeeded": len(children) - len(failed),
+        "delivered": delivered,
+    }
+
+
+def _log_delegation_error(vault: Path, what: str, exc: Exception) -> None:
+    try:
+        from .log import log_error
+
+        log_error(vault, what, exc)
+    except Exception:
+        pass
+
+
+def launch_chat_group(
+    tasks: list[dict[str, Any]],
+    *,
+    goal: str = "",
+    chat_id: int | None = None,
+    conversation_id: str | None = None,
+    config: dict[str, Any] | None = None,
+    vault: Path | None = None,
+    db_path: Path | None = None,
+) -> dict[str, Any]:
+    """Start a set of children for the conversation agent; their results come
+    back as one report when the last one finishes."""
+    config = config if config is not None else load_config()
+    group_id = f"grp.chat.{uuid.uuid4().hex[:10]}"
+    continuation = {"group_id": group_id, "goal": goal, "conversation_id": conversation_id}
+    if chat_id is not None:
+        continuation["chat_id"] = int(chat_id)
+    out = launch_group(
+        tasks,
+        group_id=group_id,
+        kind="chat",
+        parent={"kind": "chat", "ref": conversation_id or ""},
+        continuation_type=REPORT_JOB_TYPE,
+        continuation_payload=continuation,
+        ceiling=caller_ceiling_mode(config),
+        config=config,
+        vault=vault,
+        db_path=db_path,
+    )
+    out["goal"] = goal
+    return out

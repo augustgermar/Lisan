@@ -857,7 +857,9 @@ def build_parser() -> argparse.ArgumentParser:
     plan_subparsers = plan_cmd.add_subparsers(dest="plan_command", required=True)
     plan_add = plan_subparsers.add_parser("add", help="Create a plan")
     plan_add.add_argument("goal", help="What the plan achieves")
-    plan_add.add_argument("--step", action="append", required=True, dest="steps",
+    plan_add.add_argument("--steps-file", type=Path, default=None, dest="steps_file",
+                          help="JSON list of steps ({kind, description, ...}); the way to write a fanout step")
+    plan_add.add_argument("--step", action="append", required=False, dest="steps",
                           help="A step as 'kind: description' (kind: codex|prompt|note); repeatable, runs in order")
     plan_add.add_argument("--dir", dest="working_directory", default=None)
     plan_add.add_argument("--db-path", type=Path, default=None)
@@ -1831,7 +1833,16 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.plan_command == "add":
             steps = []
-            for raw_step in args.steps:
+            if args.steps_file is not None:
+                try:
+                    steps = json.loads(args.steps_file.read_text(encoding="utf-8"))
+                except (OSError, ValueError) as exc:
+                    print(f"✗ cannot read steps file: {exc}")
+                    return 1
+                if not isinstance(steps, list):
+                    print("✗ steps file must be a JSON list of steps")
+                    return 1
+            for raw_step in args.steps or []:
                 kind, _, description = raw_step.partition(":")
                 if not description.strip():
                     kind, description = "codex", raw_step

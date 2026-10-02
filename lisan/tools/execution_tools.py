@@ -362,6 +362,43 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "delegate",
+        "description": (
+            "Hand self-contained jobs to separate worker agents that run IN PARALLEL in the "
+            "background, and get all their results back in one report. Use it when work splits "
+            "into independent pieces (check these five servers, review these three documents, "
+            "research these options) — not for a single action (use execute_task) and not for "
+            "ordered stages (use create_plan). Each worker is a fresh coding agent that sees ONLY "
+            "its brief: no memory, no conversation, no tools of yours — so the brief must carry "
+            "everything it needs (paths, names, what to report back). It returns at once; the "
+            "owner is messaged with every worker's outcome when the last one finishes. You do NOT "
+            "have the results when this returns — never state or guess them; say they're pending. "
+            "profile: 'read_only' for anything that only looks (research, audits, review), "
+            "'workspace_write' for edits in its working directory, 'full' only when it truly must "
+            "change the system. Up to 6 workers per call."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tasks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "brief": {"type": "string", "description": "The worker's whole task, self-contained"},
+                            "profile": {"type": "string", "enum": ["read_only", "workspace_write", "full"]},
+                            "timeout_seconds": {"type": "integer", "description": "Wall limit, max 2400; default 900"},
+                            "working_directory": {"type": "string", "description": "Absolute path to run in"},
+                        },
+                        "required": ["brief"],
+                    },
+                },
+                "goal": {"type": "string", "description": "One sentence: what the workers achieve together"},
+            },
+            "required": ["tasks"],
+        },
+    },
+    {
         "name": "schedule_task",
         "description": (
             "Schedule work for a future time. Kinds: 'reminder' sends the user a message; "
@@ -484,6 +521,14 @@ def build_tool_handlers(
             goal=goal,
             steps=steps,
             db_path=db_path,
+            conversation_id=conversation_id,
+        ),
+        "delegate": lambda tasks, goal="": delegate_tool(
+            tasks=tasks,
+            goal=goal,
+            vault=vault,
+            db_path=db_path,
+            config=config,
             conversation_id=conversation_id,
         ),
         "schedule_task": lambda text, when=None, kind="reminder", recurrence=None: schedule_task_tool(
@@ -1218,6 +1263,59 @@ def create_plan_tool(
     return (
         f"Plan created ({summary['plan_id']}): {summary['goal']} — {summary['steps']} step(s). "
         "It runs in the background; I'll report when it finishes."
+    )
+
+
+def delegate_tool(
+    *,
+    tasks: Any,
+    goal: str = "",
+    vault: Path,
+    db_path: Path | None = None,
+    config: dict[str, Any] | None = None,
+    conversation_id: str | None = None,
+) -> str:
+    """Conversational entry point for delegation. Asynchronous by design: it
+    queues the workers and returns a handle. Their results come back as one
+    report (a capture turn plus one message to the owner) when the last one
+    finishes — so what this returns must never read like a result."""
+    from .delegation import launch_chat_group
+
+    if _inside_a_plan(conversation_id):
+        # Same containment rule as create_plan and schedule_task: a plan step
+        # must not be able to start further unattended work. A plan that wants
+        # parallel workers declares a fanout step instead.
+        return (
+            "I'm executing inside a plan, so I can't start delegated workers from here. "
+            "Do this step's work directly, or report what you found and let the owner decide; "
+            "a plan that needs parallel workers should use a fanout step."
+        )
+    if not isinstance(tasks, list) or not tasks or not all(isinstance(t, dict) for t in tasks):
+        return "Error: tasks must be a non-empty list of {brief, profile?, timeout_seconds?, working_directory?} objects"
+
+    chat_id: int | None = None
+    match = _TELEGRAM_CONVERSATION_RE.match(str(conversation_id or ""))
+    if match:
+        chat_id = int(match.group(1))
+    try:
+        group = launch_chat_group(
+            tasks,
+            goal=str(goal or "").strip(),
+            chat_id=chat_id,
+            conversation_id=conversation_id,
+            config=config,
+            vault=vault,
+            db_path=db_path,
+        )
+    except ValueError as exc:
+        return f"Error: nothing was started — {exc}"
+    workers = "; ".join(
+        f"{i}. {c['profile']}, {c['timeout_seconds']}s limit" for i, c in enumerate(group["children"], start=1)
+    )
+    return (
+        f"Started {len(group['children'])} worker(s) in parallel ({group['group_id']}): {workers}. "
+        "They are running now; I have NO results yet. When the last one finishes you'll be sent one "
+        "report with every worker's outcome. Tell the owner that, and don't describe what they will find."
     )
 
 

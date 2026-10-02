@@ -23,6 +23,11 @@ origin "plan"), and a finished plan reports through the same capture front
 door as the Adjutant, so the Skeptic reads plan outcomes like any claim.
 Steps may opt into retries; a failed plan can be resumed from the step that
 failed.
+
+A `fanout` step runs several delegated workers in parallel and joins them
+(docs/delegation_workorder.md): the step launches its children and ends, the
+plan waits, and when the last child finishes the delegation group enqueues the
+plan's continuation, which collects the results and carries on.
 """
 from __future__ import annotations
 
@@ -35,7 +40,8 @@ from ..config import load_config
 from ..paths import vault_root
 from ..utils import utc_now_iso
 
-STEP_KINDS = {"codex", "prompt", "note"}
+STEP_KINDS = {"codex", "prompt", "note", "fanout"}
+_JOIN_POLICIES = {"all", "best_effort"}
 _MAX_STEPS = 12
 _MAX_STEP_RETRIES = 2
 _RESULT_PREVIEW = 2400
@@ -49,6 +55,7 @@ def create_plan(
     conversation_id: str | None = None,
     working_directory: str | None = None,
     db_path: Path | None = None,
+    config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Validate and enqueue a plan. The first step is claimable immediately."""
     from .jobs import enqueue_job
@@ -62,6 +69,7 @@ def create_plan(
         raise ValueError(f"too many steps ({len(steps)}); a plan may have at most {_MAX_STEPS}")
 
     normalized: list[dict[str, Any]] = []
+    ceiling: str | None = None  # resolved only if a fanout step needs it
     for i, step in enumerate(steps, start=1):
         kind = str(step.get("kind") or "codex").strip().lower()
         description = str(step.get("description") or "").strip()
@@ -75,10 +83,34 @@ def create_plan(
             raise ValueError(f"step {i}: retries must be a number") from None
         if not 0 <= retries <= _MAX_STEP_RETRIES:
             raise ValueError(f"step {i}: retries must be between 0 and {_MAX_STEP_RETRIES}")
-        normalized.append(
-            {"kind": kind, "description": description, "status": "pending", "result": "",
-             "retries": retries, "attempts": 0}
-        )
+        entry: dict[str, Any] = {
+            "kind": kind, "description": description, "status": "pending", "result": "",
+            "retries": retries, "attempts": 0,
+        }
+        if kind == "fanout":
+            from .delegation import caller_ceiling_mode, max_children, normalize_child_spec
+
+            config = config if config is not None else load_config()
+            ceiling = ceiling or caller_ceiling_mode(config)
+            children = step.get("children")
+            if not isinstance(children, list) or not children:
+                raise ValueError(f"step {i}: a fanout step needs a non-empty list of children")
+            if len(children) > max_children(config):
+                raise ValueError(
+                    f"step {i}: too many children ({len(children)}); at most {max_children(config)} "
+                    "per fan-out (delegation.max_children)"
+                )
+            join = str(step.get("join") or "all")
+            if join not in _JOIN_POLICIES:
+                raise ValueError(f"step {i}: join must be one of {sorted(_JOIN_POLICIES)}")
+            if retries:
+                raise ValueError(f"step {i}: fanout steps cannot retry; children are never retried automatically")
+            try:
+                entry["children"] = [normalize_child_spec(c, ceiling=ceiling, config=config) for c in children]
+            except (ValueError, AttributeError) as exc:
+                raise ValueError(f"step {i}: {exc}") from None
+            entry["join"] = join
+        normalized.append(entry)
 
     plan_id = f"plan.{uuid.uuid4().hex[:10]}"
     payload: dict[str, Any] = {
@@ -94,6 +126,8 @@ def create_plan(
         payload["conversation_id"] = str(conversation_id)
     if working_directory:
         payload["working_directory"] = str(working_directory)
+    if ceiling:
+        payload["profile_ceiling"] = ceiling  # the most any fanout child may have
 
     job_id = enqueue_job("plan.run", payload, db_path=db_path)
     return {"plan_id": plan_id, "job_id": job_id, "goal": goal, "steps": len(normalized)}
@@ -128,12 +162,32 @@ def run_plan_step(
     from .run_ledger import ORIGIN_PLAN, begin_run, finish_run
 
     step = steps[index]
-    step["attempts"] = int(step.get("attempts") or 0) + 1
-    run_id = begin_run(db_path, f"{payload['plan_id']}#step{index + 1}", step["attempts"], origin=ORIGIN_PLAN)
-    outcome_text, ok = _execute_step(
-        step, payload, vault=vault, db_path=db_path, provider=provider, model=model, config=config
-    )
-    finish_run(db_path, run_id, ok=ok, error=None if ok else outcome_text)
+    if step["kind"] == "fanout":
+        if step.get("status") == "waiting":
+            if payload.get("join_of_step") != index:
+                # A duplicate run of a launch job whose children are still out:
+                # the group will enqueue the real continuation. Nothing to do.
+                return {"plan_id": payload["plan_id"], "status": "waiting", "step": index + 1}
+            run_id = begin_run(db_path, f"{payload['plan_id']}#step{index + 1}", step["attempts"], origin=ORIGIN_PLAN)
+            outcome_text, ok = _collect_fanout(step, db_path=db_path)
+            finish_run(db_path, run_id, ok=ok, error=None if ok else outcome_text)
+        else:
+            step["attempts"] = int(step.get("attempts") or 0) + 1
+            try:
+                launched = _launch_fanout(
+                    job, payload, steps, index, vault=vault, db_path=db_path, config=config
+                )
+            except ValueError as exc:  # refused (intent never-rule, outstanding cap): the step fails, honestly
+                outcome_text, ok = f"could not start the children: {exc}", False
+            else:
+                return launched
+    else:
+        step["attempts"] = int(step.get("attempts") or 0) + 1
+        run_id = begin_run(db_path, f"{payload['plan_id']}#step{index + 1}", step["attempts"], origin=ORIGIN_PLAN)
+        outcome_text, ok = _execute_step(
+            step, payload, vault=vault, db_path=db_path, provider=provider, model=model, config=config
+        )
+        finish_run(db_path, run_id, ok=ok, error=None if ok else outcome_text)
     step["result"] = outcome_text[:_RESULT_PREVIEW]
     steps[index] = step
     payload["steps"] = steps
@@ -160,6 +214,7 @@ def run_plan_step(
     if not ok:
         for later in steps[index + 1:]:
             later["status"] = "skipped"
+        _persist_payload(job, payload, db_path=db_path)  # the row must say what the report says
         _finish_plan(payload, vault=vault, status="failed", send_fn=send_fn, config=config, capture=capture)
         return {"plan_id": payload["plan_id"], "status": "failed", "failed_step": index + 1, "result": outcome_text[:_RESULT_PREVIEW]}
 
@@ -175,6 +230,75 @@ def run_plan_step(
         "next_job": next_job,
         "result": outcome_text[:_RESULT_PREVIEW],
     }
+
+
+def _launch_fanout(
+    job: dict[str, Any],
+    payload: dict[str, Any],
+    steps: list[dict[str, Any]],
+    index: int,
+    *,
+    vault: Path,
+    db_path: Path | None,
+    config: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Start a fanout step's children and end this job. The plan now waits; the
+    delegation group enqueues its continuation when the last child finishes.
+    Raises ValueError if the children are refused (nothing is queued then)."""
+    from .delegation import caller_ceiling_mode, child_job_ids_for, launch_group
+
+    step = steps[index]
+    plan_id = payload["plan_id"]
+    group_id = f"grp.{plan_id}.s{index + 1}.a{step['attempts']}.r{int(payload.get('resume_count') or 0)}"
+    step["status"] = "waiting"
+    step["group_id"] = group_id
+    step["child_job_ids"] = child_job_ids_for(group_id, len(step["children"]))
+    payload["steps"] = steps
+    config = config if config is not None else load_config()
+    launch_group(
+        step["children"],
+        group_id=group_id,
+        kind="plan",
+        parent={"kind": "plan", "ref": plan_id, "step": index + 1},
+        continuation_type="plan.run",
+        # the plan as it stands, plus the marker that makes it a join
+        continuation_payload={**payload, "join_of_step": index},
+        ceiling=payload.get("profile_ceiling") or caller_ceiling_mode(config),
+        config=config,
+        vault=vault,
+        db_path=db_path,
+    )
+    _persist_payload(job, payload, db_path=db_path)
+    return {
+        "plan_id": plan_id, "status": "waiting", "step": index + 1,
+        "group_id": group_id, "children": len(step["children"]),
+    }
+
+
+def _collect_fanout(step: dict[str, Any], *, db_path: Path | None) -> tuple[str, bool]:
+    """Read what the children did and decide the step's outcome per its join
+    policy. `all`: every child must succeed. `best_effort`: at least one must,
+    and failures are listed rather than fatal."""
+    import json
+
+    from .delegation import group_children
+
+    children = group_children(str(step.get("group_id") or ""), db_path=db_path)
+    if not children:
+        return "the fanout's children could not be found", False
+    succeeded = [c for c in children if c["status"] == "succeeded"]
+    budget = max(200, (_RESULT_PREVIEW - 200) // len(children))
+    lines = [f"{len(succeeded)} of {len(children)} workers succeeded."]
+    for i, child in enumerate(children, start=1):
+        brief = " ".join(str(child.get("brief") or "").split())[:70]
+        if child["status"] == "succeeded":
+            body = json.dumps(child["data"], ensure_ascii=True) if child.get("data") else child.get("text") or ""
+            lines.append(f"[{i}] {brief} -> {body[:budget]}")
+        else:
+            why = " ".join(str(child.get("error") or child["status"]).split())
+            lines.append(f"[{i}] {brief} -> FAILED ({child['status']}): {why[:budget]}")
+    ok = len(succeeded) == len(children) if step.get("join", "all") == "all" else bool(succeeded)
+    return "\n".join(lines), ok
 
 
 def _retry_safe(outcome_text: str) -> bool:
@@ -376,6 +500,12 @@ def _summary_message(payload: dict[str, Any], *, status: str) -> str:
         lines.append(f"{mark} {i}. {s['description'][:120]}")
         if s.get("status") == "failed" and s.get("result"):
             lines.append(f"   failure: {s['result'][:200]}")
+    # A finished plan's answer is its last step's result; a checklist alone
+    # tells the owner it ran, not what it found.
+    if status == "completed" and steps and steps[-1].get("status") == "done":
+        closing = str(steps[-1].get("result") or "").strip()
+        if closing and steps[-1].get("kind") != "note":
+            lines.append("Result: " + (closing if len(closing) <= 700 else closing[:700] + "…"))
     return "\n".join(lines)
 
 
@@ -450,13 +580,17 @@ def list_plans(*, db_path: Path | None = None, limit: int = 50) -> list[dict[str
     for plan_id, job in latest.items():
         payload = job.get("payload") or {}
         steps = payload.get("steps") or []
+        waiting = _is_waiting_on_children(job, steps, db_path=db_path)
         plans.append({
             "plan_id": plan_id,
             "goal": payload.get("goal") or "",
             "job_status": job.get("status"),
             "steps_total": len(steps),
             "steps_done": sum(1 for s in steps if s.get("status") == "done"),
-            "active": job.get("status") in {"queued", "running", "retry_wait"},
+            "waiting": waiting,
+            # a plan blocked on its workers is working, even though no job of
+            # its own is queued or running
+            "active": waiting or job.get("status") in {"queued", "running", "retry_wait"},
             "created_at": payload.get("created_at"),
             "job_id": job.get("id"),
             "result": job.get("result"),
@@ -465,16 +599,35 @@ def list_plans(*, db_path: Path | None = None, limit: int = 50) -> list[dict[str
     return plans[:limit]
 
 
-def _plan_progress_key(job: dict[str, Any]) -> tuple[int, int, int, str]:
+def _is_waiting_on_children(job: dict[str, Any], steps: list[dict[str, Any]], *, db_path: Path | None) -> bool:
+    """True when the plan's newest job is a finished fanout launch whose group
+    is still waiting. Once the continuation is queued, running, or canceled it
+    is the newest job instead, so this goes false on its own."""
+    payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+    index = int(payload.get("current_step") or 0)
+    if job.get("status") != "succeeded" or index >= len(steps) or steps[index].get("status") != "waiting":
+        return False
+    try:
+        from .delegation import get_group
+
+        group = get_group(str(steps[index].get("group_id") or ""), db_path=db_path)
+    except Exception:
+        return False
+    return bool(group) and group["state"] == "waiting"
+
+
+def _plan_progress_key(job: dict[str, Any]) -> tuple[int, int, int, int, str]:
     """Orders the job rows of one plan, newest state last. A resumed chain
     outranks the failed chain it came from (resume_count), then step
-    progress, then retries of the current step; timestamps only break what
-    is left, since they tie within a second."""
+    progress, then retries of the current step, then a fanout's join after
+    its launch; timestamps only break what is left, since they tie within a
+    second."""
     payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
     steps = payload.get("steps") or []
     index = int(payload.get("current_step") or 0)
     attempts = int(steps[index].get("attempts") or 0) if index < len(steps) and isinstance(steps[index], dict) else 0
-    return (int(payload.get("resume_count") or 0), index, attempts, str(job.get("created_at") or ""))
+    joined = 1 if payload.get("join_of_step") is not None else 0
+    return (int(payload.get("resume_count") or 0), index, attempts, joined, str(job.get("created_at") or ""))
 
 
 def active_plans(*, db_path: Path | None = None) -> list[dict[str, Any]]:
@@ -486,14 +639,16 @@ def format_plans(plans: list[dict[str, Any]]) -> str:
         return "No plans."
     lines = []
     for p in plans:
-        state = "active" if p["active"] else str(p["job_status"])
+        state = "waiting on workers" if p.get("waiting") else ("active" if p["active"] else str(p["job_status"]))
         goal = p["goal"] if len(p["goal"]) <= 70 else p["goal"][:67] + "..."
         lines.append(f"{p['plan_id']}  [{state}]  {p['steps_done']}/{p['steps_total']} steps  — {goal}")
     return "\n".join(lines)
 
 
-def cancel_plan(plan_id: str, *, db_path: Path | None = None) -> bool:
-    """Cancel the pending job row that carries this plan forward."""
+def cancel_plan(plan_id: str, *, db_path: Path | None = None, vault: Path | None = None) -> bool:
+    """Cancel the pending job row that carries this plan forward, or — if the
+    plan is waiting on delegated workers — cancel them (killing running ones)
+    and end the plan as canceled."""
     from .jobs import cancel_job, list_jobs
 
     for job in list_jobs(limit=5000, db_path=db_path):
@@ -503,7 +658,29 @@ def cancel_plan(plan_id: str, *, db_path: Path | None = None) -> bool:
         if str(payload.get("plan_id")) == plan_id and job.get("status") in {"queued", "retry_wait"}:
             cancel_job(str(job.get("id")), db_path=db_path)
             return True
-    return False
+    return _cancel_waiting_plan(plan_id, db_path=db_path, vault=vault)
+
+
+def _cancel_waiting_plan(plan_id: str, *, db_path: Path | None, vault: Path | None) -> bool:
+    from .delegation import cancel_group
+    from .jobs import get_job
+
+    plan = next((p for p in list_plans(db_path=db_path) if p["plan_id"] == plan_id and p.get("waiting")), None)
+    if plan is None:
+        return False
+    job = get_job(str(plan["job_id"]), db_path=db_path) or {}
+    payload = dict(job.get("payload") or {})
+    steps = [dict(s) for s in payload.get("steps") or []]
+    index = int(payload.get("current_step") or 0)
+    stopped = cancel_group(str(steps[index].get("group_id") or ""), db_path=db_path)
+    steps[index]["status"] = "failed"
+    steps[index]["result"] = f"canceled by the owner while waiting on workers ({stopped} stopped)"
+    for later in steps[index + 1:]:
+        later["status"] = "skipped"
+    payload["steps"] = steps
+    _persist_payload(job, payload, db_path=db_path)
+    _finish_plan(payload, vault=vault or vault_root(), status="canceled", send_fn=None, config=None)
+    return True
 def resume_plan(plan_id: str, *, db_path: Path | None = None) -> dict[str, Any]:
     """Restart a failed plan from the step that failed.
 
@@ -531,6 +708,8 @@ def resume_plan(plan_id: str, *, db_path: Path | None = None) -> dict[str, Any]:
         step["status"] = "pending"
         step["result"] = ""
         step["attempts"] = 0
+        step.pop("group_id", None)  # a fanout re-runs as a fresh group
+        step.pop("child_job_ids", None)
     payload["steps"] = steps
     payload["current_step"] = failed
     payload["resumed_at"] = utc_now_iso()
