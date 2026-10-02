@@ -241,6 +241,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "environment_staleness_days": 14,
         # Largest SKILL.md the loop may write (a reference file may be twice this).
         "max_skill_bytes": 16000,
+        # Auto mode applies at most this many gate-passing changes per review: a
+        # bound on what any single review can do. The rest stay in its artifact.
+        "auto_apply_max_per_review": 3,
         # Tell the owner when a review proposed something.
         "digest": True,
     },

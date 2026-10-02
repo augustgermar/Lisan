@@ -769,6 +769,18 @@ def skill_usage_summary(db_path: Path | None, *, days: int | None = 30) -> list[
     return sorted(stats.values(), key=lambda s: (-s["uses"], s["skill"]))
 
 
+def skill_usage_rows(db_path: Path | None, skill: str) -> list[tuple[str, str]]:
+    """(used_at, outcome) for every recorded use of a skill, oldest first."""
+    conn = _connect(db_path)
+    try:
+        return [
+            (row["used_at"], row["outcome"] or "unknown")
+            for row in conn.execute("SELECT used_at, outcome FROM skill_usage WHERE skill = ? ORDER BY used_at ASC, id ASC", (skill,))
+        ]
+    finally:
+        conn.close()
+
+
 def learning_status(vault: Path, db_path: Path | None, config: dict[str, Any] | None = None) -> dict[str, Any]:
     conn = _connect(db_path)
     try:

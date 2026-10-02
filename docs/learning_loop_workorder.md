@@ -1,8 +1,8 @@
 # Learning loop work order
 
 Status: **design reviewed; owner decisions 1-6 recorded below (2026-10-02).
-Decision 7 (retention) confirmed. **Steps 1 (observe) and 2 (reviewer + gate, shadow) built
-2026-10-02**; see "Step 1 as built" and "Step 2 as built" below. Steps 3-6 not
+Decision 7 (retention) confirmed. **Steps 1 (observe), 2 (reviewer + gate, shadow) and 3 (auto +
+probation) built 2026-10-02**; see "Step 1/2/3 as built" below. Steps 4-6 not
 started.**
 Author: Claude (Sonnet 5.5) with August, 2026-10-02. Builds on the
 execution-hardening branch (`4409ee0`): the delegation layer, the run ledger and
@@ -515,3 +515,27 @@ Three sweeps of all 111 real events (10 batches, ~3 minutes each), as dry runs:
   keyed on (mtime seconds, size), so back-to-back mutations of one file could reuse
   a stale compile. The runner now deletes it between runs, and all 21 mutants were
   re-run and caught.
+
+## Step 3 as built (2026-10-02)
+
+Auto mode and probation. `learning.mode: auto` applies what the gate passes.
+
+- `skill_apply.py`: the careful last step. Snapshot first (the owner's own text
+  becomes `v0` the first time); refuse a plan made against text that has since
+  changed (the plan carries the text it saw; a stale plan is dropped, never
+  merged); respect a pin placed after planning; write each file atomically and a
+  new skill as a whole directory rename; verify the result is a valid skill and
+  undo the write if not; log what, why, evidence, sources; one writer at a time.
+- `skill_lifecycle.py`: a new agent skill starts `provisional`; it is
+  `established` after >= 3 uses without error over >= 2 days, or when the owner
+  runs `lisan skills approve`; it is `flagged` (never deleted) after two failures
+  in a row; revising a flagged skill puts it back on probation. Only skills the
+  loop made are touched.
+- The agent is told a skill's standing by the instrument: the skill list marks
+  `[provisional, agent-written]` / `[flagged: recent uses failed]`, and loading
+  one prepends a banner ("has not yet proven itself: follow it, but check each
+  step").
+- `auto_apply_max_per_review` (default 3) bounds what one review can change.
+- `lisan learning apply <review_id> [--op N]` applies a shadow-mode proposal by
+  hand, re-gated against the skills as they are now. `lisan skills approve|
+  lifecycle`. The owner digest says what was applied and what changed standing.

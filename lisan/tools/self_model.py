@@ -283,7 +283,7 @@ def _learning_state(vault: Path, db: Path) -> dict[str, Any]:
         status = learning_status(vault, db, cfg)
         usage = skill_usage_summary(db, days=30)
         skills_dir = skills_root()
-        changes = [e for e in read_log(skills_dir) if e.get("action") in {"snapshot", "rollback", "archive", "import"}][-5:]
+        changes = [e for e in read_log(skills_dir) if e.get("action") in {"snapshot", "rollback", "archive", "import", "apply", "promote", "flag", "approve"}][-5:]
         pinned = sorted(
             p.name for p in (skills_dir / HISTORY_DIR).iterdir() if p.is_dir() and is_pinned(skills_dir, p.name)
         ) if (skills_dir / HISTORY_DIR).is_dir() else []

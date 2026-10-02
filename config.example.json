@@ -213,6 +213,7 @@
     "max_review_events": 12,
     "environment_staleness_days": 14,
     "max_skill_bytes": 16000,
+    "auto_apply_max_per_review": 3,
     "digest": true
   },
   "delegation": {
