@@ -197,6 +197,12 @@
     "__comment_drain_on_capture": "When true (the default), a capture runs the indexing jobs it just enqueued in-process before returning, so semantic retrieval sees the new records without a manual 'lisan jobs run'. Only indexing/embedding jobs drain — LLM-heavy maintenance (analyst, dreamer) always stays queued. Set false if you run your own jobs worker.",
     "drain_on_capture": true
   },
+  "learning": {
+    "__comment": "The learning loop. mode: off | observe (default: record events and the skill-usage ledger; no model call, nothing written to skills) | shadow | auto (the last two arrive with the reviewer). A conversation turn is recorded at min_tool_calls tool calls, or when it used a skill.",
+    "mode": "observe",
+    "min_tool_calls": 5,
+    "work_tools": ["execute_task", "run_codex"]
+  },
   "delegation": {
     "__comment": "Delegated workers. max_concurrent children run at once; max_outstanding bounds queued+running; a child's timeout is capped at 2400s because the queue requeues jobs running past 45 minutes.",
     "max_concurrent": 3,

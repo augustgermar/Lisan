@@ -215,11 +215,11 @@ def run_plan_step(
         for later in steps[index + 1:]:
             later["status"] = "skipped"
         _persist_payload(job, payload, db_path=db_path)  # the row must say what the report says
-        _finish_plan(payload, vault=vault, status="failed", send_fn=send_fn, config=config, capture=capture)
+        _finish_plan(payload, vault=vault, status="failed", send_fn=send_fn, config=config, capture=capture, db_path=db_path)
         return {"plan_id": payload["plan_id"], "status": "failed", "failed_step": index + 1, "result": outcome_text[:_RESULT_PREVIEW]}
 
     if payload["current_step"] >= len(steps):
-        _finish_plan(payload, vault=vault, status="completed", send_fn=send_fn, config=config, capture=capture)
+        _finish_plan(payload, vault=vault, status="completed", send_fn=send_fn, config=config, capture=capture, db_path=db_path)
         return {"plan_id": payload["plan_id"], "status": "completed", "steps_done": len(steps)}
 
     next_job = enqueue_job("plan.run", payload, db_path=db_path)
@@ -325,7 +325,7 @@ def handle_terminal_failure(job: dict[str, Any], *, vault: Path | None = None, d
             later["status"] = "skipped"
     payload["steps"] = steps
     _persist_payload(job, payload, db_path=db_path)
-    _finish_plan(payload, vault=vault, status="failed", send_fn=None, config=None)
+    _finish_plan(payload, vault=vault, status="failed", send_fn=None, config=None, db_path=db_path)
 
 
 def _persist_payload(job: dict[str, Any], payload: dict[str, Any], *, db_path: Path | None) -> None:
@@ -427,6 +427,7 @@ def _finish_plan(
     send_fn: Callable[[str, int | None], Any] | None,
     config: dict[str, Any] | None,
     capture: Callable[..., Any] | None = None,
+    db_path: Path | None = None,
 ) -> None:
     report_path = _write_plan_report(payload, vault=vault, status=status)
     summary = _summary_message(payload, status=status)
@@ -444,7 +445,20 @@ def _finish_plan(
         # the durable record either way.
         pass
     payload["report_path"] = str(report_path)
-    _report_to_memory(payload, vault=vault, status=status, capture=capture)
+    _report_to_memory(payload, vault=vault, status=status, capture=capture, db_path=db_path)
+    _record_learning(payload, status, vault=vault, db_path=db_path, config=config)
+
+
+def _record_learning(
+    payload: dict[str, Any], status: str, *, vault: Path, db_path: Path | None, config: dict[str, Any] | None
+) -> None:
+    """Freeze the finished plan for the learning loop. Never raises into the plan."""
+    try:
+        from .learning import record_plan_event
+
+        record_plan_event(payload, status, vault=vault, db_path=db_path, config=config if config is not None else load_config())
+    except Exception:
+        pass
 
 
 def _report_to_memory(
@@ -679,7 +693,7 @@ def _cancel_waiting_plan(plan_id: str, *, db_path: Path | None, vault: Path | No
         later["status"] = "skipped"
     payload["steps"] = steps
     _persist_payload(job, payload, db_path=db_path)
-    _finish_plan(payload, vault=vault or vault_root(), status="canceled", send_fn=None, config=None)
+    _finish_plan(payload, vault=vault or vault_root(), status="canceled", send_fn=None, config=None, db_path=db_path)
     return True
 def resume_plan(plan_id: str, *, db_path: Path | None = None) -> dict[str, Any]:
     """Restart a failed plan from the step that failed.

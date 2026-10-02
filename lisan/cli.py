@@ -767,6 +767,37 @@ def build_parser() -> argparse.ArgumentParser:
         "migrate", help="Add SKILL.md frontmatter to skills that predate the format")
     skills_migrate.add_argument("--skills-dir", type=Path, default=None)
     skills_migrate.add_argument("--apply", action="store_true", help="Write the changes (default: dry run)")
+    for _name, _help in (
+        ("history", "Show a skill's snapshots and the reasons for each change"),
+        ("pin", "Mark a skill the learning loop must not change"),
+        ("unpin", "Let the learning loop change a skill again"),
+        ("archive", "Take a skill out of service without deleting it"),
+    ):
+        _p = skills_subparsers.add_parser(_name, help=_help)
+        _p.add_argument("name")
+        _p.add_argument("--skills-dir", type=Path, default=None)
+    skills_diff = skills_subparsers.add_parser("diff", help="Diff a skill against a snapshot (default: the newest)")
+    skills_diff.add_argument("name")
+    skills_diff.add_argument("--since", default=None, help="A version id or label (e.g. v0)")
+    skills_diff.add_argument("--since-owner", action="store_true", help="Against v0: how far the loop has drifted from your text")
+    skills_diff.add_argument("--skills-dir", type=Path, default=None)
+    skills_rollback = skills_subparsers.add_parser("rollback", help="Restore a skill to an earlier snapshot (the current state is snapshotted first)")
+    skills_rollback.add_argument("name")
+    skills_rollback.add_argument("version", help="A version id or label (e.g. v0)")
+    skills_rollback.add_argument("--skills-dir", type=Path, default=None)
+    skills_export = skills_subparsers.add_parser("export", help="Pack a skill, with its history, into one .tar.gz")
+    skills_export.add_argument("name")
+    skills_export.add_argument("dest", type=Path, nargs="?", default=Path("."))
+    skills_export.add_argument("--no-history", action="store_true")
+    skills_export.add_argument("--skills-dir", type=Path, default=None)
+    skills_import = skills_subparsers.add_parser("import", help="Install a skill from an exported .tar.gz")
+    skills_import.add_argument("archive", type=Path)
+    skills_import.add_argument("--replace", action="store_true", help="Overwrite an installed skill (snapshotted first)")
+    skills_import.add_argument("--allow-code", action="store_true", help="Also import tool.py / schema.json / scripts (they would run here)")
+    skills_import.add_argument("--skills-dir", type=Path, default=None)
+    skills_usage = skills_subparsers.add_parser("usage", help="Which skills get used, and how it went")
+    skills_usage.add_argument("--days", type=int, default=30)
+    skills_usage.add_argument("--db-path", type=Path, default=None)
     skills_uninstall = skills_subparsers.add_parser("uninstall", help="Remove an installed skill")
     skills_uninstall.add_argument("name")
     skills_auth = skills_subparsers.add_parser(
@@ -834,6 +865,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Only schedule the reminder; do not record the birthday on the person's entity",
     )
 
+    learning_cmd = subparsers.add_parser("learning", help="The learning loop: what has been observed")
+    learning_sub = learning_cmd.add_subparsers(dest="learning_command", required=True)
+    for _name, _help in (("status", "Mode, event counts, storage"), ("rebuild-index", "Rebuild the index from the event files")):
+        _p = learning_sub.add_parser(_name, help=_help)
+        _p.add_argument("--vault", type=Path, default=vault_root())
+        _p.add_argument("--db-path", type=Path, default=None)
+    learning_events = learning_sub.add_parser("events", help="Recent events")
+    learning_events.add_argument("--limit", type=int, default=20)
+    learning_events.add_argument("--kind", choices=["turn", "plan", "group", "adjutant"], default=None)
+    learning_events.add_argument("--vault", type=Path, default=vault_root())
+    learning_events.add_argument("--db-path", type=Path, default=None)
+    learning_show = learning_sub.add_parser("show", help="One event, exactly as frozen")
+    learning_show.add_argument("event_id")
+    learning_show.add_argument("--vault", type=Path, default=vault_root())
+    learning_backfill = learning_sub.add_parser("backfill", help="Record events for work that finished before learning was on")
+    learning_backfill.add_argument("--since", default=None, help="YYYY-MM-DD lower bound")
+    learning_backfill.add_argument("--vault", type=Path, default=vault_root())
+    learning_backfill.add_argument("--db-path", type=Path, default=None)
     delegate_cmd = subparsers.add_parser("delegate", help="Delegated workers: scoped, parallel, durable children")
     delegate_sub = delegate_cmd.add_subparsers(dest="delegate_command", required=True)
     delegate_run = delegate_sub.add_parser("run", help="Queue a delegated task (runs on the scheduler's delegate lane)")
@@ -1549,6 +1598,100 @@ def main(argv: list[str] | None = None) -> int:
             result = diagnose_provider(provider=args.provider, model=args.model, config=config)
             print(json.dumps(result.to_dict(), indent=2, ensure_ascii=True))
             return 0 if result.status in {"ok", "warning"} else 1
+
+    if args.command == "learning":
+        from .tools import learning as _learning
+
+        _cfg = load_config()
+        _db = getattr(args, "db_path", None)
+        if args.learning_command == "status":
+            print(_learning.format_status(_learning.learning_status(args.vault, _db, _cfg)))
+            return 0
+        if args.learning_command == "events":
+            rows = _learning.list_events(db_path=_db, limit=args.limit, kind=args.kind)
+            if not rows:
+                print("No events recorded yet.")
+            for row in rows:
+                flag = " [external]" if row["tainted"] else ""
+                print(f"{row['occurred_at']}  {row['kind']:<8} {row['outcome'] or '-':<14} {row['tool_call_count']:>2} calls{flag}  {row['id']}")
+                print(f"    {row['summary'][:110]}")
+            return 0
+        if args.learning_command == "show":
+            event = _learning.get_event(args.event_id, vault=args.vault)
+            if event is None:
+                print(f"✗ No event {args.event_id}")
+                return 1
+            print(json.dumps(event, indent=2, ensure_ascii=False))
+            return 0
+        if args.learning_command == "rebuild-index":
+            print(json.dumps(_learning.rebuild_index(args.vault, _db), indent=2))
+            return 0
+        if args.learning_command == "backfill":
+            print(json.dumps(_learning.backfill(args.vault, _db, _cfg, since=args.since), indent=2))
+            return 0
+
+    if args.command == "skills" and args.skills_command in {
+        "history", "pin", "unpin", "archive", "diff", "rollback", "export", "import", "usage",
+    }:
+        from .paths import skills_root as _active_skills_root
+        from .tools import skill_history as _sh
+
+        _dir = getattr(args, "skills_dir", None) or _active_skills_root()
+        try:
+            if args.skills_command == "history":
+                prov = _sh.read_provenance(_dir, args.name)
+                print(f"{args.name}: origin {prov['origin']}"
+                      + (f", revised by {prov['revised_by']}" if prov["revised_by"] else "")
+                      + (", PINNED" if prov["pinned"] else "")
+                      + (f", sources {', '.join(prov['sources'])}" if prov["sources"] else "")
+                      + (", external-sourced" if prov["tainted"] else ""))
+                rows = _sh.list_history(_dir, args.name)
+                if not rows:
+                    print("  no snapshots yet")
+                for row in rows:
+                    print(f"  {row['version_id']}  {row['label'] or '':<12} {row['actor'] or '':<8} {row['reason'] or ''}")
+                return 0
+            if args.skills_command == "diff":
+                since = "owner" if args.since_owner else args.since
+                text = _sh.diff_skill(_dir, args.name, since=since)
+                print(text if text else ("No differences." if since != "owner" else "No agent edits: this is still your text."))
+                return 0
+            if args.skills_command == "rollback":
+                saved = _sh.rollback_skill(_dir, args.name, args.version)
+                print(f"✓ {args.name} restored to {args.version}" + (f" (previous state saved as {saved})" if saved else ""))
+                return 0
+            if args.skills_command in {"pin", "unpin"}:
+                _sh.pin_skill(_dir, args.name, pinned=args.skills_command == "pin")
+                print(f"✓ {args.name} {'pinned' if args.skills_command == 'pin' else 'unpinned'}")
+                return 0
+            if args.skills_command == "archive":
+                dest = _sh.archive_skill(_dir, args.name)
+                print(f"✓ {args.name} archived to {dest}")
+                return 0
+            if args.skills_command == "export":
+                dest = _sh.export_skill(_dir, args.name, args.dest, with_history=not args.no_history)
+                print(f"✓ exported to {dest}")
+                return 0
+            if args.skills_command == "import":
+                out = _sh.import_skill(_dir, args.archive, replace=args.replace, allow_code=args.allow_code)
+                print(f"✓ imported {out['name']}" + (" (replaced the installed copy)" if out["replaced"] else "")
+                      + (f"; history versions carried: {out['history_versions']}" if out["history_versions"] else ""))
+                if out["stripped_code"]:
+                    print(f"  code not imported: {', '.join(out['stripped_code'])} (use --allow-code if you trust this archive)")
+                return 0
+            if args.skills_command == "usage":
+                from .tools import learning as _learning
+
+                rows = _learning.skill_usage_summary(getattr(args, "db_path", None), days=args.days)
+                if not rows:
+                    print(f"No skill use recorded in the last {args.days} days.")
+                for r in rows:
+                    outcomes = ", ".join(f"{k}×{v}" for k, v in sorted(r["outcomes"].items()))
+                    print(f"{r['skill']:<24} {r['kind'] or '':<13} {r['uses']:>3} use(s)  {outcomes}  last {r['last_used'][:10]}")
+                return 0
+        except _sh.SkillHistoryError as exc:
+            print(f"✗ {exc}")
+            return 1
 
     if args.command == "skills":
         if args.skills_command == "validate":

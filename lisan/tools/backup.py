@@ -150,18 +150,37 @@ def write_backup_log(vault: Path | None, result: BackupResult) -> Path:
     return _write_backup_log(vault, result)
 
 
+def _extra_state_dirs(vault: Path) -> list[tuple[str, Path]]:
+    """State that lives beside the vault but is part of the agent: the learning
+    loop's event files (kept indefinitely, owner decision) and the skills it
+    maintains. Without these a restore would lose everything the agent learned.
+    Skills are included only outside test processes: their location is ambient
+    (the real install's), and a test must not read it."""
+    from ..paths import _looks_like_a_test_process, skills_root
+    from .learning import learning_root
+
+    extras = [("lisan-learning", learning_root(vault))]
+    if not _looks_like_a_test_process():
+        extras.append(("lisan-skills", skills_root()))
+    return [(arc, p) for arc, p in extras if p.exists()]
+
+
 def _write_tarball(path: Path, vault: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="lisan-backup-stage-") as tmpdir:
         stage_root = Path(tmpdir)
         if vault.exists():
             shutil.copytree(vault, stage_root / "lisan-vault", dirs_exist_ok=True)
+        extra_names: list[str] = []
+        for arcname, source_dir in _extra_state_dirs(vault):
+            shutil.copytree(source_dir, stage_root / arcname, dirs_exist_ok=True)
+            extra_names.append(arcname)
         for rel in ["lisan.sqlite", "embeddings.bin", "config.json", "config.yaml"]:
             source = repo_root() / rel
             if source.exists():
                 shutil.copy2(source, stage_root / rel)
         with tarfile.open(path, "w:gz") as tar:
-            for rel in ["lisan-vault", "lisan.sqlite", "embeddings.bin", "config.json", "config.yaml"]:
+            for rel in ["lisan-vault", *extra_names, "lisan.sqlite", "embeddings.bin", "config.json", "config.yaml"]:
                 source = stage_root / rel
                 if source.exists():
                     tar.add(source, arcname=rel)

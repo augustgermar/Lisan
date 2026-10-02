@@ -1,8 +1,8 @@
 # Learning loop work order
 
 Status: **design reviewed; owner decisions 1-6 recorded below (2026-10-02).
-Decision 7 (retention) has a recommendation awaiting confirmation. Step 1 not
-started.**
+Decision 7 (retention) confirmed. **Step 1 (observe) built 2026-10-02**; see
+"Step 1 as built" below. Steps 2-6 not started.**
 Author: Claude (Sonnet 5.5) with August, 2026-10-02. Builds on the
 execution-hardening branch (`4409ee0`): the delegation layer, the run ledger and
 the plan machinery are what this loop observes.
@@ -343,7 +343,10 @@ step 2, as with delegation.
    approve data; other mechanisms validate information. Gate item 4 is now
    provenance; the injection scan remains.
 4. **Thresholds as proposed:** `min_tool_calls = 5`, `review_every = 6` events,
-   `create` needs 2 events (or 1 plus an owner correction).
+   `create` needs 2 events (or 1 plus an owner correction). *Amended after
+   measuring real history (see "Step 1 as built"): a turn is also recorded when
+   it hands work to the executor (`learning.work_tools`), because the call count
+   alone captured 5 of 583 real turns.*
 5. **No token or cost budget.** Quality over token spend, on the assumption that
    prices keep falling. We still use the context window efficiently (batch size is
    capped by context, not by cost) and log tokens per review for observability
@@ -355,8 +358,9 @@ step 2, as with delegation.
    one shared folder if you prefer to sync that way. Export and import are
    explicit actions, not background sync — a skill learned at work may name your
    employer's hosts and procedures, and moving it is a decision.
-7. **Retention of learning events — recommendation below, awaiting your
-   confirmation.**
+7. **Retention: keep learning events indefinitely**, stored as plain files with a
+   rebuildable index, compressed never deleted (confirmed 2026-10-02; design
+   below).
 
 ### Decision 7: what I would do
 
@@ -402,3 +406,57 @@ backup, including its encryption option.
 - No learning from eval/rehearsal history.
 - No auto-ratification of anything that touches identity; that remains the
   ceremony path.
+
+## Step 1 as built (2026-10-02)
+
+Observe only: no model call anywhere, nothing written to any skill.
+
+- `lisan/tools/learning.py`: frozen events as append-only JSONL under
+  `<install>/learning/events/YYYY-MM/` (beside the vault, never inside it, so
+  never retrievable and never a side door around the vault's compartments), a
+  rebuildable `learning_events` index, and the `skill_usage` ledger. Idempotent
+  by event id; readers de-duplicate and tolerate a torn last line; gzipped months
+  are read transparently (compress, never delete).
+- Recorded where work finishes: a conversation turn (from the `capture.observe`
+  payload), a finished plan, a settled chat delegation group, an Adjutant task
+  attempt. Eval namespaces are never recorded (the belief extractor's own rule);
+  a turn inside a plan is folded into the plan, though its skill use is still
+  counted. Every hook is wrapped so a failing recorder cannot affect the work.
+- Provenance on every event: `sources` (owner, email, web, file, remote_host,
+  worker, adjutant) and `tainted`, from tool names and, for the opaque executor,
+  visible network or mail activity. Recorded, never a gate (decision 3).
+- `lisan/tools/skill_history.py`: snapshots (`.history/`, the first one of an
+  owner skill is `v0`), diff (`--since-owner`), rollback (itself undoable),
+  archive, pin, and hardened export/import (no traversal, links, or bundled code
+  unless `--allow-code`). CLI: `lisan skills history|diff|rollback|pin|unpin|
+  archive|export|import|usage` and `lisan learning status|events|show|rebuild-
+  index|backfill`.
+- `self_state` reports learning mode, events, per-skill use and outcome, recent
+  skill changes, and pinned skills. The backup now includes `learning/` and the
+  skills directory (neither was backed up before).
+
+**Deferred to step 2:** detecting owner corrections. A deterministic detector
+would be a guess; the reviewer, which sees the user's words, is the right judge.
+Until then `create` needs 2 events, not "1 plus a correction". CLI-started
+delegations (owner-typed, no group) are not recorded.
+
+### What the first real history showed
+
+Replaying 583 real turns and 29 plans (on a copy of the database):
+
+- **Only 5 of 583 turns made >= 5 tool calls.** Lisan's real work happens inside
+  one `run_codex` call that hands a job to a multi-step executor (65 turns did
+  this). A call count measures the wrong thing for it, so decision 4's
+  threshold alone would have recorded almost nothing. The rule is now: >= 5
+  calls, or a skill used, or work handed to `execute_task`/`run_codex`
+  (configurable). Result: 111 events (82 turns + 29 plans) instead of 49.
+- **Per-turn skill outcomes blame the wrong thing.** Judging an executable skill
+  by whether *any* tool errored in its turn mis-scored 3 of 8 flagged uses
+  (`gmail_send`, `youtube_channel`, `youtube_transcript` each had an unrelated
+  error beside them). An executable skill's outcome is now judged from its own
+  calls; an instructional skill inherits the turn's.
+- `gmail_search` genuinely errored in 3 of its 10 uses; nothing else did. That
+  is the first measured skill reliability figure Lisan has had of itself.
+- Two defects found on the way, both fixed: the skill frontmatter parser
+  silently dropped every value under `metadata:` (documented as supported), and
+  a new CLI handler would have crashed without `--skills-dir`.

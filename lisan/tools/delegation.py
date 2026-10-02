@@ -766,6 +766,16 @@ def run_delegation_report(
     except Exception as exc:
         _log_delegation_error(vault, "delegation report: capture failed", exc)
 
+    try:
+        from .learning import record_group_event
+
+        record_group_event(
+            group_id, goal, children, conversation_id=payload.get("conversation_id"), vault=vault, db_path=db_path,
+            config=load_config(),
+        )
+    except Exception as exc:
+        _log_delegation_error(vault, "delegation report: learning event failed", exc)
+
     message = group_summary_message(goal, children)
     chat_id = payload.get("chat_id")
     chat_id = int(chat_id) if chat_id is not None else None

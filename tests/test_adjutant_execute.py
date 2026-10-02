@@ -278,6 +278,37 @@ def test_enabled_cycle_executes_and_reports(world):
     assert result["executed"] == []
 
 
+def test_an_executed_task_is_recorded_for_the_learning_loop(world):
+    """Learning loop step 1: each attempt that ran leaves a frozen event, and a
+    recorder that fails cannot change the task's outcome."""
+    from lisan.tools import learning
+
+    vault, db, conn, config, scripts, tmp = world
+    _script(scripts, "echo.sh", "#!/bin/sh\necho did the thing\n")
+    _script(scripts, "boom.sh", "#!/bin/sh\nexit 9\n")
+    ok_id, _ = _task_loop(vault, conn, "Run the echo", payload={"script": "echo.sh"})
+    bad_id, _ = _task_loop(vault, conn, "Run the boom", payload={"script": "boom.sh"})
+    conn.close()
+    run_cycle(vault, db, config=config, capture=CaptureSpy(), scratch_root=tmp)
+    events = {e["id"]: e for e in learning.list_events(db_path=db, kind="adjutant")}
+    assert events[f"adjutant:{ok_id}:a1"]["outcome"] == "succeeded"
+    assert events[f"adjutant:{bad_id}:a1"]["outcome"] == "failed"
+    frozen = learning.get_event(f"adjutant:{bad_id}:a1", vault=vault)
+    assert frozen["payload"]["kinds"] == ["run_script"] and frozen["sources"] == ["adjutant"]
+
+
+def test_a_failing_learning_recorder_cannot_change_a_tasks_outcome(world):
+    from unittest.mock import patch
+
+    vault, db, conn, config, scripts, tmp = world
+    _script(scripts, "echo.sh", "#!/bin/sh\necho fine\n")
+    loop_id, loop_path = _task_loop(vault, conn, "Run the echo", payload={"script": "echo.sh"})
+    conn.close()
+    with patch("lisan.tools.learning.record_adjutant_event", side_effect=RuntimeError("disk full")):
+        result = run_cycle(vault, db, config=config, capture=CaptureSpy(), scratch_root=tmp)
+    assert result["executed"][0]["ok"] and load_markdown(loop_path).frontmatter["task_status"] == "resolved"
+
+
 def test_two_failures_block_the_task(world):
     vault, db, conn, config, scripts, tmp = world
     _script(scripts, "boom.sh", "#!/bin/sh\nexit 9\n")

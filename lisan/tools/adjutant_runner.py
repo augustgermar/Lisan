@@ -445,6 +445,17 @@ def _execute_and_report(
         except Exception as exc:
             log_cycle_event(conn, "report_failed", f"{task.task_id}: {exc}")
 
+    try:  # learning loop, step 1: freeze the attempt; never able to affect the task
+        from .learning import record_adjutant_event
+
+        record_adjutant_event(
+            task_id=task.task_id, attempt=attempt, kinds=list(task.task_kinds), summary=task.summary, ok=ok,
+            actions=[a for r in results for a in r.actions], errors=[e for r in results for e in r.errors],
+            vault=vault, db_path=db_path, config=config,
+        )
+    except Exception:
+        pass
+
     if task.source in {"open_loop", "confirmation"}:
         if ok:
             _safe_set_task_status(vault, task.path, "resolved", db_path)
