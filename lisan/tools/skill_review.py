@@ -287,6 +287,9 @@ def run_review(
     if mode == "auto" and not dry_run:
         result.lifecycle = evaluate_lifecycle(skills_dir, db_path)
         _apply_accepted(result, skills_dir, cap=int(settings.get("auto_apply_max_per_review") or DEFAULT_AUTO_APPLY_CAP))
+        from .learning_notice import skills_learned
+
+        skills_learned(vault, result.review_id, result.accepted, result.lifecycle, config=config)
     result.artifact = write_artifact(vault, result)
     if not dry_run:
         learning.mark_reviewed(vault, db_path, result.event_ids, review_id)

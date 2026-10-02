@@ -708,3 +708,22 @@ def test_the_cli_applies_approves_and_evaluates(env, capsys, monkeypatch):
     assert main(["skills", "approve", "server-audit", "--skills-dir", str(env.skills)]) == 1  # the owner's own skill
     assert main(["skills", "lifecycle", "--dry-run", "--skills-dir", str(env.skills), "--db-path", str(env.db)]) == 0
     assert "No skill changes standing." in capsys.readouterr().out
+
+
+def test_auto_mode_tells_the_owner_what_it_learned(env):
+    from unittest.mock import patch
+
+    ids = record(env, 3)
+    with patch("lisan.tools.escalation._notify_owner", return_value=True) as notify:
+        review(env, fake([good_patch(ids)]), config=AUTO)
+    assert notify.call_count == 1 and "server-audit" in notify.call_args.args[0]
+
+
+def test_dry_run_and_shadow_never_announce_learning(env):
+    from unittest.mock import patch
+
+    ids = record(env, 3)
+    with patch("lisan.tools.escalation._notify_owner") as notify:
+        review(env, fake([good_patch(ids)]), config=AUTO, dry_run=True, event_ids=ids)
+        review(env, fake([good_patch(ids)]), config=SHADOW)
+    notify.assert_not_called()

@@ -94,6 +94,12 @@ MUTANTS = [
     ("empty index is silent", "lisan/tools/vector_store.py", "    elif not index.vectors:", "    elif False:", "tests/test_embedding_terminal_note.py", "index_empty"),
     ("missing embedder is silent", "lisan/tools/vector_store.py", "    if not scorer.query_vector:\n        terminal_note(", "    if False:\n        terminal_note(", "tests/test_embedding_terminal_note.py", "unavailable"),
     ("identity check lets ps truncate the command", "lisan/tools/delegation.py", '["ps", "-ww", "-o"', '["ps", "-o"', "tests/test_delegation_lanes.py", "untruncated"),
+    # ── learning notices ──
+    ("skill learning is not announced", REVIEW, "        skills_learned(vault, result.review_id, result.accepted, result.lifecycle, config=config)", "        pass", "tests/test_skill_review.py", "tells_the_owner"),
+    ("belief revision is not announced", "lisan/tools/dreamer_ops.py", "    if revised:\n        from .learning_notice import beliefs_revised", "    if False:\n        from .learning_notice import beliefs_revised", "tests/test_reconcile.py", "announced"),
+    ("a new ache is not announced", "lisan/tools/deviations.py", "    if found:\n        from .learning_notice import aches", "    if False:\n        from .learning_notice import aches", "tests/test_deviations.py", "announced_once"),
+    ("notify=false is ignored", "lisan/tools/learning_notice.py", '    return (config or {}).get("learning", {}).get("notify", True) is not False', "    return True", "tests/test_learning_notice.py", "turned_off"),
+    ("lists are not cut", "lisan/tools/learning_notice.py", "        if len(lines) > MAX_LINES:", "        if False:", "tests/test_learning_notice.py", "cut"),
     # ── process tree ──
     ("the tree is read before it is frozen", "lisan/tools/proctree.py", "    for _ in range(_MAX_PASSES):\n        parents = _parent_map()\n        fresh = [", "    for _ in range(_MAX_PASSES):\n        fresh = [", "tests/test_proctree.py", "keeps_forking"),
     ("freezing stops at the root group", "lisan/tools/proctree.py", "        for victim in fresh:\n            try:\n                os.kill(victim, signal.SIGSTOP)", "        for victim in fresh:\n            try:\n                pass", "tests/test_proctree.py", "outside_the_roots"),

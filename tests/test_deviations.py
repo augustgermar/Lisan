@@ -110,6 +110,16 @@ class DetectorTests(_Env):
 
 
 class EmissionTests(_Env):
+    def test_a_new_ache_is_announced_once(self):
+        from unittest.mock import patch
+
+        _entity(self.vault, "larkspur-place", "Larkspur", "place")
+        _entity(self.vault, "larkspur-person", "Larkspur", "person")
+        with patch("lisan.tools.escalation._notify_owner", return_value=True) as notify:
+            scan_deviations(self.vault, db_path=self.db)
+            scan_deviations(self.vault, db_path=self.db)  # already aching: nothing new to say
+        self.assertEqual(notify.call_count, 1)
+
     def test_emitted_loop_is_first_class_and_agent_owned(self):
         _entity(self.vault, "larkspur-place", "Larkspur", "place")
         _entity(self.vault, "larkspur-person", "Larkspur", "person")
