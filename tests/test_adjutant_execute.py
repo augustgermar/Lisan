@@ -25,7 +25,7 @@ from lisan.tools.adjutant_confirmations import (
     expire_stale_confirmations,
     list_pending,
 )
-from lisan.tools.adjutant_executor import execute_collect, execute_draft, execute_run_script
+from lisan.tools.adjutant_executor import execute_collect, execute_draft, execute_run_script, set_task_status
 from lisan.tools.adjutant_reporter import render_result_turn, report_result
 from lisan.tools.adjutant_runner import run_cycle
 from lisan.tools.db import connect as db_connect
@@ -404,6 +404,129 @@ def test_decision_steps_execute_in_order_and_halt_on_failure(world):
     assert steps[1]["status"] == "pending"  # failed, retryable
     assert steps[2]["status"] == "pending"  # never reached
     assert not result["executed"][0]["ok"]
+
+
+def _decision(vault, conn, scripts_by_step, title="Plan"):
+    from lisan.tools.record_factory import new_decision
+
+    created = new_decision(vault, title, scope="work")
+    doc = load_markdown(created.path)
+    fm = dict(doc.frontmatter)
+    fm["execution_steps"] = [
+        {"step": f"s{i}", "task_kind": "run_script", "task_payload": {"script": name}, "status": "pending"}
+        for i, name in enumerate(scripts_by_step)
+    ]
+    write_markdown(created.path, fm, doc.body)
+    index_single_record(created.path, vault, conn)
+    conn.commit()
+    return fm["id"], created.path
+
+
+def test_failing_decision_blocks_after_two_consecutive_failures(world):
+    vault, db, conn, config, scripts, tmp = world
+    _script(scripts, "bad.sh", "#!/bin/sh\nexit 1\n")
+    _, path = _decision(vault, conn, ["bad.sh"])
+    conn.close()
+    spy = CaptureSpy()
+    run_cycle(vault, db, config=config, capture=spy, scratch_root=tmp)
+    assert load_markdown(path).frontmatter.get("task_status") != "blocked"  # one strike
+    run_cycle(vault, db, config=config, capture=spy, scratch_root=tmp)
+    assert load_markdown(path).frontmatter["task_status"] == "blocked"  # two strikes
+    result = run_cycle(vault, db, config=config, capture=spy, scratch_root=tmp)
+    assert result["executed"] == []  # no longer re-polled every cycle
+
+
+def test_decision_progress_resets_the_failure_count(world):
+    """Step 0 resolves on the first run; a later failure is a fresh strike."""
+    vault, db, conn, config, scripts, tmp = world
+    _script(scripts, "ok.sh", "#!/bin/sh\necho fine\n")
+    _script(scripts, "bad.sh", "#!/bin/sh\nexit 1\n")
+    _, path = _decision(vault, conn, ["ok.sh", "bad.sh"])
+    conn.close()
+    spy = CaptureSpy()
+    run_cycle(vault, db, config=config, capture=spy, scratch_root=tmp)  # ok then fail
+    assert load_markdown(path).frontmatter.get("task_status") != "blocked"
+    run_cycle(vault, db, config=config, capture=spy, scratch_root=tmp)  # fail again
+    assert load_markdown(path).frontmatter["task_status"] == "blocked"
+
+
+def test_a_decision_run_stops_at_its_wall_budget_and_defers_the_rest(world, monkeypatch):
+    """The run budget defers remaining steps; it is not a failure, so they
+    are not struck and the next cycle picks them up."""
+    from lisan.tools import adjutant_runner
+
+    vault, db, conn, config, scripts, tmp = world
+    _script(scripts, "ok.sh", "#!/bin/sh\necho fine\n")
+    _, path = _decision(vault, conn, ["ok.sh", "ok.sh", "ok.sh"])
+    conn.close()
+    # Budget = 6 x 30s. Clock: deadline set at t=0, step 0 starts at t=1,
+    # step 1 would start at t=1000 — long past the budget.
+    ticks = iter([0, 1, 1000, 1000, 1000])
+    monkeypatch.setattr(adjutant_runner, "_monotonic", lambda: next(ticks))
+    spy = CaptureSpy()
+    result = run_cycle(vault, db, config=config, capture=spy, scratch_root=tmp)
+    steps = load_markdown(path).frontmatter["execution_steps"]
+    assert [s["status"] for s in steps] == ["resolved", "pending", "pending"]
+    assert result["executed"][0]["ok"]  # deferral is not failure
+    assert load_markdown(path).frontmatter.get("task_status") != "blocked"
+    monkeypatch.setattr(adjutant_runner, "_monotonic", __import__("time").monotonic)
+    run_cycle(vault, db, config=config, capture=spy, scratch_root=tmp)
+    steps = load_markdown(path).frontmatter["execution_steps"]
+    assert [s["status"] for s in steps] == ["resolved", "resolved", "resolved"]
+
+
+def _strand_running(vault, db, conn, loop_id, loop_path, *, started, prior_runs=0):
+    """Leave a loop `running` with an unfinished run row, as a crash would."""
+    set_task_status(vault, str(loop_path.relative_to(vault)), "running", db)
+    for n in range(prior_runs):
+        conn.execute(
+            "INSERT INTO task_runs (task_id, attempt, started, finished, exit_status) VALUES (?,?,?,?,?)",
+            (loop_id, n + 1, "2020-01-01T00:00:00Z", "2020-01-01T00:00:05Z", "abandoned"),
+        )
+    conn.execute(
+        "INSERT INTO task_runs (task_id, attempt, started) VALUES (?,?,?)", (loop_id, prior_runs + 1, started)
+    )
+    conn.commit()
+
+
+def test_crashed_running_task_is_reclaimed_and_retried(world):
+    vault, db, conn, config, scripts, tmp = world
+    _script(scripts, "echo.sh", "#!/bin/sh\necho recovered\n")
+    loop_id, loop_path = _task_loop(vault, conn, "Run the echo", payload={"script": "echo.sh"})
+    _strand_running(vault, db, conn, loop_id, loop_path, started="2020-01-01T00:00:00Z")
+    conn.close()
+    result = run_cycle(vault, db, config=config, capture=CaptureSpy(), scratch_root=tmp)
+    assert load_markdown(loop_path).frontmatter["task_status"] == "resolved"
+    assert len(result["executed"]) == 1 and result["executed"][0]["ok"]
+    check = db_connect(db)
+    statuses = [r[0] for r in check.execute("SELECT exit_status FROM task_runs WHERE task_id=? ORDER BY id", (loop_id,))]
+    assert statuses == ["abandoned", "ok"]
+    assert check.execute("SELECT 1 FROM adjutant_log WHERE verdict='task_reclaimed'").fetchone()
+    check.close()
+
+
+def test_task_that_keeps_crashing_is_blocked_not_retried(world):
+    vault, db, conn, config, scripts, tmp = world
+    _script(scripts, "echo.sh", "#!/bin/sh\necho never\n")
+    loop_id, loop_path = _task_loop(vault, conn, "Run the echo", payload={"script": "echo.sh"})
+    _strand_running(vault, db, conn, loop_id, loop_path, started="2020-01-01T00:00:00Z", prior_runs=1)
+    conn.close()
+    result = run_cycle(vault, db, config=config, capture=CaptureSpy(), scratch_root=tmp)
+    assert load_markdown(loop_path).frontmatter["task_status"] == "blocked"
+    assert result["executed"] == []
+
+
+def test_running_task_inside_the_live_window_is_left_alone(world):
+    import time as _time
+
+    vault, db, conn, config, scripts, tmp = world
+    _script(scripts, "echo.sh", "#!/bin/sh\necho x\n")
+    loop_id, loop_path = _task_loop(vault, conn, "Run the echo", payload={"script": "echo.sh"})
+    _strand_running(vault, db, conn, loop_id, loop_path, started=_time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()))
+    conn.close()
+    result = run_cycle(vault, db, config=config, capture=CaptureSpy(), scratch_root=tmp)
+    assert load_markdown(loop_path).frontmatter["task_status"] == "running"
+    assert result["executed"] == []
 
 
 def test_schedule_advances_all_cadences_after_run(world):

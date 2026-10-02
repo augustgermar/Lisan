@@ -31,7 +31,9 @@ from .log import log_error
 
 # Biography-grade job types: things the agent *did* on the owner's behalf,
 # not background metabolism (capture.observe, index rebuilds, story rewrites).
-BIOGRAPHY_JOB_TYPES = ("task.reminder", "task.prompt", "task.codex", "plan.run")
+# "task.codex" is the pre-rename spelling of task.run_codex, kept for old rows.
+# Listing it alone meant executed codex tasks never reached the biography.
+BIOGRAPHY_JOB_TYPES = ("task.reminder", "task.prompt", "task.run_codex", "task.codex", "plan.run")
 
 
 @dataclass(slots=True)

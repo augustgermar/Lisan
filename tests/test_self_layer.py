@@ -60,6 +60,33 @@ def test_job_events_cover_biography_grade_only(tmp_path):
     assert failure.significance == "medium"
 
 
+def test_every_schedulable_task_job_type_is_biography_grade():
+    """The 2026-10 defect: BIOGRAPHY_JOB_TYPES said task.codex while the real
+    job type is task.run_codex, so executed codex tasks left no episode."""
+    from lisan.tools.scheduler import TASK_JOB_TYPES
+    from lisan.tools.self_episodes import BIOGRAPHY_JOB_TYPES
+
+    assert set(TASK_JOB_TYPES) <= set(BIOGRAPHY_JOB_TYPES)
+
+
+def test_a_finished_run_codex_task_becomes_an_episode(tmp_path):
+    db = tmp_path / "lisan.sqlite"
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "CREATE TABLE jobs (id INTEGER PRIMARY KEY, job_type TEXT, status TEXT, "
+        "payload_json TEXT, result_json TEXT, finished_at TEXT, error TEXT, attempts INTEGER)"
+    )
+    conn.execute(
+        "INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?)",
+        (7, "task.run_codex", "succeeded", json.dumps({"task": "rotate the logs"}), "{}", "2026-10-01T09:00:00", None, 1),
+    )
+    conn.commit()
+    conn.close()
+    events = job_events(db)
+    assert [e.event_id for e in events] == ["job-7"]
+    assert "rotate the logs" in events[0].narration
+
+
 def test_ceremony_and_drift_events(tmp_path):
     reports = tmp_path / "reports"
     reports.mkdir(parents=True)

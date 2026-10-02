@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from calendar import timegm
 from datetime import date
 from pathlib import Path
 from typing import Any, Callable
@@ -49,6 +50,15 @@ from .intent import (
 from .rebuild_index import ensure_index_schema, reindex_record
 
 MAX_ATTEMPTS = 2  # a task that fails twice moves to blocked — no infinite retries
+# A run still unfinished after this long (and past 2x the task wall limit) is
+# a crash, not work in progress: the daemon holds one lock, so nothing else
+# can legitimately be mid-run.
+MIN_STALE_RUN_SECONDS = 900
+# One decision run (all its pending steps, in one cycle) gets this many task
+# wall-limits in total. Steps past it are deferred to the next cycle — not
+# failed — so a long step list cannot hold the daemon, and its lock, forever.
+DECISION_RUN_WALL_FACTOR = 6
+_monotonic = time.monotonic  # indirection so tests can drive the budget clock
 
 
 def run_cycle(
@@ -110,8 +120,19 @@ def run_cycle(
             log_cycle_event(conn, "confirmations_expired", ", ".join(e["id"] for e in expired))
             _escalate_repeat_expiries(conn, expired, deliver)
 
-        tasks = poll(conn, intent, vault)
         wall_seconds = int((intent.delegations.get("global", {}) or {}).get("max_task_wall_seconds", 600) or 600)
+        if not dry_run:
+            # Before polling: a task a crash left in `running` is invisible
+            # to the poller (it selects `pending` only) and would sit forever.
+            reclaimed = reclaim_stale_runs(
+                conn, vault, db_path, stale_seconds=max(MIN_STALE_RUN_SECONDS, 2 * wall_seconds)
+            )
+            if reclaimed:
+                log_cycle_event(
+                    conn, "task_reclaimed", "; ".join(f"{r['task_id']}->{r['status']}" for r in reclaimed)
+                )
+                conn.commit()
+        tasks = poll(conn, intent, vault)
         verdicts: list[dict[str, Any]] = []
         executed: list[dict[str, Any]] = []
         for task in tasks:
@@ -299,6 +320,64 @@ def _default_deliver(config: dict[str, Any]):
         return None
 
 
+def _consecutive_failures(conn: sqlite3.Connection, task_id: str) -> int:
+    """Failed (or abandoned) runs since the task's last successful run."""
+    count = 0
+    for (status,) in conn.execute("SELECT exit_status FROM task_runs WHERE task_id = ? ORDER BY id DESC", (task_id,)):
+        if status == "ok":
+            break
+        count += 1
+    return count
+
+
+def _stamp_age_seconds(stamp: str, now: float) -> float | None:
+    try:
+        return now - timegm(time.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ"))
+    except (TypeError, ValueError):
+        return None
+
+
+def reclaim_stale_runs(
+    conn: sqlite3.Connection,
+    vault: Path,
+    db_path: Path,
+    *,
+    stale_seconds: int,
+    now: float | None = None,
+) -> list[dict[str, str]]:
+    """Recover from a daemon that died mid-run.
+
+    Closes every run row still unfinished past `stale_seconds` as
+    `abandoned`, and returns any record left in task_status `running` to
+    `pending` — or `blocked` once it has used its attempts, so a task that
+    keeps killing the daemon cannot loop forever.
+    """
+    now = time.time() if now is None else now
+    finished = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
+    for row in conn.execute("SELECT id, started FROM task_runs WHERE finished IS NULL").fetchall():
+        age = _stamp_age_seconds(str(row[1]), now)
+        if age is not None and age >= stale_seconds:
+            conn.execute(
+                "UPDATE task_runs SET finished = ?, exit_status = 'abandoned', "
+                "error = 'run never finished (daemon crashed or was killed)' WHERE id = ?",
+                (finished, row[0]),
+            )
+    conn.commit()
+
+    reclaimed: list[dict[str, str]] = []
+    for row in conn.execute("SELECT id, path FROM files WHERE task_status = 'running'").fetchall():
+        task_id, path = str(row[0]), str(row[1])
+        # Still inside a live run: an open run row means it is within the window.
+        live = conn.execute("SELECT 1 FROM task_runs WHERE task_id = ? AND finished IS NULL", (task_id,)).fetchone()
+        if live:
+            continue
+        attempts = int(conn.execute("SELECT COUNT(*) FROM task_runs WHERE task_id = ?", (task_id,)).fetchone()[0])
+        status = "blocked" if attempts >= MAX_ATTEMPTS else "pending"
+        _safe_set_task_status(vault, path, status, db_path)
+        reclaimed.append({"task_id": task_id, "status": status})
+    return reclaimed
+
+
 def _next_attempt(conn: sqlite3.Connection, task_id: str) -> int:
     row = conn.execute("SELECT COUNT(*) FROM task_runs WHERE task_id = ?", (task_id,)).fetchone()
     return int(row[0]) + 1
@@ -372,6 +451,13 @@ def _execute_and_report(
             log_cycle_event(conn, "task_blocked", f"{task.task_id} failed {attempt} time(s); moved to blocked")
         else:
             _safe_set_task_status(vault, task.path, "pending", db_path)
+    elif task.source == "decision" and not ok:
+        # A decision's steps resolve individually, so progress resets the
+        # count: only consecutive failures (a crash counts as one) block it.
+        strikes = _consecutive_failures(conn, task.task_id)
+        if strikes >= MAX_ATTEMPTS:
+            _safe_set_task_status(vault, task.path, "blocked", db_path)
+            log_cycle_event(conn, "task_blocked", f"{task.task_id} failed {strikes} time(s) in a row; moved to blocked")
     elif task.source == "schedule" and ok:
         _advance_schedule(conn, vault, task, db_path)
 
@@ -404,13 +490,17 @@ def _execute_decision_steps(
     steps = fm.get("execution_steps") or []
     results: list[ExecutionResult] = []
     changed = False
+    deadline = _monotonic() + DECISION_RUN_WALL_FACTOR * wall_seconds
     for index, step in enumerate(steps):
         if not isinstance(step, dict) or step.get("status") != "pending":
             continue
+        remaining = deadline - _monotonic()
+        if remaining <= 0:
+            break  # budget spent: the rest stay pending and run next cycle
         payload = step.get("task_payload") or {}
         result = execute_task(
             f"{task.task_id}#step{index}", str(step.get("task_kind", "")), payload if isinstance(payload, dict) else {},
-            vault=vault, config=config, timeout_seconds=wall_seconds,
+            vault=vault, config=config, timeout_seconds=max(1, min(wall_seconds, int(remaining))),
             complete=complete, deliver=deliver, scratch_root=scratch_root,
         )
         results.append(result)

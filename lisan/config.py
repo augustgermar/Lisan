@@ -44,6 +44,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
             # both settings above. Empty until the owner dials individual
             # agents in — see lisan/providers/codex.py:_resolve_sandbox_mode.
             "sandbox_mode_by_agent": {},
+            # Wall-clock limit for one `codex exec`; 0 disables it. See
+            # lisan/providers/codex.py:_resolve_timeout (LISAN_CODEX_TIMEOUT wins).
+            "timeout_seconds": 1800,
         },
         "openai": {
             "enabled": False,

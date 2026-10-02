@@ -116,7 +116,7 @@ class CodexSandboxTests(unittest.TestCase):
             proc.stderr = ""
             return proc
 
-        with patch("lisan.providers.codex.subprocess.run", side_effect=fake_run):
+        with patch("lisan.providers.codex._run_batch", side_effect=fake_run):
             client.complete("hello", agent=agent)
         return captured[0]
 
