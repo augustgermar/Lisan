@@ -236,6 +236,16 @@ def index_created_record(vault: Path, record: CreatedRecord | None, conn: sqlite
     if conn is None or record is None or not record.created:
         return
     index_single_record(record.path, vault, conn)
+    # Commit now, never at the end of the pipeline. `conn` is the capture's
+    # long-lived index connection, and the first write on it opens a write
+    # transaction that holds SQLite's single writer lock. The next record this
+    # capture creates reserves its id (write_boundary._reserve_id) on a SECOND
+    # connection and runs BEGIN IMMEDIATE, which then waits on this process's
+    # own uncommitted transaction until the 30s busy timeout: "database is
+    # locked", three retries, and every other writer stalled behind it.
+    # Markdown is already on disk, so a per-record commit loses nothing; a
+    # failure later in the capture leaves the index matching the vault.
+    conn.commit()
 
 
 # ── Domain inference ──────────────────────────────────────────────────────────

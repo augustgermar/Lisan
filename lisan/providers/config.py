@@ -74,3 +74,24 @@ def transient_retry_settings(config: dict[str, Any]) -> RetrySettings:
         base_delay_seconds=max(0.0, base_delay),
         max_delay_seconds=max(base_delay, max_delay),
     )
+
+
+def fallback_chain(config: dict[str, Any], provider: str) -> list[str]:
+    """``provider`` followed by its configured fallbacks, in order.
+
+    ``providers.<name>.fallback`` is a provider name or a list of them. Chains
+    follow through (claude -> codex -> local) and never revisit a provider, so
+    a misconfigured loop ends instead of spinning.
+    """
+    providers = config.get("providers", {}) or {}
+    chain = [provider]
+    queue = [provider]
+    while queue:
+        entry = (providers.get(queue.pop(0)) or {}).get("fallback")
+        names = [entry] if isinstance(entry, str) else list(entry or [])
+        for name in names:
+            name = str(name).strip()
+            if name and name not in chain:
+                chain.append(name)
+                queue.append(name)
+    return chain

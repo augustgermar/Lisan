@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import sys
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -13,7 +14,7 @@ from ..tools.db import connect as _db_connect
 
 from ..config import load_config
 from ..paths import sqlite_path
-from .config import RetrySettings, select_provider, transient_retry_settings
+from .config import ProviderSelection, RetrySettings, fallback_chain, select_provider, transient_retry_settings
 from ..tools.tracing import record_llm_call
 
 
@@ -244,7 +245,44 @@ class LisanLLM:
         model: str | None = None,
     ) -> LLMResponse:
         selected = select_provider(self.config, agent=agent, significance=significance, override_provider=provider, override_model=model)
-        chosen_provider = selected.provider
+        # A caller that names a provider or model gets exactly that; fallback
+        # applies only to routed calls.
+        chain = [selected.provider] if (provider or model) else fallback_chain(self.config, selected.provider)
+        last_exc: Exception | None = None
+        for position, chosen in enumerate(chain):
+            try:
+                return self._complete_with(
+                    chosen,
+                    selected.model if position == 0 else None,
+                    prompt=prompt, schema=schema, temperature=temperature,
+                    agent=agent, significance=significance,
+                )
+            except Exception as exc:
+                last_exc = exc
+                if position + 1 < len(chain):
+                    print(
+                        f"[lisan] provider {chosen!r} failed for agent {agent!r} "
+                        f"({exc.__class__.__name__}: {str(exc)[:200]}); falling back to {chain[position + 1]!r}",
+                        file=sys.stderr, flush=True,
+                    )
+        assert last_exc is not None
+        raise last_exc
+
+    def _complete_with(
+        self,
+        chosen_provider: str,
+        model_override: str | None,
+        *,
+        prompt: str,
+        schema: dict[str, Any] | None,
+        temperature: float,
+        agent: str,
+        significance: str,
+    ) -> LLMResponse:
+        selected = ProviderSelection(
+            provider=chosen_provider,
+            model=model_override or self.config.get("providers", {}).get(chosen_provider, {}).get("default_model"),
+        )
         client = _client_for(chosen_provider, self.config)
         retry_settings = transient_retry_settings(self.config)
         prompt_version = f"{agent}_{significance}"
@@ -379,6 +417,10 @@ def _client_for(provider: str, config: dict[str, Any]) -> "ProviderClient":
         from .codex import CodexClient
 
         return CodexClient(config)
+    if provider == "claude":
+        from .claude import ClaudeClient
+
+        return ClaudeClient(config)
     if provider == "anthropic":
         from .anthropic import AnthropicClient
 

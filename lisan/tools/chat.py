@@ -171,6 +171,11 @@ def _check_provider(config: dict[str, Any]) -> tuple[str, bool, ProviderDiagnost
         binary = os.environ.get(binary_env) or "codex"
         return name, bool(shutil.which(binary)), None
 
+    if name == "claude":
+        binary_env = config.get("providers", {}).get("claude", {}).get("binary_env", "CLAUDE_BIN")
+        binary = os.environ.get(binary_env) or "claude"
+        return name, bool(shutil.which(binary)), None
+
     if name in ("openai", "anthropic", "google", "openrouter"):
         key_env = str(config.get("providers", {}).get(name, {}).get("api_key_env") or "")
         return name, bool(key_env and os.environ.get(key_env)), None

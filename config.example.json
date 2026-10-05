@@ -6,6 +6,14 @@
     "default_domain": "example.com"
   },
   "providers": {
+    "claude": {
+      "enabled": true,
+      "binary_env": "CLAUDE_BIN",
+      "default_model": "claude-sonnet-5-5",
+      "timeout_seconds": 300,
+      "allowed_tools": [],
+      "fallback": null
+    },
     "codex": {
       "enabled": true,
       "binary_env": "CODEX_BIN",
@@ -179,13 +187,23 @@
     "interval_minutes": 15,
     "script_dirs": [],
     "collect_paths": [],
-    "__comment": "WO-ADJUTANT execution layer. enabled=false keeps `lisan adjutant run` in dry-run: the poller and gate run, verdicts land in adjutant_log, nothing executes. calibration=true is the soak posture: v2 writers on (turns may acquire task fields) while every cycle is FORCED dry regardless of enabled — audit the log, then flip calibration off and enabled on. script_dirs is the allowlist for run_script tasks; collect_paths for collect tasks. Authority itself lives in the vault: primer/intent.md."
+    "__comment": "WO-ADJUTANT execution layer. enabled=false keeps `lisan adjutant run` in dry-run: the poller and gate run, verdicts land in adjutant_log, nothing executes. calibration=true is the soak posture: v2 writers on (turns may acquire task fields) while every cycle is FORCED dry regardless of enabled \u2014 audit the log, then flip calibration off and enabled on. script_dirs is the allowlist for run_script tasks; collect_paths for collect tasks. Authority itself lives in the vault: primer/intent.md."
   },
   "psyche": {
     "banned_hypothesis_terms": null,
     "analyst_min_observations": 5,
     "analyst_min_weeks": 3,
-    "context_tags": ["school-day", "caregiver-day", "schedule-change", "transition", "sleep", "illness", "appointment", "weekend", "holiday"],
+    "context_tags": [
+      "school-day",
+      "caregiver-day",
+      "schedule-change",
+      "transition",
+      "sleep",
+      "illness",
+      "appointment",
+      "weekend",
+      "holiday"
+    ],
     "__comment": "Language gate on MACHINE-AUTHORED psychology only (analyst-minted patterns, prediction expectations); user notes are always stored verbatim. Automatic analysis starts at 5 check-ins across 3 distinct weeks. The listed context tags are the standard vocabulary, but custom tags are also accepted and retained."
   },
   "backup": {
@@ -199,14 +217,17 @@
     "poll_seconds": 30
   },
   "jobs": {
-    "__comment_drain_on_capture": "When true (the default), a capture runs the indexing jobs it just enqueued in-process before returning, so semantic retrieval sees the new records without a manual 'lisan jobs run'. Only indexing/embedding jobs drain — LLM-heavy maintenance (analyst, dreamer) always stays queued. Set false if you run your own jobs worker.",
+    "__comment_drain_on_capture": "When true (the default), a capture runs the indexing jobs it just enqueued in-process before returning, so semantic retrieval sees the new records without a manual 'lisan jobs run'. Only indexing/embedding jobs drain \u2014 LLM-heavy maintenance (analyst, dreamer) always stays queued. Set false if you run your own jobs worker.",
     "drain_on_capture": true
   },
   "learning": {
     "__comment": "The learning loop. mode: off | observe (default: record events and the skill-usage ledger; no model call, nothing written to skills) | shadow | auto (the last two arrive with the reviewer). A conversation turn is recorded at min_tool_calls tool calls, or when it used a skill.",
     "mode": "observe",
     "min_tool_calls": 5,
-    "work_tools": ["execute_task", "run_codex"],
+    "work_tools": [
+      "execute_task",
+      "run_codex"
+    ],
     "review_every": 6,
     "min_idle_minutes": 5,
     "review_char_budget": 160000,
@@ -265,12 +286,21 @@
     "local_files": {
       "enabled": false,
       "roots": [],
-      "include_extensions": [".md", ".txt", ".json", ".csv", ".pdf"]
+      "include_extensions": [
+        ".md",
+        ".txt",
+        ".json",
+        ".csv",
+        ".pdf"
+      ]
     },
     "web": {
       "enabled": false,
       "provider": "browser",
-      "engines": ["google", "duckduckgo"],
+      "engines": [
+        "google",
+        "duckduckgo"
+      ],
       "settle_seconds": 2.5,
       "api_key_env": "TAVILY_API_KEY",
       "search_endpoint": "https://api.tavily.com/search",

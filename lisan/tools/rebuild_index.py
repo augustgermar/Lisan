@@ -984,6 +984,13 @@ def _embed_and_write(
     batch_size = max(1, int(provider.settings.get("batch_size", 64) or 64))
 
     records: list[tuple[str, list[float] | None]] = []
+    # Status updates are collected and applied in ONE short transaction after
+    # the last batch. Embedding is slow (minutes for a full vault, longer under
+    # Rosetta); issuing each UPDATE as its batch finished opened a write
+    # transaction at the first batch and held SQLite's single writer lock for
+    # the whole phase, so the scheduler, tracing and capture all timed out at
+    # 30s ("database is locked" bursts, 2026-10-03).
+    status_updates: list[tuple[str, str]] = []
     index_model = "none"
     index_dimension = 0
     saw_semantic = False
@@ -999,10 +1006,7 @@ def _embed_and_write(
                 status = "hash"
             else:
                 status = "embedded"
-            conn.execute(
-                "UPDATE files SET embedding_status = ? WHERE id = ?",
-                (status, file_id),
-            )
+            status_updates.append((status, file_id))
         if outcome.mode_used == "semantic":
             saw_semantic = True
             index_model = outcome.model
@@ -1011,6 +1015,8 @@ def _embed_and_write(
             index_model = outcome.model
             index_dimension = outcome.dimension
 
+    conn.executemany("UPDATE files SET embedding_status = ? WHERE id = ?", status_updates)
+    conn.commit()
     write_embeddings(embeddings_file, records, model=index_model, dimension=index_dimension)
 
 
@@ -1086,6 +1092,10 @@ def embed_pending_records(
 
         embedded = 0
         mode_used = "skip"
+        # Collected, then applied in one short transaction below — see
+        # _embed_and_write: UPDATEs issued between slow embedding batches hold
+        # the writer lock for the whole run.
+        status_updates: list[tuple[str, str]] = []
         batch_size = max(1, int(provider.settings.get("batch_size", 64) or 64))
         for start in range(0, len(targets), batch_size):
             chunk = targets[start : start + batch_size]
@@ -1106,9 +1116,10 @@ def embed_pending_records(
                     continue
                 merged[file_id] = vector
                 status = "hash" if outcome.mode_used == "hash" else "embedded"
-                conn.execute("UPDATE files SET embedding_status = ? WHERE id = ?", (status, file_id))
+                status_updates.append((status, file_id))
                 embedded += 1
 
+        conn.executemany("UPDATE files SET embedding_status = ? WHERE id = ?", status_updates)
         conn.commit()
         write_embeddings(
             embeddings_file,

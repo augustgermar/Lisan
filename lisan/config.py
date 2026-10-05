@@ -31,6 +31,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "default_model": "gemini-2.5-pro",
             "timeout_seconds": 120,
         },
+        # Local `claude` CLI via the Claude Agent SDK (pip install claude-agent-sdk).
+        # No API key. Text-only by default; `allowed_tools` is opt-in.
+        # `fallback` names the provider tried when this one fails (str or list).
+        "claude": {
+            "enabled": True,
+            "binary_env": "CLAUDE_BIN",
+            "default_model": "claude-sonnet-5-5",
+            "timeout_seconds": 300,
+            "allowed_tools": [],
+            "fallback": None,
+        },
         "codex": {
             "enabled": True,
             "binary_env": "CODEX_BIN",

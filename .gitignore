@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 *.egg-info/
+backups/
 # The live config holds local settings and secrets (telegram token) and is
 # never tracked; config.example.json is the shipped template.
 config.json
