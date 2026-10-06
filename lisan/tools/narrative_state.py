@@ -168,6 +168,14 @@ def format_history(history: list[dict[str, str]]) -> str:
 
 
 def _parse_transcript(text: str, conversation_id: str) -> list[dict[str, str]]:
+    """Parse transcript headings into complete conversation turns.
+
+    A turn body is allowed to contain paragraphs, bullets, and colons.  The
+    old parser treated every physical line as a new ``SPEAKER: message``
+    record, which silently discarded all continuation lines that did not look
+    like a speaker label.  That made facts in otherwise healthy transcripts
+    unavailable to the rolling conversation context.
+    """
     turns: list[dict[str, str]] = []
     blocks = re.split(r"\n## Conversation — ", text)
     for block in blocks:
@@ -178,14 +186,22 @@ def _parse_transcript(text: str, conversation_id: str) -> list[dict[str, str]]:
             continue
         if conversation_id == "default" and "[" in header and "]" in header:
             continue
-        for line in rest.strip().splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            speaker, sep, msg = line.partition(":")
-            if not sep or not speaker or " " in speaker.strip():
-                continue
-            turns.append({"speaker": speaker.strip(), "text": msg.strip()})
+        body = rest.strip()
+        if not body:
+            continue
+
+        # append_transcript writes one speaker label at the beginning of the
+        # body.  Everything after that label belongs to the same turn until
+        # the next conversation heading.
+        first_line, separator, remainder = body.partition("\n")
+        speaker, sep, msg = first_line.partition(":")
+        speaker = speaker.strip()
+        if not sep or not speaker or " " in speaker:
+            continue
+        message_parts = [msg.strip()]
+        if separator and remainder.strip():
+            message_parts.append(remainder.strip())
+        turns.append({"speaker": speaker, "text": "\n".join(message_parts).strip()})
     return turns
 
 

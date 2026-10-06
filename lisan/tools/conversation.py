@@ -26,7 +26,10 @@ from .tracing import record_inline_step, record_jobs_queued
 from .transcripts import append_transcript
 
 _HISTORY_TURNS = 30
-_HISTORY_CHARS = 9000
+# Tool-bearing replies commonly contain a short runbook or ticket details.
+# Nine thousand characters was small enough to cut the useful part of a
+# recent exchange, even after multiline parsing was fixed.
+_HISTORY_CHARS = 24000
 
 
 def run_conversation_turn(
@@ -47,6 +50,21 @@ def run_conversation_turn(
     vault = vault or vault_root()
     record_inline_step("conversation.turn")
     append_transcript(vault=vault, conversation_id=conversation_id, speaker="USER", text=text)
+
+    # Fail visibly if the transcript write succeeded but the conversation
+    # reader cannot reconstruct the turn.  This protects the live path from
+    # silently degrading back into stateless behavior after a parser or vault
+    # regression.
+    try:
+        persisted = conversation_history(vault, conversation_id)
+        if not any(turn.get("speaker") == "USER" and turn.get("text") == text for turn in persisted):
+            log_error(
+                vault,
+                "conversation.transcript_round_trip",
+                ValueError("new user turn was written but could not be read back"),
+            )
+    except Exception as exc:
+        log_error(vault, "conversation.transcript_round_trip", exc)
 
     history = _rolling_history(vault, conversation_id)
     context = _retrieval_context(vault=vault, text=text, conversation_id=conversation_id, db_path=db_path)

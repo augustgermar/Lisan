@@ -10,6 +10,7 @@ from lisan.paths import ensure_repo_layout, vault_root
 from lisan.providers.base import LLMResponse, LisanLLM
 from lisan.tools.conversation import run_conversation_turn
 from lisan.tools.jobs import list_jobs
+from lisan.tools.narrative_state import conversation_history
 from lisan.tools.transcripts import append_transcript
 
 
@@ -49,6 +50,26 @@ class ConversationTurnTests(unittest.TestCase):
         self.assertIn("Which file should we start with?", prompt)
         self.assertIn("CONVERSATION", prompt)
         self.assertIn("you pick", prompt)
+
+    def test_multiline_turns_and_bullets_survive_history_reconstruction(self):
+        append_transcript(
+            vault=self.vault,
+            conversation_id="conv-1",
+            speaker="LISAN",
+            text=(
+                "Ticket details:\n\n"
+                "- Rob: rwarner@csuchico.edu\n"
+                "- Zak: zjann@csuchico.edu\n"
+                "The requested role is Read: only."
+            ),
+        )
+
+        history = conversation_history(self.vault, "conv-1")
+
+        self.assertEqual(len(history), 1)
+        self.assertIn("rwarner@csuchico.edu", history[0]["text"])
+        self.assertIn("zjann@csuchico.edu", history[0]["text"])
+        self.assertIn("Read: only", history[0]["text"])
 
     def test_both_sides_are_transcribed(self):
         self._turn("hello there friend", reply="Hey. Good to see you.")

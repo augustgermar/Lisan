@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YourWeb cPanel skill</title>
+  <style>
+    :root { color-scheme: light; --ink:#171717; --paper:#faf7f2; --red:#8f1537; --gold:#c9a86a; --line:#d9d0c5; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:var(--paper); font:16px/1.6 Georgia,"Times New Roman",serif; }
+    header { padding:4rem 1.5rem 3rem; color:white; background:linear-gradient(135deg,#8f1537,#63102a); border-bottom:6px solid var(--gold); }
+    main { max-width:960px; margin:auto; padding:2rem 1.5rem 4rem; }
+    h1 { max-width:12ch; margin:0 0 1rem; font-size:clamp(2.6rem,7vw,5rem); line-height:1; }
+    h2 { margin-top:2rem; }
+    a { color:#63102a; }
+    .button { display:inline-block; padding:.8rem 1.1rem; margin:.3rem .4rem .3rem 0; border-radius:999px; background:white; color:#63102a; font-weight:bold; text-decoration:none; }
+    .card { padding:1.25rem; margin:1rem 0; background:#fffdf9; border:1px solid var(--line); box-shadow:0 8px 24px #29170a12; }
+    code, pre { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+    code { background:#eee7de; padding:.1rem .3rem; }
+    pre { overflow:auto; padding:1rem; background:#211a18; color:#f8f5ef; }
+    li + li { margin-top:.45rem; }
+    .muted { color:#5d554f; }
+  </style>
+</head>
+<body>
+  <header>
+    <main>
+      <p>CSU Chico · Agent Skills distribution</p>
+      <h1>YourWeb cPanel skill</h1>
+      <p>Read-first, approval-gated procedures for inspecting and administering YourWeb cPanel accounts through Codex or ChatGPT.</p>
+      <a class="button" href="yourweb-cpanel-skill.zip">Download the skill package</a>
+      <a class="button" href="yourweb-cpanel/SKILL.md">Read SKILL.md</a>
+    </main>
+  </header>
+  <main>
+    <section class="card">
+      <h2>Give this URL to a fresh Codex install</h2>
+      <p>Send Codex this page URL and ask it to install the <code>yourweb-cpanel</code> skill from the linked package:</p>
+      <pre><code>https://acgermar.yourweb.csuchico.edu/skills/</code></pre>
+      <p>Codex should download <code>yourweb-cpanel-skill.zip</code>, extract the <code>yourweb-cpanel</code> directory, and place it in the active skills directory or the repository’s <code>.agents/skills/</code> directory. Then ask it to use <code>$yourweb-cpanel</code>.</p>
+    </section>
+    <section class="card">
+      <h2>What is included</h2>
+      <ul>
+        <li><code>SKILL.md</code> with the current operating sequence and safety rules</li>
+        <li><code>scripts/yourweb_cpanel.py</code> for deterministic cPanel API and public verification checks</li>
+        <li><code>references/source-guide.md</code> with the detailed YourWeb operating guide</li>
+        <li><code>agents/openai.yaml</code> metadata for compatible tooling</li>
+      </ul>
+    </section>
+    <section class="card">
+      <h2>Credential setup</h2>
+      <p>The skill reads credentials from the local environment or secret store. Set <code>YOURWEB_CPANEL_HOST</code>, <code>YOURWEB_CPANEL_USER</code>, and <code>YOURWEB_CPANEL_TOKEN</code> (compatible <code>CPANEL_*</code> names are also accepted). Never put the token in chat or logs.</p>
+    </section>
+    <section class="card">
+      <h2>Scope</h2>
+      <p>It covers domain discovery, file and document-root checks, mailbox inventory, AutoSSL inspection, DNS/HTTP/TLS verification, and carefully controlled cPanel operations. Writes require explicit approval and separate verification.</p>
+      <p class="muted">Updated September 29, 2026.</p>
+    </section>
+  </main>
+</body>
+</html>
