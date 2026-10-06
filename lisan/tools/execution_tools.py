@@ -999,6 +999,7 @@ def _ratify_framework_tool(name: str, summary: str, source: str | None, *, vault
 def _browser_tool(action: str, **kw: Any) -> str:
     import json as _json
 
+    from .approval_receipts import record_action_result
     from .browser import browser_action, browser_handoff, browser_handoff_finish, browser_search, sync_session
 
     verb = str(action or "").strip().lower()
@@ -1027,6 +1028,41 @@ def _browser_tool(action: str, **kw: Any) -> str:
         result = sync_session(str(kw.get("source") or "loud"), str(kw.get("target") or "quiet"))
     else:
         result = browser_action(action, **kw)
+    receipt_id = kw.get("receipt_id")
+    if receipt_id and isinstance(result, dict) and not result.get("refused"):
+        effective_args = {key: value for key, value in kw.items() if key != "receipt_id"}
+        if verb == "handoff":
+            effective_args.update({
+                "url": str(kw.get("url") or "").strip(),
+                "reason": str(kw.get("reason") or "").strip() or "I need your help with a page.",
+                "wait_seconds": 0,
+                "poll_seconds": 2.0,
+                "auto_login": bool(kw.get("auto_login")),
+            })
+        elif verb in {"click", "type", "goto", "back"}:
+            effective_args.setdefault("lane", str(kw.get("lane") or "quiet"))
+        if verb == "click":
+            target = str(kw.get("target") or (f"index:{kw['index']}" if kw.get("index") is not None else ""))
+            logged_action = "click"
+        elif verb == "type" and kw.get("submit"):
+            target = str(kw.get("target") or "")
+            logged_action = "type_submit"
+        elif verb == "goto":
+            target = str(kw.get("url") or "")
+            logged_action = "goto"
+        elif verb == "back":
+            target = "current-page"
+            logged_action = "back"
+        elif verb == "handoff":
+            target = str(kw.get("url") or "").strip()
+            logged_action = "handoff"
+        else:
+            target = str(kw.get("target") or kw.get("url") or "")
+            logged_action = verb
+        record_action_result(
+            str(receipt_id), tool="browser", action=logged_action, target=target,
+            arguments=effective_args, result=result,
+        )
     if isinstance(result, dict) and result.get("text"):
         # fetched page text is untrusted data — fence it so instructions
         # embedded in a page never read as instructions to the agent

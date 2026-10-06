@@ -51,6 +51,58 @@ def _audit(event: dict[str, Any]) -> None:
     os.chmod(path, 0o600)
 
 
+def action_records_path() -> Path:
+    return receipt_root() / "action_records.jsonl"
+
+
+def _navigation_url(arguments: dict[str, Any], result: Any | None = None) -> str | None:
+    if isinstance(result, dict):
+        for key in ("final_url", "url"):
+            if result.get(key):
+                return str(result[key])
+    for key in ("url", "navigation_url"):
+        if arguments.get(key):
+            return str(arguments[key])
+    return None
+
+
+def _action_record(event: dict[str, Any]) -> None:
+    """Append a durable action record in the runtime-only receipt directory."""
+    root = receipt_root()
+    root.mkdir(parents=True, exist_ok=True)
+    os.chmod(root, 0o700)
+    path = action_records_path()
+    encoded = (json.dumps(event, sort_keys=True, ensure_ascii=True) + "\n").encode("utf-8")
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    try:
+        os.write(fd, encoded)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.chmod(path, 0o600)
+
+
+def record_action_result(
+    receipt_id: str, *, tool: str, action: str, target: str,
+    arguments: dict[str, Any], result: Any, navigation_url: str | None = None,
+    timestamp: float | None = None,
+) -> None:
+    """Record the result of an action whose receipt was consumed."""
+    _receipt_path(str(receipt_id))
+    at = float(time.time() if timestamp is None else timestamp)
+    _action_record({
+        "event": "result",
+        "timestamp": at,
+        "receipt_id": str(receipt_id),
+        "tool": str(tool),
+        "action": str(action),
+        "target": str(target),
+        "arguments": arguments,
+        "navigation_url": navigation_url or _navigation_url(arguments, result),
+        "result": result,
+    })
+
+
 def issue_receipt(
     *, tool: str, action: str, target: str, arguments: dict[str, Any],
     recipient: str | None = None, ttl_seconds: int = 60, now: float | None = None,
@@ -84,6 +136,17 @@ def issue_receipt(
         path.unlink(missing_ok=True)
         raise
     _audit({"event": "issued", "at": issued_at, **payload})
+    _action_record({
+        "event": "issued",
+        "timestamp": issued_at,
+        "receipt_id": receipt_id,
+        "tool": str(tool),
+        "action": str(action),
+        "target": str(target),
+        "arguments": arguments,
+        "navigation_url": _navigation_url(arguments),
+        "result": {"status": "receipt_issued"},
+    })
     return receipt_id
 
 
@@ -121,5 +184,16 @@ def consume_receipt(
         raise ReceiptError("approval receipt was already used") from exc
     try:
         _audit({"event": "consumed", "at": current, **payload})
+        _action_record({
+            "event": "consumed",
+            "timestamp": current,
+            "receipt_id": str(receipt_id),
+            "tool": str(tool),
+            "action": str(action),
+            "target": str(target),
+            "arguments": arguments,
+            "navigation_url": _navigation_url(arguments),
+            "result": {"status": "receipt_consumed"},
+        })
     finally:
         used.unlink(missing_ok=True)
