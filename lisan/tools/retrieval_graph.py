@@ -17,6 +17,7 @@ from .retrieval_layers import (
     _LayerCandidate,
     _visibility_block_reason,
 )
+from .freshness import line as freshness_line
 
 DOMAIN_KEYWORDS: dict[str, set[str]] = {
     "physical": {
@@ -513,6 +514,7 @@ def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> 
             body.append(expansion)
         if not lean:
             body.append(f"- reason: {item.reason}")
+        body.insert(1 if len(body) > 1 else len(body), freshness_line(fm))
         return "\n".join(body)
 
     def _list_line(label: str, value: Any) -> str | None:
@@ -896,7 +898,7 @@ def _recent_activity_block(vault: Path) -> str:
             domain = str(doc.frontmatter.get("domain_primary") or path.stem.replace("-current", ""))
             summary = str(doc.frontmatter.get("summary") or "").strip()
             if summary:
-                state_lines.append(f"- {domain}: {summary}")
+                state_lines.append(f"- {domain}: {summary}\n  {freshness_line(doc.frontmatter)}")
     loop_lines: list[str] = []
     loop_dir = vault / "open_loops"
     if loop_dir.exists():
@@ -910,7 +912,7 @@ def _recent_activity_block(vault: Path) -> str:
             domain = str(doc.frontmatter.get("domain_primary") or "")
             suffix = f" \u2192 {next_action}" if next_action else ""
             domain_tag = f" [{domain}]" if domain else ""
-            loop_lines.append(f"- {title}{domain_tag}{suffix}")
+            loop_lines.append(f"- {title}{domain_tag}{suffix}\n  {freshness_line(doc.frontmatter)}")
     if not state_lines and not loop_lines:
         return ""
     lines = ["## Recent Activity (today, across all conversations)"]

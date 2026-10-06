@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from ..frontmatter import load_markdown
+from ..frontmatter import load_markdown, write_markdown
 from ..paths import ensure_vault_layout, vault_root
 from ..utils import today_iso
 from .deixis import render_for_display
 from .domain_fields import domain_primary as get_domain_primary, normalize_domain_fields
+from .freshness import line as freshness_line
 
 
 @dataclass(slots=True)
@@ -38,6 +39,10 @@ def generate_current_brief(vault: Path | None = None) -> str:
         "# Current Brief",
         "",
         f"Generated: {today_iso()}",
+        freshness_line({
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "valid_until": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
+        }),
         "",
         "You are working from the active state summaries below.",
         "",
@@ -77,7 +82,17 @@ def write_current_brief(vault: Path | None = None) -> Path:
     ensure_vault_layout(vault)
     out = vault / "primer" / "current-brief.md"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(generate_current_brief(vault), encoding="utf-8")
+    observed = datetime.now(timezone.utc)
+    write_markdown(
+        out,
+        {
+            "type": "current_brief",
+            "observed_at": observed.isoformat(),
+            "valid_until": (observed + timedelta(days=1)).isoformat(),
+            "ttl_days": 1,
+        },
+        generate_current_brief(vault),
+    )
     return out
 
 

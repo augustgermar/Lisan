@@ -1,0 +1,6 @@
+[Unit]
+Description=Regenerate Lisan current context brief
+
+[Service]
+Type=oneshot
+ExecStart=%h/.lisan/venv/bin/lisan brief --vault %h/vault

@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -209,9 +210,27 @@ def capability_index(manifest: dict[str, Any] | None = None) -> str:
     return "\n".join(lines)
 
 
-@lru_cache(maxsize=1)
+_CAPABILITY_CACHE_TTL_SECONDS = 60
+_capability_cache: tuple[float, str, str] | None = None
+
+
 def cached_capability_index() -> str:
-    return capability_index()
+    """Cache briefly, but never for the lifetime of a daemon process.
+
+    Tool registration and the code commit can change while a service remains
+    alive. A short TTL keeps prompt construction cheap without allowing an old
+    capability inventory to survive indefinitely.
+    """
+    global _capability_cache
+    now = time.monotonic()
+    commit = _git_commit()
+    if _capability_cache is not None:
+        created, cached_commit, text = _capability_cache
+        if cached_commit == commit and now - created < _CAPABILITY_CACHE_TTL_SECONDS:
+            return text
+    text = capability_index()
+    _capability_cache = (now, commit, text)
+    return text
 
 
 @lru_cache(maxsize=1)

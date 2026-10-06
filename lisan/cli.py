@@ -263,6 +263,9 @@ def build_parser() -> argparse.ArgumentParser:
     health = subparsers.add_parser("health", help="Write a health report")
     health.add_argument("--vault", type=Path, default=vault_root())
 
+    brief = subparsers.add_parser("brief", help="Regenerate the current context brief")
+    brief.add_argument("--vault", type=Path, default=vault_root())
+
     operational = subparsers.add_parser("operational-memory", help="Classify and archive operational telemetry")
     operational.add_argument("--vault", type=Path, default=vault_root())
     operational.add_argument("--db-path", type=Path, default=sqlite_path())
@@ -1518,6 +1521,10 @@ def main(argv: list[str] | None = None) -> int:
             if line.startswith("!!! EFFECTIVE LIVE POSTURE:"):
                 print(line)
         print(out)
+        return 0
+
+    if args.command == "brief":
+        print(write_current_brief(args.vault))
         return 0
 
     if args.command == "operational-memory":

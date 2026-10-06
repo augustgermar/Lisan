@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Lisan current brief regeneration
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+Persistent=true
+Unit=lisan-current-brief.service
+
+[Install]
+WantedBy=timers.target

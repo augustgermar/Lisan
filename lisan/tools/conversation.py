@@ -24,6 +24,7 @@ from .narrative_state import conversation_history
 from .self_model import cached_capability_index
 from .tracing import record_inline_step, record_jobs_queued
 from .transcripts import append_transcript
+from .freshness import file_line
 
 _HISTORY_TURNS = 30
 # Tool-bearing replies commonly contain a short runbook or ticket details.
@@ -204,10 +205,11 @@ def _owner_profile(vault: Path) -> str:
     situational to anchor it."""
     parts: list[str] = []
     try:
-        identity = (vault / "primer" / "identity.md").read_text(encoding="utf-8").strip()
+        identity_path = vault / "primer" / "identity.md"
+        identity = identity_path.read_text(encoding="utf-8").strip()
         if identity:
             body = identity.split("---")[-1].strip()
-            parts.append(body[:1500])
+            parts.append("PRINCIPAL_PROFILE\n" + file_line(identity_path, default_ttl_days=30) + "\n" + body[:1500])
     except Exception as exc:
         log_error(vault, "conversation.owner_profile identity load failed", exc)
     try:
@@ -220,7 +222,7 @@ def _owner_profile(vault: Path) -> str:
                 f"{r.get('name')} ({r.get('relation')})" if isinstance(r, dict) else str(r)
                 for r in roster
             )
-            parts.append(f"Household cast: {people}")
+            parts.append("IDENTITY_CORE\n" + file_line(vault / "primer" / "identity-core.md", stable=True) + f"\nHousehold cast: {people}")
     except Exception as exc:
         log_error(vault, "conversation.owner_profile roster load failed", exc)
     try:
@@ -230,7 +232,7 @@ def _owner_profile(vault: Path) -> str:
             standing = style.split(marker, 1)[1].strip()
             if standing:
                 parts.append("Standing instructions from the user about how to behave "
-                             "(honor these every turn):\n" + standing[:1200])
+                             "(honor these every turn):\n" + file_line(style, default_ttl_days=30) + "\n" + standing[:1200])
     except Exception:
         pass
     parts.append(_self_identity_line(vault))
@@ -305,10 +307,11 @@ def _self_identity_line(vault: Path) -> str:
         nickname = str(assistant.get("nickname") or "").strip()
         if not canonical:
             return ""
+        freshness = file_line(vault / "primer" / "identity-core.md", stable=True)
         if nickname and nickname != canonical:
             return (f"Your identity kernel: your canonical name is {canonical}; you go by {nickname}. "
-                    "Both are your names.")
-        return f"Your identity kernel: your name is {canonical}."
+                    f"{freshness} Both are your names.")
+        return f"Your identity kernel: your name is {canonical}. {freshness}"
     except Exception as exc:
         log_error(vault, "conversation.self_identity load failed", exc)
         return ""
