@@ -68,8 +68,30 @@ The directory is created mode `700`; ledger and rotated segments are mode
 `600`. The action ledger is append-only, fsynced, and rotated with retained
 segments.
 
+## Scheduled current-brief regeneration
+
+The repository provides platform-specific daily schedulers at 03:15 local:
+
+- Linux: install `deploy/systemd/user/lisan-current-brief.service` and
+  `lisan-current-brief.timer` under `~/.config/systemd/user/`, then run
+  `systemctl --user daemon-reload` and
+  `systemctl --user enable --now lisan-current-brief.timer`.
+- macOS: copy
+  `deploy/launchd/com.lisan.current-brief.plist.template` to
+  `~/Library/LaunchAgents/com.lisan.current-brief.plist`, replace
+  `__LISAN_HOME__` and `__LISAN_VAULT__` with that Mac install's actual paths,
+  then run `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lisan.current-brief.plist`.
+
+Both schedulers call the narrow `lisan brief` command rather than `lisan sync`,
+so daily freshness does not rebuild the full index.
+
 ## Current verified scope
 
 This remediation pass was performed on Debian host `august` only. The MacBook
 installation remains unverified until its own checkout, config, vault, health,
 and audit path are inspected directly.
+
+The capability inventory cache is intentionally short-lived (60 seconds) and
+refreshes when the repository commit changes. Historical Debian logs do not
+contain the two reported false “checkin unavailable” incidents or process-
+lifetime evidence, so their original root cause remains unverified.
