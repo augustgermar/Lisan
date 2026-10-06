@@ -790,7 +790,10 @@ def _render_report(
         for note in plan.notes():
             passes += f"\n- {note}\n"
 
-    if task == "compress":
+    # Every Dreamer maintenance run is operational telemetry. Keep the
+    # durable outcome small; the vault records and any side-effect artifact
+    # are the evidence, not a second copy of the provider response/bundle.
+    if task:
         summary = str(response.get("summary") or "Compression run completed.").strip().replace("\n", " ")[:1000]
         body = f"""# Maintenance Outcome
 
