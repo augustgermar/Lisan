@@ -769,6 +769,7 @@ def _render_report(
         "last_confirmed": today_iso(),
         "review_after": today_iso(),
         "task": task,
+        "memory_lane": "operational",
     }
     if plan is not None:
         frontmatter["chunks"] = plan.chunk_count
@@ -789,7 +790,17 @@ def _render_report(
         for note in plan.notes():
             passes += f"\n- {note}\n"
 
-    body = f"""# Dreamer {task.replace('_', ' ').title()}
+    if task == "compress":
+        summary = str(response.get("summary") or "Compression run completed.").strip().replace("\n", " ")[:1000]
+        body = f"""# Maintenance Outcome
+
+- input_range: recent 365-day episodes, states, and entities ({plan.record_count if plan else 0} records)
+- changes_made: {summary}
+- validation_result: Dreamer response accepted and maintenance task completed
+- artifact_link: {artifact_path or 'none'}
+"""
+    else:
+        body = f"""# Dreamer {task.replace('_', ' ').title()}
 
 ## Response
 

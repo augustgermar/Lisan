@@ -202,6 +202,7 @@ def assemble_context(
     db_path: Path | None = None,
     conversation_id: str | None = None,
     include_quarantined: bool = False,
+    include_operational: bool = False,
     lean: bool = False,
 ) -> str:
     """``lean`` is for callers that compose their own surrounding context
@@ -212,7 +213,7 @@ def assemble_context(
     ~40% of per-turn volatile tokens with zero information loss."""
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
-    result = retrieve_context(query=query, domain=domain, arena=arena, vault=vault, db_path=db_path, conversation_id=conversation_id, include_quarantined=include_quarantined)
+    result = retrieve_context(query=query, domain=domain, arena=arena, vault=vault, db_path=db_path, conversation_id=conversation_id, include_quarantined=include_quarantined, include_operational=include_operational)
     sections: list[str] = ["# Assembled Context", ""]
     if not lean:
         sections.append("## Assistant Identity")
@@ -356,6 +357,7 @@ def retrieve_context(
     db_path: Path | None = None,
     conversation_id: str | None = None,
     include_quarantined: bool = False,
+    include_operational: bool = False,
 ) -> RetrievalResult:
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
@@ -411,6 +413,12 @@ def retrieve_context(
     try:
         try:
             file_rows = conn.execute("SELECT * FROM files").fetchall()
+            # Archived telemetry is outside the active index even when the
+            # caller explicitly asks for operational records. That flag opts
+            # into the live operational lane, not historical archive access.
+            file_rows = [row for row in file_rows if not _is_archived_row(row)]
+            if not include_operational:
+                file_rows = [row for row in file_rows if not _is_operational_row(row)]
             link_rows = conn.execute("SELECT source_id, target_id, relationship_type FROM links").fetchall()
         except sqlite3.OperationalError:
             # An uninitialized index (fresh install, first turn before any
@@ -682,3 +690,23 @@ def retrieve_context(
         )
     finally:
         conn.close()
+
+
+def _is_operational_row(row: sqlite3.Row) -> bool:
+    """Return whether a record belongs to the operational telemetry lane.
+
+    The explicit column is authoritative for new/indexed records.  The
+    report/path fallback keeps older databases safe until their next index
+    refresh; operational reports must never be treated as autobiographical
+    memory merely because they predate the lane field.
+    """
+    keys = set(row.keys())
+    lane = str(row["memory_lane"] or "").strip().lower() if "memory_lane" in keys else ""
+    if lane:
+        return lane == "operational"
+    return str(row["type"] or "") == "report" or str(row["path"] or "").startswith("reports/")
+
+
+def _is_archived_row(row: sqlite3.Row) -> bool:
+    keys = set(row.keys())
+    return bool(str(row["archived_at"] or "").strip()) if "archived_at" in keys else str(row["path"] or "").startswith("archive/")

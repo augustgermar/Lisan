@@ -27,6 +27,7 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "What to search for"},
+                "include_operational": {"type": "boolean", "description": "Explicitly include operational telemetry and maintenance reports"},
             },
             "required": ["query"],
         },
@@ -471,12 +472,13 @@ def build_tool_handlers(
     approval_fn: Callable[[str, dict[str, Any]], bool] | None = None,
 ) -> dict[str, Callable[..., str]]:
     handlers: dict[str, Callable[..., str]] = {
-        "search_memory": lambda query: search_memory(
+        "search_memory": lambda query, include_operational=False: search_memory(
             query,
             vault=vault,
             db_path=db_path,
             conversation_id=conversation_id,
             domain=domain,
+            include_operational=include_operational,
         ),
         "read_file": read_file,
         "execute_task": lambda task, working_directory=None: run_codex(
@@ -674,6 +676,7 @@ def search_memory(
     db_path: Path | None = None,
     conversation_id: str | None = None,
     domain: str | None = None,
+    include_operational: bool = False,
 ) -> str:
     return assemble_context(
         query,
@@ -681,6 +684,7 @@ def search_memory(
         db_path=db_path,
         conversation_id=conversation_id,
         domain=domain,
+        include_operational=include_operational,
     )
 
 

@@ -263,6 +263,11 @@ def build_parser() -> argparse.ArgumentParser:
     health = subparsers.add_parser("health", help="Write a health report")
     health.add_argument("--vault", type=Path, default=vault_root())
 
+    operational = subparsers.add_parser("operational-memory", help="Classify and archive operational telemetry")
+    operational.add_argument("--vault", type=Path, default=vault_root())
+    operational.add_argument("--db-path", type=Path, default=sqlite_path())
+    operational.add_argument("--dry-run", action="store_true")
+
     stale = subparsers.add_parser("stale", help="List stale state files")
     stale.add_argument("--vault", type=Path, default=vault_root())
 
@@ -477,6 +482,7 @@ def build_parser() -> argparse.ArgumentParser:
     assemble.add_argument("query", nargs="+")
     assemble.add_argument("--arena", "--domain", dest="domain", default=None)
     assemble.add_argument("--vault", type=Path, default=vault_root())
+    assemble.add_argument("--include-operational", action="store_true", help="Explicitly include operational telemetry")
 
     heuristic = subparsers.add_parser("heuristic", help="Score text for memory processing")
     heuristic.add_argument("text", nargs="+")
@@ -1514,6 +1520,13 @@ def main(argv: list[str] | None = None) -> int:
         print(out)
         return 0
 
+    if args.command == "operational-memory":
+        from .tools.operational_memory import migrate_operational_reports
+
+        result = migrate_operational_reports(args.vault, args.db_path, dry_run=args.dry_run)
+        print(json.dumps(result, indent=2))
+        return 0
+
     if args.command == "stale":
         from datetime import date
 
@@ -1598,7 +1611,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "assemble":
         query = " ".join(args.query)
-        print(assemble_context(query, domain=args.domain, vault=args.vault))
+        print(assemble_context(query, domain=args.domain, vault=args.vault, include_operational=args.include_operational))
         return 0
 
     if args.command == "heuristic":
