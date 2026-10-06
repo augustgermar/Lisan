@@ -10,9 +10,12 @@ import hashlib
 import json
 import os
 import secrets
+import sys
 import time
 from pathlib import Path
 from typing import Any
+
+import fcntl
 
 
 class ReceiptError(ValueError):
@@ -25,6 +28,28 @@ def receipt_root() -> Path:
         return Path(configured).expanduser()
     runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
     return Path(runtime) / "lisan" / "approval-receipts"
+
+
+def audit_root() -> Path:
+    configured = os.environ.get("LISAN_AUDIT_DIR")
+    if configured:
+        root = Path(configured).expanduser()
+    elif sys.platform == "darwin":
+        root = Path.home() / "Library" / "Application Support" / "Lisan" / "audit"
+    else:
+        state_root = os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")
+        root = Path(state_root).expanduser() / "lisan" / "audit"
+    # A configured override must still stay outside the code checkout and
+    # vault; those are not durable audit boundaries and may be model-visible.
+    try:
+        from ..paths import repo_root, vault_root
+        resolved = root.resolve()
+        protected = (repo_root().resolve(), vault_root().resolve())
+        if any(resolved == path or path in resolved.parents for path in protected):
+            raise ValueError("audit directory must be outside the repository and vault")
+    except ImportError:
+        pass
+    return root
 
 
 def arguments_hash(arguments: dict[str, Any]) -> str:
@@ -42,17 +67,39 @@ def _receipt_path(receipt_id: str) -> Path:
 
 
 def _audit(event: dict[str, Any]) -> None:
-    root = receipt_root()
+    root = audit_root()
     root.mkdir(parents=True, exist_ok=True)
     os.chmod(root, 0o700)
     path = root / "events.jsonl"
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event, sort_keys=True, ensure_ascii=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
     os.chmod(path, 0o600)
 
 
 def action_records_path() -> Path:
-    return receipt_root() / "action_records.jsonl"
+    return audit_root() / "action_records.jsonl"
+
+
+def _audit_lock_path() -> Path:
+    return audit_root() / ".append.lock"
+
+
+def _rotate_action_records(path: Path) -> None:
+    max_bytes = max(1024, int(os.environ.get("LISAN_AUDIT_MAX_BYTES", str(10 * 1024 * 1024))))
+    keep = max(1, int(os.environ.get("LISAN_AUDIT_SEGMENTS", "10")))
+    if not path.exists() or path.stat().st_size < max_bytes:
+        return
+    oldest = path.with_name(f"{path.name}.{keep}")
+    if oldest.exists():
+        oldest.unlink()
+    for index in range(keep - 1, 0, -1):
+        older = path.with_name(f"{path.name}.{index}")
+        newer = path.with_name(f"{path.name}.{index + 1}")
+        if older.exists():
+            os.replace(older, newer)
+    os.replace(path, path.with_name(f"{path.name}.1"))
 
 
 def _navigation_url(arguments: dict[str, Any], result: Any | None = None) -> str | None:
@@ -67,18 +114,31 @@ def _navigation_url(arguments: dict[str, Any], result: Any | None = None) -> str
 
 
 def _action_record(event: dict[str, Any]) -> None:
-    """Append a durable action record in the runtime-only receipt directory."""
-    root = receipt_root()
+    """Append a durable, rotated action record outside the model workspace."""
+    root = audit_root()
     root.mkdir(parents=True, exist_ok=True)
     os.chmod(root, 0o700)
     path = action_records_path()
     encoded = (json.dumps(event, sort_keys=True, ensure_ascii=True) + "\n").encode("utf-8")
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    lock_fd = os.open(_audit_lock_path(), os.O_WRONLY | os.O_CREAT, 0o600)
     try:
-        os.write(fd, encoded)
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+        os.chmod(_audit_lock_path(), 0o600)
+        with os.fdopen(lock_fd, "r+") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            _rotate_action_records(path)
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            try:
+                os.write(fd, encoded)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+    except BaseException:
+        try:
+            os.close(lock_fd)
+        except OSError:
+            pass
+        raise
     os.chmod(path, 0o600)
 
 

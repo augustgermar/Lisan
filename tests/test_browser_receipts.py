@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from lisan.tools.approval_receipts import ReceiptError, action_records_path, consume_receipt, issue_receipt, record_action_result
+from lisan.tools.approval_receipts import ReceiptError, action_records_path, audit_root, consume_receipt, issue_receipt, record_action_result
 from lisan.tools.browser import browser_action, browser_handoff
 from lisan.tools.execution_tools import _browser_tool
 
@@ -10,6 +10,7 @@ from lisan.tools.execution_tools import _browser_tool
 def _receipt_dir(monkeypatch, tmp_path):
     path = tmp_path / "receipts"
     monkeypatch.setenv("LISAN_RECEIPT_DIR", str(path))
+    monkeypatch.setenv("LISAN_AUDIT_DIR", str(path))
     return path
 
 
@@ -132,3 +133,32 @@ def test_browser_tool_writes_result_after_consuming_receipt(monkeypatch, tmp_pat
     assert lines[-1]["target"] == args["target"]
     assert lines[-1]["arguments"] == args
     assert lines[-1]["result"]["ok"] is False
+
+
+def test_action_ledger_rotates_and_retains_segments(monkeypatch, tmp_path):
+    path = _receipt_dir(monkeypatch, tmp_path)
+    monkeypatch.setenv("LISAN_AUDIT_MAX_BYTES", "1024")
+    monkeypatch.setenv("LISAN_AUDIT_SEGMENTS", "2")
+    for index in range(8):
+        issue_receipt(
+            tool="browser",
+            action="goto",
+            target=f"https://example.test/{index}",
+            arguments={"url": f"https://example.test/{index}", "padding": "x" * 500},
+        )
+    assert (path / "action_records.jsonl").exists()
+    assert (path / "action_records.jsonl.1").exists()
+    assert (path / "action_records.jsonl.2").exists()
+    assert not (path / "action_records.jsonl.3").exists()
+    assert oct((path / "action_records.jsonl").stat().st_mode & 0o777) == "0o600"
+    assert oct(path.stat().st_mode & 0o777) == "0o700"
+
+
+def test_audit_root_resolves_platform_paths(monkeypatch, tmp_path):
+    monkeypatch.delenv("LISAN_AUDIT_DIR", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr("lisan.tools.approval_receipts.sys.platform", "darwin")
+    assert audit_root() == tmp_path / "Library" / "Application Support" / "Lisan" / "audit"
+    monkeypatch.setattr("lisan.tools.approval_receipts.sys.platform", "linux")
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    assert audit_root() == tmp_path / "state" / "lisan" / "audit"
