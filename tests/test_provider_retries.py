@@ -127,13 +127,10 @@ class CodexSandboxTests(unittest.TestCase):
             self.assertIn("read-only", args)
 
     def test_executor_agent_default_is_unsandboxed_and_config_reversible(self):
-        """Owner decision 2026-07-06: the executor runs with the sandbox
-        bypassed by default (network-dependent tasks kept failing with
-        misleading errors); setting providers.codex.sandbox_mode restores
-        the cage. Non-executor agents stay read-only regardless."""
+        """Codex defaults to read-only and explicit profiles remain reversible."""
         args = self._args_for(agent="codex")
-        self.assertIn("--dangerously-bypass-approvals-and-sandbox", args)
-        self.assertNotIn("--sandbox", args)
+        self.assertIn("--sandbox", args)
+        self.assertEqual(args[args.index("--sandbox") + 1], "read-only")
         args = self._args_for(agent="codex", sandbox_mode="workspace-write")
         self.assertIn("--sandbox", args)
         self.assertIn("workspace-write", args)

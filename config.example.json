@@ -18,9 +18,17 @@
       "enabled": true,
       "binary_env": "CODEX_BIN",
       "default_model": null,
-      "sandbox_mode": "danger-full-access",
-      "all_agents_sandbox_mode": "danger-full-access",
+      "sandbox_mode": "read-only",
+      "all_agents_sandbox_mode": "read-only",
       "sandbox_mode_by_agent": {},
+      "capability_scopes": {
+        "default": {
+          "filesystem": {"read": ["repo", "vault"], "write": []},
+          "network": false,
+          "identity": "lisan-cognition",
+          "duration_seconds": 900
+        }
+      },
       "timeout_seconds": 1800
     },
     "local": {

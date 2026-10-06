@@ -297,12 +297,11 @@ def _resolve_sandbox_mode(agent: str, codex_config: dict[str, Any]) -> str:
        decision/extraction agents (interlocutor, writer, skeptic, ...) had;
        it remains the fallback so an unconfigured install keeps working
        exactly as before.
-    4. Hard default: ``danger-full-access`` for the executor (``codex``),
-       ``read-only`` for everyone else — the safety boundary this file has
-       always documented: the codex CLI is itself agentic and will sometimes
-       run commands inline despite prompt instructions, so non-executor
-       agents are sandboxed structurally, not just by the prompt asking
-       nicely.
+    4. Hard default: ``read-only`` for every agent. A write-capable profile
+       must be explicitly configured by the owner; prompt text is never an
+       authority boundary. The codex CLI is itself agentic and will sometimes
+       run commands inline despite prompt instructions, so the sandbox is the
+       structural boundary.
     """
     if agent in FORCED_ISOLATED_AGENTS:
         return "read-only"
@@ -314,7 +313,7 @@ def _resolve_sandbox_mode(agent: str, codex_config: dict[str, Any]) -> str:
             return explicit
 
     if agent == "codex":
-        return str(codex_config.get("sandbox_mode") or "danger-full-access")
+        return str(codex_config.get("sandbox_mode") or "read-only")
 
     return str(codex_config.get("all_agents_sandbox_mode") or "read-only")
 

@@ -46,15 +46,27 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "enabled": True,
             "binary_env": "CODEX_BIN",
             "default_model": None,
-            # The owner explicitly chose unrestricted local execution for the
-            # Lisan control plane. Never-rules in intent.md remain separate.
-            "sandbox_mode": "danger-full-access",
-            "all_agents_sandbox_mode": "danger-full-access",
+            # Lisan cognition is read-only by default. Any write-capable
+            # workflow must name an explicit, bounded capability profile;
+            # prompt text is never an authority boundary.
+            "sandbox_mode": "read-only",
+            "all_agents_sandbox_mode": "read-only",
             # Per-agent override, e.g. {"writer": "workspace-write", "skeptic":
             # "read-only"}. An entry here for an agent's exact name wins over
             # both settings above. Empty until the owner dials individual
             # agents in — see lisan/providers/codex.py:_resolve_sandbox_mode.
             "sandbox_mode_by_agent": {},
+            # Structural scope metadata for the default cognition profile.
+            # `repo` and `vault` resolve through the canonical path seam;
+            # the Codex sandbox remains the enforcement boundary.
+            "capability_scopes": {
+                "default": {
+                    "filesystem": {"read": ["repo", "vault"], "write": []},
+                    "network": False,
+                    "identity": "lisan-cognition",
+                    "duration_seconds": 900,
+                },
+            },
             # Wall-clock limit for one `codex exec`; 0 disables it. See
             # lisan/providers/codex.py:_resolve_timeout (LISAN_CODEX_TIMEOUT wins).
             "timeout_seconds": 1800,
