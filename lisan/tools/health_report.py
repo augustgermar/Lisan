@@ -46,6 +46,29 @@ def generate_health_report(vault: Path | None = None, db_path: Path | None = Non
             }
         )
         lines = ["# Memory Health Report", ""]
+        from ..config import load_config
+        from ..providers.codex import _resolve_sandbox_mode
+        from .action_policy import policy_tier
+
+        config = load_config()
+        codex_config = ((config.get("providers") or {}).get("codex") or {})
+        effective_sandbox = _resolve_sandbox_mode("codex", codex_config)
+        all_agents_sandbox = str(codex_config.get("all_agents_sandbox_mode") or "read-only")
+        action_tier = policy_tier(config)
+        adjutant_enabled = bool((config.get("adjutant") or {}).get("enabled", False))
+        lines.extend([
+            "## Live Posture",
+            (
+                "!!! EFFECTIVE LIVE POSTURE: "
+                f"sandbox_mode={effective_sandbox} | action_tier={action_tier} | "
+                f"adjutant_enabled={str(adjutant_enabled).lower()} !!!"
+            ),
+            f"- effective Codex sandbox: `{effective_sandbox}`",
+            f"- all-agents sandbox setting: `{all_agents_sandbox}`",
+            f"- action tier: `{action_tier}`",
+            f"- Adjutant enabled: `{str(adjutant_enabled).lower()}`",
+            "",
+        ])
         stale_states = []
         for path in (vault / "state").glob("*.md"):
             try:

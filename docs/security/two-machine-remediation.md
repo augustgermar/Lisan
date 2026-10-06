@@ -20,6 +20,20 @@ machine pulls and reinstalls/restarts Lisan:
 The repository does not carry either machine's personal vault or ignored
 `config.json`.
 
+## Open item — MacBook inspection (2026-10-06)
+
+The MacBook remains unverified and must stay that way until it is inspected
+locally. On the Mac, first report the effective `sandbox_mode`,
+`all_agents_sandbox_mode`, `drive.action_tier`, and `adjutant.enabled`; do not
+assume parity with Debian. Then, if the owner confirms the intended posture,
+set both Codex sandbox settings to `read-only`, set `drive.action_tier` to `0`,
+and preserve the chosen Adjutant setting. Restart the local services, run the
+health check, and verify the durable platform-resolved audit directory.
+
+The Mac's vault-specific `content_trust` backfill, unknown-provenance records,
+and pending embeddings are separate open work and are not covered by Debian's
+counts in this pass.
+
 ## Required on each machine
 
 Run separately on the MacBook and Debian workstation:

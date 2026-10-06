@@ -1,10 +1,37 @@
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 from lisan.tools.approval_receipts import ReceiptError, action_records_path, audit_root, consume_receipt, issue_receipt, record_action_result
-from lisan.tools.browser import browser_action, browser_handoff
+from lisan.tools.browser import (
+    NON_CONSEQUENTIAL_BROWSER_PATHS,
+    RECEIPT_REQUIRED_BROWSER_PATHS,
+    browser_action,
+    browser_handoff,
+)
 from lisan.tools.execution_tools import _browser_tool
+from lisan.tools.execution_tools import TOOLS
+
+
+def test_browser_action_surface_is_classified_and_receipt_gated():
+    browser_schema = next(tool for tool in TOOLS if tool["name"] == "browser")
+    schema_actions = set(browser_schema["parameters"]["properties"]["action"]["enum"])
+    classified_actions = {
+        path.split("[", 1)[0]
+        for path in RECEIPT_REQUIRED_BROWSER_PATHS | NON_CONSEQUENTIAL_BROWSER_PATHS
+    }
+    assert schema_actions == classified_actions
+
+    browser_source = inspect.getsource(browser_action)
+    handoff_source = inspect.getsource(browser_handoff)
+    assert "consume_receipt" in browser_source
+    assert "consume_receipt" in handoff_source
+    for action in ("click", "goto", "back"):
+        assert f'action == "{action}"' in browser_source
+    assert 'action == "type" and kw.get("submit")' in browser_source
+    assert 'action="handoff"' in handoff_source
 
 
 def _receipt_dir(monkeypatch, tmp_path):

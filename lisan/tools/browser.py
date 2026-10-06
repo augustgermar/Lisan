@@ -36,6 +36,32 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .approval_receipts import ReceiptError, consume_receipt
+
+
+# The browser tool's approval surface is deliberately explicit.  The
+# structural test uses these sets together with the tool schema: adding a new
+# browser action without classifying it fails the suite before it can become a
+# silent receipt bypass.
+RECEIPT_REQUIRED_BROWSER_PATHS = frozenset({
+    "click",
+    "type[submit=True]",
+    "goto",
+    "back",
+    "handoff",
+})
+NON_CONSEQUENTIAL_BROWSER_PATHS = frozenset({
+    "open",
+    "cache_tdx_token",
+    "read",
+    "elements",
+    "type[submit=False]",
+    "screenshot",
+    "tabs",
+    "switch_tab",
+    "search",
+    "handoff_finish",
+    "sync_session",
+})
 from .log import log_error
 
 # Two lanes, because one desktop cannot hold two workers.

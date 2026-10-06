@@ -1508,6 +1508,9 @@ def main(argv: list[str] | None = None) -> int:
         out = args.vault / "reports" / "health-latest.md"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(report, encoding="utf-8")
+        for line in report.splitlines():
+            if line.startswith("!!! EFFECTIVE LIVE POSTURE:"):
+                print(line)
         print(out)
         return 0
 
