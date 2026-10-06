@@ -8,6 +8,8 @@ one appears only when the owner has to act.
 """
 from __future__ import annotations
 
+import json
+
 from lisan.tools.browser import (
     CDP_PORT,
     LANE_LOUD,
@@ -138,31 +140,19 @@ def test_browser_tool_exposes_the_full_handoff_cycle():
     assert "RETURNS IMMEDIATELY" in described
 
 
-def test_irreversible_clicks_are_refused_until_the_owner_says_yes():
-    """The agent is told to ask before committing the owner to something.
+def test_consequential_browser_actions_require_a_receipt():
+    """The model cannot authorize an irreversible action with its own flag."""
+    from lisan.tools.execution_tools import _browser_tool
 
-    Told is not enforced: the approval gate was removed on 2026-07-26, and
-    a browser click can enrol the owner in billing or sign an agreement.
-    This makes the asking structural, as gmail_send already is.
-    """
-    from lisan.tools.execution_tools import _irreversible_click_refusal as refusal
-
-    for label in ("I Agree", "Accept terms", "Create project", "Upgrade to Blaze",
-                  "Enable billing", "Sign agreement", "Delete", "Confirm purchase"):
-        assert refusal("click", {"target": label}) is not None, label
-
-    # Navigation and ordinary controls stay frictionless, and an
-    # informational link that merely contains a scary word is not a
-    # commitment.
-    for label in ("Next", "Firestore Database", "Learn more about creating projects", "Cancel"):
-        assert refusal("click", {"target": label}) is None, label
-
-    # Only clicking is gated; reading a page never is.
-    assert refusal("goto", {"target": "Accept"}) is None
-    assert refusal("read", {}) is None
-
-    # The owner's explicit yes is the key, and it is per-click.
-    assert refusal("click", {"target": "Create project", "owner_approved": True}) is None
+    for kwargs in (
+        {"target": "Create project", "owner_approved": True},
+        {"index": 3},
+        {"target": "#save", "text": "submit", "submit": True},
+        {"url": "https://example.test"},
+    ):
+        action = "type" if "text" in kwargs else ("goto" if "url" in kwargs else "click")
+        result = json.loads(_browser_tool(action, **kwargs))
+        assert result["refused"] is True
 
 
 def test_tool_iteration_ceiling_is_configurable():

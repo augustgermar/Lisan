@@ -35,6 +35,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
+from .approval_receipts import ReceiptError, consume_receipt
 from .log import log_error
 
 # Two lanes, because one desktop cannot hold two workers.
@@ -395,6 +396,7 @@ def browser_handoff(
     poll_seconds: float = 2.0,
     auto_login: bool = False,
     notify: Callable[[str], bool] | None = None,
+    receipt_id: str | None = None,
 ) -> dict[str, Any]:
     """Ask the owner to do the part only they can do.
 
@@ -421,6 +423,23 @@ def browser_handoff(
     if not url:
         return {"ok": False, "error": "handoff needs a url"}
     reason = str(reason or "").strip() or "I need your help with a page."
+    receipt_args = {
+        "url": url,
+        "reason": reason,
+        "wait_seconds": wait_seconds,
+        "poll_seconds": poll_seconds,
+        "auto_login": bool(auto_login),
+    }
+    try:
+        consume_receipt(
+            receipt_id,
+            tool="browser",
+            action="handoff",
+            target=url,
+            arguments=receipt_args,
+        )
+    except ReceiptError as exc:
+        return {"ok": False, "refused": True, "error": str(exc)}
     if not ensure_browser(lane=LANE_LOUD):
         return {"ok": False, "error": "the visible browser could not be started"}
     try:
@@ -773,6 +792,33 @@ def browser_action(action: str, lane: str = LANE_QUIET, **kw: Any) -> dict[str, 
     """
     action = str(action or "").strip().lower()
     lane = str(lane or "").strip().lower() or LANE_QUIET
+    receipt_action: str | None = None
+    receipt_target = ""
+    if action == "click":
+        receipt_action = "click"
+        receipt_target = str(kw.get("target") or (f"index:{kw['index']}" if kw.get("index") is not None else ""))
+    elif action == "type" and kw.get("submit"):
+        receipt_action = "type_submit"
+        receipt_target = str(kw.get("target") or "")
+    elif action == "goto":
+        receipt_action = "goto"
+        receipt_target = str(kw.get("url") or "")
+    elif action == "back":
+        receipt_action = "back"
+        receipt_target = "current-page"
+    if receipt_action is not None:
+        receipt_args = {"lane": lane}
+        receipt_args.update({key: value for key, value in kw.items() if key != "receipt_id"})
+        try:
+            consume_receipt(
+                kw.get("receipt_id"),
+                tool="browser",
+                action=receipt_action,
+                target=receipt_target,
+                arguments=receipt_args,
+            )
+        except ReceiptError as exc:
+            return {"ok": False, "refused": True, "error": str(exc)}
     if action == "open":
         ok = ensure_browser(lane=lane)
         where = "on screen" if lane == LANE_LOUD else "running quietly (no window)"
