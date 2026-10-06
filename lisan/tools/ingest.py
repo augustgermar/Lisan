@@ -1523,6 +1523,7 @@ def _ensure_evidence_record(
         linked_claims=linked_claims,
         linked_episodes=linked_episodes,
         batch_id=batch_id,
+        content_trust="untrusted",
     )
     return record.path
 
@@ -2065,6 +2066,7 @@ def ingest_reference_sources(
                 source_origin=source_origin,
                 retrieved_at=retrieved_at,
                 source_tier=source_tier,
+                content_trust="untrusted",
                 body=chunk.body,
             )
             created_records.append(

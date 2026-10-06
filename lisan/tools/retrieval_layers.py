@@ -88,6 +88,7 @@ class RetrievalItem:
     expansion_source: str = ""
     expansion_path: str = ""
     expansion_reason: str = ""
+    content_trust: str = "unknown"
 
 
 @dataclass(slots=True)
@@ -472,6 +473,7 @@ def _item_from_row(row: sqlite3.Row, *, score: float, reason: str) -> RetrievalI
         summary=str(row["summary"]),
         score=round(score, 3),
         reason=reason,
+        content_trust=str(row["content_trust"] or "unknown") if "content_trust" in row.keys() else "unknown",
     )
 
 

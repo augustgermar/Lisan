@@ -113,6 +113,19 @@ DOMAIN_KEYWORDS: dict[str, set[str]] = {
     "desirability": {"desirable", "attractive", "desired", "romantic", "dating", "attractive"},
 }
 
+
+def _propagate_content_trust(items: list[RetrievalItem], rows_by_id: dict[str, sqlite3.Row]) -> None:
+    """Carry the record taint label onto every retrieval item, including graph hops."""
+    from .content_trust import normalize_content_trust
+
+    for item in items:
+        row = rows_by_id.get(item.id)
+        if row is None or "content_trust" not in row.keys():
+            continue
+        item.content_trust = normalize_content_trust(
+            row["content_trust"], default=item.content_trust
+        )
+
 SENSITIVE_COMPARTMENTS = {
     "legal": {"legal", "lawsuit", "contract", "attorney", "court"},
     "health": {"health", "medical", "doctor", "diagnosis", "therapy"},
@@ -555,6 +568,9 @@ def retrieve_context(
                 max_cross_domain_records=2,
             )
             combined_loaded = direct_loaded + graph_loaded
+            _propagate_content_trust(combined_loaded, rows_by_id)
+            _propagate_content_trust(rejected, rows_by_id)
+            _propagate_content_trust(graph_blocked, rows_by_id)
             record_retrieval_result(len(direct_loaded), len(graph_loaded))
             _log_retrieval(
                 conn,
@@ -626,6 +642,9 @@ def retrieve_context(
             max_cross_domain_records=2,
         )
         combined_loaded = direct_loaded + graph_loaded
+        _propagate_content_trust(combined_loaded, rows_by_id)
+        _propagate_content_trust(rejected, rows_by_id)
+        _propagate_content_trust(graph_blocked, rows_by_id)
         record_retrieval_result(len(direct_loaded), len(graph_loaded))
         _log_retrieval(
             conn,
@@ -663,4 +682,3 @@ def retrieve_context(
         )
     finally:
         conn.close()
-

@@ -13,6 +13,7 @@ from .record_refs import canonicalize_references
 from .scope import normalize_scope
 from ..utils import listify
 from .reference_resolution import resolve_reference
+from .content_trust import normalize_content_trust
 
 
 ENTITY_DIRS = {
@@ -276,6 +277,7 @@ def new_knowledge(
     source_origin: str | None = None,
     retrieved_at: str | None = None,
     source_tier: str = "unverified",
+    content_trust: str = "trusted",
     body: str | None = None,
 ) -> CreatedRecord:
     if category not in KNOWLEDGE_DIRS:
@@ -320,6 +322,7 @@ def new_knowledge(
         frontmatter["source_tags"] = sorted({str(w) for w in source_tags if str(w).strip()})
     from .source_tiers import normalize_source_tier
     frontmatter["source_tier"] = normalize_source_tier(source_tier)
+    frontmatter["content_trust"] = normalize_content_trust(content_trust, default="trusted")
     if source_url is not None:
         frontmatter["source_url"] = source_url
     if source_origin is not None:
@@ -407,6 +410,7 @@ def new_artifact(
         "linked_evidence": linked_evidence,
         "linked_claims": linked_claims,
         "parse_errors": parse_errors,
+        "content_trust": "untrusted",
     }
     body_lines = [
         f"# Artifact: {file_name}",
@@ -879,6 +883,7 @@ def new_evidence(
     last_confirmed: str | None = None,
     review_after: str | None = None,
     batch_id: str | None = None,
+    content_trust: str = "trusted",
 ) -> CreatedRecord:
     today = record_date or today_iso()
     safe_slug = slugify(title)
@@ -916,6 +921,7 @@ def new_evidence(
         "artifact_hash": artifact_hash,
         "timestamp_of_artifact": timestamp_of_artifact,
         "batch_id": batch_id,
+        "content_trust": normalize_content_trust(content_trust, default="trusted"),
         "actors": actors or [],
         "sensitivity": sensitivity,
         "reliability": reliability,

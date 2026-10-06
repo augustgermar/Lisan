@@ -626,6 +626,7 @@ def _ingest_finding(vault: Path, domain: str, finding: SourceFinding, *, tier: s
         result = ingest_reference_sources(
             [Path(handle.name)], vault=vault, db_path=db_path or sqlite_path(),
             on_exists="replace", domain_primary=domain_tag, source_tier=tier,
+            content_trust="untrusted",
             source_origin=origin_for_url(finding.locator), source_url=finding.locator,
             retrieved_at=finding.retrieved_at or now_utc(), reindex=False,
         )
