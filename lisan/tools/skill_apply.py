@@ -19,17 +19,20 @@ Nothing here decides *whether* a change is allowed; that is the gate's job.
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import os
 import shutil
 import tempfile
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .skill_format import SKILL_FILE, parse_skill_md
-from .skill_gate import PlannedChange
+from .skill_format import SKILL_FILE, parse_frontmatter
+from .skill_gate import PlannedChange, check_name, scan_added_text
 from .skill_history import HISTORY_DIR, SkillHistoryError, _log, is_pinned, rollback_skill, snapshot_skill
+from . import skill_frontmatter as fm
 
 
 class ApplyRefused(RuntimeError):
@@ -176,3 +179,67 @@ def apply_change(
         skill=change.skill, op=change.op, snapshot=snapshot, files=written,
         version_before=change.version_before, version_after=change.version_after,
     )
+
+
+def create_requested_skill(
+    *, name: str, description: str, body: str, skills_dir: Path,
+) -> Applied:
+    """Create one provisional, instruction-only skill through the audited writer.
+
+    The model supplies content, never a path or extra files. External or otherwise
+    unverified source material is conservatively marked tainted and the skill is
+    provisional until its use is reviewed.
+    """
+    name = str(name or "").strip()
+    description = str(description or "").strip()
+    body = str(body or "").strip()
+    if not body:
+        raise ApplyRefused("skill body must not be empty")
+    if len(description) > 1024 or "\n" in description:
+        raise ApplyRefused("description must be one line and at most 1024 characters")
+    if not description.lower().startswith("use when "):
+        raise ApplyRefused("description must begin with 'Use when' and state when the skill applies")
+    if len(body.encode("utf-8")) > 16_000:
+        raise ApplyRefused("skill body exceeds the 16,000-byte limit")
+    problems = check_name(name)
+    if problems:
+        raise ApplyRefused("; ".join(problems))
+    problems = scan_added_text(body)
+    if problems:
+        raise ApplyRefused("skill content was refused: " + "; ".join(problems))
+
+    text = (
+        f"---\nname: {name}\ndescription: {description}\nversion: 0.1.0\n---\n\n"
+        f"{body}\n"
+    )
+    text = fm.set_metadata(text, {
+        "origin": "agent", "status": "provisional", "created": time.strftime("%Y-%m-%d", time.gmtime()),
+        "sources": ["owner-requested"], "tainted": True,
+    })
+    manifest = parse_skill_md_text(text)
+    if manifest:
+        raise ApplyRefused(f"generated skill is invalid: {manifest}")
+
+    change = PlannedChange(
+        skill=name,
+        op="create",
+        files={SKILL_FILE: text},
+        is_new=True,
+        provenance={"sources": ["owner-requested"], "tainted": True, "source_events": []},
+        diff=f"create {name}/SKILL.md ({len(text.encode('utf-8'))} bytes; sha256 {hashlib.sha256(text.encode('utf-8')).hexdigest()})",
+        version_after="0.1.0",
+    )
+    return apply_change(
+        change, skills_dir=skills_dir, review_id=f"owner-{uuid.uuid4().hex[:12]}",
+        actor="owner", reason="owner-requested provisional skill",
+    )
+
+
+def parse_skill_md_text(text: str) -> str | None:
+    """Validate frontmatter without creating a temporary file."""
+    data, body = parse_frontmatter(text)
+    if not data.get("name") or not data.get("description"):
+        return "name and description are required"
+    if not body.strip():
+        return "skill instructions are empty"
+    return None

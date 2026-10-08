@@ -43,10 +43,8 @@ from .approval_receipts import ReceiptError, consume_receipt
 # browser action without classifying it fails the suite before it can become a
 # silent receipt bypass.
 RECEIPT_REQUIRED_BROWSER_PATHS = frozenset({
-    "click",
+    "click[consequential]",
     "type[submit=True]",
-    "goto",
-    "back",
     "handoff",
 })
 NON_CONSEQUENTIAL_BROWSER_PATHS = frozenset({
@@ -59,9 +57,22 @@ NON_CONSEQUENTIAL_BROWSER_PATHS = frozenset({
     "tabs",
     "switch_tab",
     "search",
+    "click[navigation-or-read-only-control]",
+    "goto",
+    "back",
     "handoff_finish",
     "sync_session",
 })
+_CONSEQUENTIAL_LABEL = re.compile(
+    r"\b(?:pay|purchase|buy|subscribe|order|checkout|submit|send|delete|destroy|remove|"
+    r"create|publish|sign|accept|agree|grant|revoke|transfer|upgrade|confirm|invite|"
+    r"save|apply|update|enable|disable|start|launch|deploy|share)\b",
+    re.I,
+)
+_CLICKABLES = (
+    "a, button, [role=button], [role=link], [role=tab], [role=menuitem], "
+    "input, select, textarea"
+)
 from .log import log_error
 
 # Two lanes, because one desktop cannot hold two workers.
@@ -808,6 +819,67 @@ def _notify_owner_handoff(text: str, *, notify: Callable[[str], bool] | None = N
         return False
 
 
+def _resolve_click_target(page: Any, target: str, index: Any) -> Any:
+    if index is not None:
+        visible = [element for element in page.query_selector_all(_CLICKABLES) if element.is_visible()][:120]
+        idx = int(index)
+        if not (0 <= idx < len(visible)):
+            raise ValueError(f"no element {idx} (have {len(visible)})")
+        return visible[idx]
+    if not target:
+        raise ValueError("click needs a target (visible text/CSS) or an index from 'elements'")
+    try:
+        locator = page.get_by_text(target, exact=False).first
+        if locator.count():
+            return locator
+    except Exception:
+        pass
+    return page.locator(target).first
+
+
+def _click_target_info(target: Any) -> dict[str, Any]:
+    return target.evaluate(
+        """el => {
+            const control = el.closest('a,button,[role=button],[role=link],[role=tab],[role=menuitem],input,select,textarea') || el;
+            const label = [control.innerText, control.value, control.getAttribute('aria-label'), control.title]
+                .filter(Boolean).join(' ').replace(/\\s+/g, ' ').trim().slice(0, 240);
+            return {
+                tag: (control.tagName || '').toLowerCase(),
+                role: control.getAttribute('role') || '',
+                type: (control.getAttribute('type') || '').toLowerCase(),
+                href: control.href || '',
+                form: !!control.closest('form'),
+                download: control.hasAttribute('download'),
+                label,
+                ariaExpanded: control.getAttribute('aria-expanded'),
+                ariaHaspopup: control.getAttribute('aria-haspopup')
+            };
+        }"""
+    )
+
+
+def _click_requires_receipt(info: dict[str, Any]) -> bool:
+    label = str(info.get("label") or "")
+    if _CONSEQUENTIAL_LABEL.search(label):
+        return True
+    tag = str(info.get("tag") or "").lower()
+    element_type = str(info.get("type") or "").lower()
+    if (tag == "input" and element_type in {"submit", "image"}) or (
+        tag == "button" and info.get("form") and element_type != "button"
+    ):
+        return True
+    if info.get("download"):
+        return True
+    href = str(info.get("href") or "").strip().lower()
+    if info.get("role") in {"tab", "menuitem"} or info.get("ariaHaspopup") or info.get("ariaExpanded") is not None:
+        return False
+    if tag == "a":
+        return bool(href and not href.startswith(("http://", "https://", "#"))) or not href
+    if tag == "input" and element_type in {"button", "reset"}:
+        return True
+    return tag == "button" or info.get("role") == "button"
+
+
 def browser_action(action: str, lane: str = LANE_QUIET, **kw: Any) -> dict[str, Any]:
     """One browser operation: connect over CDP, act, detach. The browser
     itself keeps running (and keeps the owner's hands on it).
@@ -818,33 +890,6 @@ def browser_action(action: str, lane: str = LANE_QUIET, **kw: Any) -> dict[str, 
     """
     action = str(action or "").strip().lower()
     lane = str(lane or "").strip().lower() or LANE_QUIET
-    receipt_action: str | None = None
-    receipt_target = ""
-    if action == "click":
-        receipt_action = "click"
-        receipt_target = str(kw.get("target") or (f"index:{kw['index']}" if kw.get("index") is not None else ""))
-    elif action == "type" and kw.get("submit"):
-        receipt_action = "type_submit"
-        receipt_target = str(kw.get("target") or "")
-    elif action == "goto":
-        receipt_action = "goto"
-        receipt_target = str(kw.get("url") or "")
-    elif action == "back":
-        receipt_action = "back"
-        receipt_target = "current-page"
-    if receipt_action is not None:
-        receipt_args = {"lane": lane}
-        receipt_args.update({key: value for key, value in kw.items() if key != "receipt_id"})
-        try:
-            consume_receipt(
-                kw.get("receipt_id"),
-                tool="browser",
-                action=receipt_action,
-                target=receipt_target,
-                arguments=receipt_args,
-            )
-        except ReceiptError as exc:
-            return {"ok": False, "refused": True, "error": str(exc)}
     if action == "open":
         ok = ensure_browser(lane=lane)
         where = "on screen" if lane == LANE_LOUD else "running quietly (no window)"
@@ -869,6 +914,36 @@ def browser_action(action: str, lane: str = LANE_QUIET, **kw: Any) -> dict[str, 
             page.emulate_media(color_scheme="no-override")
         except Exception:
             pass
+
+        if action in {"inspect_click", "click"}:
+            try:
+                locator = _resolve_click_target(page, str(kw.get("target") or "").strip(), kw.get("index"))
+                info = _click_target_info(locator)
+            except Exception as exc:
+                return {"ok": False, "error": str(exc)[:300]}
+            requires_receipt = _click_requires_receipt(info)
+            if action == "inspect_click":
+                return {
+                    "ok": True, "url": page.url, "requires_receipt": requires_receipt,
+                    "target_info": info,
+                }
+            if requires_receipt:
+                expected_url = str(kw.get("expected_page_url") or "")
+                if expected_url and page.url != expected_url:
+                    return {"ok": False, "refused": True, "error": "The browser page changed after approval was requested."}
+                expected_control = kw.get("expected_control_info")
+                if expected_control is not None and expected_control != info:
+                    return {"ok": False, "refused": True, "error": "The browser control changed after approval was requested."}
+                receipt_args = {"lane": lane}
+                receipt_args.update({key: value for key, value in kw.items() if key != "receipt_id"})
+                try:
+                    consume_receipt(
+                        kw.get("receipt_id"), tool="browser", action="click",
+                        target=str(kw.get("target") or (f"index:{kw['index']}" if kw.get("index") is not None else "")),
+                        arguments=receipt_args,
+                    )
+                except ReceiptError as exc:
+                    return {"ok": False, "refused": True, "error": str(exc)}
 
         if action == "goto":
             url = str(kw.get("url") or "").strip()
@@ -941,24 +1016,7 @@ def browser_action(action: str, lane: str = LANE_QUIET, **kw: Any) -> dict[str, 
             return {"ok": True, "url": page.url, "elements": els}
 
         if action == "click":
-            target = str(kw.get("target") or "").strip()
-            index = kw.get("index")
-            if index is not None:
-                els = page.query_selector_all(
-                    "a, button, [role=button], [role=link], [role=tab], [role=menuitem], "
-                    "input, select, textarea")
-                visible = [e for e in els if e.is_visible()][:120]
-                idx = int(index)
-                if not (0 <= idx < len(visible)):
-                    return {"ok": False, "error": f"no element {idx} (have {len(visible)})"}
-                visible[idx].click(timeout=6000)
-            elif target:
-                try:
-                    page.get_by_text(target, exact=False).first.click(timeout=6000)
-                except Exception:
-                    page.click(target, timeout=6000)
-            else:
-                return {"ok": False, "error": "click needs a target (visible text/CSS) or an index from 'elements'"}
+            locator.click(timeout=6000)
             page.wait_for_load_state("domcontentloaded", timeout=15000)
             return {"ok": True, "url": page.url, "title": page.title()}
 
@@ -967,6 +1025,19 @@ def browser_action(action: str, lane: str = LANE_QUIET, **kw: Any) -> dict[str, 
             text = str(kw.get("text") or "")
             if not target:
                 return {"ok": False, "error": "type needs a target selector or placeholder text"}
+            if kw.get("submit"):
+                expected_url = str(kw.get("expected_page_url") or "")
+                if expected_url and page.url != expected_url:
+                    return {"ok": False, "refused": True, "error": "The browser page changed after approval was requested."}
+                receipt_args = {"lane": lane}
+                receipt_args.update({key: value for key, value in kw.items() if key != "receipt_id"})
+                try:
+                    consume_receipt(
+                        kw.get("receipt_id"), tool="browser", action="type_submit",
+                        target=target, arguments=receipt_args,
+                    )
+                except ReceiptError as exc:
+                    return {"ok": False, "refused": True, "error": str(exc)}
             try:
                 loc = page.get_by_placeholder(target).first
                 loc.fill(text, timeout=6000)

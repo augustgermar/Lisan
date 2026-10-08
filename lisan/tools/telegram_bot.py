@@ -511,7 +511,7 @@ class TelegramBot:
 
             description = str(args.get("task") or json.dumps(args, ensure_ascii=True)[:400])
             state = self._state_for(chat_id)
-            if time.time() < state.trust_until:
+            if tool_name != "create_skill" and time.time() < state.trust_until:
                 get_logger(self.vault).info("telegram: %s auto-approved (standing trust): %s", tool_name, description[:200])
                 self._send_message(chat_id, f"⚙️ Auto-approved (standing trust): {description[:300]}")
                 return True
