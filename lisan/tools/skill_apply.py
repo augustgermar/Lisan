@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .skill_format import SKILL_FILE, parse_frontmatter
+from .skill_format import SKILL_FILE, parse_frontmatter, parse_skill_md
 from .skill_gate import PlannedChange, check_name, scan_added_text
 from .skill_history import HISTORY_DIR, SkillHistoryError, _log, is_pinned, rollback_skill, snapshot_skill
 from . import skill_frontmatter as fm
@@ -232,6 +232,86 @@ def create_requested_skill(
     return apply_change(
         change, skills_dir=skills_dir, review_id=f"owner-{uuid.uuid4().hex[:12]}",
         actor="owner", reason="owner-requested provisional skill",
+    )
+
+
+def update_requested_skill(
+    *, name: str, old_text: str, new_text: str, skills_dir: Path,
+) -> Applied:
+    """Apply one owner-approved, exact body replacement to an existing skill.
+
+    Frontmatter and every supporting file are out of reach. The exact old text
+    must occur once, and apply_change snapshots and validates the result.
+    """
+    name = str(name or "").strip()
+    old_text = str(old_text or "")
+    new_text = str(new_text or "")
+    problems = check_name(name)
+    if problems:
+        raise ApplyRefused("; ".join(problems))
+    if not old_text.strip():
+        raise ApplyRefused("old_text must be a non-empty exact excerpt from the skill body")
+    if len(new_text.encode("utf-8")) > 16_000:
+        raise ApplyRefused("replacement text exceeds the 16,000-byte limit")
+    problems = scan_added_text(new_text)
+    if problems:
+        raise ApplyRefused("replacement was refused: " + "; ".join(problems))
+
+    path = skills_dir / name / SKILL_FILE
+    try:
+        current = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ApplyRefused(f"could not read {name}/SKILL.md: {exc}") from exc
+    frontmatter, _ = parse_frontmatter(current)
+    if str(frontmatter.get("name") or "").strip() != name:
+        raise ApplyRefused("skill name in SKILL.md does not match its directory; refusing to edit it")
+    lines = current.splitlines(keepends=True)
+    if not lines or lines[0].strip() != "---":
+        raise ApplyRefused("skill has no parseable frontmatter; refusing to edit it")
+    body_start = len(lines[0])
+    closing = False
+    for index, line in enumerate(lines[1:], start=1):
+        body_start += len(line)
+        if line.strip() in {"---", "..."}:
+            closing = True
+            break
+    if not closing:
+        raise ApplyRefused("skill frontmatter is not closed; refusing to edit it")
+    body = current[body_start:]
+    hits = body.count(old_text)
+    if hits != 1:
+        raise ApplyRefused(f"old_text must occur exactly once in the skill body; it occurs {hits} time(s)")
+    updated = current[:body_start] + body.replace(old_text, new_text, 1)
+    if not updated[body_start:].strip():
+        raise ApplyRefused("skill instructions must not become empty")
+    updated = fm.bump_patch_version(updated, default="1.0.1")
+    metadata = frontmatter.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    sources = metadata.get("sources", [])
+    if not isinstance(sources, list):
+        sources = [str(sources)] if sources else []
+    metadata_updates: dict[str, Any] = {
+        "status": "provisional", "tainted": True,
+        "sources": sorted({str(source) for source in [*sources, "owner-requested"]}),
+    }
+    updated = fm.set_metadata(updated, metadata_updates)
+    if len(updated.encode("utf-8")) > 16_000:
+        raise ApplyRefused("updated SKILL.md exceeds the 16,000-byte limit")
+    problem = parse_skill_md_text(updated)
+    if problem:
+        raise ApplyRefused(f"updated skill is invalid: {problem}")
+
+    change = PlannedChange(
+        skill=name, op="owner_patch", files={SKILL_FILE: updated}, is_new=False,
+        old_files={SKILL_FILE: current},
+        provenance={"sources": ["owner-requested"], "tainted": True, "source_events": []},
+        diff=f"update {name}/SKILL.md ({hashlib.sha256(updated.encode('utf-8')).hexdigest()})",
+        version_before=str(parse_frontmatter(current)[0].get("version") or "") or None,
+        version_after=str(parse_frontmatter(updated)[0].get("version") or "") or None,
+    )
+    return apply_change(
+        change, skills_dir=skills_dir, review_id=f"owner-{uuid.uuid4().hex[:12]}",
+        actor="owner", reason="owner-approved provisional skill update",
     )
 
 

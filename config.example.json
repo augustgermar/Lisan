@@ -18,12 +18,13 @@
       "enabled": true,
       "binary_env": "CODEX_BIN",
       "default_model": null,
-      "sandbox_mode": "read-only",
-      "all_agents_sandbox_mode": "read-only",
+      "sandbox_mode": "workspace-write",
+      "all_agents_sandbox_mode": "workspace-write",
       "sandbox_mode_by_agent": {},
+      "additional_writable_dirs": [],
       "capability_scopes": {
         "default": {
-          "filesystem": {"read": ["repo", "vault"], "write": []},
+          "filesystem": {"read": ["repo", "vault"], "write": ["repo"]},
           "network": false,
           "identity": "lisan-cognition",
           "duration_seconds": 900

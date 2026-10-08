@@ -18,6 +18,14 @@ For the local coding agent provider, the diagnostics focus on the session direct
 
 If the provider supports a configurable home or session root, Lisan can use an isolated provider home for experiments. For normal use, the default is to use the user's shared authenticated coding agent home.
 
+Lisan's Codex `workspace-write` profile can grant additional write access to
+owner-configured directories through `providers.codex.additional_writable_dirs`.
+Each entry must be an existing absolute directory; Lisan passes it to Codex as
+`--add-dir`. This supports mounted work areas such as a local Google Drive folder
+without granting every agent unrestricted access to the whole filesystem. The
+`skill_reviewer` remains isolated and read-only, and the main `execute_task`
+agent follows its separate `sandbox_mode` setting.
+
 This is intentional:
 
 - vault/state isolation protects user memory and traces

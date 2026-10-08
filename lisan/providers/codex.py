@@ -112,6 +112,18 @@ class CodexClient(ProviderClient):
                 args.append("--dangerously-bypass-approvals-and-sandbox")
             else:
                 args.extend(["--sandbox", mode])
+                if mode == "workspace-write" and agent not in FORCED_ISOLATED_AGENTS:
+                    for raw_dir in codex_config.get("additional_writable_dirs") or []:
+                        directory = Path(str(raw_dir)).expanduser()
+                        if not directory.is_absolute():
+                            raise ProviderError(f"additional writable directory must be absolute: {raw_dir!r}")
+                        try:
+                            directory = directory.resolve(strict=True)
+                        except OSError as exc:
+                            raise ProviderError(f"additional writable directory is unavailable: {raw_dir!r}: {exc}") from exc
+                        if not directory.is_dir() or directory == Path("/") or directory == Path.home():
+                            raise ProviderError(f"additional writable directory must be an existing, scoped directory: {directory}")
+                        args.extend(["--add-dir", str(directory)])
             if chosen_model:
                 args.extend(["--model", chosen_model])
 
@@ -270,13 +282,10 @@ def _run_batch(
 
 
 # Agents that are always read-only and always run in an empty scratch directory,
-# whatever the config says. `all_agents_sandbox_mode` (set by the owner to give
-# every Lisan agent full access) is the right dial for agents that work on the
-# owner's behalf; it is the wrong one for an agent whose entire design rule is
-# "the model proposes JSON and never touches the filesystem". The skill reviewer
-# reads transcripts that may contain text from emails and web pages, and decides
-# what becomes a standing procedure; a prompt injection that reached it must not
-# be able to do more than write a bad proposal, which the gate then judges.
+# whatever the config says. `all_agents_sandbox_mode` controls ordinary Lisan
+# agents; the skill reviewer is intentionally excluded because it reads content
+# from transcripts and web pages before proposing standing procedures. A prompt
+# injection that reaches it must not gain filesystem access.
 FORCED_ISOLATED_AGENTS = frozenset({"skill_reviewer"})
 
 

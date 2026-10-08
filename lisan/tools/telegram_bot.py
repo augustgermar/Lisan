@@ -511,7 +511,7 @@ class TelegramBot:
 
             description = str(args.get("task") or json.dumps(args, ensure_ascii=True)[:400])
             state = self._state_for(chat_id)
-            if tool_name != "create_skill" and time.time() < state.trust_until:
+            if tool_name not in {"create_skill", "update_skill"} and time.time() < state.trust_until:
                 get_logger(self.vault).info("telegram: %s auto-approved (standing trust): %s", tool_name, description[:200])
                 self._send_message(chat_id, f"⚙️ Auto-approved (standing trust): {description[:300]}")
                 return True
@@ -524,15 +524,16 @@ class TelegramBot:
                 ]]
             }
             try:
-                self._call_api(
-                    "sendMessage",
-                    {
-                        "chat_id": chat_id,
-                        "text": f"⚙️ I need your approval to run this:\n\n{description}",
-                        "reply_markup": keyboard,
-                    },
-                    timeout=30,
-                )
+                approval_text = f"⚙️ I need your approval to run this:\n\n{description}"
+                # Skill proposals can be several thousand characters. Telegram
+                # limits a message to 4096 characters, so send review text in
+                # readable chunks and attach the approval buttons to the last.
+                chunks = [approval_text[index:index + 3000] for index in range(0, len(approval_text), 3000)]
+                for index, chunk in enumerate(chunks):
+                    payload = {"chat_id": chat_id, "text": chunk}
+                    if index == len(chunks) - 1:
+                        payload["reply_markup"] = keyboard
+                    self._call_api("sendMessage", payload, timeout=30)
             except Exception as exc:
                 log_error(self.vault, "telegram approval prompt failed", exc)
                 return False

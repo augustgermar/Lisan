@@ -45,7 +45,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "execute_task",
-        "description": "Dispatch a coding, system administration, or file-editing task to a SEPARATE executor process — not you. That executor can read/write files, run shell commands, run Lisan CLI commands, and fix errors; you cannot do any of that directly, in this turn, no matter what your own training tells you about what you're normally capable of. This is your only way to act on the system. Describe the task clearly; the executor runs it immediately and returns the result.",
+        "description": "Dispatch a coding, system administration, or file-editing task to a separate executor process. That executor can run shell commands and run Lisan CLI commands, subject to its configured filesystem sandbox. For Lisan skill creation or edits, do not use execute_task or ask a writer agent to write files: use create_skill or update_skill, which write only SKILL.md through Lisan's validated, owner-approved skill writer.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -479,6 +479,24 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["name", "description", "body"],
         },
     },
+    {
+        "name": "update_skill",
+        "description": (
+            "Make one exact text replacement in the body of an existing instructional skill's SKILL.md. "
+            "Frontmatter, scripts, and supporting files cannot be changed. The old excerpt must occur "
+            "exactly once. The full proposed change requires explicit owner approval, is snapshotted, "
+            "validated, and marked provisional and tainted. Use this instead of execute_task for skill edits."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Exact lowercase skill name"},
+                "old_text": {"type": "string", "description": "Exact unique excerpt from the SKILL.md body to replace"},
+                "new_text": {"type": "string", "description": "Replacement instructions"},
+            },
+            "required": ["name", "old_text", "new_text"],
+        },
+    },
 ]
 
 
@@ -502,6 +520,9 @@ def build_tool_handlers(
         ),
         "create_skill": lambda name, description, body: _create_skill_tool(
             name=name, description=description, body=body, approval_fn=approval_fn,
+        ),
+        "update_skill": lambda name, old_text, new_text: _update_skill_tool(
+            name=name, old_text=old_text, new_text=new_text, approval_fn=approval_fn,
         ),
         "read_file": read_file,
         "execute_task": lambda task, working_directory=None: run_codex(
@@ -636,6 +657,45 @@ def _create_skill_tool(
         "status": "provisional",
         "tainted": True,
         "note": "The skill is instruction-only and appears in future turns as provisional; review it with lisan skills history/diff before promotion.",
+    }, ensure_ascii=True)
+
+
+def _update_skill_tool(
+    *, name: str, old_text: str, new_text: str,
+    approval_fn: Callable[[str, dict[str, Any]], bool] | None,
+) -> str:
+    import hashlib as _hashlib
+    import json as _json
+
+    if approval_fn is None:
+        return _json.dumps({"ok": False, "refused": True,
+                            "error": "Updating a persistent skill requires an owner approval channel."}, ensure_ascii=True)
+    digest = _hashlib.sha256(str(new_text or "").encode("utf-8")).hexdigest()
+    approval = {
+        "task": (
+            f"Update provisional Lisan skill {str(name).strip()!r} by replacing the exact body excerpt below. "
+            "Only SKILL.md will change; frontmatter and supporting files are out of scope. "
+            "The current skill will be snapshotted and the result marked provisional and tainted.\n\n"
+            f"Replace exactly:\n---\n{str(old_text)}\n---\nWith:\n---\n{str(new_text)}\n---\n\n"
+            f"Replacement SHA-256: {digest}"
+        ),
+        "skill_name": str(name).strip(), "content_sha256": digest,
+    }
+    if not approval_fn("update_skill", approval):
+        return _json.dumps({"ok": False, "refused": True, "error": "Owner approval was not granted."}, ensure_ascii=True)
+    try:
+        from .skill_apply import ApplyRefused, update_requested_skill
+
+        applied = update_requested_skill(
+            name=name, old_text=old_text, new_text=new_text, skills_dir=skills_root(),
+        )
+    except (ApplyRefused, OSError, ValueError) as exc:
+        return _json.dumps({"ok": False, "refused": True, "error": str(exc)}, ensure_ascii=True)
+    return _json.dumps({
+        "ok": True, "skill": applied.skill, "files": applied.files,
+        "snapshot": applied.snapshot, "version": applied.version_after,
+        "status": "provisional", "tainted": True,
+        "note": "The skill was snapshotted before this exact replacement; review it with skills history/diff before promotion.",
     }, ensure_ascii=True)
 
 

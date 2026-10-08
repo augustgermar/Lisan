@@ -46,22 +46,24 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "enabled": True,
             "binary_env": "CODEX_BIN",
             "default_model": None,
-            # Lisan cognition is read-only by default. Any write-capable
-            # workflow must name an explicit, bounded capability profile;
-            # prompt text is never an authority boundary.
-            "sandbox_mode": "read-only",
-            "all_agents_sandbox_mode": "read-only",
-            # Per-agent override, e.g. {"writer": "workspace-write", "skeptic":
-            # "read-only"}. An entry here for an agent's exact name wins over
-            # both settings above. Empty until the owner dials individual
-            # agents in — see lisan/providers/codex.py:_resolve_sandbox_mode.
+            # Agent processes may write within their workspace and the
+            # owner-configured additional roots below. The isolated skill
+            # reviewer is still forcibly read-only in providers/codex.py.
+            "sandbox_mode": "workspace-write",
+            "all_agents_sandbox_mode": "workspace-write",
+            # Optional per-agent override, e.g. {"skill_reviewer": "read-only"}.
+            # An entry here wins over both settings above. The skill reviewer is
+            # forcibly isolated regardless of this setting.
             "sandbox_mode_by_agent": {},
+            # Additional paths granted to workspace-write agents via Codex
+            # --add-dir. Keep these explicit, absolute, existing directories.
+            "additional_writable_dirs": [],
             # Structural scope metadata for the default cognition profile.
             # `repo` and `vault` resolve through the canonical path seam;
             # the Codex sandbox remains the enforcement boundary.
             "capability_scopes": {
                 "default": {
-                    "filesystem": {"read": ["repo", "vault"], "write": []},
+                    "filesystem": {"read": ["repo", "vault"], "write": ["repo"]},
                     "network": False,
                     "identity": "lisan-cognition",
                     "duration_seconds": 900,
