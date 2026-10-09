@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Callable
 
 from ..tools.execution_tools import agent_tools, build_tool_handlers
@@ -73,6 +74,49 @@ class ConversationAgent(PromptAgent):
             provider_error_mode=provider_error_mode,
             **kwargs,
         )
+        # Tool calls are prompt-mediated, so a provider can return ordinary
+        # prose even though the tool is present. If it then claims check-in is
+        # unavailable, give the same turn one narrow recovery attempt. This
+        # path is deliberately dormant unless that exact false claim appears;
+        # ordinary turns pay no extra inference cost.
+        if (
+            not any(call.get("tool") == "checkin" for call in (result.tool_calls or []))
+            and self._claims_checkin_unavailable(result)
+        ):
+            checkin_tool = next((tool for tool in tools if tool.get("name") == "checkin"), None)
+            checkin_handler = tool_handlers.get("checkin")
+            if checkin_tool is not None and checkin_handler is not None:
+                recovery_input = (
+                    user_input
+                    + "\n\nINTERNAL TOOL-RECOVERY INSTRUCTION: Your previous draft incorrectly said the check-in tool was unavailable. "
+                    "Review the actual user message in the input. If it reports an observed state or event about a tracked person, "
+                    "call the available checkin tool now, using only the observation and the correct person. Do not infer a diagnosis "
+                    "or invent context. If the user was only discussing tool availability and gave no observation, do not call it. "
+                    "If you do not call it, say plainly that no check-in was logged; never say the tool is unavailable."
+                )
+                recovery = self.complete_with_tools(
+                    recovery_input,
+                    significance=significance,
+                    provider=provider,
+                    model=model,
+                    schema=(schema or self.output_schema()) if needs_schema else None,
+                    tools=[checkin_tool],
+                    tool_handlers={"checkin": checkin_handler},
+                    provider_error_mode=provider_error_mode,
+                    max_iterations=min(int(kwargs.get("max_iterations", 10)), 3),
+                    **{k: v for k, v in kwargs.items() if k != "max_iterations"},
+                )
+                recovery_calls = recovery.tool_calls or []
+                if any(call.get("tool") == "checkin" for call in recovery_calls):
+                    result = recovery
+                    result.tool_calls = (result.tool_calls or [])
+                else:
+                    # The recovery model may still fail to emit the tool-call
+                    # shape. Do not pass its unsupported availability claim on.
+                    old = recovery.data if isinstance(recovery.data, dict) else {}
+                    result = recovery
+                    result.data = {**old, "response": "I didn’t log that check-in. I don’t know why I missed the tool call."}
+                    result.text = json.dumps(result.data, ensure_ascii=True)
         self.last_tool_calls = result.tool_calls or []
         if isinstance(result.data, dict) and str(result.data.get("response") or "").strip():
             return result.data
@@ -85,6 +129,17 @@ class ConversationAgent(PromptAgent):
         if text and not text.startswith("{"):
             return {"response": text}
         return {"response": ""}
+
+    @staticmethod
+    def _claims_checkin_unavailable(result: Any) -> bool:
+        """Catch unsupported claims that the check-in capability is absent."""
+        data = result.data if isinstance(result.data, dict) else {}
+        text = str(data.get("response") or result.text or "").lower().replace("’", "'")
+        text = re.sub(r"\s+", " ", text)
+        return "check-in" in text and any(phrase in text for phrase in (
+            "isn't available", "is not available", "not available", "unavailable",
+            "isn't accessible", "is not accessible", "can't access",
+        ))
 
     accepts_prose_finale = True
 
