@@ -13,6 +13,7 @@ from lisan.frontmatter import load_markdown
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.self_eval import (
     SelfEvalJudgeUnavailable,
+    _derive_suggestions,
     _parse_transcript,
     machine_health,
     recent_exchanges,
@@ -63,14 +64,14 @@ class _Env(unittest.TestCase):
 
         conn = sqlite3.connect(self.db)
         conn.execute("CREATE TABLE jobs (job_type TEXT, status TEXT, created_at TEXT)")
-        conn.execute("CREATE TABLE retrieval_log (timestamp TEXT, token_count INTEGER)")
+        conn.execute("CREATE TABLE retrieval_log (timestamp TEXT, token_count INTEGER, retrieved_token_estimate INTEGER)")
         # Use concrete dates so the weekly aggregation is deterministic.
         from datetime import timedelta
         now = date.today()
-        conn.executemany("INSERT INTO retrieval_log VALUES (?,?)", [
-            ((now - timedelta(days=20)).isoformat(), 100),
-            ((now - timedelta(days=13)).isoformat(), 120),
-            ((now - timedelta(days=6)).isoformat(), 140),
+        conn.executemany("INSERT INTO retrieval_log VALUES (?,?,?)", [
+            ((now - timedelta(days=20)).isoformat(), 100, 130),
+            ((now - timedelta(days=13)).isoformat(), 120, 160),
+            ((now - timedelta(days=6)).isoformat(), 140, 190),
         ])
         conn.commit()
         conn.close()
@@ -79,7 +80,8 @@ class _Env(unittest.TestCase):
         trend = report["retrieval_volume"]
         self.assertGreaterEqual(len(trend["weekly"]), 3)
         self.assertTrue(trend["monotonic_week_over_week_growth"])
-        self.assertIn("proxy", trend["metric_note"])
+        self.assertIn("Approximate tokens", trend["metric_note"])
+        self.assertIn("avg_retrieved_tokens", trend["weekly"][0])
 
 
 class TranscriptParsingTests(_Env):
@@ -105,6 +107,28 @@ class TranscriptParsingTests(_Env):
 
 
 class RunTests(_Env):
+    def test_monotonic_retrieval_token_growth_becomes_a_review_signal(self):
+        entry = {
+            "date": "2026-07-05",
+            "overall_mean": 4.0,
+            "dimensions": {},
+            "health": {
+                "retrieval_volume": {
+                    "monotonic_week_over_week_growth": True,
+                    "weekly": [
+                        {"avg_retrieved_tokens": 100},
+                        {"avg_retrieved_tokens": 120},
+                        {"avg_retrieved_tokens": 145},
+                    ],
+                },
+            },
+        }
+        suggestions = _derive_suggestions(
+            {"min_dimension_mean": 3.5, "regression_drop": 0.5}, entry, None, [],
+        )
+        self.assertEqual(suggestions[0]["fingerprint"], "self-eval-retrieval-token-growth")
+        self.assertIn("100 → 145", suggestions[0]["summary"])
+
     def test_full_run_writes_report_history_and_scores(self):
         _transcript(self.vault, "2026-07-05", [
             ("What did I say about the trail-mapping app yesterday?", "You said it hit a wall."),

@@ -3,6 +3,37 @@
 This is the Erasmus-side procedure for running a retrieval / operating-style
 eval against the dev sandbox. It is intentionally separate from product code.
 
+## Memory-pipeline release gate
+
+Run `lisan self eval-memory` before and after every memory-pipeline change.
+It builds a disposable vault from synthetic Markdown records, runs the real
+retrieval/index path without an LLM or embedding download, and reports
+contradiction surfacing, newer-fact/preference ranking, an as-of temporal
+recall, legal/practical relationship nuance, unified-identity alias recall,
+and per-task retrieved-token instrumentation. The pytest counterpart is
+`pytest -q tests/test_memory_pipeline_eval.py tests/test_self_eval.py` and is
+the CI gate; a nonzero result blocks release.
+
+The earlier work-order baseline was run before Item 1, but this deterministic
+suite did not yet exist. Its first run therefore records current behavior
+after Items 1–5; it cannot serve as a before/after comparison for those items.
+Keep the JSON output with the work-order verification record and compare it
+after each subsequent memory change. The suite's synthetic identity fixture avoids embedding private
+vault data in source control; a live identity-specific spot check should be
+reported separately and should disclose only the pass/fail and record ID.
+
+The initial deterministic run records one known gap: the January fact is
+retrieved for a January 15 as-of query, but the February update still ranks
+above it. Retrieval currently uses temporal intent as a ranking signal rather
+than filtering facts by valid-time; preserve this as an explicit backlog item.
+
+`reports/self-eval-history.jsonl` also tracks the rolling average of
+approximate retrieved-summary tokens per task. The estimate is 1.33 tokens per
+word, not tokenizer-exact; legacy word-count rows are intentionally excluded
+until fresh retrievals populate the new field. A monotonic week-over-week rise
+across three or more observations is a review signal, not a reason to discard
+or delete memories.
+
 ## Persona seeding
 
 Never seed only `primer/identity.md`. Every eval persona must write:

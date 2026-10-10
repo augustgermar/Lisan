@@ -1,0 +1,46 @@
+{
+  "suite": "memory-pipeline",
+  "recorded_at": "2026-10-10",
+  "scope": "Initial deterministic suite run after Items 1-5; not a before/after baseline for those items.",
+  "passed": 5,
+  "failed": 0,
+  "known_gaps": 1,
+  "cases": [
+    {
+      "name": "vendor switch: newer vendor ranks and conflict is surfaced",
+      "passed": true,
+      "evidence": "vendor_b_rank=2; vendor_a_rank=5; conflict_note=true"
+    },
+    {
+      "name": "as-of query ranks the January fact first",
+      "passed": false,
+      "known_gap": true,
+      "evidence": "vendor_a_rank=1; vendor_b_rank=0; top_ids=[episode.vendor-feb, episode.vendor-jan, contradiction.vendor-switch, contradiction.relationship-status, entity.relationship-context]"
+    },
+    {
+      "name": "newer preference outranks superseded preference",
+      "passed": true,
+      "evidence": "top_ids=[state.tea-preference, entity.relationship-context, episode.vendor-feb]"
+    },
+    {
+      "name": "relationship summary preserves legal/practical nuance and conflict",
+      "passed": true,
+      "evidence": "entity_loaded=true; nuance=true"
+    },
+    {
+      "name": "identity alias resolves SDP details to one canonical entity",
+      "passed": true,
+      "evidence": "canonical_loaded=true; duplicate_loaded=false"
+    },
+    {
+      "name": "retrieved-token estimate recorded for each task",
+      "passed": true,
+      "evidence": "logged_tasks=7"
+    }
+  ],
+  "live_identity_spot_check": {
+    "passed": false,
+    "record_id": "entity.<redacted>",
+    "note": "A short personal-name-plus-topic query did not retrieve the merged entity; adding a relationship cue did. The private live query is intentionally not stored in this repository."
+  }
+}

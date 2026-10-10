@@ -1001,6 +1001,9 @@ def build_parser() -> argparse.ArgumentParser:
     self_cmd = subparsers.add_parser("self", help="The agent's generated self-model and live state")
     self_subparsers = self_cmd.add_subparsers(dest="self_command", required=True)
     self_subparsers.add_parser("evaluate", help=self_eval_note)
+    self_subparsers.add_parser(
+        "eval-memory", help="Run deterministic memory-pipeline release-gate cases in a temporary vault",
+    )
     self_manifest = self_subparsers.add_parser("manifest", help="Show the generated capability manifest")
     self_manifest.add_argument("--json", action="store_true", dest="as_json")
     self_state_cmd = self_subparsers.add_parser("state", help="Show live operational state")
@@ -2262,6 +2265,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  • {s}")
         print(f"report: {result.get('report')}")
         return 0
+
+    if args.command == "self" and getattr(args, "self_command", "") == "eval-memory":
+        from .tools.self_eval import run_memory_pipeline_evaluation
+
+        result = run_memory_pipeline_evaluation()
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result.get("failed") else 0
 
     if args.command == "self":
         from .tools.self_model import (

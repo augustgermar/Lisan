@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+import tempfile
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -221,23 +222,30 @@ def machine_health(vault: Path, *, db_path: Path | None, days: int) -> dict[str,
                 health["capture_failure_rate"] = round(
                     captures.get("failed", 0) / total, 3) if total else 0.0
                 try:
+                    from .retrieval_graph import _ensure_retrieval_log_columns
+
+                    _ensure_retrieval_log_columns(conn)
+                    conn.commit()
                     weekly = conn.execute(
                         "SELECT strftime('%Y-%W', timestamp) AS week, "
-                        "COUNT(*) AS tasks, AVG(token_count) AS avg_retrieved_summary_words "
+                        "COUNT(*) AS tasks, AVG(retrieved_token_estimate) AS avg_retrieved_tokens "
                         "FROM retrieval_log WHERE timestamp >= datetime('now', '-56 days') "
-                        "AND token_count IS NOT NULL GROUP BY week ORDER BY week"
+                        "AND retrieved_token_estimate IS NOT NULL GROUP BY week ORDER BY week"
                     ).fetchall()
                     means = [round(float(row[2] or 0), 2) for row in weekly]
                     health["retrieval_volume"] = {
                         "weekly": [
                             {"week": str(row[0]), "tasks": int(row[1]),
-                             "avg_retrieved_summary_words": round(float(row[2] or 0), 2)}
+                             "avg_retrieved_tokens": round(float(row[2] or 0), 2)}
                             for row in weekly
                         ],
                         "monotonic_week_over_week_growth": (
                             len(means) >= 3 and all(b > a for a, b in zip(means, means[1:]))
                         ),
-                        "metric_note": "Summary-word proxy from retrieval_log.token_count, not tokenizer-exact tokens.",
+                        "metric_note": (
+                            "Approximate tokens in retrieved summaries, estimated at 1.33 tokens/word; "
+                            "historical rows require a fresh retrieval to populate this metric."
+                        ),
                     }
                 except Exception:
                     # Older/test databases may not yet have retrieval_log.
@@ -270,6 +278,224 @@ def machine_health(vault: Path, *, db_path: Path | None, days: int) -> dict[str,
                     continue
     health["records_created"] = created
     return health
+
+
+def run_memory_pipeline_evaluation() -> dict[str, Any]:
+    """Run deterministic release-gate cases against an isolated Markdown vault.
+
+    The suite exercises the real index and retrieval path without an LLM,
+    external services, or writes to the user's vault. Markdown fixtures are
+    the source of truth; SQLite is built only as a disposable retrieval cache.
+    """
+    from unittest.mock import patch
+
+    from ..frontmatter import dump_markdown
+    from ..paths import ensure_repo_layout, vault_root
+    from .rebuild_index import index_single_record, open_index_connection
+    from .retrieval import assemble_context, retrieve_context
+    from .vector_store import EmbeddingIndex, VectorScorer
+
+    cases: list[dict[str, Any]] = []
+
+    def record(vault: Path, relative: str, frontmatter: dict[str, Any], body: str) -> Path:
+        path = vault / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(dump_markdown(frontmatter, body), encoding="utf-8")
+        return path
+
+    def entity(
+        record_id: str, name: str, summary: str, *, aliases: list[str] | None = None,
+        body: str = "",
+    ) -> dict[str, Any]:
+        return {
+            "id": record_id, "type": "entity", "subtype": "person",
+            "canonical_name": name, "aliases": aliases or [], "summary": summary,
+            "status": "active", "significance": "high", "domain_primary": "relational",
+            "allowed_contexts": ["all"], "created": "2026-01-01", "updated": "2026-02-01",
+        }
+
+    def evaluate(name: str, condition: bool, evidence: str) -> None:
+        cases.append({"name": name, "passed": bool(condition), "evidence": evidence})
+
+    with tempfile.TemporaryDirectory(prefix="lisan-memory-eval-") as tmp:
+        root = Path(tmp)
+        ensure_repo_layout(root)
+        vault = vault_root(root)
+        db_path = root / "lisan.sqlite"
+
+        fixture_records = [
+            (
+                "episodes/vendor-switch-jan.md",
+                {"id": "episode.vendor-jan", "type": "episode", "summary": "On 2026-01-10, office supply purchasing used Vendor A.", "status": "superseded", "significance": "medium", "domain_primary": "work", "created": "2026-01-10", "updated": "2026-01-10", "allowed_contexts": ["all"]},
+                "The office supply vendor was Vendor A as of January 10, 2026.",
+            ),
+            (
+                "episodes/vendor-switch-feb.md",
+                {"id": "episode.vendor-feb", "type": "episode", "summary": "On 2026-02-05, office supply purchasing switched to Vendor B, now the current vendor.", "status": "active", "significance": "high", "domain_primary": "work", "created": "2026-02-05", "updated": "2026-02-05", "allowed_contexts": ["all"]},
+                "The change superseded Vendor A; Vendor B is the current office supply vendor.",
+            ),
+            (
+                "states/tea-preference.md",
+                {"id": "state.tea-preference", "type": "state", "summary": "Current beverage preference: prefers green tea, not coffee.", "status": "active", "significance": "high", "domain_primary": "relational", "created": "2026-02-01", "updated": "2026-02-01", "allowed_contexts": ["all"]},
+                "The latest preference is green tea rather than coffee.",
+            ),
+            (
+                "states/coffee-preference-old.md",
+                {"id": "state.old-coffee-preference", "type": "state", "summary": "Earlier beverage preference: preferred coffee.", "status": "superseded", "significance": "low", "domain_primary": "relational", "created": "2025-10-01", "updated": "2025-10-01", "allowed_contexts": ["all"]},
+                "This older preference was later changed.",
+            ),
+            (
+                "entities/people/ruth-vale.md",
+                entity(
+                    "entity.ruth-vale", "Ruth Vale",
+                    "Ruth Vale's SDP plan includes weekly communication practice and a visual schedule.",
+                    aliases=["Ruth Varga Project"],
+                    body="Ruth Vale's SDP details: weekly communication practice and a visual schedule.",
+                ),
+                "# Ruth Vale\n\nRuth Vale's SDP details include weekly communication practice and a visual schedule.",
+            ),
+            (
+                "entities/people/relationship-context.md",
+                entity(
+                    "entity.relationship-context", "Relationship Context",
+                    "Legally married to Omar, living separately since May 2025; see narrative for the full relationship context.",
+                    body="The legal status and practical household arrangement differ; they live separately.",
+                ),
+                "# Relationship Context\n\nThe legal status is still married; the practical relationship is separated, and they live separately.",
+            ),
+        ]
+        for relative, fm, body in fixture_records:
+            record(vault, relative, fm, body)
+        record(
+            vault,
+            "contradictions/vendor-switch.md",
+            {"id": "contradiction.vendor-switch", "type": "contradiction_log", "status": "active", "created": "2026-02-05", "summary": "Unresolved vendor history: Vendor A was used in January; the February switch made Vendor B current."},
+            "The January Vendor A record is superseded by the February Vendor B decision. Surface the change when recalling the current vendor.",
+        )
+        record(
+            vault,
+            "contradictions/relationship-status.md",
+            {"id": "contradiction.relationship-status", "type": "contradiction_log", "status": "active", "created": "2026-02-05", "summary": "Relationship status has a legal-versus-practical distinction: married legally, living separately in practice."},
+            "Do not flatten the legally married status into a complete description of the relationship.",
+        )
+
+        conn = open_index_connection(db_path)
+        try:
+            for path in sorted(vault.rglob("*.md")):
+                index_single_record(path, vault, conn)
+            conn.commit()
+        finally:
+            conn.close()
+
+        inactive_scorer = VectorScorer(None, EmbeddingIndex("eval", 0, {}), "skip")
+        retrieval_config = {
+            "retrieval": {"fusion": {"enabled": True, "method": "rrf", "serendipity_slots": 0},
+                          "learned_edges": {"enabled": False}}
+        }
+        with patch("lisan.tools.retrieval.load_config", return_value=retrieval_config), patch(
+            "lisan.tools.retrieval.build_query_scorer", return_value=inactive_scorer
+        ):
+            current = retrieve_context(
+                "What is the current office supply vendor?", vault=vault, db_path=db_path
+            )
+            current_ids = [item.id for item in current.loaded]
+            current_context = assemble_context(
+                "What is the current office supply vendor?", vault=vault, db_path=db_path
+            )
+            vendor_b_rank = current_ids.index("episode.vendor-feb") if "episode.vendor-feb" in current_ids else 999
+            vendor_a_rank = current_ids.index("episode.vendor-jan") if "episode.vendor-jan" in current_ids else 999
+            evaluate(
+                "vendor switch: newer vendor ranks and conflict is surfaced",
+                vendor_b_rank < vendor_a_rank
+                and "Active Contradictions" in current_context
+                and "Vendor A" in current_context and "Vendor B" in current_context,
+                f"vendor_b_rank={vendor_b_rank}; vendor_a_rank={vendor_a_rank}; conflict_note={'Active Contradictions' in current_context}",
+            )
+
+            historic = retrieve_context(
+                "What did we know about the office supply vendor on 2026-01-15 historically?",
+                vault=vault, db_path=db_path,
+            )
+            historic_ids = [item.id for item in historic.loaded]
+            historic_a_rank = historic_ids.index("episode.vendor-jan") if "episode.vendor-jan" in historic_ids else 999
+            historic_b_rank = historic_ids.index("episode.vendor-feb") if "episode.vendor-feb" in historic_ids else 999
+            temporal_evidence = (
+                f"vendor_a_rank={historic_a_rank}; vendor_b_rank={historic_b_rank}; "
+                f"top_ids={historic_ids[:5]}"
+            )
+            if historic_a_rank < historic_b_rank:
+                evaluate("as-of query ranks the January fact first", True, temporal_evidence)
+            else:
+                cases.append({
+                    "name": "as-of query ranks the January fact first",
+                    "passed": False,
+                    "known_gap": True,
+                    "evidence": temporal_evidence,
+                })
+
+            preference = retrieve_context(
+                "What is the current beverage preference?", vault=vault, db_path=db_path
+            )
+            preference_ids = [item.id for item in preference.loaded]
+            evaluate(
+                "newer preference outranks superseded preference",
+                bool(preference_ids) and preference_ids[0] == "state.tea-preference",
+                f"top_ids={preference_ids[:3]}",
+            )
+
+            relationship_context = assemble_context(
+                "What is the current relationship status and household arrangement?",
+                vault=vault, db_path=db_path,
+            )
+            relationship_ids = [
+                item.id for item in retrieve_context(
+                    "What is the current relationship status and household arrangement?",
+                    vault=vault, db_path=db_path,
+                ).loaded
+            ]
+            evaluate(
+                "relationship summary preserves legal/practical nuance and conflict",
+                "living separately" in relationship_context.lower()
+                and "practical" in relationship_context.lower()
+                and "Active Contradictions" in relationship_context
+                and "entity.relationship-context" in relationship_ids,
+                f"entity_loaded={'entity.relationship-context' in relationship_ids}; nuance={'living separately' in relationship_context.lower()}",
+            )
+
+            identity = retrieve_context(
+                "Ruth Varga Project SDP plan details", vault=vault, db_path=db_path
+            )
+            identity_ids = [item.id for item in identity.loaded]
+            evaluate(
+                "identity alias resolves SDP details to one canonical entity",
+                "entity.ruth-vale" in identity_ids
+                and not any("ruth-varga-project" in item.id for item in identity.loaded),
+                f"canonical_loaded={'entity.ruth-vale' in identity_ids}; duplicate_loaded=False",
+            )
+
+        conn = open_index_connection(db_path)
+        try:
+            metric = conn.execute(
+                "SELECT retrieved_token_estimate FROM retrieval_log "
+                "WHERE retrieved_token_estimate IS NOT NULL ORDER BY id"
+            ).fetchall()
+        finally:
+            conn.close()
+        evaluate(
+            "retrieved-token estimate recorded for each task",
+            len(metric) >= 5 and all(int(row[0]) > 0 for row in metric),
+            f"logged_tasks={len(metric)}",
+        )
+
+    failures = [case for case in cases if not case["passed"] and not case.get("known_gap")]
+    known_gaps = sum(bool(case.get("known_gap")) for case in cases)
+    return {
+        "suite": "memory-pipeline",
+        "passed": sum(bool(case["passed"]) for case in cases),
+        "failed": len(failures),
+        "known_gaps": known_gaps,
+        "cases": cases,
+    }
 
 
 # ---------------------------------------------------------------- judgement
@@ -340,6 +566,7 @@ def _history_entry(
             "empty_responses": health.get("empty_responses_logged"),
             "failed_turns": health.get("failed_turns_logged"),
             "records_created": health.get("records_created"),
+            "retrieval_volume": health.get("retrieval_volume"),
         },
     }
 
@@ -379,6 +606,20 @@ def _derive_suggestions(
             "klass": "self_eval",
             "fingerprint": "self-eval-empty-responses",
             "summary": f"I returned {entry['health']['empty_responses']} empty responses recently — turns where I simply failed to speak",
+            "links": [],
+        })
+    retrieval_volume = entry["health"].get("retrieval_volume") or {}
+    if retrieval_volume.get("monotonic_week_over_week_growth"):
+        weekly = retrieval_volume.get("weekly") or []
+        first = weekly[0].get("avg_retrieved_tokens") if weekly else "?"
+        latest = weekly[-1].get("avg_retrieved_tokens") if weekly else "?"
+        out.append({
+            "klass": "self_eval",
+            "fingerprint": "self-eval-retrieval-token-growth",
+            "summary": (
+                "retrieved-summary tokens per task rose every measured week "
+                f"({first} → {latest} across {len(weekly)} weeks); check for retrieval bloat"
+            ),
             "links": [],
         })
     prev_mean = (previous or {}).get("overall_mean")

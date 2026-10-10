@@ -192,6 +192,7 @@ CREATE TABLE IF NOT EXISTS retrieval_log (
     graph_blocked_count INTEGER,
     graph_blocked_reasons TEXT,
     token_count INTEGER,
+    retrieved_token_estimate INTEGER,
     privacy_level TEXT,
     cross_compartment BOOLEAN,
     model_used TEXT,

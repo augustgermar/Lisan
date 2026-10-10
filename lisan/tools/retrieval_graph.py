@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ..frontmatter import load_markdown
-from ..utils import approx_word_count, today_iso
+from ..utils import approx_token_count, approx_word_count, today_iso
 from .retrieval_layers import (
     RetrievalItem,
     RetrievalResult,
@@ -726,11 +726,12 @@ def _log_retrieval(
             INSERT INTO retrieval_log (
                 conversation_id, user_query, domain_context, classification_confidence,
                 files_loaded, direct_files_loaded, graph_files_loaded, files_rejected, rejection_reasons,
-                graph_blocked_count, graph_blocked_reasons, token_count, privacy_level,
+                graph_blocked_count, graph_blocked_reasons, token_count,
+                retrieved_token_estimate, privacy_level,
                 cross_compartment, model_used, retrieval_mode, fusion_enabled,
                 sql_candidate_count, fts_candidate_count, vector_candidate_count, fused_candidate_count,
                 overlap_count, rrf_k, per_layer_limit, fused_limit, fts_mode, embedding_mode
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 conversation_id,
@@ -745,6 +746,7 @@ def _log_retrieval(
                 len(graph_blocked),
                 json.dumps([item.reason for item in graph_blocked]),
                 sum(approx_word_count(item.summary) for item in loaded),
+                sum(approx_token_count(item.summary) for item in loaded),
                 "mixed" if any(item.reason == "quarantined" for item in rejected) or graph_blocked else "normal",
                 int(bool(rejected or graph_blocked)),
                 None,
@@ -785,6 +787,7 @@ def _ensure_retrieval_log_columns(conn: sqlite3.Connection) -> None:
         "fused_limit": "INTEGER",
         "fts_mode": "TEXT",
         "embedding_mode": "TEXT",
+        "retrieved_token_estimate": "INTEGER",
     }
     for column, column_type in desired.items():
         if column in existing:
