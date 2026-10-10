@@ -9,7 +9,7 @@ from unittest.mock import patch
 from lisan.frontmatter import load_markdown
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.document_chunker import chunk_document
-from lisan.tools.ingest import _extract_pdf_text, ingest_reference_sources
+from lisan.tools.ingest import _ensure_entity_record, _extract_pdf_text, ingest_reference_sources
 from lisan.tools.record_factory import new_entity
 
 
@@ -85,6 +85,20 @@ Participants keep control over their budgets.
 
         orgs = list((self.vault / "entities" / "organizations").glob("*.md"))
         self.assertTrue(orgs)
+
+    def test_person_candidate_from_reference_text_is_quarantined_on_partial_name(self) -> None:
+        result = _ensure_entity_record(
+            self.vault, "Ruth Varga", kind="person",
+            summary="Ruth Varga referenced in imported material.",
+            source_text="Ruth is the project coordinator.",
+        )
+        self.assertIsNone(result)
+        self.assertEqual(list((self.vault / "entities" / "people").glob("*.md")), [])
+        candidates = list((self.vault / "quarantine" / "identity-candidates").glob("*.md"))
+        self.assertEqual(len(candidates), 1)
+        candidate = load_markdown(candidates[0]).frontmatter
+        self.assertFalse(candidate["evidence"]["full_name_match"])
+        self.assertIn("Ruth is the project coordinator", candidate["evidence"]["name_evidence"][0]["excerpt"])
 
     def test_reference_ingest_replace_rewrites_existing_chunks(self) -> None:
         doc = self.src / "policy.md"

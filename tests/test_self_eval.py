@@ -14,6 +14,7 @@ from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.self_eval import (
     SelfEvalJudgeUnavailable,
     _parse_transcript,
+    machine_health,
     recent_exchanges,
     run_self_evaluation,
 )
@@ -56,6 +57,29 @@ class _Env(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def test_machine_health_reports_retrieval_volume_trend(self):
+        import sqlite3
+
+        conn = sqlite3.connect(self.db)
+        conn.execute("CREATE TABLE jobs (job_type TEXT, status TEXT, created_at TEXT)")
+        conn.execute("CREATE TABLE retrieval_log (timestamp TEXT, token_count INTEGER)")
+        # Use concrete dates so the weekly aggregation is deterministic.
+        from datetime import timedelta
+        now = date.today()
+        conn.executemany("INSERT INTO retrieval_log VALUES (?,?)", [
+            ((now - timedelta(days=20)).isoformat(), 100),
+            ((now - timedelta(days=13)).isoformat(), 120),
+            ((now - timedelta(days=6)).isoformat(), 140),
+        ])
+        conn.commit()
+        conn.close()
+
+        report = machine_health(self.vault, db_path=self.db, days=7)
+        trend = report["retrieval_volume"]
+        self.assertGreaterEqual(len(trend["weekly"]), 3)
+        self.assertTrue(trend["monotonic_week_over_week_growth"])
+        self.assertIn("proxy", trend["metric_note"])
 
 
 class TranscriptParsingTests(_Env):

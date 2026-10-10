@@ -2403,7 +2403,11 @@ def _link_entities_for_chunk_impl(
             candidate,
             kind=kind,
             summary=f"{candidate} referenced in {chunk.title}.",
+            source_text=text,
         )
+        if created_entity is None:
+            created.append({"name": candidate, "kind": kind, "quarantined": True})
+            continue
         entity_catalog.append(created_entity)
         created.append(created_entity)
         linked.add(str(created_entity["id"]))
@@ -2452,7 +2456,32 @@ def _looks_like_new_reference_entity(name: str) -> bool:
     return False
 
 
-def _ensure_entity_record(vault: Path, name: str, *, kind: str, summary: str) -> dict[str, Any]:
+def _ensure_entity_record(
+    vault: Path, name: str, *, kind: str, summary: str, source_text: str = "",
+) -> dict[str, Any] | None:
+    identity_evidence = None
+    if kind == "person":
+        from .identity_quarantine import (
+            assess_person_identity,
+            exact_person_identity_paths,
+            log_identity_decision,
+            quarantine_identity_candidate,
+        )
+
+        identity_evidence = assess_person_identity(name, source_text)
+        matches = exact_person_identity_paths(vault, name)
+        reason = "multiple_existing_identity_candidates" if len(matches) > 1 else "insufficient_identity_evidence"
+        if len(matches) > 1 or not identity_evidence["qualified"]:
+            candidate = quarantine_identity_candidate(
+                vault, name=name, summary=summary, source_ref="reference_ingest",
+                evidence=identity_evidence, reason=reason,
+                matching_entities=sorted(str(path) for path in matches),
+            )
+            log_identity_decision(
+                vault, name=name, decision="quarantine", evidence=identity_evidence,
+                source_ref="reference_ingest", reason=reason,
+            )
+            return None
     try:
         record = new_entity(
             vault,
@@ -2468,6 +2497,14 @@ def _ensure_entity_record(vault: Path, name: str, *, kind: str, summary: str) ->
         if existing is not None:
             return existing
         raise
+    if kind == "person" and identity_evidence is not None:
+        from .identity_quarantine import log_identity_decision
+
+        log_identity_decision(
+            vault, name=name, decision="mint", evidence=identity_evidence,
+            source_ref="reference_ingest", entity_path=str(record.path),
+            reason="full_name_plus_corroborating_signal",
+        )
     doc = load_markdown(record.path)
     return {
         "id": str(doc.frontmatter.get("id") or ""),

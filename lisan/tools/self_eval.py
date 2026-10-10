@@ -220,6 +220,28 @@ def machine_health(vault: Path, *, db_path: Path | None, days: int) -> dict[str,
                 total = sum(captures.values())
                 health["capture_failure_rate"] = round(
                     captures.get("failed", 0) / total, 3) if total else 0.0
+                try:
+                    weekly = conn.execute(
+                        "SELECT strftime('%Y-%W', timestamp) AS week, "
+                        "COUNT(*) AS tasks, AVG(token_count) AS avg_retrieved_summary_words "
+                        "FROM retrieval_log WHERE timestamp >= datetime('now', '-56 days') "
+                        "AND token_count IS NOT NULL GROUP BY week ORDER BY week"
+                    ).fetchall()
+                    means = [round(float(row[2] or 0), 2) for row in weekly]
+                    health["retrieval_volume"] = {
+                        "weekly": [
+                            {"week": str(row[0]), "tasks": int(row[1]),
+                             "avg_retrieved_summary_words": round(float(row[2] or 0), 2)}
+                            for row in weekly
+                        ],
+                        "monotonic_week_over_week_growth": (
+                            len(means) >= 3 and all(b > a for a, b in zip(means, means[1:]))
+                        ),
+                        "metric_note": "Summary-word proxy from retrieval_log.token_count, not tokenizer-exact tokens.",
+                    }
+                except Exception:
+                    # Older/test databases may not yet have retrieval_log.
+                    health["retrieval_volume"] = {"weekly": [], "available": False}
             finally:
                 conn.close()
         except Exception:

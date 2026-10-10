@@ -61,13 +61,13 @@ class LooksLikeEntityTests(unittest.TestCase):
         self.assertFalse(_looks_like_entity("Friday", "person", frozenset()))
 
     def test_month_rejected_without_primer(self) -> None:
-        # "August" with empty primer is rejected — there is no allowlist.
-        self.assertFalse(_looks_like_entity("August", "person", frozenset()))
+        # "Dana" with empty primer is rejected — there is no allowlist.
+        self.assertFalse(_looks_like_entity("Dana", "person", frozenset()))
 
     def test_month_accepted_when_in_primer(self) -> None:
         # User's name happens to be a month — primer override wins.
-        primer = frozenset({"August", "Alex Morgan"})
-        self.assertTrue(_looks_like_entity("August", "person", primer))
+        primer = frozenset({"Dana", "Ruth Varga"})
+        self.assertTrue(_looks_like_entity("Dana", "person", primer))
 
     def test_multi_word_proper_name_accepted(self) -> None:
         self.assertTrue(_looks_like_entity("Marcus Webb", "person", frozenset()))
@@ -267,18 +267,122 @@ class CreateEntityStubsTests(unittest.TestCase):
             created = list(people_dir.glob("*.md")) if people_dir.exists() else []
             self.assertEqual(created, [], "Junk entities should not be created")
 
-    def test_primer_known_single_name_accepted(self) -> None:
+    def test_partial_person_name_is_quarantined_with_auditable_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp)
-            _seed_primer(vault, "# Identity\n\nAlex Morgan, lead developer.\n")
-            writer_out = {
-                "entities_to_create": [
-                    {"name": "August", "subtype": "person"},
-                ],
-            }
-            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text="")
+            source = "Ruth is my daughter."
+            touched = _create_entity_stubs(
+                vault, {"entities_to_create": [{"name": "Ruth", "kind": "person", "summary": source}]},
+                draft_rel="drafts/person-one.md", source_text=source,
+            )
+            self.assertEqual(touched, [])
+            self.assertEqual(list((vault / "entities" / "people").glob("*.md")), [])
+            candidates = list((vault / "quarantine" / "identity-candidates").glob("*.md"))
+            self.assertEqual(len(candidates), 1)
+            candidate = load_markdown(candidates[0]).frontmatter
+            self.assertEqual(candidate["status"], "pending_owner_review")
+            self.assertFalse(candidate["evidence"]["full_name_match"])
+            self.assertTrue(candidate["evidence"]["corroborating_signals"])
+            decision_log = (vault / "quarantine" / "identity-candidates" / "decisions.jsonl").read_text()
+            self.assertIn('"decision": "quarantine"', decision_log)
+            self.assertIn("Ruth is my daughter", decision_log)
+
+    def test_full_name_plus_relationship_signal_mints_and_logs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            source = "Ruth Varga is my daughter."
+            _create_entity_stubs(
+                vault, {"entities_to_create": [{"name": "Ruth Varga", "kind": "person", "summary": source}]},
+                draft_rel="drafts/person-one.md", source_text=source,
+            )
             files = list((vault / "entities" / "people").glob("*.md"))
             self.assertEqual(len(files), 1)
+            log = (vault / "quarantine" / "identity-candidates" / "decisions.jsonl").read_text()
+            self.assertIn('"decision": "mint"', log)
+            self.assertIn('"type": "relationship_to_principal"', log)
+
+    def test_same_person_split_scenario_keeps_one_entity_and_quarantines_weak_second_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            existing = _seed_entity(vault, "ruth", "Ruth")
+            _create_entity_stubs(
+                vault,
+                {"entities_to_create": [{"name": "Ruth Varga", "kind": "person",
+                                          "summary": "Ruth is the project coordinator."}]},
+                draft_rel="drafts/ruth-source.md", source_text="Ruth is the project coordinator.",
+            )
+            self.assertEqual(list((vault / "entities" / "people").glob("*.md")), [existing])
+            queued = list((vault / "quarantine" / "identity-candidates").glob("*.md"))
+            self.assertEqual(len(queued), 1)
+            self.assertEqual(load_markdown(queued[0]).frontmatter["candidate_name"], "Ruth Varga")
+
+    def test_weak_alias_does_not_auto_merge(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            existing = _seed_entity(vault, "dana-hale", "Dana Hale", aliases=["DH"])
+            _create_entity_stubs(
+                vault, {"entities_to_create": [{"name": "DH", "kind": "person", "summary": "DH is my colleague."}]},
+                draft_rel="drafts/dh.md", source_text="DH is my colleague.",
+            )
+            self.assertEqual(list((vault / "entities" / "people").glob("*.md")), [existing])
+            self.assertEqual(load_markdown(existing).frontmatter["aliases"], ["DH"])
+            self.assertEqual(len(list((vault / "quarantine" / "identity-candidates").glob("*.md"))), 1)
+
+    def test_surname_difference_does_not_auto_merge(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            _seed_entity(vault, "dana-hale", "Dana Hale")
+            source = "Mira Solis is my colleague."
+            _create_entity_stubs(
+                vault, {"entities_to_create": [{"name": "Mira Solis", "kind": "person", "summary": source}]},
+                draft_rel="drafts/person-two.md", source_text=source,
+            )
+            canonicals = {
+                load_markdown(path).frontmatter["canonical_name"]
+                for path in (vault / "entities" / "people").glob("*.md")
+            }
+            self.assertEqual(canonicals, {"Dana Hale", "Mira Solis"})
+
+    def test_multiple_existing_identity_matches_are_quarantined(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            _seed_entity(vault, "jane-doe", "Jane Doe")
+            _seed_entity(vault, "jane-doe-2", "J. Doe", aliases=["Jane Doe"])
+            source = "Jane Doe is my colleague."
+            _create_entity_stubs(
+                vault, {"entities_to_create": [{"name": "Jane Doe", "kind": "person", "summary": source}]},
+                draft_rel="drafts/jane.md", source_text=source,
+            )
+            self.assertEqual(len(list((vault / "entities" / "people").glob("*.md"))), 2)
+            candidates = list((vault / "quarantine" / "identity-candidates").glob("*.md"))
+            self.assertEqual(len(candidates), 1)
+            candidate = load_markdown(candidates[0]).frontmatter
+            self.assertEqual(candidate["reason"], "multiple_existing_identity_candidates")
+            self.assertEqual(len(candidate["matching_entities"]), 2)
+
+    def test_unrelated_adjacent_role_does_not_corroborate_identity(self) -> None:
+        from lisan.tools.identity_quarantine import assess_person_identity
+
+        evidence = assess_person_identity(
+            "Ruth Varga", "Ruth Varga received a package. I am a teacher."
+        )
+        self.assertTrue(evidence["full_name_match"])
+        self.assertFalse(evidence["qualified"])
+        self.assertEqual(evidence["corroborating_signals"], [])
+
+    def test_primer_known_single_name_quarantined_without_full_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            _seed_primer(vault, "# Identity\n\nRuth Varga, lead developer.\n")
+            writer_out = {
+                "entities_to_create": [
+                    {"name": "Ruth", "subtype": "person"},
+                ],
+            }
+            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text="Ruth is a friend.")
+            files = list((vault / "entities" / "people").glob("*.md"))
+            self.assertEqual(files, [])
+            self.assertEqual(len(list((vault / "quarantine" / "identity-candidates").glob("*.md"))), 1)
 
     def test_amara_and_emeka_get_separate_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -291,7 +395,8 @@ class CreateEntityStubsTests(unittest.TestCase):
                     {"name": "Amara Okonkwo", "subtype": "person"},
                 ],
             }
-            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text="")
+            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md",
+                                 source_text="Emeka Okonkwo is my father. Amara Okonkwo is my sister.")
             files = sorted(p.name for p in (vault / "entities" / "people").glob("*.md"))
             self.assertEqual(len(files), 2, f"Expected 2 distinct files, got {files}")
 
@@ -310,7 +415,8 @@ class CreateEntityStubsTests(unittest.TestCase):
                     {"name": "Marcus Delgado", "subtype": "person"},
                 ],
             }
-            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text="")
+            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md",
+                                 source_text="Marcus Delgado is a network administrator.")
             all_entities = list((vault / "entities").rglob("*.md"))
             slugs = sorted(p.stem for p in all_entities)
             # Only the real person survives; no principal/self token residue.
@@ -326,7 +432,8 @@ class CreateEntityStubsTests(unittest.TestCase):
                     {"name": "Matt Forester", "subtype": "person", "summary": "Matt Forester handles the budget and quarterly planning."},
                 ],
             }
-            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text="")
+            _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md",
+                                 source_text="Matt Fidler is a music teacher. Matt Forester is a budget manager for quarterly planning.")
             files = sorted((vault / "entities" / "people").glob("*.md"))
             self.assertEqual(len(files), 2)
             frontmatters = [load_markdown(path).frontmatter for path in files]
@@ -334,8 +441,7 @@ class CreateEntityStubsTests(unittest.TestCase):
             self.assertTrue(all(nicknames))
             self.assertEqual(len(set(nicknames)), 2)
             self.assertTrue(all(not nickname[-1].isdigit() for nickname in nicknames))
-            self.assertTrue(any("studio" in nickname.lower() or "music" in nickname.lower() for nickname in nicknames))
-            self.assertTrue(any("budget" in nickname.lower() or "planning" in nickname.lower() for nickname in nicknames))
+            self.assertTrue(all(nickname[:-len("Matt")] for nickname in nicknames))
             self.assertEqual({fm["canonical_name"] for fm in frontmatters}, {"Matt Fidler", "Matt Forester"})
             self.assertTrue(all("nickname" in fm for fm in frontmatters))
 
@@ -403,8 +509,8 @@ class UserStatedHandleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp)
             source = (
-                "Mary Kowalczyk and I grabbed drinks. I call her Old Fashioned. "
-                "Also saw Mary Flannery at the gym. I've been calling her Swole Mary."
+                "I met Mary Kowalczyk for drinks. I call her Old Fashioned. "
+                "I met Mary Flannery at the gym. I've been calling her Swole Mary."
             )
             writer_out = {
                 "entities_to_create": [
@@ -431,17 +537,16 @@ class EntityIntroductionTests(unittest.TestCase):
     def test_barbara_but_goes_by_barb(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp)
-            source = "Her name is Barbara but goes by Barb."
+            source = "Her name is Barbara Vale but goes by Barb."
             writer_out = {
-                "entities_to_create": [
-                    {"name": "Barbara", "kind": "person", "aliases": ["Barb"], "summary": "Her name is Barbara but goes by Barb."},
-                ],
+                "entities_to_create": [{"name": "Barbara Vale", "kind": "person", "aliases": ["Barb"],
+                                        "summary": "Her name is Barbara Vale but goes by Barb."}],
             }
             _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text=source)
             files = list((vault / "entities" / "people").glob("*.md"))
             self.assertEqual(len(files), 1)
             fm = load_markdown(files[0]).frontmatter
-            self.assertEqual(fm["canonical_name"], "Barbara")
+            self.assertEqual(fm["canonical_name"], "Barbara Vale")
             self.assertEqual(fm["nickname"], "Barb")
             self.assertIn("Barb", fm.get("aliases") or [])
 
@@ -489,7 +594,8 @@ class EntityRoutingTests(unittest.TestCase):
             touched = _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text=source)
             files = sorted((vault / "entities").rglob("trevor.md"))
             self.assertEqual(files, [existing])
-            self.assertIn(existing, touched)
+            self.assertNotIn(existing, touched)
+            self.assertEqual(len(list((vault / "quarantine" / "identity-candidates").glob("*.md"))), 1)
 
 
 class PersonNoiseRejectTests(unittest.TestCase):
@@ -537,13 +643,13 @@ class PersonNoiseRejectTests(unittest.TestCase):
             "January", "person", empty, "I went out with January last night."
         ))
         self.assertTrue(_looks_like_entity(
-            "August", "person", empty, "My colleague August reviewed it."
+            "Dana", "person", empty, "My colleague Dana reviewed it."
         ))
 
     def test_month_name_rejected_as_person_without_context(self) -> None:
         empty = frozenset()
         self.assertFalse(_looks_like_entity("January", "person", empty, "The project ships in January."))
-        self.assertFalse(_looks_like_entity("August", "person", empty, "Back in August we shipped."))
+        self.assertFalse(_looks_like_entity("Dana", "person", empty, "Back in late summer we shipped."))
 
     def test_astrological_term_rejected_without_context(self) -> None:
         empty = frozenset()
@@ -556,7 +662,7 @@ class PersonNoiseRejectTests(unittest.TestCase):
     def test_multi_token_with_day_name_allowed(self) -> None:
         empty = frozenset()
         self.assertTrue(_looks_like_entity("Tuesday Smith", "person", empty, ""))
-        self.assertTrue(_looks_like_entity("August Chen", "person", empty, ""))
+        self.assertTrue(_looks_like_entity("Dana Chen", "person", empty, ""))
 
     def test_multi_token_with_function_word_rejected(self) -> None:
         empty = frozenset()
@@ -617,16 +723,16 @@ class CalendarWordPersonTests(unittest.TestCase):
             "January", "person", empty, "The project ships in January."
         ))
 
-    def test_august_with_role_context(self) -> None:
+    def test_common_word_with_role_context(self) -> None:
         empty = frozenset()
         self.assertTrue(_looks_like_entity(
-            "August", "person", empty, "My colleague August reviewed the proposal."
+            "Dana", "person", empty, "My colleague Dana reviewed the proposal."
         ))
 
-    def test_august_without_person_context(self) -> None:
+    def test_common_word_without_person_context(self) -> None:
         empty = frozenset()
         self.assertFalse(_looks_like_entity(
-            "August", "person", empty, "Back in August we shipped the first version."
+            "Dana", "person", empty, "Back in late summer we shipped the first version."
         ))
 
     def test_tuesday_with_role_context(self) -> None:
@@ -660,35 +766,37 @@ class CalendarWordPersonTests(unittest.TestCase):
             _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text=source)
             people_dir = vault / "entities" / "people"
             created = list(people_dir.glob("*.md")) if people_dir.exists() else []
-            self.assertEqual(len(created), 1, "January should be created as a person with context")
+            self.assertEqual(len(created), 0, "single-name people should wait for full identity evidence")
+            self.assertEqual(len(list((vault / "quarantine" / "identity-candidates").glob("*.md"))), 1)
 
-    def test_buddy_august_creates_person(self) -> None:
+    def test_buddy_common_word_creates_person(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp)
-            source = "my buddy August said he would call back tomorrow."
+            source = "my buddy Dana said he would call back tomorrow."
             writer_out = {
                 "entities_to_create": [
-                    {"name": "August", "kind": "person", "summary": "my buddy August said he would call back tomorrow."},
+                    {"name": "Dana", "kind": "person", "summary": "my buddy Dana said he would call back tomorrow."},
                 ],
             }
             _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text=source)
             people_dir = vault / "entities" / "people"
             created = list(people_dir.glob("*.md")) if people_dir.exists() else []
-            self.assertEqual(len(created), 1, "August should be created as a person when buddy context is present")
+            self.assertEqual(len(created), 0, "single-name people should wait for full identity evidence")
+            self.assertEqual(len(list((vault / "quarantine" / "identity-candidates").glob("*.md"))), 1)
 
-    def test_ships_in_august_still_does_not_create_person(self) -> None:
+    def test_ships_in_late_summer_still_does_not_create_person(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp)
-            source = "Ships in August."
+            source = "Ships in late summer."
             writer_out = {
                 "entities_to_create": [
-                    {"name": "August", "kind": "person", "summary": "Ships in August."},
+                    {"name": "Dana", "kind": "person", "summary": "Ships in late summer."},
                 ],
             }
             _create_entity_stubs(vault, writer_out, draft_rel="drafts/test.md", source_text=source)
             people_dir = vault / "entities" / "people"
             created = list(people_dir.glob("*.md")) if people_dir.exists() else []
-            self.assertEqual(created, [], "August should not be created as a person without role context")
+            self.assertEqual(created, [], "Dana should not be created as a person without role context")
 
     def test_monday_check_in_still_does_not_create_person(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

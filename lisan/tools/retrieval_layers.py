@@ -340,6 +340,10 @@ def _fuse_ranked_candidates(
     extra_candidate_lists: list[list[_LayerCandidate]] | None = None,
     serendipity_slots: int = 0,
     serendipity_seed: str = "",
+    query: str = "",
+    access_counts: dict[str, int] | None = None,
+    today: date | None = None,
+    recency_decay_days: int = 365,
 ) -> tuple[list[RetrievalItem], dict[str, Any]]:
     candidate_lists = [sql_candidates, fts_candidates, vector_candidates]
     candidate_lists.extend(extra_candidate_lists or [])
@@ -353,8 +357,17 @@ def _fuse_ranked_candidates(
 
     fused_items: list[RetrievalItem] = []
     ranked_remainder: list[tuple[str, float]] = []
+    access_counts = access_counts or {}
+    today = today or date.today()
+    adjusted_scores = {
+        record_id: score * _rank_quality_multiplier(
+            rows_by_id.get(record_id), query=query, today=today,
+            access_count=access_counts.get(record_id, 0), recency_decay_days=recency_decay_days,
+        )
+        for record_id, score in rrf_scores.items()
+    }
     for record_id, score in sorted(
-        rrf_scores.items(),
+        adjusted_scores.items(),
         key=lambda item: (
             item[1],
             len(source_order.get(item[0], [])),
@@ -396,6 +409,70 @@ def _fuse_ranked_candidates(
         "source_order": source_order,
     }
     return fused_items, stats
+
+
+def _rank_quality_multiplier(
+    row: sqlite3.Row | None, *, query: str, today: date, access_count: int = 0,
+    recency_decay_days: int = 365,
+) -> float:
+    """Small post-RRF quality adjustment; never a visibility or safety gate."""
+    if row is None:
+        return 1.0
+    factor = {"high": 1.15, "medium": 1.05, "low": 0.95}.get(
+        str(row["significance"] or "").lower(), 1.0
+    )
+    # Recent material gets a bounded advantage; old records remain retrievable.
+    for field in ("updated", "created"):
+        if field not in row.keys():
+            continue
+        try:
+            stamp = date.fromisoformat(str(row[field] or "")[:10])
+            age = max(0, (today - stamp).days)
+            half_life = max(1, int(recency_decay_days))
+            factor *= 0.65 + 0.35 * (0.5 ** (age / half_life))
+            break
+        except (TypeError, ValueError):
+            continue
+    # Frequently recalled memories are gently diversified, not hidden.
+    factor *= max(0.82, 1.0 / (1.0 + 0.012 * max(0, access_count)))
+
+    record_type = str(row["type"] or "")
+    lowered = query.lower()
+    temporal = any(term in lowered for term in ("when", "historically", "used to", "at the time", "as of "))
+    status = str(row["status"] or "").lower()
+    if status in {"disputed", "contradicted", "superseded_by_newer_evidence"} and not temporal:
+        factor *= 0.82
+    elif status in {"superseded", "rejected", "stale", "retired"} and not temporal:
+        factor *= 0.9
+    decision_query = any(term in lowered for term in ("decision", "decided", "why did we", "what did we choose"))
+    current_query = any(term in lowered for term in ("current", "currently", "now", "latest", "today"))
+    if decision_query:
+        factor *= 1.18 if record_type == "decision" else 0.94
+    elif temporal:
+        factor *= 1.15 if record_type in {"episode", "evidence", "claim", "contradiction_log"} else 0.96
+    elif current_query:
+        factor *= 1.12 if record_type in {"state", "entity", "claim"} else 0.97
+    return factor
+
+
+def _recent_access_counts(conn: sqlite3.Connection, *, limit: int = 500) -> dict[str, int]:
+    """Count recent retrieval appearances from the derived operational log."""
+    try:
+        rows = conn.execute(
+            "SELECT files_loaded FROM retrieval_log WHERE files_loaded IS NOT NULL "
+            "ORDER BY id DESC LIMIT ?", (limit,),
+        ).fetchall()
+    except sqlite3.Error:
+        return {}
+    counts: dict[str, int] = defaultdict(int)
+    for row in rows:
+        try:
+            ids = json.loads(row[0] or "[]")
+        except (TypeError, json.JSONDecodeError):
+            continue
+        for record_id in set(map(str, ids)):
+            counts[record_id] += 1
+    return dict(counts)
 
 
 def _apply_serendipity(
@@ -552,6 +629,10 @@ def _sql_metadata_score(
         # could perform. Demoted, not hidden: still findable when asked
         # about directly, still rendered with its status banner.
         score -= 1.5
+    elif str(row["status"]) in {"disputed", "contradicted", "superseded_by_newer_evidence"}:
+        # Keep the historical statement searchable, but let the current
+        # counter-evidence lead unless the user asks for the old claim.
+        score -= 1.0
     if str(row["significance"]) == "high":
         score += 0.7
     confidence_score = row["confidence_score"] if "confidence_score" in row.keys() else None
@@ -697,6 +778,10 @@ def _score_row(
         # could perform. Demoted, not hidden: still findable when asked
         # about directly, still rendered with its status banner.
         score -= 1.5
+        reasons.append("settled_history_demoted")
+    elif str(row["status"]) in {"disputed", "contradicted", "superseded_by_newer_evidence"}:
+        score -= 1.0
+        reasons.append("contradicted_demoted")
     if str(row["significance"]) == "high":
         score += 0.7
     confidence_score = row["confidence_score"] if "confidence_score" in row.keys() else None

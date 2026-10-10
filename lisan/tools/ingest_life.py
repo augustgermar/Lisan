@@ -95,6 +95,7 @@ def ingest_life_sources(
         "classified": {k: len(v) for k, v in routed.items()},
         "entities_created": [],
         "entities_enriched": [],
+        "entities_quarantined": [],
         "episodes_created": 0,
         "knowledge_documents": 0,
         "knowledge_records": 0,
@@ -105,11 +106,26 @@ def ingest_life_sources(
     }
 
     if plan_only:
-        summary["would_create_entities"] = [
-            {"name": item["name"], "kind": item["kind"]}
-            for item in routed["entity"]
-            if _find_existing_entity(item["name"], vault) is None
-        ]
+        summary["would_create_entities"] = []
+        summary["would_quarantine_identity_candidates"] = []
+        for item in routed["entity"]:
+            if item["kind"] == "person":
+                from .identity_quarantine import assess_person_identity, exact_person_identity_paths
+
+                evidence = assess_person_identity(
+                    item["name"], item["path"].read_text(encoding="utf-8", errors="ignore")
+                )
+                exact_matches = exact_person_identity_paths(vault, item["name"])
+                if len(exact_matches) > 1 or not evidence["qualified"]:
+                    summary["would_quarantine_identity_candidates"].append({
+                        "name": item["name"], "evidence": evidence,
+                        "reason": "multiple_existing_identity_candidates" if len(exact_matches) > 1 else "insufficient_identity_evidence",
+                        "matching_entities": sorted(str(path) for path in exact_matches),
+                    })
+                    continue
+            if _find_existing_entity(item["name"], vault) is not None:
+                continue
+            summary["would_create_entities"].append({"name": item["name"], "kind": item["kind"]})
         return summary
 
     for item in routed["entity"]:
@@ -246,6 +262,36 @@ def _assimilate_entity_note(
     name: str = item["name"]
     kind: str = item["kind"]
 
+    if kind == "person":
+        from .identity_quarantine import (
+            assess_person_identity,
+            exact_person_identity_paths,
+            log_identity_decision,
+            quarantine_identity_candidate,
+        )
+
+        source_text = path.read_text(encoding="utf-8", errors="ignore")
+        evidence = assess_person_identity(name, source_text)
+        exact_matches = exact_person_identity_paths(vault, name)
+        reason = "multiple_existing_identity_candidates" if len(exact_matches) > 1 else "insufficient_identity_evidence"
+        if len(exact_matches) > 1 or not evidence["qualified"]:
+            ref = str(path)
+            candidate = quarantine_identity_candidate(
+                vault, name=name, summary=f"Person proposed from life note: {name}",
+                source_ref=ref, evidence=evidence, reason=reason,
+                matching_entities=sorted(str(match) for match in exact_matches),
+            )
+            log_identity_decision(
+                vault, name=name, decision="quarantine", evidence=evidence,
+                source_ref=ref, reason=reason,
+            )
+            summary["entities_quarantined"].append({"name": name, "path": str(candidate)})
+            # Preserve the source note as knowledge even though it cannot
+            # establish a person identity yet.
+            _ingest_knowledge([path], vault=vault, db_path=db_path, replace=replace,
+                              summary=summary)
+            return
+
     existing = _find_existing_entity(name, vault)
     if existing is not None:
         entity_id = str(existing.get("id") or "")
@@ -270,6 +316,14 @@ def _assimilate_entity_note(
         entity_path = record.path
         entity_id = str(load_markdown(entity_path).frontmatter.get("id") or "")
         summary["entities_created"].append({"name": name, "kind": kind})
+        if kind == "person":
+            from .identity_quarantine import log_identity_decision
+
+            log_identity_decision(
+                vault, name=name, decision="mint", evidence=evidence,
+                source_ref=str(path), entity_path=str(entity_path),
+                reason="full_name_plus_corroborating_signal",
+            )
 
     appended = _append_note_to_entity_log(entity_path, path, vault)
     if appended:

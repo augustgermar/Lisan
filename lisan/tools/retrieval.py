@@ -40,6 +40,7 @@ from .retrieval_layers import (
     _is_blocked_visibility_reason,
     _quarantine_sets,
     _visibility_block_reason,
+    _recent_access_counts,
 )
 from .retrieval_graph import (
     _GraphEdge,
@@ -541,6 +542,9 @@ def retrieve_context(
                 extra_candidate_lists=[*reply_lanes, learned_lane],
                 serendipity_slots=retrieval_settings["serendipity_slots"],
                 serendipity_seed=effective_query,
+                query=effective_query,
+                access_counts=_recent_access_counts(conn),
+                recency_decay_days=retrieval_settings["recency_decay_days"],
             )
             direct_loaded = _demote_graph_neighbors(
                 direct_loaded,

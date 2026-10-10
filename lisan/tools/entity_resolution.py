@@ -133,6 +133,46 @@ def _create_entity_stubs(
         if user_handle and user_handle.lower() not in {alias.lower() for alias in aliases}:
             aliases.append(user_handle)
 
+        identity_evidence: dict[str, Any] | None = None
+        if subtype == "person":
+            from .identity_quarantine import (
+                assess_person_identity,
+                exact_person_identity_paths,
+                log_identity_decision,
+                quarantine_identity_candidate,
+            )
+
+            identity_evidence = assess_person_identity(name, source_text)
+            possible = _entity_resolution_candidates(vault, name, subtype, index)
+            possible_paths = sorted({str(candidate.get("path")) for candidate in possible
+                                     if isinstance(candidate.get("path"), Path)})
+            # Ambiguity means multiple existing records claim the exact same
+            # proposed identity string, not merely multiple lexical neighbors.
+            exact_identity_paths = exact_person_identity_paths(vault, name)
+            if len(exact_identity_paths) > 1:
+                possible_paths = sorted(str(path) for path in exact_identity_paths)
+                quarantine_identity_candidate(
+                    vault, name=name, summary=summary, source_ref=draft_rel,
+                    evidence=identity_evidence, reason="multiple_existing_identity_candidates",
+                    matching_entities=possible_paths,
+                )
+                log_identity_decision(
+                    vault, name=name, decision="quarantine", evidence=identity_evidence,
+                    source_ref=draft_rel, reason="multiple_existing_identity_candidates",
+                )
+                continue
+            if not identity_evidence["qualified"]:
+                quarantine_identity_candidate(
+                    vault, name=name, summary=summary, source_ref=draft_rel,
+                    evidence=identity_evidence, reason="insufficient_identity_evidence",
+                    matching_entities=possible_paths,
+                )
+                log_identity_decision(
+                    vault, name=name, decision="quarantine", evidence=identity_evidence,
+                    source_ref=draft_rel, reason="insufficient_identity_evidence",
+                )
+                continue
+
         existing = _match_existing_entity(vault, name, subtype, index, allowlist, source_text, summary=summary)
         if existing is not None:
             _append_entity_alias(existing, name)
@@ -180,6 +220,14 @@ def _create_entity_stubs(
                 nickname=nickname,
                 disambiguation=_entity_disambiguator_from_candidates(vault, name, subtype, index, summary, source_text),
             )
+            if subtype == "person" and identity_evidence is not None:
+                from .identity_quarantine import log_identity_decision
+
+                log_identity_decision(
+                    vault, name=name, decision="mint", evidence=identity_evidence,
+                    source_ref=draft_rel, entity_path=str(created.path),
+                    reason="full_name_plus_corroborating_signal",
+                )
             index_created_record(vault, created, index_conn)
             entities_touched_set.add(created.path)
             if nickname:

@@ -139,7 +139,12 @@ class RewriteEntityStoryTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _mock_llm_response(self, narrative: str, arc_note: str) -> dict:
-        return {"narrative": narrative, "arc_note": arc_note}
+        return {
+            "narrative": narrative,
+            "arc_note": arc_note,
+            "significance": "high",
+            "significance_rationale": "Durable relationship and recurring collaboration context.",
+        }
 
     def test_rewrite_updates_entity_body(self) -> None:
         entity_path = _seed_entity(self.vault, "maya", "Maya Smith", "Maya is a colleague.")
@@ -172,6 +177,8 @@ class RewriteEntityStoryTests(unittest.TestCase):
         doc = load_markdown(entity_path)
         self.assertIn("roadmap", doc.body)
         self.assertIn("Maya Smith", doc.body)
+        self.assertEqual(doc.frontmatter["significance"], "high")
+        self.assertIn("Durable relationship", doc.frontmatter["significance_rationale"])
 
     def test_no_bypass_tokenize_principal_called(self) -> None:
         """rewrite_entity_story must route the narrative through tokenize_principal.
@@ -300,7 +307,7 @@ class EntitesTouchedTests(unittest.TestCase):
         conn = open_index_connection(self.db_path)
         try:
             touched = _create_entity_stubs(
-                self.vault, writer, "drafts/test.md", "Diana Ross came over.",
+                self.vault, writer, "drafts/test.md", "I met Diana Ross yesterday; she came over.",
                 index_conn=conn,
             )
             conn.commit()
@@ -455,11 +462,11 @@ class LogCompactionTests(unittest.TestCase):
             inst.run_json.return_value = {"narrative": "Nora Vale is a longtime friend.", "arc_note": ""}
             MockWriter.return_value = inst
             rewrite_entity_story(self.vault, path,
-                                 draft_path=self._draft("Nora has a severe peanut allergy.", 0),
+                                 draft_path=self._draft("Nora Vale has a severe peanut allergy.", 0),
                                  db_path=self.db, force_compact=True)
         doc = load_markdown(path)
         self.assertNotIn("peanut", doc.body)  # prose omitted it
-        self.assertIn("peanut", entity_search_text(doc.frontmatter, doc.body))  # log preserved it, still findable
+        self.assertIn("peanut", entity_search_text(doc.frontmatter, doc.body))  # attributed sentence remains findable
 
 
 class LogSpillTests(unittest.TestCase):
@@ -543,8 +550,53 @@ class LogSpillTests(unittest.TestCase):
         path = self._seed_with_log(3)
         archive = source_log_archive_path(self.vault, path)
         archive.parent.mkdir(parents=True, exist_ok=True)
-        archive.write_text('{"date": "2025-11-01", "text": "spilled peanut-allergy fact", "folded": true}\n')
+        archive.write_text('{"date": "2025-11-01", "text": "Ruth Vale has a spilled peanut-allergy fact", "folded": true}\n')
         doc = load_markdown(path)
         text = entity_search_text(doc.frontmatter, doc.body, archive_path=archive)
-        self.assertIn("spilled peanut-allergy fact", text)
-        self.assertIn("logged fact number 0", text)
+        self.assertIn("Ruth Vale has a spilled peanut-allergy fact", text)
+        self.assertNotIn("logged fact number 0", text)
+
+    def test_new_log_records_literal_mention_and_indexes_its_sentence(self) -> None:
+        from lisan.tools.entity_story import entity_search_text, rewrite_entity_story
+
+        path = _seed_entity(self.vault, "ruth", "Ruth Vale", "Ruth is a friend.")
+        draft = self.vault / "drafts" / "mention.md"
+        draft.parent.mkdir(parents=True, exist_ok=True)
+        draft.write_text(dump_markdown({}, "# Memory Draft\n\nRuth Vale likes hiking. Windows patching is unrelated."), encoding="utf-8")
+        rewrite_entity_story(self.vault, path, draft_path=draft, db_path=self.db)
+        doc = load_markdown(path)
+        attribution = doc.frontmatter["source_log"][-1]["attribution"]
+        self.assertEqual(attribution["status"], "verified")
+        self.assertEqual(attribution["mentions"][0]["match"], "Ruth Vale")
+        indexed = entity_search_text(doc.frontmatter, doc.body)
+        self.assertIn("Ruth Vale likes hiking", indexed)
+        self.assertNotIn("Windows patching", indexed)
+
+    def test_unverified_legacy_entry_stays_stored_but_is_not_indexed(self) -> None:
+        from lisan.tools.entity_story import entity_search_text
+
+        path = _seed_entity(self.vault, "ruth", "Ruth Vale", "Ruth is a friend.")
+        doc = load_markdown(path)
+        fm = dict(doc.frontmatter)
+        fm["source_log"] = [{"date": "2026-01-01", "text": "Windows patching and kitchen cleaning."}]
+        indexed = entity_search_text(fm, doc.body)
+        self.assertNotIn("Windows patching", indexed)
+        self.assertEqual(fm["source_log"][0]["text"], "Windows patching and kitchen cleaning.")
+
+    def test_twenty_attributions_are_source_verifiable_across_five_entities(self) -> None:
+        from lisan.tools.entity_story import _literal_attribution
+
+        checked = []
+        for entity_num in range(5):
+            fm = {"canonical_name": f"Person {entity_num}", "aliases": [f"P{entity_num}"]}
+            for item_num in range(4):
+                source = (f"P{entity_num} discussed item {item_num}. "
+                          "Windows patching is unrelated context.")
+                attribution = _literal_attribution(source, fm)
+                self.assertEqual(attribution["status"], "verified")
+                for mention in attribution["mentions"]:
+                    self.assertEqual(source[mention["start"]:mention["end"]], mention["match"])
+                    self.assertIn(mention["match"], mention["excerpt"])
+                    self.assertNotIn("Windows patching", mention["excerpt"])
+                checked.append(attribution)
+        self.assertEqual(len(checked), 20)

@@ -21,7 +21,7 @@ def _messy_vault(root: Path) -> Path:
     people.mkdir(parents=True)
     # lowercase slug person note, no frontmatter
     (people / "ruth-varga.md").write_text(
-        "Ruth is my oldest friend from the co-op days. She runs the Larkspur Cafe now "
+        "Ruth Varga is my oldest friend from the co-op days. She runs the Larkspur Cafe now "
         "and is quietly generous with everyone. Went through a rough patch in 2024.",
         encoding="utf-8")
     # username-shaped person note
@@ -87,17 +87,35 @@ class ClassificationTests(_Env):
         self.assertEqual(c["skipped_empty"], 1)
         self.assertEqual(c["knowledge"], 7)       # tmp, Big Ideas, vega-owner, index, template, prose-title, multi-person
         names = {e["name"] for e in plan["would_create_entities"]}
-        self.assertEqual(names, {"Ruth Varga", "Moonpie77"})
+        self.assertEqual(names, {"Ruth Varga"})
+        self.assertEqual({e["name"] for e in plan["would_quarantine_identity_candidates"]}, {"Moonpie77"})
         # planning writes nothing
         self.assertEqual(list((self.vault / "entities").rglob("*.md")), [])
 
 
 class AssimilationTests(_Env):
+    def test_partial_name_person_note_is_quarantined_but_preserved_as_knowledge(self):
+        people = self.src / "Relational" / "People"
+        (people / "ruth-varga.md").write_text(
+            "Ruth is the project coordinator. The note does not establish a full identity.",
+            encoding="utf-8",
+        )
+        result = ingest_life_sources([self.src], vault=self.vault, db_path=self.db)
+        self.assertNotIn("Ruth Varga", {item["name"] for item in result["entities_created"]})
+        self.assertIn("Ruth Varga", {item["name"] for item in result["entities_quarantined"]})
+        self.assertFalse((self.vault / "entities" / "people" / "ruth-varga.md").exists())
+        queue = list((self.vault / "quarantine" / "identity-candidates").glob("*.md"))
+        self.assertEqual(len(queue), 2)  # the separate unknown-handle note is also queued
+        decisions = (self.vault / "quarantine" / "identity-candidates" / "decisions.jsonl").read_text()
+        self.assertIn("Ruth Varga", decisions)
+        self.assertIn("project coordinator", decisions)
+
     def test_full_run_builds_memory_structure(self):
         result = ingest_life_sources([self.src], vault=self.vault, db_path=self.db)
 
         # entities created with the right kind, log seeded, story job queued
-        self.assertEqual({e["name"] for e in result["entities_created"]}, {"Ruth Varga", "Moonpie77"})
+        self.assertEqual({e["name"] for e in result["entities_created"]}, {"Ruth Varga"})
+        self.assertEqual({e["name"] for e in result["entities_quarantined"]}, {"Moonpie77"})
         ruth = next(p for p in (self.vault / "entities").rglob("*.md")
                     if load_markdown(p).frontmatter.get("canonical_name") == "Ruth Varga")
         fm = load_markdown(ruth).frontmatter
@@ -106,7 +124,7 @@ class AssimilationTests(_Env):
         self.assertEqual(len(log), 1)
         self.assertIn("Larkspur Cafe", log[0]["text"])
         self.assertIn("ruth-varga", log[0]["text"])  # provenance names the note
-        self.assertEqual(result["rewrite_jobs"], 2)
+        self.assertEqual(result["rewrite_jobs"], 1)
         from lisan.tools.jobs import list_jobs
 
         queued = [j for j in list_jobs(db_path=self.db) if j["job_type"] == "entity.rewrite_story"]
@@ -163,7 +181,7 @@ class AssimilationTests(_Env):
         ingest_life_sources([self.src], vault=self.vault, db_path=self.db)
         names = {str(load_markdown(p).frontmatter.get("canonical_name") or "")
                  for p in (self.vault / "entities").rglob("*.md")}
-        self.assertEqual(names, {"Ruth Varga", "Moonpie77"})  # people only, no phrase-orgs
+        self.assertEqual(names, {"Ruth Varga"})  # no weak-identity persons or phrase-orgs
 
     def test_sources_never_modified(self):
         before = {p: p.read_bytes() for p in self.src.rglob("*") if p.is_file()}

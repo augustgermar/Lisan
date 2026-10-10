@@ -7,6 +7,29 @@ Lisan retrieval is now a two-stage process:
 
 The goal is to recover useful context that is only reachable through links, while keeping the system deterministic and compartment-safe.
 
+## Ranking signals
+
+RRF remains the primary candidate-fusion method. A bounded post-fusion adjustment
+then applies durable significance, record age, recent retrieval frequency, and
+query intent. High/medium/low significance is a gentle multiplier, never a
+visibility gate. Age decays toward (but never to) a floor; records that appear
+often in the recent retrieval log are gently diversified rather than hidden.
+The access counts come from the rebuildable SQLite retrieval log, not from the
+Markdown source of truth.
+
+Typed intent is deliberately narrow: decision questions favor decision records;
+explicitly historical questions favor episodes/evidence/claims; and explicit
+current-state questions favor state/entity/current-claim records. Contradicted
+and settled records are demoted for current queries but remain eligible, and
+historical queries can still retrieve them. Relevant unresolved contradiction
+notes are separately surfaced in the assembled context so ranking never
+silently chooses which side is true. Disputed claims receive the same gentle
+current-query demotion as explicitly contradicted records.
+
+Entity-story compaction assigns significance to the accumulated story using the
+rubric in `prompts/writer_entity_story_v1.md`. The writer must state a rationale;
+if it omits or emits an invalid level, the existing level is retained.
+
 ## What Expands
 
 Graph traversal follows explicit links only. The current expansion rules are:

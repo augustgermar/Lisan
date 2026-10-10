@@ -11,6 +11,15 @@
     "arc_note": {
       "type": "string",
       "description": "1-2 sentences summarising what was added or changed relative to the prior story."
+    },
+    "significance": {
+      "type": "string",
+      "enum": ["high", "medium", "low"],
+      "description": "Durable importance of the entity's accumulated story, using the documented rubric in the prompt."
+    },
+    "significance_rationale": {
+      "type": "string",
+      "description": "Brief evidence-based reason for the selected significance."
     }
   },
   "additionalProperties": false

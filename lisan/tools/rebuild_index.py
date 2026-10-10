@@ -491,6 +491,8 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
     except ValueError:
         rel = path
     parent = rel.parts[-2] if len(rel.parts) >= 2 else ""
+    if rel.parts[:2] == ("quarantine", "identity-candidates"):
+        return False
     if parent in {"manifests", "transcripts"}:
         return False
     if parent == "drafts" and "needs_revision" not in path.name:

@@ -11,9 +11,10 @@ bottleneck at volume:
 - COMPACTION runs only when enough unfolded material has accumulated (or on
   demand): one writer call re-tells the narrative core from the prior story
   plus the unfolded log. Rare and batched instead of per-turn.
-- The whole ``source_log`` is included in the search index, so a fact that
-  compaction judged unimportant and left out of the prose is still findable.
-  Compaction is lossy only in the *rendering*, never in the *storage* — the
+- Only source-log slices with a literal entity mention are added to that
+  entity's search index. Unverified material remains durable in the log but
+  cannot associate unrelated turn-wide text with the entity.
+- Compaction is lossy only in the *rendering*, never in the *storage* — the
   narrative is a regenerable view over a log that keeps everything.
 """
 from __future__ import annotations
@@ -38,6 +39,7 @@ _LOG_ENTRY_MAX_CHARS = 1200
 # compaction, and for a well-loved entity (a parent, a child) the blob
 # otherwise grows for life. Overridable via config (memory.entity_log_keep).
 _DEFAULT_LOG_KEEP = 40
+_ATTRIBUTION_RESOLVER = "literal_entity_mention_v1"
 
 
 def _compact_threshold() -> int:
@@ -132,7 +134,10 @@ def rewrite_entity_story(
     if new_material:
         entry = _condense(new_material)
         if entry and (not log or log[-1].get("text") != entry):
-            log.append({"date": today_iso(), "text": entry, "folded": False})
+            log.append({
+                "date": today_iso(), "text": entry, "folded": False,
+                "attribution": _literal_attribution(new_material, fm),
+            })
             appended = True
     fm["source_log"] = log
 
@@ -200,6 +205,10 @@ def _compact(
     )
     narrative = str(result.get("narrative") or "").strip()
     arc_note = str(result.get("arc_note") or "").strip()
+    significance = str(result.get("significance") or "").strip().lower()
+    if significance not in {"high", "medium", "low"}:
+        significance = str(fm.get("significance") or "low").lower()
+    significance_rationale = str(result.get("significance_rationale") or "").strip()
     if not narrative:
         # An empty narrative is a provider failure (nine of them in one
         # burst on 2026-07-05), not a result — raise so the queue's retry
@@ -231,6 +240,9 @@ def _compact(
             entry["folded"] = True
     log, spilled = _spill_folded_log(vault, entity_path, log)
     fm["source_log"] = log
+    fm["significance"] = significance
+    if significance_rationale:
+        fm["significance_rationale"] = significance_rationale
     fm["updated"] = today_iso()
     write_markdown(entity_path, fm, f"# {canonical_name}\n\n{narrative}\n")
     _reindex(entity_path, vault, db_path)
@@ -239,28 +251,73 @@ def _compact(
 
 
 def entity_search_text(fm: dict[str, Any], body: str, archive_path: Path | None = None) -> str:
-    """The full searchable text for an entity: the narrative core, every
-    entry still in the durable log, and every entry spilled to the archive.
-    Ensures a logged fact is findable even when the compacted prose left it
-    out — compaction and spilling are lossy only in the rendering, never in
-    the search index."""
+    """Narrative plus source-log slices justified by a literal entity mention.
+
+    Legacy entries are classified on read using canonical names and aliases;
+    the Markdown source remains untouched. Unverified entries remain durable
+    but do not inject unrelated turn-wide text into this entity's index row.
+    """
     import json as _json
 
     parts = [_strip_title(body).strip()]
     for entry in (fm.get("source_log") or []):
-        if isinstance(entry, dict) and entry.get("text"):
-            parts.append(str(entry["text"]))
+        if isinstance(entry, dict):
+            parts.extend(_attributed_slices(entry, fm))
     if archive_path is not None and archive_path.exists():
         try:
             for line in archive_path.read_text(encoding="utf-8").splitlines():
                 if not line.strip():
                     continue
                 entry = _json.loads(line)
-                if isinstance(entry, dict) and entry.get("text"):
-                    parts.append(str(entry["text"]))
+                if isinstance(entry, dict):
+                    parts.extend(_attributed_slices(entry, fm))
         except Exception:
             pass
     return "\n\n".join(p for p in parts if p).strip()
+
+
+def _identity_names(fm: dict[str, Any]) -> list[str]:
+    names = [fm.get("canonical_name"), fm.get("name")]
+    aliases = fm.get("aliases") or []
+    if isinstance(aliases, str):
+        aliases = [aliases]
+    names.extend(aliases if isinstance(aliases, list) else [])
+    return sorted({str(name).strip() for name in names if str(name or "").strip()}, key=len, reverse=True)
+
+
+def _literal_attribution(source: str, fm: dict[str, Any]) -> dict[str, Any]:
+    """Capture literal name matches with offsets and their containing sentence."""
+    mentions: list[dict[str, Any]] = []
+    for name in _identity_names(fm):
+        for match in re.finditer(rf"(?<![\w]){re.escape(name)}(?![\w])", source, flags=re.IGNORECASE):
+            start, end = match.span()
+            left = max(source.rfind(mark, 0, start) for mark in (".", "!", "?", "\n")) + 1
+            stops = [pos for mark in (".", "!", "?", "\n") if (pos := source.find(mark, end)) >= 0]
+            right = min(stops) + 1 if stops else len(source)
+            mentions.append({"match": match.group(0), "start": start, "end": end,
+                             "excerpt": re.sub(r"\s+", " ", source[left:right]).strip()})
+    # Keep overlapping canonical/alias matches deterministic and avoid duplicate slices.
+    unique = {(m["start"], m["end"]): m for m in mentions}
+    return {"mentions": sorted(unique.values(), key=lambda item: (item["start"], item["end"])),
+            "resolver": _ATTRIBUTION_RESOLVER,
+            "status": "verified" if unique else "unverified"}
+
+
+def _attributed_slices(entry: dict[str, Any], fm: dict[str, Any]) -> list[str]:
+    text = str(entry.get("text") or "")
+    attribution = entry.get("attribution")
+    if isinstance(attribution, dict):
+        if attribution.get("status") == "unverified":
+            return []
+        mentions = attribution.get("mentions") or []
+        slices = [str(m.get("excerpt") or "").strip() for m in mentions if isinstance(m, dict)]
+        if slices:
+            return slices
+        return []
+    # Backfill behavior for old active/archive entries: deterministic literal
+    # matching only; never ask a model to infer identity retroactively.
+    derived = _literal_attribution(text, fm)
+    return [str(m["excerpt"]) for m in derived["mentions"] if m.get("excerpt")]
 
 
 _SCAFFOLDING = re.compile(

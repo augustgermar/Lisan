@@ -216,6 +216,20 @@ Quarantining a batch:
 
 Quarantine does not delete files or memory records. It only blocks them from normal use.
 
+## Person identity candidates
+
+Person records created from conversation fanout, reference ingestion, life-note
+ingestion, or draft promotion require a literal full-name match in the source
+plus at least one corroborating signal: relationship, date of birth, contact
+information, role/organization, or an explicit owner statement. The threshold
+is deterministic; a writer-generated summary does not count as evidence.
+
+Weak or ambiguous candidates are not minted or merged. Lisan writes an
+owner-readable Markdown record under `quarantine/identity-candidates/` and
+appends the cited decision to `quarantine/identity-candidates/decisions.jsonl`.
+The source note is retained as knowledge where applicable. The owner reviews
+these records manually; no automatic merge or adjudication is performed.
+
 ## Notes
 
 - Artifact ingestion is idempotent by content hash.

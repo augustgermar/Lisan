@@ -160,7 +160,11 @@ def promote_draft_to_episode(draft_path: Path, vault: Path) -> Path:
     if task == "knowledge":
         return _promote_to_knowledge(vault, fm, summary, created, doc.body)
     if task == "entity":
-        return _promote_to_entity(vault, fm, summary, doc.body)
+        try:
+            source_ref = draft_path.relative_to(vault).as_posix()
+        except ValueError:
+            source_ref = str(draft_path)
+        return _promote_to_entity(vault, fm, summary, doc.body, source_ref=source_ref)
 
     # Episode: rebuild from the Writer's structured output when the draft
     # preserves it — the real sections, not a stub.
@@ -309,11 +313,35 @@ def _promote_to_knowledge(vault: Path, fm: dict, summary: str, created: str, bod
     return record.path
 
 
-def _promote_to_entity(vault: Path, fm: dict, summary: str, body: str) -> Path:
+def _promote_to_entity(vault: Path, fm: dict, summary: str, body: str, *, source_ref: str = "") -> Path:
+    subtype = str(fm.get("subtype", "person"))
+    identity_evidence = None
+    if subtype == "person":
+        from .identity_quarantine import (
+            assess_person_identity,
+            exact_person_identity_paths,
+            log_identity_decision,
+            quarantine_identity_candidate,
+        )
+
+        identity_evidence = assess_person_identity(summary, body)
+        exact_matches = exact_person_identity_paths(vault, summary)
+        reason = "multiple_existing_identity_candidates" if len(exact_matches) > 1 else "insufficient_identity_evidence"
+        if len(exact_matches) > 1 or not identity_evidence["qualified"]:
+            candidate = quarantine_identity_candidate(
+                vault, name=summary, summary=summary, source_ref=source_ref,
+                evidence=identity_evidence, reason=reason,
+                matching_entities=sorted(str(path) for path in exact_matches),
+            )
+            log_identity_decision(
+                vault, name=summary, decision="quarantine", evidence=identity_evidence,
+                source_ref=source_ref, reason=reason,
+            )
+            raise ValueError(f"Person draft needs a full-name match and corroborating source evidence; candidate queued at {candidate}")
     record = new_entity(
         vault,
         summary,
-        subtype=str(fm.get("subtype", "person")),
+        subtype=subtype,
         significance=str(fm.get("significance", "low")),
         summary=summary,
         confidence=str(fm.get("confidence", "low")),
@@ -321,4 +349,12 @@ def _promote_to_entity(vault: Path, fm: dict, summary: str, body: str) -> Path:
         disclosure=str(fm.get("disclosure", "private")),
         review_after=str(fm.get("review_after", today_iso())),
     )
+    if subtype == "person" and identity_evidence is not None:
+        from .identity_quarantine import log_identity_decision
+
+        log_identity_decision(
+            vault, name=summary, decision="mint", evidence=identity_evidence,
+            source_ref=source_ref, entity_path=str(record.path),
+            reason="full_name_plus_corroborating_signal",
+        )
     return record.path
