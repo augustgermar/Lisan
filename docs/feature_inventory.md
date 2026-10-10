@@ -83,7 +83,7 @@ curl -fsSL "https://raw.githubusercontent.com/augustgermar/Lisan/main/install.sh
 
 This installer creates an isolated virtualenv under `~/.lisan`, so it works on macOS/Homebrew Python without hitting the PEP 668 "externally managed" error. The timestamp query string bypasses GitHub's raw-file cache, so you get the latest script immediately after a push.
 
-If you already have an activated virtualenv and want a manual install, you can still install from git with pip:
+If you already have an activated virtualenv and want a manual install, you can still install from git with the Python package installer:
 
 ```bash
 python3 -m pip install "lisan @ git+https://github.com/augustgermar/Lisan.git"
@@ -778,10 +778,15 @@ Installed skills live in `~/.local/share/Lisan/skills/` (override with
 
 A skill whose action leaves the machine (sending email, sending a text)
 declares `"requires_approval": true` in its `schema.json`. The gate runs at
-call time with the resolved arguments, through the same channel as codex
-approvals: an interactive prompt in CLI chat, approve/deny buttons on
-Telegram. In a context with no approval channel the action is refused, never
-silently run.
+call time with the resolved arguments. `lisan chat` prints the exact action
+and accepts only an explicit `y`/`yes`; Telegram shows approve/deny buttons.
+Enter, any other answer, and non-interactive/background contexts deny the action.
+
+Queued Adjutant approvals use a separate durable queue: `lisan confirm list`,
+`approve <id>`, `approve-all`, `deny <id>`, or `snooze <id> --days N`; Telegram's
+`/confirmations` view and buttons operate on the same queue. Approved work is
+re-checked against current intent before execution. `lisan skills approve <name>`
+promotes an agent-created skill and is not an action approval.
 
 ### Gmail setup (user-provisioned credentials)
 

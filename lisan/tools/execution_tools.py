@@ -279,8 +279,9 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "source": {"type": "string", "description": "Entity to absorb (name or id)"},
                 "target": {"type": "string", "description": "Entity that survives (name or id)"},
+                "rationale": {"type": "string", "description": "Owner's explicit reason these records are the same entity"},
             },
-            "required": ["source", "target"],
+            "required": ["source", "target", "rationale"],
         },
     },
     {
@@ -560,7 +561,9 @@ def build_tool_handlers(
             counterpart, message, vault=vault, db_path=db_path),
         "ratify_framework": lambda name, summary, source=None: _ratify_framework_tool(
             name, summary, source, vault=vault, db_path=db_path),
-        "merge_entities": lambda source, target: _merge_entities_tool(source, target, vault=vault, db_path=db_path),
+        "merge_entities": lambda source, target, rationale: _merge_entities_tool(
+            source, target, rationale, vault=vault, db_path=db_path
+        ),
         "ingest_files": lambda path, replace=False, mode="life": ingest_files_tool(
             path=path,
             replace=bool(replace),
@@ -603,11 +606,9 @@ def build_tool_handlers(
             skills_root(),
             vault=vault,
             config=config or load_config(),
-            # Anakin is the owner's command surface: when no approval channel
-            # is present, execution must not fail merely because a legacy
-            # approval gate expects one. Explicit intent.md DENY rules remain
-            # enforced by run_codex and the Adjutant.
-            approval_fn=approval_fn or (lambda *_args, **_kwargs: True),
+            # No approval channel means no approval: scheduled/background
+            # contexts must refuse gated actions rather than auto-approve.
+            approval_fn=approval_fn,
         )
     )
     return handlers
@@ -1265,10 +1266,10 @@ def _send_email_tool(subject: str, body: str, recipients: list[str], *, html_bod
         return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
 
-def _merge_entities_tool(source: str, target: str, *, vault: Path, db_path: Path | None) -> str:
+def _merge_entities_tool(source: str, target: str, rationale: str, *, vault: Path, db_path: Path | None) -> str:
     from .entity_merge import merge_entities
 
-    result = merge_entities(vault, source, target, db_path=db_path)
+    result = merge_entities(vault, source, target, db_path=db_path, owner_rationale=rationale)
     if result.get("merged"):
         return (f"Merged '{result['source']}' into '{result['target']}'. Its story is being "
                 "rewoven in the background; the old record is archived and recoverable.")

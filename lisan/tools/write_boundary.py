@@ -114,21 +114,41 @@ def _reserve_id(path: Path, vault: Path, record_id: str, db_path: Path) -> _Rese
             (vault_key, record_id, rel),
         ).fetchall()
         prior_rows = [tuple(str(value) for value in row) for row in rows]
+        table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='files'"
+        ).fetchone()
+        indexed = (
+            conn.execute("SELECT path FROM files WHERE id = ?", (record_id,)).fetchone()
+            if table
+            else None
+        )
         for row in rows:
             if row[1] == record_id and row[2] != rel:
+                # A prior file rename can leave the reservation ledger holding
+                # the old path even though the indexed record now lives at the
+                # requested path. Heal only a committed reservation whose old
+                # file is gone and whose materialized index confirms the exact
+                # replacement path. Pending/live reservations remain conflicts.
+                old_path = (vault / row[2]).resolve(strict=False)
+                if (
+                    row[3] == "committed"
+                    and not old_path.exists()
+                    and indexed is not None
+                    and str(indexed[0]) == rel
+                ):
+                    conn.execute(
+                        "DELETE FROM record_id_reservations WHERE vault_path=? AND record_id=?",
+                        (vault_key, record_id),
+                    )
+                    continue
                 raise RecordWriteRejected(path, [f"Duplicate id {record_id} reserved by {row[2]}"])
 
         # The materialized index predates this reservation ledger.  Consult it
         # too, so the first post-upgrade write cannot collide with a legacy id.
-        table = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='files'"
-        ).fetchone()
-        if table:
-            indexed = conn.execute("SELECT path FROM files WHERE id = ?", (record_id,)).fetchone()
-            if indexed and str(indexed[0]) != rel:
-                raise RecordWriteRejected(
-                    path, [f"Duplicate id {record_id} already indexed at {indexed[0]}"]
-                )
+        if indexed and str(indexed[0]) != rel:
+            raise RecordWriteRejected(
+                path, [f"Duplicate id {record_id} already indexed at {indexed[0]}"]
+            )
 
         conn.execute(
             "DELETE FROM record_id_reservations WHERE vault_path = ? AND record_path = ?",

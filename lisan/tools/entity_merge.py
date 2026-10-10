@@ -7,11 +7,11 @@ the base), and this module closes the other half: merging fragments that
 already exist.
 
 A merge never destroys data:
-- the fragment's narrative and source_log entries are appended to the
-  survivor's durable source_log (dated, provenance-marked);
+- the fragment's source_log entries are appended to the survivor's log;
+- the full fragment Markdown (narrative and source_log included) is archived;
 - the fragment's names become the survivor's aliases, so every future
   mention binds to the survivor;
-- the fragment file itself moves to archive/entities/ (reversible);
+- the owner rationale is recorded in the survivor's merge_history;
 - one compaction job re-tells the survivor's story with the new material.
 
 Ambiguous candidates are never merged automatically — they surface as
@@ -185,9 +185,14 @@ def merge_entities(
     target: str,
     *,
     db_path: Path | None = None,
+    owner_rationale: str | None = None,
 ) -> dict[str, Any]:
     """Merge entity *source* (name or id) into *target*. Returns a summary.
-    Refuses identity merges and missing entities; never guesses."""
+    Requires explicit owner adjudication; refuses identity merges and missing
+    entities, and never guesses."""
+    rationale = str(owner_rationale or "").strip()
+    if not rationale:
+        return {"merged": False, "reason": "owner adjudication rationale is required"}
     src = _find_entity(vault, source)
     dst = _find_entity(vault, target)
     if src is None:
@@ -229,16 +234,11 @@ def merge_entities(
             "structured_conflict_evidence": structured_conflicts,
         }
 
-    # 1. absorb content into the survivor's durable log
+    # 1. carry only source_log entries into the survivor log. The complete
+    # source Markdown (including its narrative) is retained in the archive
+    # below, so copying the narrative as an extra log event would inflate the
+    # source-log count and duplicate source material.
     log = [dict(e) for e in (dst_fm.get("source_log") or []) if isinstance(e, dict)]
-    src_body = re.sub(r"^#\s+.*$", "", src_doc.body, count=1, flags=re.M).strip()
-    if src_body:
-        log.append({
-            "date": today_iso(),
-            "text": f"(merged from duplicate entity '{src_name}') " + re.sub(r"\s+", " ", src_body)[:2400],
-            "folded": False,
-            "source": f"merge:{src.stem}",
-        })
     for entry in (src_fm.get("source_log") or []):
         if isinstance(entry, dict) and entry.get("text"):
             carried = dict(entry)
@@ -246,6 +246,18 @@ def merge_entities(
             carried.setdefault("source", f"merge:{src.stem}")
             log.append(carried)
     dst_fm["source_log"] = log
+    merge_history = [
+        dict(entry) for entry in (dst_fm.get("merge_history") or [])
+        if isinstance(entry, dict)
+    ]
+    merge_history.append({
+        "date": today_iso(),
+        "source_id": str(src_fm.get("id") or ""),
+        "source_name": src_name,
+        "source_path": str(src.relative_to(vault)),
+        "rationale": rationale,
+    })
+    dst_fm["merge_history"] = merge_history
 
     # 2. names: the fragment's identity becomes reachable aliases
     aliases = {str(a).strip() for a in (dst_fm.get("aliases") or []) if str(a).strip()}

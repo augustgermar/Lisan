@@ -121,6 +121,36 @@ def test_id_reservation_is_committed_transactionally(isolated_data, tmp_path):
     assert row == ("knowledge/one.md", "committed")
 
 
+def test_stale_renamed_reservation_is_healed_only_when_index_confirms_target(isolated_data, tmp_path):
+    vault = tmp_path / "vault"
+    path = vault / "knowledge" / "renamed.md"
+    write_markdown(path, _valid("knowledge.renamed"), "# Original\n")
+    conn = sqlite3.connect(isolated_data / "lisan.sqlite")
+    try:
+        conn.execute("CREATE TABLE files (id TEXT PRIMARY KEY, path TEXT NOT NULL)")
+        conn.execute("INSERT INTO files (id, path) VALUES (?, ?)", ("knowledge.renamed", "knowledge/renamed.md"))
+        conn.execute(
+            "UPDATE record_id_reservations SET record_path=? WHERE record_id=?",
+            ("knowledge/old-name.md", "knowledge.renamed"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    write_markdown(path, _valid("knowledge.renamed", summary="Updated."), "# Updated\n")
+
+    conn = sqlite3.connect(isolated_data / "lisan.sqlite")
+    try:
+        row = conn.execute(
+            "SELECT record_path, state FROM record_id_reservations WHERE record_id=?",
+            ("knowledge.renamed",),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row == ("knowledge/renamed.md", "committed")
+    assert load_markdown(path).frontmatter["summary"] == "Updated."
+
+
 def test_finalize_failure_restores_file_and_releases_reservation(isolated_data, tmp_path, monkeypatch):
     from lisan.tools import write_boundary
 

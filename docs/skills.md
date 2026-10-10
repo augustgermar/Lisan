@@ -56,7 +56,15 @@ defer.
 
 `tool.py` exposes `run(args: dict, vault: Path, config: dict) -> str`. Declaring
 `"requires_approval": true` in `schema.json` gates it at call time — use it for
-anything that leaves the machine.
+anything that leaves the machine. In `lisan chat`, Lisan displays the exact
+resolved action and waits for `y` or `yes`; all other answers (including Enter)
+deny it. Telegram presents approve/deny buttons. A non-interactive or
+background run has no owner present and therefore refuses the action.
+
+This is an immediate, per-action gate. It is separate from the `lisan confirm`
+commands (`list`, `approve`, `approve-all`, `deny`, `snooze`), which manage
+durable Adjutant task confirmations, and from `lisan skills approve <name>`,
+which promotes an agent-created skill in the skill lifecycle.
 
 ## Where skills live
 

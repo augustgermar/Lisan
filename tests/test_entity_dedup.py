@@ -68,7 +68,10 @@ class MergeTests(_Env):
                        body="Lumber delivered. Vee is helping on weekends.",
                        log=[{"date": "2026-07-01", "text": "lumber came", "folded": True}])
 
-        result = merge_entities(self.vault, "Deck Rebuild project (summer 2026)", "Deck Rebuild", db_path=self.db)
+        result = merge_entities(
+            self.vault, "Deck Rebuild project (summer 2026)", "Deck Rebuild",
+            db_path=self.db, owner_rationale="Test fixture: both records describe the same project.",
+        )
         self.assertTrue(result["merged"])
         self.assertFalse(frag.exists())
         archived = list((self.vault / "archive" / "entities").glob("merged-*.md"))
@@ -77,8 +80,10 @@ class MergeTests(_Env):
         fm = load_markdown(keep).frontmatter
         self.assertIn("Deck Rebuild project (summer 2026)", fm["aliases"])
         texts = " ".join(e["text"] for e in fm["source_log"])
-        self.assertIn("Lumber delivered", texts)   # narrative absorbed
         self.assertIn("lumber came", texts)        # log entries carried
+        self.assertEqual(len(fm["source_log"]), 2)  # sum of both source logs
+        self.assertIn("Lumber delivered", load_markdown(archived[0]).body)
+        self.assertIn("Test fixture", fm["merge_history"][-1]["rationale"])
         unfolded = [e for e in fm["source_log"] if not e.get("folded")]
         self.assertGreaterEqual(len(unfolded), 1)  # compaction has material
         from lisan.tools.jobs import list_jobs
@@ -90,11 +95,16 @@ class MergeTests(_Env):
         _entity(self.vault, "a", "Alpha")
         self.assertFalse(merge_entities(self.vault, "Alpha", "Alpha", db_path=self.db)["merged"])
         self.assertFalse(merge_entities(self.vault, "Ghost", "Alpha", db_path=self.db)["merged"])
+        no_rationale = merge_entities(self.vault, "Alpha", "Alpha", db_path=self.db)
+        self.assertIn("owner adjudication rationale", no_rationale["reason"])
 
     def test_merge_resolves_by_stem_too(self):
         _entity(self.vault, "radio", "Community Radio Station")
         _entity(self.vault, "radio-work-day", "Community Radio Station work day")
-        result = merge_entities(self.vault, "radio-work-day", "Community Radio Station", db_path=self.db)
+        result = merge_entities(
+            self.vault, "radio-work-day", "Community Radio Station", db_path=self.db,
+            owner_rationale="Test fixture: both records describe the same station.",
+        )
         self.assertTrue(result["merged"])
 
     def test_merge_refuses_explicit_owner_distinction_in_transcript(self):
@@ -110,7 +120,8 @@ class MergeTests(_Env):
         )
 
         result = merge_entities(
-            self.vault, "Robert Hollis", "Robert Nash", db_path=self.db
+            self.vault, "Robert Hollis", "Robert Nash", db_path=self.db,
+            owner_rationale="Test fixture rationale.",
         )
 
         self.assertFalse(result["merged"])
@@ -126,7 +137,10 @@ class MergeTests(_Env):
         nora = _entity(self.vault, "nora-castellan", "Nora Castellan", kind="person", log=[
             {"date": "2026-05-15", "text": "Born August 9", "folded": True},
         ])
-        result = merge_entities(self.vault, "Mj", "Nora Castellan", db_path=self.db)
+        result = merge_entities(
+            self.vault, "Mj", "Nora Castellan", db_path=self.db,
+            owner_rationale="Test fixture rationale.",
+        )
         self.assertFalse(result["merged"])
         self.assertIn("structured identity attributes conflict", result["reason"])
         self.assertTrue(mj.exists() and nora.exists())
@@ -137,7 +151,10 @@ class MergeTests(_Env):
     def test_merge_does_not_promote_note_title_to_person_alias(self):
         marisol = _entity(self.vault, "marisol", "Marisol", kind="person")
         team = _entity(self.vault, "team-marisol", "Team Marisol", kind="person")
-        result = merge_entities(self.vault, "Team Marisol", "Marisol", db_path=self.db)
+        result = merge_entities(
+            self.vault, "Team Marisol", "Marisol", db_path=self.db,
+            owner_rationale="Test fixture: same person; title is not an identity alias.",
+        )
         self.assertTrue(result["merged"])
         self.assertNotIn("Team Marisol", load_markdown(marisol).frontmatter["aliases"])
         self.assertFalse(team.exists())

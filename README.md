@@ -225,12 +225,24 @@ reporter ──> the same capture pipeline as everything else
              (the Skeptic reads the Adjutant's claims too)
 ```
 
-Confirmations are approved or denied by you — CLI or Telegram, with the
-full outgoing content shown, never a summary — and re-checked against
-current intent at execution time: a stale approval loses to a new
-never-rule. Schedules are owner-editable records; the jobs table is
-just their alarm clock. `lisan adjutant daemon` runs the cycle on an
-interval, one lockfile per vault, and every halt says why, loudly.
+There are two approval moments, both explicit and deny-by-default:
+
+- **Queued Adjutant confirmations** are durable and can be reviewed later:
+  `lisan confirm list`, then `lisan confirm approve <id>`, `deny <id>`, or
+  `snooze <id> --days 3`. `lisan confirm approve-all` approves every item
+  currently pending in that queue. Telegram exposes the same queue as `/confirmations`
+  and buttons. An approved task runs on a later Adjutant cycle and is checked
+  against current intent again; approval cannot override a newer `never` rule.
+- **Immediate tool approvals** happen inside `lisan chat`: the exact action is
+  shown and only `y`/`yes` approves it; Enter, any other answer, or unavailable
+  input denies it. Telegram uses its approval buttons for the same gated
+  action. Non-interactive/background contexts refuse gated actions.
+
+`lisan skills approve <name>` is different: it promotes an agent-created skill
+in the skill lifecycle; it does not approve a pending action. Schedules are
+owner-editable records; the jobs table is just their alarm clock. The
+`lisan adjutant daemon` runs the cycle on an interval, one lockfile per vault,
+and every halt says why, loudly.
 
 **Inputs beyond chat**: Telegram (an always-on service with the same
 memory behind it), reference-document ingestion with sensitivity
@@ -329,6 +341,10 @@ lisan intent check work run_local_scripts   # dry-run any gate decision
 lisan adjutant run         # one cycle: poll -> gate -> log verdicts
 lisan adjutant status      # last cycle, halts, pending confirmations
 lisan confirm list         # approve/deny what's waiting on you
+lisan confirm approve <id> # approve one queued task
+lisan confirm approve-all  # approve every queued task
+lisan confirm deny <id>    # deny one queued task
+lisan confirm snooze <id> --days 3  # defer without approving
 lisan adjutant daemon      # the cycle on an interval (launchd example
                            #   in docs/adjutant_daemon.md)
 ```

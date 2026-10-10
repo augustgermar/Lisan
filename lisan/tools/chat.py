@@ -315,6 +315,7 @@ def run_chat(
             advice_topic=advice_topic,
             domain_override=domain_override,
             db_path=db_path,
+            approval_fn=_cli_approval_fn,
         )
 
         response = str(turn_result.get("response") or "").strip()
@@ -445,6 +446,26 @@ def _process_chat_turn(
         result["trace_summary"] = finalized.summary()
         result["trace"] = finalized.as_dict()
         reset_current_turn_trace(token)
+
+
+def _cli_approval_fn(
+    tool_name: str,
+    args: dict[str, Any],
+    *,
+    input_fn=input,
+    output_fn=print,
+) -> bool:
+    """Synchronous, deny-by-default approval for consequential chat tools."""
+    description = str(args.get("task") or json.dumps(args, ensure_ascii=True, sort_keys=True))
+    output_fn(f"\nOwner approval required for {tool_name}:\n\n{description}")
+    try:
+        answer = input_fn("Approve this exact action? [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        output_fn("Approval not granted; action will not run.")
+        return False
+    approved = answer in {"y", "yes"}
+    output_fn("Approved." if approved else "Not approved; action will not run.")
+    return approved
 
 
 def _extract_capture_response(result: dict[str, Any]) -> str:

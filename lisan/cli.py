@@ -189,10 +189,20 @@ def build_parser() -> argparse.ArgumentParser:
     confirm_approve.add_argument("id")
     confirm_approve.add_argument("--vault", type=Path, default=vault_root())
     confirm_approve.add_argument("--db-path", type=Path, default=None)
+    confirm_approve_all = confirm_subparsers.add_parser(
+        "approve-all", help="Approve every currently pending Adjutant confirmation",
+    )
+    confirm_approve_all.add_argument("--vault", type=Path, default=vault_root())
+    confirm_approve_all.add_argument("--db-path", type=Path, default=None)
     confirm_deny = confirm_subparsers.add_parser("deny", help="Deny a confirmation by id")
     confirm_deny.add_argument("id")
     confirm_deny.add_argument("--vault", type=Path, default=vault_root())
     confirm_deny.add_argument("--db-path", type=Path, default=None)
+    confirm_snooze = confirm_subparsers.add_parser("snooze", help="Defer a pending confirmation")
+    confirm_snooze.add_argument("id")
+    confirm_snooze.add_argument("--days", type=int, default=1, help="Defer for 1–30 days (default: 1)")
+    confirm_snooze.add_argument("--vault", type=Path, default=vault_root())
+    confirm_snooze.add_argument("--db-path", type=Path, default=None)
 
     manifest = subparsers.add_parser("manifest", help="Generate derived manifests")
     manifest.add_argument("--vault", type=Path, default=vault_root())
@@ -980,6 +990,7 @@ def build_parser() -> argparse.ArgumentParser:
     entities_merge = entities_sub.add_parser("merge", help="Merge one entity into another (content absorbed, fragment archived, names become aliases)")
     entities_merge.add_argument("source", help="Entity to absorb (name, id, or file stem)")
     entities_merge.add_argument("target", help="Entity that survives")
+    entities_merge.add_argument("--rationale", required=True, help="Owner's reason for adjudicating these as the same entity")
 
     deviations_cmd = subparsers.add_parser("deviations", help="The agent's own aches: deviations detected in its model of the world and itself")
     deviations_sub = deviations_cmd.add_subparsers(dest="deviations_command", required=True)
@@ -1244,11 +1255,29 @@ def main(argv: list[str] | None = None) -> int:
             deny_confirmation,
             format_pending,
             list_pending,
+            snooze_confirmation,
         )
 
         if args.confirm_command == "list":
             print(format_pending(args.vault, list_pending(args.db_path)))
             return 0
+        if args.confirm_command == "approve-all":
+            pending = list_pending(args.db_path)
+            if not pending:
+                print("No pending confirmations to approve.")
+                return 0
+            failures = 0
+            for item in pending:
+                confirmation_id = str(item["id"])
+                try:
+                    outcome = approve_confirmation(args.vault, confirmation_id, db_path=args.db_path)
+                    print(f"Approved {outcome['id']} (task {outcome['task_id']}).")
+                except (KeyError, ValueError) as exc:
+                    failures += 1
+                    print(f"Could not approve {confirmation_id}: {exc}", file=sys.stderr)
+            approved = len(pending) - failures
+            print(f"Approved {approved} of {len(pending)} pending confirmations; approved tasks execute on a later Adjutant cycle.")
+            return 1 if failures else 0
         try:
             if args.confirm_command == "approve":
                 outcome = approve_confirmation(args.vault, args.id, db_path=args.db_path)
@@ -1257,6 +1286,12 @@ def main(argv: list[str] | None = None) -> int:
             if args.confirm_command == "deny":
                 outcome = deny_confirmation(args.vault, args.id, db_path=args.db_path)
                 print(f"Denied {outcome['id']} (task {outcome['task_id']}).")
+                return 0
+            if args.confirm_command == "snooze":
+                outcome = snooze_confirmation(
+                    args.vault, args.id, days=args.days, db_path=args.db_path,
+                )
+                print(f"Snoozed {outcome['id']} until {outcome['snoozed_until']}.")
                 return 0
         except (KeyError, ValueError) as exc:
             print(str(exc), file=sys.stderr)
@@ -2188,7 +2223,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\n{len(cands)} candidate(s). Merge with: lisan entities merge <source> <target>")
             return 0
         if args.entities_command == "merge":
-            result = merge_entities(vault, args.source, args.target, db_path=sqlite_path())
+            result = merge_entities(
+                vault, args.source, args.target, db_path=sqlite_path(),
+                owner_rationale=args.rationale,
+            )
             if result.get("merged"):
                 print(f"Merged '{result['source']}' into '{result['target']}' (fragment archived: {result['archived']})")
                 return 0
