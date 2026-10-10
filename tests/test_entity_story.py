@@ -144,6 +144,7 @@ class RewriteEntityStoryTests(unittest.TestCase):
             "arc_note": arc_note,
             "significance": "high",
             "significance_rationale": "Durable relationship and recurring collaboration context.",
+            "summary": "A colleague who has recurring project-roadmap context with {{principal}}.",
         }
 
     def test_rewrite_updates_entity_body(self) -> None:
@@ -179,6 +180,37 @@ class RewriteEntityStoryTests(unittest.TestCase):
         self.assertIn("Maya Smith", doc.body)
         self.assertEqual(doc.frontmatter["significance"], "high")
         self.assertIn("Durable relationship", doc.frontmatter["significance_rationale"])
+        self.assertIn("recurring project-roadmap context", doc.frontmatter["summary"])
+
+    def test_compaction_updates_summary_with_legal_and_practical_relationship_context(self) -> None:
+        entity_path = _seed_entity(self.vault, "ruth-varga", "Ruth Varga", "A person close to {{principal}}.")
+        draft_path = self.vault / "drafts" / "relationship-clarification.md"
+        draft_path.parent.mkdir(parents=True, exist_ok=True)
+        draft_path.write_text(dump_markdown(
+            {"id": "draft.relationship", "type": "draft", "created": "2026-08-16"},
+            "Ruth Varga and I retain a legal connection but live separately; the practical relationship is different."
+        ), encoding="utf-8")
+        response = {
+            "narrative": "Ruth Varga and {{principal}} retain a legal connection but live separately; see the narrative for the full situation.",
+            "arc_note": "Clarified the legal and practical relationship status.",
+            "summary": "A legal relationship remains while the two live separately; see narrative for the full context.",
+            "significance": "high",
+            "significance_rationale": "Ongoing family relationship context.",
+        }
+        with patch("lisan.agents.writer.WriterAgent") as MockWriter:
+            instance = MagicMock()
+            instance.run_json.return_value = response
+            MockWriter.return_value = instance
+            from lisan.tools.entity_story import rewrite_entity_story
+            result = rewrite_entity_story(
+                vault=self.vault, entity_path=entity_path, draft_path=draft_path,
+                db_path=self.db_path, force_compact=True,
+            )
+        self.assertTrue(result["updated"])
+        stored = load_markdown(entity_path).frontmatter["summary"]
+        self.assertIn("legal relationship", stored.lower())
+        self.assertIn("live separately", stored)
+        self.assertIn("see narrative", stored.lower())
 
     def test_no_bypass_tokenize_principal_called(self) -> None:
         """rewrite_entity_story must route the narrative through tokenize_principal.

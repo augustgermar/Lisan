@@ -20,6 +20,10 @@
     "significance_rationale": {
       "type": "string",
       "description": "Brief evidence-based reason for the selected significance."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Concise frontmatter summary based on the updated narrative. Carry relational/legal nuance, or explicitly defer with 'see narrative for full context' when a single-valued summary would flatten the situation."
     }
   },
   "additionalProperties": false

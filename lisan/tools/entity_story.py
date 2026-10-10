@@ -209,6 +209,7 @@ def _compact(
     if significance not in {"high", "medium", "low"}:
         significance = str(fm.get("significance") or "low").lower()
     significance_rationale = str(result.get("significance_rationale") or "").strip()
+    updated_summary = str(result.get("summary") or "").strip()
     if not narrative:
         # An empty narrative is a provider failure (nine of them in one
         # burst on 2026-07-05), not a result — raise so the queue's retry
@@ -243,6 +244,8 @@ def _compact(
     fm["significance"] = significance
     if significance_rationale:
         fm["significance_rationale"] = significance_rationale
+    if updated_summary:
+        fm["summary"] = updated_summary
     fm["updated"] = today_iso()
     write_markdown(entity_path, fm, f"# {canonical_name}\n\n{narrative}\n")
     _reindex(entity_path, vault, db_path)

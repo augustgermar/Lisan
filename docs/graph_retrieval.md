@@ -30,6 +30,12 @@ Entity-story compaction assigns significance to the accumulated story using the
 rubric in `prompts/writer_entity_story_v1.md`. The writer must state a rationale;
 if it omits or emits an invalid level, the existing level is retained.
 
+Entity frontmatter summaries are updated from the same material as their
+narratives. They carry both the legal and practical dimensions when possible;
+when a situation resists a concise field, the summary explicitly says to see
+the narrative for full context instead of presenting a true fragment as the
+whole state.
+
 ## What Expands
 
 Graph traversal follows explicit links only. The current expansion rules are:
