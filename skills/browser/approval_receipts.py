@@ -42,7 +42,7 @@ def audit_root() -> Path:
     # A configured override must still stay outside the code checkout and
     # vault; those are not durable audit boundaries and may be model-visible.
     try:
-        from ..paths import repo_root, vault_root
+        from lisan.paths import repo_root, vault_root
         resolved = root.resolve()
         protected = (repo_root().resolve(), vault_root().resolve())
         if any(resolved == path or path in resolved.parents for path in protected):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import json
 from pathlib import Path
 from types import ModuleType
@@ -138,6 +139,8 @@ def load_skill_handlers(
                         f"Approval was not granted, so I did not run {_name}. This is the "
                         "approval gate — not a permissions or system error."
                     )
+            if "approval_fn" in inspect.signature(_run).parameters:
+                return str(_run(args, vault, config, approval_fn=approval_fn))
             return str(_run(args, vault, config))
 
         handlers[name] = _handler

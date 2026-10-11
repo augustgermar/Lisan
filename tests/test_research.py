@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from lisan.tools.research import BraveSearchProvider, BrowserSearchProvider, SearchProviderError, TavilySearchProvider, WebSearchProvider, installed_published_providers, search_published_sources
+from lisan.tools.research import BraveSearchProvider, SearchProviderError, TavilySearchProvider, WebSearchProvider, installed_published_providers, search_published_sources
 from lisan.tools.research import _normalize_search_result_url
 
 
@@ -85,7 +85,7 @@ def test_web_provider_rejects_private_and_non_http_links():
 
 def test_published_provider_is_explicitly_enabled():
     assert installed_published_providers(config={}) == []
-    providers = installed_published_providers(config={"sources": {"web": {"enabled": True}}})
+    providers = installed_published_providers(config={"sources": {"web": {"enabled": True, "provider": "tavily"}}})
     assert len(providers) == 1
     assert providers[0].name == "web_search"
 
@@ -203,49 +203,3 @@ def test_brave_provider_without_a_key_names_the_fix():
         assert "BRAVE_API_KEY" in str(exc) and "brave.json" in str(exc)
     else:
         raise AssertionError("a missing key must raise, never return []")
-
-
-def test_browser_backend_is_the_default_and_needs_no_account():
-    providers = installed_published_providers(config={"sources": {"web": {"enabled": True}}})
-    assert [type(p).__name__ for p in providers] == ["BrowserSearchProvider"]
-
-
-def test_browser_provider_tries_each_engine_and_reports_total_failure():
-    calls = []
-
-    def searcher(query, *, limit, engine, settle_seconds):
-        calls.append(engine)
-        if engine == "google":
-            return {"ok": False, "error": "consent wall"}
-        return {"ok": True, "engine": engine, "results": [
-            {"url": "https://www.youtube.com/@psychacks", "title": "Orion Taraban - PsycHacks",
-             "snippet": "Psychology channel"},
-            {"url": "https://192.168.1.5/admin", "title": "router", "snippet": "private"},
-        ]}
-
-    provider = BrowserSearchProvider(engines=("google", "duckduckgo"), searcher=searcher)
-    findings = provider.search("Psyhacks", limit=5)
-    # A consent wall on one engine is not an answer about the web.
-    assert calls == ["google", "duckduckgo"]
-    assert [f.locator for f in findings] == ["https://www.youtube.com/@psychacks"]
-
-    def always_broken(query, *, limit, engine, settle_seconds):
-        return {"ok": False, "error": "browser could not be started"}
-
-    try:
-        BrowserSearchProvider(engines=("google",), searcher=always_broken).search("x", limit=3)
-    except SearchProviderError as exc:
-        assert "browser could not be started" in str(exc)
-    else:
-        raise AssertionError("every engine failing must raise, never return []")
-
-
-def test_browser_search_refuses_an_unknown_engine_without_touching_chrome():
-    """Argument validation must not depend on a desktop session."""
-    from lisan.tools.browser import SEARCH_ENGINES, browser_search
-
-    assert "google" in SEARCH_ENGINES and "duckduckgo" in SEARCH_ENGINES
-    assert browser_search("anything", engine="altavista") == {
-        "ok": False, "error": "unknown search engine: 'altavista'",
-    }
-    assert browser_search("", engine="google")["ok"] is False

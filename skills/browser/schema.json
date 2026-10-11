@@ -1,0 +1,30 @@
+{
+  "description": "Use the installed managed browser for persistent Chrome navigation, rendered web search, reading, clicks, typing, screenshots, tabs, or owner handoff.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": {"type": "string", "enum": ["open", "goto", "cache_tdx_token", "read", "elements", "click", "type", "screenshot", "tabs", "switch_tab", "back", "search", "handoff", "handoff_finish", "sync_session"]},
+      "lane": {"type": "string", "enum": ["quiet", "loud"]},
+      "query": {"type": "string"},
+      "engine": {"type": "string", "enum": ["duckduckgo", "google", "bing"]},
+      "limit": {"type": "integer"},
+      "settle_seconds": {"type": "number"},
+      "reason": {"type": "string"},
+      "url": {"type": "string"},
+      "target": {"type": "string"},
+      "text": {"type": "string"},
+      "submit": {"type": "boolean"},
+      "index": {"type": "integer"},
+      "max_chars": {"type": "integer"},
+      "full_page": {"type": "boolean"},
+      "auto_login": {"type": "boolean"},
+      "extract_token": {"type": "boolean"},
+      "source": {"type": "string", "enum": ["quiet", "loud"]},
+      "target_lane": {"type": "string", "enum": ["quiet", "loud"]},
+      "receipt_id": {"type": "string"},
+      "expected_page_url": {"type": "string"},
+      "expected_control_info": {"type": "object"}
+    },
+    "required": ["action"]
+  }
+}

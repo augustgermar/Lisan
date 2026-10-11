@@ -35,7 +35,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
-from .approval_receipts import ReceiptError, consume_receipt
+try:
+    from .approval_receipts import ReceiptError, consume_receipt
+except ImportError:  # loaded as a standalone installed-skill module
+    from approval_receipts import ReceiptError, consume_receipt
+from lisan.tools.log import log_error
 
 
 # The browser tool's approval surface is deliberately explicit.  The
@@ -73,7 +77,7 @@ _CLICKABLES = (
     "a, button, [role=button], [role=link], [role=tab], [role=menuitem], "
     "input, select, textarea"
 )
-from .log import log_error
+from lisan.tools.log import log_error
 
 # Two lanes, because one desktop cannot hold two workers.
 #
@@ -140,7 +144,7 @@ def lane_port(lane: str) -> int:
 
 
 def profile_dir() -> Path:
-    from ..paths import vault_root
+    from lisan.paths import vault_root
 
     # sibling of the vault, inside the install — never inside the repo
     return vault_root().parent / "browser-profile"
@@ -158,7 +162,7 @@ def chrome_args() -> list[str]:
 
 
 def quiet_profile_dir() -> Path:
-    from ..paths import vault_root
+    from lisan.paths import vault_root
 
     # sibling of the loud profile, same reasoning: inside the install,
     # never inside the repo
@@ -580,7 +584,7 @@ def browser_handoff(
 
 
 def _pending_path() -> Path:
-    from ..paths import vault_root
+    from lisan.paths import vault_root
 
     return vault_root() / "state" / "browser-handoff.json"
 
@@ -810,8 +814,8 @@ def _notify_owner_handoff(text: str, *, notify: Callable[[str], bool] | None = N
     if notify is not None:
         return bool(notify(text))
     try:
-        from ..paths import vault_root
-        from .escalation import _notify_owner
+        from lisan.paths import vault_root
+        from lisan.tools.escalation import _notify_owner
 
         return bool(_notify_owner(text, chat_id=None, vault=vault_root()))
     except Exception as exc:

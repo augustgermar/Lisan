@@ -305,7 +305,7 @@
     },
     "web": {
       "enabled": false,
-      "provider": "browser",
+      "provider": "tavily",
       "engines": [
         "google",
         "duckduckgo"

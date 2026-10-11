@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from lisan.tools.browser import (
+from browser import (
     CDP_PORT,
     LANE_LOUD,
     LANE_QUIET,
@@ -84,7 +84,7 @@ def test_session_bridge_carries_the_owners_login_between_lanes():
 
 
 def test_tdx_token_is_extracted_and_cached_without_being_returned(tmp_path, monkeypatch):
-    from lisan.tools.browser import _extract_tdx_token, _store_tdx_token
+    from browser import _extract_tdx_token, _store_tdx_token
 
     token = "header.payload.signature"
 
@@ -119,7 +119,7 @@ def test_handoff_does_not_block_the_conversation_by_default():
     """
     import inspect
 
-    from lisan.tools.browser import browser_handoff_finish
+    from browser import browser_handoff_finish
 
     signature = inspect.signature(browser_handoff)
     assert signature.parameters["wait_seconds"].default == 0.0
@@ -127,22 +127,21 @@ def test_handoff_does_not_block_the_conversation_by_default():
 
 
 def test_browser_tool_exposes_the_full_handoff_cycle():
-    from lisan.tools.execution_tools import TOOLS
+    import json
+    from pathlib import Path
 
-    tool = next(item for item in TOOLS if item["name"] == "browser")
+    tool = json.loads((Path(__file__).resolve().parents[1] / "schema.json").read_text())
     actions = tool["parameters"]["properties"]["action"]["enum"]
     for verb in ("search", "handoff", "handoff_finish", "sync_session"):
         assert verb in actions
-    described = tool["description"]
-    # The description is what actually teaches the flow; the model never
-    # reads browser.py.
+    described = (Path(__file__).resolve().parents[1] / "SKILL.md").read_text()
     assert "quiet" in described.lower() and "handoff_finish" in described
-    assert "RETURNS IMMEDIATELY" in described
+    assert "returns immediately" in described.lower()
 
 
 def test_consequential_browser_actions_require_a_receipt():
     """The model cannot authorize an irreversible action with its own flag."""
-    from lisan.tools.execution_tools import _browser_tool
+    from tool import _browser_tool
 
     for kwargs in (
         {"target": "Create project", "owner_approved": True},

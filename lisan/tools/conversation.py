@@ -232,9 +232,9 @@ def _owner_profile(vault: Path) -> str:
             standing = style.split(marker, 1)[1].strip()
             if standing:
                 parts.append("Standing instructions from the user about how to behave "
-                             "(honor these every turn):\n" + file_line(style, default_ttl_days=30) + "\n" + standing[:1200])
-    except Exception:
-        pass
+                             "(honor these every turn):\n" + file_line(vault / "primer" / "operating-style.md", default_ttl_days=30) + "\n" + standing[:1200])
+    except Exception as exc:
+        log_error(vault, "conversation.owner_profile operating-style load failed", exc)
     parts.append(_self_identity_line(vault))
     return "\n\n".join(p for p in parts if p)
 

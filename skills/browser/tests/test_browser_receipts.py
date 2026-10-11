@@ -4,19 +4,22 @@ import inspect
 
 import pytest
 
-from lisan.tools.approval_receipts import ReceiptError, action_records_path, audit_root, consume_receipt, issue_receipt, record_action_result
-from lisan.tools.browser import (
+from approval_receipts import ReceiptError, action_records_path, audit_root, consume_receipt, issue_receipt, record_action_result
+from browser import (
     NON_CONSEQUENTIAL_BROWSER_PATHS,
     RECEIPT_REQUIRED_BROWSER_PATHS,
     browser_action,
     browser_handoff,
 )
-from lisan.tools.execution_tools import _browser_tool
-from lisan.tools.execution_tools import TOOLS
+from tool import _browser_tool
+import json
+from pathlib import Path
+
+BROWSER_SCHEMA = json.loads((Path(__file__).resolve().parents[1] / "schema.json").read_text())
 
 
 def test_browser_action_surface_is_classified_and_receipt_gated():
-    browser_schema = next(tool for tool in TOOLS if tool["name"] == "browser")
+    browser_schema = BROWSER_SCHEMA
     schema_actions = set(browser_schema["parameters"]["properties"]["action"]["enum"])
     classified_actions = {
         path.split("[", 1)[0]
@@ -104,7 +107,7 @@ def test_valid_receipt_is_consumed_before_execution(monkeypatch, tmp_path):
     _receipt_dir(monkeypatch, tmp_path)
     args = {"lane": "quiet", "target": "Create project"}
     receipt = issue_receipt(tool="browser", action="click", target="Create project", arguments=args)
-    monkeypatch.setattr("lisan.tools.browser.ensure_browser", lambda lane: False)
+    monkeypatch.setattr("browser.ensure_browser", lambda lane: False)
     result = browser_action("click", receipt_id=receipt, **args)
     assert result.get("refused") is not True
     assert "could not be started" in result["error"]
@@ -120,7 +123,7 @@ def test_valid_handoff_auto_login_receipt_is_consumed_before_execution(monkeypat
         "auto_login": True,
     }
     receipt = issue_receipt(tool="browser", action="handoff", target=args["url"], arguments=args)
-    monkeypatch.setattr("lisan.tools.browser.ensure_browser", lambda lane: False)
+    monkeypatch.setattr("browser.ensure_browser", lambda lane: False)
     result = browser_handoff(receipt_id=receipt, **args)
     assert result.get("refused") is not True
     assert "could not be started" in result["error"]
@@ -152,7 +155,7 @@ def test_browser_tool_writes_result_after_consuming_receipt(monkeypatch, tmp_pat
     _receipt_dir(monkeypatch, tmp_path)
     args = {"lane": "quiet", "target": "Create project"}
     receipt = issue_receipt(tool="browser", action="click", target=args["target"], arguments=args)
-    monkeypatch.setattr("lisan.tools.browser.ensure_browser", lambda lane: False)
+    monkeypatch.setattr("browser.ensure_browser", lambda lane: False)
     result = __import__("json").loads(_browser_tool("click", receipt_id=receipt, **args))
     assert result["ok"] is False and result.get("refused") is not True
     lines = [__import__("json").loads(line) for line in action_records_path().read_text().splitlines()]
@@ -184,8 +187,8 @@ def test_action_ledger_rotates_and_retains_segments(monkeypatch, tmp_path):
 def test_audit_root_resolves_platform_paths(monkeypatch, tmp_path):
     monkeypatch.delenv("LISAN_AUDIT_DIR", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setattr("lisan.tools.approval_receipts.sys.platform", "darwin")
+    monkeypatch.setattr("approval_receipts.sys.platform", "darwin")
     assert audit_root() == tmp_path / "Library" / "Application Support" / "Lisan" / "audit"
-    monkeypatch.setattr("lisan.tools.approval_receipts.sys.platform", "linux")
+    monkeypatch.setattr("approval_receipts.sys.platform", "linux")
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     assert audit_root() == tmp_path / "state" / "lisan" / "audit"

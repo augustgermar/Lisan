@@ -247,8 +247,12 @@ class DreamerRunTests(unittest.TestCase):
         for n, text in enumerate(calls, start=1):
             self.assertIn(f"part {n} of {len(calls)}", text)
         body = out.read_text(encoding="utf-8")
-        self.assertIn("## Passes", body)
-        self.assertIn(f"{len(calls)} passes", body)
+        # Dreamer reports are compact operational telemetry now.  The
+        # durable manifest lives in frontmatter; the old prose section was
+        # deliberately removed in 281789e.
+        self.assertIn(f'"chunks": {len(calls)}', body)
+        self.assertIn('"records": 21', body)
+        self.assertNotIn("## Passes", body)
 
     def test_a_small_vault_still_runs_as_one_pass(self) -> None:
         from lisan.tools.dreamer_ops import run_dreamer_task
@@ -328,8 +332,11 @@ class AmplificationTests(unittest.TestCase):
 
         body = out.read_text(encoding="utf-8")
         self.assertNotIn("UNIQUEBODY", body, "the report must not archive record bodies")
-        self.assertIn("## Bundle Manifest", body)
-        self.assertIn("entities/people/p0.md", body, "but it must still name what was read")
+        self.assertIn('"chunks": 1', body)
+        self.assertIn('"records": 7', body)
+        self.assertIn('"bundle_chars": ', body)
+        self.assertIn("input_range: recent 365-day episodes, states, and entities (7 records)", body)
+        self.assertNotIn("## Bundle Manifest", body)
         self.assertLess(len(body), 20_000)
 
     def test_analyst_reads_dreamer_conclusions_not_archived_bundles(self) -> None:
