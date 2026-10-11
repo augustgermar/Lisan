@@ -9,6 +9,18 @@ version: 0.1.0
 This skill owns the platform-specific managed Chrome session. It is not part of
 Lisan core. Install it when a user wants browser automation.
 
+Install the skill's optional dependency with:
+
+```bash
+pip install -r skills/browser/requirements.txt
+```
+
+Run its tests separately from the core suite:
+
+```bash
+pytest skills/browser/tests
+```
+
 The executable `browser` tool provides two lanes:
 
 - `quiet` (default): a headless persistent Chrome session for autonomous work;
