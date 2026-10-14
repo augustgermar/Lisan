@@ -74,6 +74,40 @@ class ConversationAgent(PromptAgent):
             provider_error_mode=provider_error_mode,
             **kwargs,
         )
+        unavailable_tools = self._registered_unavailable_tools(result, tools)
+        if unavailable_tools:
+            recovery_input = (
+                user_input
+                + "\n\nINTERNAL TOOL-RECOVERY INSTRUCTION: Your previous response claimed that "
+                + ", ".join(unavailable_tools)
+                + " was unavailable, but the live registry for this turn contains that tool. "
+                + "Do not repeat the claim. If the user's request requires an action, call the "
+                + "appropriate registered tool now using the exact JSON tool-call format. "
+                + "If no action is required, state only that you did not call the tool."
+            )
+            recovery = self.complete_with_tools(
+                recovery_input,
+                significance=significance,
+                provider=provider,
+                model=model,
+                schema=schema if schema is not None else (self.output_schema() if needs_schema else None),
+                tools=tools,
+                tool_handlers=tool_handlers,
+                provider_error_mode=provider_error_mode,
+                max_iterations=min(int(kwargs.get("max_iterations", 10)), 3),
+                **{k: v for k, v in kwargs.items() if k != "max_iterations"},
+            )
+            if recovery.tool_calls:
+                result = recovery
+            else:
+                result.data = {
+                    **(result.data if isinstance(result.data, dict) else {}),
+                    "response": (
+                        "I did not call " + ", ".join(unavailable_tools)
+                        + "; it is registered, but no action was performed."
+                    ),
+                }
+                result.text = json.dumps(result.data, ensure_ascii=True)
         # Tool calls are prompt-mediated, so a provider can return ordinary
         # prose even though the tool is present. If it then claims check-in is
         # unavailable, give the same turn one narrow recovery attempt. This
@@ -140,6 +174,59 @@ class ConversationAgent(PromptAgent):
             "isn't available", "is not available", "not available", "unavailable",
             "isn't accessible", "is not accessible", "can't access",
         ))
+
+    @staticmethod
+    def _registered_unavailable_tools(result: Any, tools: list[dict[str, Any]]) -> list[str]:
+        """Return registered tools the model falsely described as absent."""
+        data = result.data if isinstance(result.data, dict) else {}
+        text = str(data.get("response") or result.text or "").lower().replace("’", "'")
+        normalized = re.sub(r"\s+", " ", text)
+        unavailable = (
+            "not available", "isn't available", "is not available", "unavailable",
+            "not exposed", "isn't exposed", "is not exposed", "not accessible",
+        )
+        generic_unavailable = (
+            "doesn't expose", "does not expose", "didn't expose", "did not expose",
+            "don't expose", "do not expose",
+        )
+        neither_exposed = bool(re.search(
+            r"\bneither\b.+\bnor\b.+\b(?:is|are|was|were)\s+(?:not\s+)?exposed\b",
+            normalized,
+        ))
+        if not (
+            any(phrase in normalized for phrase in unavailable)
+            or any(phrase in normalized for phrase in generic_unavailable)
+            or neither_exposed
+        ):
+            return []
+        called = {str(call.get("tool") or "") for call in (result.tool_calls or [])}
+        # Models sometimes describe a capability by role rather than by its
+        # registered name ("the printer or executor tools"). Map only these
+        # unambiguous domain terms; do not guess from a generic "tools" claim.
+        aliases = {
+            "printer-management": ("printer", "printing", "cups", "jetdirect"),
+            "execute_task": ("executor", "execution", "shell command", "cli command"),
+        }
+        registered: list[str] = []
+        for tool in tools:
+            name = str(tool.get("name") or "")
+            if (
+                name
+                and name not in called
+                and re.search(
+                    rf"(?<![a-z0-9_-]){re.escape(name.lower())}(?![a-z0-9_-])",
+                    normalized,
+                )
+            ):
+                registered.append(name)
+                continue
+            if (
+                name
+                and name not in called
+                and any(alias in normalized for alias in aliases.get(name, ()))
+            ):
+                registered.append(name)
+        return registered
 
     accepts_prose_finale = True
 

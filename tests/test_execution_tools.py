@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 from lisan.agents.interlocutor import InterlocutorAgent
 from lisan.providers.base import LLMResponse
+from lisan.providers.codex import _resolve_sandbox_mode
 from lisan.tools import execution_tools
 from lisan.tools.execution_tools import read_file, run_codex, search_memory
 
@@ -64,6 +65,16 @@ def test_run_codex_executes_without_asking(tmp_path: Path, monkeypatch) -> None:
     )
     assert result == "ok"
     assert called["complete"] == 1
+
+
+def test_executor_profile_is_write_capable_but_other_agents_default_read_only() -> None:
+    codex = {
+        "sandbox_mode": "workspace-write",
+        "all_agents_sandbox_mode": "read-only",
+        "sandbox_mode_by_agent": {"codex": "workspace-write"},
+    }
+    assert _resolve_sandbox_mode("codex", codex) == "workspace-write"
+    assert _resolve_sandbox_mode("interlocutor", codex) == "read-only"
 
 
 class _FakeCodex:
@@ -137,7 +148,7 @@ def test_interlocutor_prompt_strongly_prefers_action_first_rules() -> None:
     text = prompt_path.read_text(encoding="utf-8")
     assert "CRITICAL RESPONSE RULE" in text
     assert "When the user asks you to SHOW, READ, LIST, or DISPLAY a file or directory" in text
-    assert "You can run ANY Lisan CLI command via execute_task" in text
+    assert "You can request any Lisan CLI command via execute_task" in text
     # Stale-memory refusals: a remembered restriction must never preempt a
     # live attempt (2026-07-26: a mkdir was refused from a superseded July 18
     # "sandbox" claim the owner had already lifted).
@@ -272,11 +283,15 @@ def test_codex_briefing_declares_write_boundary():
         root = Path(tmp)
         ensure_repo_layout(root)
         with patch.object(execution_tools, "assemble_context", return_value="(ctx)"):
-            prompt = _build_codex_prompt(task="t", working_directory=root, vault=vault_root(root), db_path=root / "x.sqlite")
-    # Owner decision 2026-07-25: full filesystem access, with two standing
-    # rules — memory updates mean Lisan's own records, and the identity
-    # kernel stays read-only outside the ratification ceremony.
+                prompt = _build_codex_prompt(
+                    task="t", working_directory=root, vault=vault_root(root),
+                    db_path=root / "x.sqlite",
+                    config={"providers": {"codex": {"sandbox_mode": "read-only"}}},
+                )
+    # The prompt must describe the effective sandbox instead of claiming
+    # unrestricted access when the configured executor is bounded.
     assert "FILESYSTEM ACCESS" in prompt
-    assert "full read and write access" in prompt
+    assert "Effective executor sandbox: read-only" in prompt
+    assert "you are read-only" in prompt
     assert "identity-core.md" in prompt
     assert "READ-ONLY" in prompt

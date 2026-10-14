@@ -206,21 +206,36 @@ class PromptAgent:
 
                 record_tool_use(tool_name, args)
                 handler = tool_handlers.get(tool_name)
+                dispatch_status = "succeeded"
                 if handler is None:
                     available = ", ".join(sorted(tool_handlers.keys()))
-                    result = f"Error: unknown tool {tool_name!r}. Available tools: {available}. Re-read the list and call the correct tool name."
+                    dispatch_status = "not_registered"
+                    result = (
+                        f"Error: unknown tool {tool_name!r}. "
+                        f"Available tools: {available}. Re-read the list and call the correct tool name."
+                    )
                 else:
                     try:
                         result = handler(**args)
                     except TypeError:
-                        result = handler(args)
+                        try:
+                            result = handler(args)
+                        except Exception as exc:
+                            dispatch_status = "dispatch_failed"
+                            result = f"Error: {exc}"
                     except Exception as exc:
+                        dispatch_status = "dispatch_failed"
                         result = f"Error: {exc}"
-                tool_log.append({"tool": tool_name, "args": args, "result": result, "iteration": iteration + 1})
+                    if dispatch_status == "succeeded" and str(result).lstrip().startswith("Error:"):
+                        dispatch_status = "task_failed"
+                tool_log.append({
+                    "tool": tool_name, "args": args, "result": result,
+                    "status": dispatch_status, "iteration": iteration + 1,
+                })
                 current_prompt += (
                     "\n\nTOOL_CALL:\n"
                     + json.dumps({"tool": tool_name, "args": args}, indent=2, ensure_ascii=True)
-                    + "\n\nTOOL_RESULT:\n"
+                    + f"\n\nTOOL_STATUS: {dispatch_status}\n\nTOOL_RESULT:\n"
                     + str(result).strip()
                     + "\n\nContinue. If you have enough information, provide the final JSON response now."
                 )

@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 from ..config import load_config
 from ..paths import repo_root, skills_root
-from ..providers.codex import CodexClient
+from ..providers.codex import CodexClient, _resolve_sandbox_mode
 from .assembler import assemble_context
 from .skill_loader import load_skill_handlers
 from .structured import extract_json
@@ -926,7 +926,9 @@ def run_codex(
 
     get_logger(vault).info("run_codex executing: %s (wd=%s)", task[:200], wd)
 
-    prompt = _build_codex_prompt(task=task, working_directory=wd, vault=vault, db_path=db_path)
+    prompt = _build_codex_prompt(
+        task=task, working_directory=wd, vault=vault, db_path=db_path, config=config,
+    )
     try:
         client = CodexClient(config)
         response = client.complete(
@@ -1445,17 +1447,35 @@ def _codex_default_model(config: dict[str, Any], provider: str | None = None) ->
     return str(model) if model else None
 
 
-def _build_codex_prompt(*, task: str, working_directory: Path, vault: Path, db_path: Path | None) -> str:
+def _build_codex_prompt(
+    *, task: str, working_directory: Path, vault: Path, db_path: Path | None,
+    config: dict[str, Any] | None = None,
+) -> str:
     from .self_model import cli_reference
 
+    codex_config = (config or load_config()).get("providers", {}).get("codex", {})
+    sandbox_mode = _resolve_sandbox_mode("codex", codex_config)
+    if sandbox_mode == "workspace-write":
+        access = (
+            "you may read and write within the configured workspace and any explicitly "
+            "configured additional writable directories. Do not claim a write succeeded "
+            "unless the command result confirms it; system paths and services may still "
+            "require an authorized sudo command."
+        )
+    elif sandbox_mode == "danger-full-access":
+        access = "you have unrestricted filesystem access for this explicitly authorized task."
+    else:
+        access = (
+            "you are read-only. Do not claim to have changed files or system state; report "
+            "the exact write or permission error instead."
+        )
     context = assemble_context(task, vault=vault, db_path=db_path)
     return (
         "You are Codex executing a task for the Lisan memory system.\n\n"
         f"Working directory: {working_directory}\n\n"
         f"Task:\n{task}\n\n"
-        "FILESYSTEM ACCESS: you have full read and write access to this machine "
-        "(owner decision 2026-07-25) — approved tasks may create or modify files "
-        "anywhere, including outside the Lisan install. Two standing rules: "
+        f"Effective executor sandbox: {sandbox_mode}.\n\n"
+        f"FILESYSTEM ACCESS: {access} Two standing rules: "
         "memory updates always mean Lisan's own records, never the source notes "
         "they came from (edit the user's personal documents only when the task "
         "explicitly asks for it); and primer/identity-core.md is the identity "
