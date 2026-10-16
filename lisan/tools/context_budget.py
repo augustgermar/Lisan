@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Iterable
+import re
 
 # The codex ceiling, observed live: {"max_chars": 1048576}. Configurable
 # because it is a property of the provider, not of this code.
@@ -39,6 +40,10 @@ DEFAULT_PER_RECORD_CHARS = 100_000
 # A ceiling on how many model calls one bundle may become.
 DEFAULT_MAX_CHUNKS = 12
 DEFAULT_FINAL_CONTEXT_CHARS = 180_000
+
+
+class PromptBudgetError(ValueError):
+    """The complete provider prompt cannot fit without dropping safety data."""
 
 
 @dataclass(frozen=True)
@@ -138,6 +143,37 @@ def bound_final_context(text: str, *, budget_chars: int) -> tuple[str, dict[str,
     return bounded, {
         "retrieved_chars": len(text), "included_chars": len(bounded),
         "omitted": ["middle_of_retrieved_context"],
+    }
+
+
+def fit_provider_prompt(prompt: str, *, budget_chars: int) -> tuple[str, dict[str, Any]]:
+    """Fit a fully rendered prompt, trimming only retrieved context.
+
+    Stable instructions, tool schemas, conversation history, and output
+    headroom are never truncated. If safety markers or unresolved
+    contradiction headings would be omitted, reject the prompt instead.
+    """
+    if len(prompt) <= budget_chars:
+        return prompt, {"prompt_chars": len(prompt), "budget_chars": budget_chars, "trimmed": False}
+    match = re.search(r"RETRIEVED_CONTEXT:\n(.*?)(?=\n\n[A-Z][A-Z_]+:\n|\Z)", prompt, re.S)
+    if match is None:
+        raise PromptBudgetError("provider prompt exceeds budget and has no safely trimmable retrieval block")
+    context = match.group(1)
+    available = budget_chars - (len(prompt) - len(context))
+    if available <= 0:
+        raise PromptBudgetError("provider prompt overhead exceeds budget")
+    bounded, accounting = bound_final_context(context, budget_chars=available)
+    for marker in ("[BEGIN UNTRUSTED CONTENT", "[END UNTRUSTED CONTENT", "Active Contradictions"):
+        if marker in context and marker not in bounded:
+            raise PromptBudgetError(f"trimming would omit protected retrieval marker: {marker}")
+    fitted = prompt[:match.start(1)] + bounded + prompt[match.end(1):]
+    if len(fitted) > budget_chars:
+        raise PromptBudgetError("provider prompt remains over budget after retrieval trimming")
+    return fitted, {
+        "prompt_chars": len(fitted), "budget_chars": budget_chars, "trimmed": True,
+        "retrieved_chars": accounting["retrieved_chars"],
+        "included_chars": accounting["included_chars"],
+        "omitted": accounting["omitted"],
     }
 
 

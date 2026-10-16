@@ -141,6 +141,17 @@ class PromptAgent:
             )
         last_response: LLMResponse | None = None
         for iteration in range(max_iterations):
+            from ..tools.context_budget import PromptBudgetError, fit_provider_prompt, budget_from_config
+            context_budget = budget_from_config(self.config)
+            prompt_budget = context_budget["budget_chars"]
+            try:
+                current_prompt, budget_accounting = fit_provider_prompt(
+                    current_prompt, budget_chars=prompt_budget
+                )
+                from ..tools.tracing import record_prompt_budget
+                record_prompt_budget(budget_accounting)
+            except PromptBudgetError as exc:
+                raise ProviderError(f"prompt budget exceeded safely: {exc}") from exc
             try:
                 response = self.llm.complete(
                     current_prompt,

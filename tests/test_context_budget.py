@@ -26,6 +26,8 @@ from lisan.tools.context_budget import (
     Record,
     Section,
     budget_from_config,
+    PromptBudgetError,
+    fit_provider_prompt,
     plan_chunks,
     render,
 )
@@ -59,6 +61,18 @@ class BudgetResolutionTests(unittest.TestCase):
 
 
 class PackingTests(unittest.TestCase):
+    def test_provider_boundary_trims_only_retrieval_context(self) -> None:
+        prompt = "INSTRUCTIONS\n" + "i" * 100 + "\n\nRETRIEVED_CONTEXT:\n" + "r" * 500 + "\n\nCONVERSATION:\n" + "h" * 100
+        fitted, accounting = fit_provider_prompt(prompt, budget_chars=400)
+        self.assertLessEqual(len(fitted), 400)
+        self.assertIn("INSTRUCTIONS", fitted)
+        self.assertIn("CONVERSATION:", fitted)
+        self.assertTrue(accounting["trimmed"])
+
+    def test_provider_boundary_rejects_when_protected_markers_would_be_lost(self) -> None:
+        prompt = "INSTRUCTIONS\n\nRETRIEVED_CONTEXT:\n" + "x" * 500 + "\n[BEGIN UNTRUSTED CONTENT]\nsecret\n[END UNTRUSTED CONTENT]\n"
+        with self.assertRaises(PromptBudgetError):
+            fit_provider_prompt(prompt, budget_chars=180)
     def test_a_bundle_under_budget_is_one_chunk_and_unchanged(self) -> None:
         sections = [_section("## Entities", 3, 100)]
         plan = plan_chunks(sections, budget_chars=100_000)
