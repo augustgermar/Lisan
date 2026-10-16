@@ -222,9 +222,12 @@ def _fts_ranked_candidates(
 
     fts_query = " OR ".join(f'"{_fts_escape(term)}"' for term in query_terms)
     try:
+        # Visibility is applied after the FTS query because the FTS table is
+        # intentionally denormalized. Fetch a bounded surplus so operational,
+        # archived, and quarantined rows cannot consume eligible result slots.
         rows = conn.execute(
             "SELECT id, bm25(files_fts) AS rank FROM files_fts WHERE files_fts MATCH ? ORDER BY rank ASC LIMIT ?",
-            (fts_query, limit),
+            (fts_query, max(limit * 8, limit + 32)),
         ).fetchall()
         if rows:
             candidates: list[_LayerCandidate] = []
@@ -536,8 +539,14 @@ def _demote_graph_neighbors(
                     break
             if linked_from_kept:
                 break
-        if linked_from_kept:
+        if linked_from_kept and item.type != "evidence":
+            # A graph relationship is useful evidence, not proof that a
+            # lexical/semantic hit is redundant. Preserve direct evidence in
+            # the direct lane; claims remain graph-derived so blocked
+            # cross-domain interpretations cannot leak through a lexical hit.
             continue
+        if linked_from_kept:
+            item.reason = f"{item.reason};linked_direct_evidence"
         kept.append(item)
     return kept
 

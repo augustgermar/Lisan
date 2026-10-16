@@ -523,6 +523,22 @@ def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> 
             return None
         return f"- {label}: {joined or 'none'}"
 
+    def _bounded_source_excerpt() -> str | None:
+        """Keep answer-bearing source text beside the summary.
+
+        Retrieval is allowed to read a bounded window only; callers never
+        need to open the entire canonical file and the trust wrapper still
+        surrounds the excerpt with the record's other fields.
+        """
+        body = doc.body.strip()
+        if not body:
+            return None
+        limit = 1600
+        excerpt = body[:limit]
+        if len(body) > limit:
+            excerpt += "\n[… source excerpt bounded; canonical record continues …]"
+        return f"- source_excerpt (body:1-{min(len(body), limit)}): {excerpt}"
+
     if item.type == "evidence":
         return _render([
             f"### `{item.id}`",
@@ -531,6 +547,7 @@ def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> 
             _list_line("actors", fm.get("actors")),
             f"- reliability: {fm.get('reliability', 'unknown')}",
             _list_line("observed_facts", fm.get("observed_facts")),
+            _bounded_source_excerpt(),
             f"- link: `{item.path}`",
         ])
     if item.type == "artifact":
@@ -579,6 +596,7 @@ def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> 
             f"- confidence: {fm.get('confidence', 'unknown')}",
             _list_line("supporting_evidence", fm.get("supporting_evidence")),
             _list_line("contradicting_evidence", fm.get("contradicting_evidence")),
+            _bounded_source_excerpt(),
             f"- link: `{item.path}`",
         ])
     if item.type == "pattern":

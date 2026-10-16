@@ -523,9 +523,9 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
     # An entity's durable source_log is part of its searchable content: a fact
     # compaction left out of the narrative prose is still findable via the log.
     if fm.get("source_log"):
-        from .entity_story import entity_search_text, source_log_archive_path
+        from .entity_story import shared_index_text, source_log_archive_path
 
-        content = entity_search_text(fm, doc.body, archive_path=source_log_archive_path(vault, path))
+        content = shared_index_text(fm, doc.body, archive_path=source_log_archive_path(vault, path))
     links = fm.get("links", []) or []
     if not isinstance(links, list):
         links = listify(links)
@@ -872,7 +872,12 @@ def _embed_targets_from_index(vault: Path, conn: sqlite3.Connection) -> list[tup
             doc = load_markdown(vault / str(row["path"]))
         except (FrontmatterError, OSError):
             continue
-        content = f"{str(row['summary'] or '')}\n\n{doc.body.strip()}".strip()
+        from .entity_story import shared_index_text, source_log_archive_path
+        content = shared_index_text(
+            doc.frontmatter,
+            f"{str(row['summary'] or '')}\n\n{doc.body.strip()}",
+            archive_path=source_log_archive_path(vault, vault / str(row["path"])),
+        )
         targets.append((str(row["id"]), content))
     return targets
 
@@ -1068,7 +1073,12 @@ def embed_pending_records(
                 doc = load_markdown(doc_path)
             except (FrontmatterError, OSError):
                 continue
-            content = f"{str(doc.frontmatter.get('summary', ''))}\n\n{doc.body.strip()}".strip()
+            from .entity_story import shared_index_text, source_log_archive_path
+            content = shared_index_text(
+                doc.frontmatter,
+                f"{str(doc.frontmatter.get('summary', ''))}\n\n{doc.body.strip()}",
+                archive_path=source_log_archive_path(vault, doc_path),
+            )
             targets.append((str(row["id"]), content))
 
         provider = EmbeddingProvider(load_config())
