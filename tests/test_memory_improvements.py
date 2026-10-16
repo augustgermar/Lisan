@@ -141,6 +141,20 @@ class MemoryImprovementTests(unittest.TestCase):
             )
         self.assertIn("Cobalt migration requires a staged cutover", rendered)
 
+    def test_passage_vectors_keep_record_identity_and_support_legacy_vectors(self) -> None:
+        from lisan.tools.rebuild_index import _passage_targets
+        from lisan.tools.vector_store import EmbeddingIndex, VectorScorer
+
+        targets = _passage_targets("record.r", "alpha paragraph\n\n" + "beta " * 700)
+        self.assertGreater(len(targets), 1)
+        self.assertTrue(all(item_id.startswith("record.r::passage:") for item_id, _ in targets))
+        scorer = VectorScorer([1.0, 0.0], EmbeddingIndex("test", 2, {
+            targets[0][0]: [0.0, 1.0], targets[-1][0]: [1.0, 0.0],
+        }), "semantic")
+        self.assertAlmostEqual(scorer.score("record.r"), 1.0)
+        legacy = VectorScorer([1.0, 0.0], EmbeddingIndex("legacy", 2, {"record.r": [1.0, 0.0]}), "semantic")
+        self.assertAlmostEqual(legacy.score("record.r"), 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

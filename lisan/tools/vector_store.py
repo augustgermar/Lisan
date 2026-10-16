@@ -223,9 +223,18 @@ class VectorScorer:
     def score(self, file_id: Any) -> float:
         if not self.query_vector or not self.index.vectors:
             return 0.0
-        vector = self.index.vectors_for_scoring().get(str(file_id))
+        vectors = self.index.vectors_for_scoring()
+        vector = vectors.get(str(file_id))
         if vector is None:
-            return 0.0
+            prefix = f"{file_id}::passage:"
+            passage_vectors = [value for key, value in vectors.items() if key.startswith(prefix)]
+            if not passage_vectors:
+                return 0.0
+            index_dim = self.index.dimension or len(passage_vectors[0])
+            if len(self.query_vector) != index_dim:
+                self._warn_dim_mismatch(index_dim)
+                return 0.0
+            return max(cosine_similarity(self.query_vector, candidate) for candidate in passage_vectors)
         index_dim = self.index.dimension or len(vector)
         if len(self.query_vector) != index_dim:
             self._warn_dim_mismatch(index_dim)
