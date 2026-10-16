@@ -479,7 +479,13 @@ def _claim_is_agent_operational(claim_text: str) -> bool:
         return False
 
 
-def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> str:
+def _format_item_detail(
+    item: RetrievalItem,
+    path: Path,
+    lean: bool = False,
+    query: str = "",
+    vault: Path | None = None,
+) -> str:
     """Render one retrieved record for the model. ``lean`` omits scoring
     diagnostics and default-value noise (reason lines, 'none' evidence,
     status: active, chunk provenance) AT GENERATION — the conversation layer
@@ -523,6 +529,21 @@ def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> 
             return None
         return f"- {label}: {joined or 'none'}"
 
+    query_terms = [term for term in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]+", query.lower()) if len(term) > 2]
+
+    def _select_excerpt(text: str, coordinate: str) -> str | None:
+        lines = text.splitlines()
+        if not lines:
+            return None
+        scores = [sum(line.lower().count(term) for term in query_terms) for line in lines]
+        anchor = max(range(len(lines)), key=lambda index: (scores[index], -index))
+        start = max(0, anchor - 2)
+        end = min(len(lines), start + 12)
+        excerpt = "\n".join(lines[start:end])
+        if len(excerpt) > 1600:
+            excerpt = excerpt[:1600] + "\n[… source excerpt bounded; canonical record continues …]"
+        return f"- source_excerpt ({coordinate} lines {start + 1}-{end}): {excerpt}"
+
     def _bounded_source_excerpt() -> str | None:
         """Keep answer-bearing source text beside the summary.
 
@@ -533,12 +554,38 @@ def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> 
         body = doc.body.strip()
         if not body:
             return None
-        limit = 1600
-        excerpt = body[:limit]
-        if len(body) > limit:
-            excerpt += "\n[… source excerpt bounded; canonical record continues …]"
-        line_end = excerpt.count("\n") + 1
-        return f"- source_excerpt (body lines 1-{line_end}, chars 0-{min(len(body), limit)}): {excerpt}"
+        return _select_excerpt(body, "body")
+
+    def _source_log_excerpt() -> str | None:
+        entries: list[dict[str, Any]] = []
+        for entry in fm.get("source_log") or []:
+            if isinstance(entry, dict):
+                entries.append(entry)
+        if vault is not None and item.type == "entity":
+            try:
+                from .entity_story import source_log_archive_path
+                archive = source_log_archive_path(vault, path)
+                if archive.exists():
+                    for line in archive.read_text(encoding="utf-8").splitlines():
+                        try:
+                            entry = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(entry, dict):
+                            entries.append(entry)
+            except OSError:
+                pass
+        if not entries:
+            return None
+        scores = [sum(str(entry.get("text") or "").lower().count(term) for term in query_terms) for entry in entries]
+        index = max(range(len(entries)), key=lambda value: (scores[value], -value))
+        entry = entries[index]
+        text = str(entry.get("text") or "").strip()
+        if not text:
+            return None
+        source = str(entry.get("source_ref") or entry.get("source") or "source_log")
+        stamp = str(entry.get("date") or entry.get("observed_at") or "unknown")
+        return f"- source_passage ({source}, entry {index}, observed_at={stamp}): {text[:1600]}"
 
     if item.type == "evidence":
         return _render([
@@ -598,6 +645,16 @@ def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> 
             _list_line("supporting_evidence", fm.get("supporting_evidence")),
             _list_line("contradicting_evidence", fm.get("contradicting_evidence")),
             _bounded_source_excerpt(),
+            f"- link: `{item.path}`",
+        ])
+    if item.type == "entity":
+        return _render([
+            f"### `{item.id}`",
+            f"- canonical_name: {fm.get('canonical_name', fm.get('name', item.summary))}",
+            _list_line("aliases", fm.get("aliases")),
+            f"- summary: {fm.get('summary', item.summary)}",
+            _bounded_source_excerpt(),
+            _source_log_excerpt(),
             f"- link: `{item.path}`",
         ])
     if item.type == "pattern":
@@ -660,6 +717,7 @@ def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> 
             None if lean else f"- source_ref: {fm.get('source_ref', 'unknown')}",
             None if lean else f"- chunk_index: {fm.get('chunk_index', 'unknown')}",
             None if lean else f"- total_chunks: {fm.get('total_chunks', 'unknown')}",
+            _bounded_source_excerpt(),
             f"- link: `{item.path}`",
         ])
     if item.type == "episode":
