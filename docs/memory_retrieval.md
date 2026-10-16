@@ -23,11 +23,21 @@ Missing event dates render as unknown; the system does not substitute the
 current date. Historical/as-of interpretation remains explicit when records
 are unresolved or contradictory.
 
-Conversation retrieval is bounded against a final-prompt budget that reserves
-space for instructions, tools, conversation history, and model output. When
-the bound is reached, the accounting records retrieved and included sizes and
-the omission reason; the canonical record link remains available.
+Conversation retrieval is bounded against a conservative retrieved-context
+budget before the final prompt is assembled. This reserves practical space
+for instructions, tools, conversation history, and model output, but it is not
+yet a hard accounting layer over the complete provider prompt or later tool
+outputs. When the retrieval bound is reached, the accounting records retrieved
+and included sizes and the omission reason; the canonical record link remains
+available.
 
 Evaluation judges must receive authoritative source facts when available and
 must return exactly one score object for each rubric dimension. Empty or
 malformed results are recorded as unjudged, never as a successful evaluation.
+
+Known scope limits: embeddings remain one vector per record rather than
+passage-level vectors, and retrieval has no explicit as-of selector yet. The
+temporal fields prevent false freshness and preserve ambiguity, but they do
+not by themselves implement historical selection. The repository also does
+not yet contain the requested isolated raw-conversation capture-to-answer
+end-to-end harness.
