@@ -551,12 +551,19 @@ def _format_item_detail(
         need to open the entire canonical file and the trust wrapper still
         surrounds the excerpt with the record's other fields.
         """
+        # Untrusted content is evidence metadata only at this boundary. The
+        # trust wrapper must not become a vehicle for injecting its body into
+        # the answer prompt.
+        if content_trust == "untrusted":
+            return None
         body = doc.body.strip()
         if not body:
             return None
         return _select_excerpt(body, "body")
 
     def _source_log_excerpt() -> str | None:
+        if content_trust == "untrusted":
+            return None
         entries: list[dict[str, Any]] = []
         for entry in fm.get("source_log") or []:
             if isinstance(entry, dict):
