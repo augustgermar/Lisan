@@ -41,6 +41,8 @@ from .retrieval_layers import (
     _quarantine_sets,
     _visibility_block_reason,
     _recent_access_counts,
+    _query_as_of,
+    _row_event_date,
 )
 from .retrieval_graph import (
     _GraphEdge,
@@ -304,7 +306,7 @@ def assemble_context(
             continue
         for item in items:
             path = vault / item.path
-            details = _format_item_detail(item, path, lean=lean)
+            details = _format_item_detail(item, path, lean=lean, query=query, vault=vault)
             # Every record carries its date: stored text may say "today" or
             # "tomorrow" frozen at write time, and the reader can only
             # resolve those against the record's own date.
@@ -418,6 +420,15 @@ def retrieve_context(
             # caller explicitly asks for operational records. That flag opts
             # into the live operational lane, not historical archive access.
             file_rows = [row for row in file_rows if not _is_archived_row(row)]
+            as_of = _query_as_of(effective_query)
+            if as_of is not None:
+                # Historical selection excludes evidence that did not yet
+                # exist at the requested point in time. Unknown dates remain
+                # visible as unresolved, but rank below dated evidence.
+                file_rows = [
+                    row for row in file_rows
+                    if _row_event_date(row) is None or _row_event_date(row) <= as_of
+                ]
             if not include_operational:
                 file_rows = [row for row in file_rows if not _is_operational_row(row)]
             link_rows = conn.execute("SELECT source_id, target_id, relationship_type FROM links").fetchall()
@@ -544,6 +555,7 @@ def retrieve_context(
                 serendipity_seed=effective_query,
                 query=effective_query,
                 access_counts=_recent_access_counts(conn),
+                today=as_of,
                 recency_decay_days=retrieval_settings["recency_decay_days"],
             )
             direct_loaded = _demote_graph_neighbors(
