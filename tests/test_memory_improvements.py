@@ -54,6 +54,19 @@ class MemoryImprovementTests(unittest.TestCase):
             True,
         )
 
+    def test_source_excerpt_coordinates_are_explicit(self) -> None:
+        from lisan.frontmatter import dump_markdown
+        from lisan.tools.retrieval_graph import _format_item_detail
+        from lisan.tools.retrieval_layers import RetrievalItem
+
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "evidence.md"
+            path.write_text(dump_markdown({"type": "evidence", "summary": "fact"}, "line one\nline two"))
+            rendered = _format_item_detail(
+                RetrievalItem("e", "evidence", "evidence.md", "fact", 1.0, "test"), path
+            )
+        self.assertIn("source_excerpt (body lines 1-2, chars 0-17)", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

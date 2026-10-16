@@ -537,7 +537,8 @@ def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> 
         excerpt = body[:limit]
         if len(body) > limit:
             excerpt += "\n[… source excerpt bounded; canonical record continues …]"
-        return f"- source_excerpt (body:1-{min(len(body), limit)}): {excerpt}"
+        line_end = excerpt.count("\n") + 1
+        return f"- source_excerpt (body lines 1-{line_end}, chars 0-{min(len(body), limit)}): {excerpt}"
 
     if item.type == "evidence":
         return _render([
