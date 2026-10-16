@@ -48,6 +48,9 @@ class MemoryImprovementTests(unittest.TestCase):
         self.assertLessEqual(len(bounded), 120)
         self.assertEqual(accounting["retrieved_chars"], 500)
         self.assertTrue(accounting["omitted"])
+        for budget in (0, -1, 1, 10):
+            tiny, _ = bound_final_context("x" * 500, budget_chars=budget)
+            self.assertLessEqual(len(tiny), max(0, budget))
 
     def test_shared_index_text_keeps_source_log_after_compaction(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -72,6 +75,17 @@ class MemoryImprovementTests(unittest.TestCase):
         self.assertEqual(dated.status, "current")
         self.assertIsNone(dated.valid_until)
 
+    def test_historical_selection_honors_validity_interval(self) -> None:
+        from lisan.tools.retrieval_layers import _row_valid_at
+        row = {"valid_from": "2026-01-10", "valid_to": "2026-02-01"}
+        class Row(dict):
+            def keys(self): return super().keys()
+        wrapped = Row(row)
+        from datetime import date
+        self.assertTrue(_row_valid_at(wrapped, date(2026, 1, 31)))
+        self.assertFalse(_row_valid_at(wrapped, date(2026, 2, 1)))
+        self.assertFalse(_row_valid_at(wrapped, date(2026, 1, 9)))
+
     def test_judge_scores_require_exact_rubric_ids(self) -> None:
         rubric = {"dimensions": [{"id": "continuity"}, {"id": "grounding"}]}
         self.assertEqual(
@@ -85,6 +99,11 @@ class MemoryImprovementTests(unittest.TestCase):
             )[0],
             True,
         )
+        for bad in (True, 1.5, 0, 6, "5"):
+            ok, _ = validate_score_ids(
+                [{"id": "continuity", "score": bad}, {"id": "grounding", "score": None}], rubric
+            )
+            self.assertFalse(ok)
 
     def test_source_excerpt_coordinates_are_explicit(self) -> None:
         from lisan.frontmatter import dump_markdown
@@ -97,7 +116,18 @@ class MemoryImprovementTests(unittest.TestCase):
             rendered = _format_item_detail(
                 RetrievalItem("e", "evidence", "evidence.md", "fact", 1.0, "test"), path
             )
-        self.assertIn("source_excerpt (body lines 1-2)", rendered)
+        self.assertIn("derived canonical body lines 1-2", rendered)
+
+    def test_source_provenance_is_original_or_explicitly_derived(self) -> None:
+        from lisan.frontmatter import dump_markdown
+        from lisan.tools.retrieval_graph import _format_item_detail
+        from lisan.tools.retrieval_layers import RetrievalItem
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "evidence.md"
+            path.write_text(dump_markdown({"type": "evidence", "summary": "fact", "source_document": "mail.eml", "source_section": "body", "source_ref": "msg-7"}, "fact body"))
+            rendered = _format_item_detail(RetrievalItem("e", "evidence", "evidence.md", "fact", 1.0, "test"), path, query="fact")
+        self.assertIn("source_document=mail.eml", rendered)
+        self.assertIn("not an original source coordinate", rendered)
 
     def test_entity_rendering_selects_query_relevant_archived_source(self) -> None:
         from lisan.frontmatter import dump_markdown

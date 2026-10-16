@@ -486,6 +486,28 @@ def _row_event_date(row: sqlite3.Row) -> date | None:
     return None
 
 
+def _row_date(row: sqlite3.Row, *fields: str) -> date | None:
+    for field in fields:
+        if field not in row.keys():
+            continue
+        try:
+            return date.fromisoformat(str(row[field] or "")[:10])
+        except ValueError:
+            continue
+    return None
+
+
+def _row_valid_at(row: sqlite3.Row, as_of: date) -> bool:
+    """Apply explicit valid-time intervals; review dates are not expiry."""
+    # When an older record has no explicit valid/event time, `created` is the
+    # backward-compatible knowledge/recorded-time fallback.  It is not used
+    # as an observation date by freshness scoring, but it prevents a record
+    # first known after an as-of cutoff from leaking into that answer.
+    start = _row_date(row, "valid_from", "event_date", "observed_at", "created")
+    end = _row_date(row, "valid_to", "valid_until", "expired_at")
+    return (start is None or start <= as_of) and (end is None or as_of < end)
+
+
 def _query_as_of(query: str) -> date | None:
     match = re.search(r"\b(?:as\s+of|on|at)\s+(\d{4}-\d{2}-\d{2})\b", query, re.I)
     if not match:

@@ -1151,6 +1151,10 @@ def embed_pending_records(
         merged: dict[str, list[float]] = dict(existing.vectors)
         for row in pending:
             prefix = f"{str(row['id'])}::passage:"
+            # A pending record may have been indexed by an older writer under
+            # its parent id.  Remove that stale representation as well as all
+            # passage vectors before replacing it with the canonical set.
+            merged.pop(str(row["id"]), None)
             for embedding_id in list(merged):
                 if embedding_id.startswith(prefix):
                     del merged[embedding_id]

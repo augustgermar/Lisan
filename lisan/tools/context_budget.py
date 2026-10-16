@@ -134,10 +134,21 @@ def budget_from_config(config: dict[str, Any] | None) -> dict[str, int]:
 
 def bound_final_context(text: str, *, budget_chars: int) -> tuple[str, dict[str, Any]]:
     """Conservatively bound retrieved context and report what was omitted."""
+    budget_chars = max(0, int(budget_chars))
+    if budget_chars == 0:
+        return "", {"retrieved_chars": len(text), "included_chars": 0,
+                     "omitted": ["entire_retrieved_context"] if text else []}
     if len(text) <= budget_chars:
         return text, {"retrieved_chars": len(text), "included_chars": len(text), "omitted": []}
     marker = "\n\n[retrieval context bounded by final-prompt budget; consult canonical records for omitted detail]\n"
-    keep = max(0, budget_chars - len(marker))
+    # The accounting marker is useful only if it fits.  A tiny configured
+    # budget must still be a hard bound; returning an oversized warning is a
+    # provider-input violation in its own right.
+    if budget_chars < len(marker):
+        bounded = "[…]"[:budget_chars]
+        return bounded, {"retrieved_chars": len(text), "included_chars": len(bounded),
+                         "omitted": ["entire_retrieved_context"]}
+    keep = budget_chars - len(marker)
     head = keep * 2 // 3
     bounded = text[:head] + marker + text[-(keep - head):]
     return bounded, {

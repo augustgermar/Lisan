@@ -8,6 +8,7 @@ scores (or null where the exchange offers no evidence).
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 from ..config import load_config
@@ -16,6 +17,10 @@ from .structured import extract_json
 
 DEFAULT_JUDGE_PROVIDER = "codex"
 DEFAULT_JUDGE_MODEL = None
+
+
+class JudgeValidationError(ValueError):
+    """The judge returned a result that cannot be counted as a measurement."""
 
 _JUDGE_PROMPT = """You are a blind, rubric-driven evaluator of one assistant reply.
 
@@ -73,25 +78,35 @@ def judge_exchange(
     response = llm.complete(prompt, **complete_kwargs)
     data = extract_json(response.text)
     scores = data.get("scores") if isinstance(data, dict) else None
-    valid_ids = {d["id"] for d in rubric["dimensions"]}
+    if not isinstance(scores, list):
+        raise JudgeValidationError("judge output must contain a scores list")
+    valid_ids = {str(d["id"]) for d in rubric["dimensions"]}
     out: list[dict[str, Any]] = []
-    for item in scores or []:
-        if not isinstance(item, dict) or item.get("id") not in valid_ids:
-            continue
+    for item in scores:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str) or item["id"] not in valid_ids:
+            raise JudgeValidationError("judge output contains an unknown or malformed dimension id")
         score = item.get("score")
-        if score is not None:
-            try:
-                score = max(1, min(5, int(score)))
-            except (TypeError, ValueError):
-                score = None
+        if score is not None and (isinstance(score, bool) or not isinstance(score, int) or not 1 <= score <= 5):
+            raise JudgeValidationError(f"invalid score for {item['id']!r}: scores must be integer 1..5 or null")
         out.append({"id": item["id"], "score": score, "rationale": str(item.get("rationale") or "")[:200]})
+    valid, reason = validate_score_ids(out, rubric)
+    if not valid:
+        raise JudgeValidationError(reason)
     return out
 
 
 def validate_score_ids(scores: list[dict[str, Any]], rubric: dict[str, Any]) -> tuple[bool, str]:
     """Require one score object per rubric dimension before counting a judge."""
     required = {str(d["id"]) for d in rubric.get("dimensions", [])}
-    actual = [str(item.get("id")) for item in scores if isinstance(item, dict)]
+    if not isinstance(scores, list):
+        return False, "scores is not a list"
+    actual = [item.get("id") for item in scores if isinstance(item, dict)]
+    for item in scores:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            return False, "malformed score object"
+        score = item.get("score")
+        if score is not None and (isinstance(score, bool) or not isinstance(score, int) or not 1 <= score <= 5):
+            return False, f"invalid score for {item['id']!r}"
     if set(actual) != required or len(actual) != len(set(actual)):
         return False, f"required={sorted(required)} actual={actual}"
     return True, "ok"

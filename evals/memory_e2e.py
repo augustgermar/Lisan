@@ -24,6 +24,7 @@ from lisan.tools.rebuild_index import rebuild_index
 from lisan.tools.transcripts import append_transcript
 from lisan.tools.retrieval import assemble_context
 from lisan.tools.vector_store import EmbeddingIndex, VectorScorer
+from lisan.tools.judge import judge_exchange, validate_score_ids
 
 
 @dataclass(frozen=True)
@@ -37,7 +38,11 @@ class E2EResult:
 
 
 def run_deterministic_e2e(*, budget_chars: int = 8000) -> E2EResult:
-    """Run the full local pipeline against a disposable synthetic vault."""
+    """Run raw capture through the production retrieval/answer/judge contracts.
+
+    The answer and judge providers are deterministic fakes, so this measures
+    wiring, provenance, packing, and rejection behavior—not real-model recall.
+    """
     raw_user = "Our Friday ritual is pizza and a movie with the girls at Homestead."
     raw_answer = "Recorded as a Friday ritual."
     query = "What is our Friday ritual at Homestead?"
@@ -97,6 +102,22 @@ def run_deterministic_e2e(*, budget_chars: int = 8000) -> E2EResult:
                     mode_used="hash", model="deterministic-fake-provider", dimension=2,
                 )
 
+        class FakeConversationAgent:
+            """Implements the production ConversationAgent.run_json contract."""
+            def __init__(self, *args, **kwargs):
+                self.last_tool_calls = []
+            def run_json(self, user_input, **kwargs):
+                context = str(kwargs.get("retrieved_context") or "")
+                if "Homestead" in context and "pizza" in context:
+                    return {"response": "Our Friday ritual is pizza and a movie with the girls at Homestead."}
+                return {"response": "I don't have enough grounded evidence to answer that."}
+
+        class FakeJudgeLLM:
+            def complete(self, prompt, **kwargs):
+                return SimpleNamespace(text=json.dumps({"scores": [
+                    {"id": "grounding", "score": 5, "rationale": "matches the authoritative source"},
+                ]}))
+
         with patch("lisan.tools.memory_pipeline.ListenerAgent", FakeListener), \
              patch("lisan.tools.memory_pipeline.AssemblerAgent", FakeAssembler), \
              patch("lisan.tools.memory_pipeline.WriterAgent", FakeWriter), \
@@ -115,11 +136,24 @@ def run_deterministic_e2e(*, budget_chars: int = 8000) -> E2EResult:
             rebuild_index(vault=vault, db_path=db_path, embeddings_file=root / "embeddings.bin")
             retrieved = assemble_context(query, vault=vault, db_path=db_path, lean=True)
         packed, accounting = bound_final_context(retrieved, budget_chars=budget_chars)
-        answer = (
-            "Our Friday ritual is pizza and a movie with the girls at Homestead."
-            if "Friday ritual" in packed and "Homestead" in packed
-            else "I don't have enough grounded evidence to answer that."
+        answer_result = FakeConversationAgent().run_json(
+            json.dumps({"user_message": query}), retrieved_context=packed
         )
+        answer = str(answer_result["response"])
+        rubric = {"dimensions": [{"id": "grounding"}]}
+        judged = judge_exchange(
+            rubric, query, answer, llm=FakeJudgeLLM(),
+            source_facts="gold_source=evidence:friday-ritual; forbidden=taco night",
+        )
+        judged_ok, _ = validate_score_ids(judged, rubric)
+        wrong_source_answer = FakeConversationAgent().run_json(
+            json.dumps({"user_message": query}),
+            retrieved_context="### distractor\nFriday ritual is taco night. source_ref=wrong-source",
+        )["response"]
+        malformed_rejected = False
+        malformed_rejected = not validate_score_ids(
+            [{"id": "grounding", "score": 1.5}], rubric
+        )[0]
         corpus_identity = hashlib.sha256(
             "\n".join(sorted(str(path.relative_to(vault)) for path in vault.rglob("*.md"))).encode()
         ).hexdigest()
@@ -128,7 +162,10 @@ def run_deterministic_e2e(*, budget_chars: int = 8000) -> E2EResult:
             "memory_write": bool(pipeline.writer and pipeline.skeptic_approved),
             "retrieval": "Friday ritual" in retrieved,
             "packing": accounting["included_chars"] <= budget_chars,
-            "supported_answer": answer.startswith("Our Friday ritual"),
+            "supported_answer": answer.startswith("Our Friday ritual") and "taco night" not in answer,
+            "grounded_judge": judged_ok,
+            "wrong_source_refused": wrong_source_answer.startswith("I don't have enough"),
+            "malformed_judge_rejected": malformed_rejected,
         }
         return E2EResult(
             passed=all(stages.values()),
