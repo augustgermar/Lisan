@@ -48,6 +48,7 @@ def judge_exchange(
     model: str | None = DEFAULT_JUDGE_MODEL,
     llm: Any | None = None,
     context: str | None = None,
+    source_facts: str | None = None,
 ) -> list[dict[str, Any]]:
     """``context`` carries the prior turns of a multi-turn scenario so
     recall is not scored as invention. The baseline comparison instrument
@@ -55,7 +56,10 @@ def judge_exchange(
     llm = llm or LisanLLM(load_config())
     prompt = _JUDGE_PROMPT % {
         "dimensions": json.dumps(rubric["dimensions"], indent=2, ensure_ascii=True),
-        "context": f"\nCONVERSATION_CONTEXT (established ground truth):\n{context}\n" if context else "",
+        "context": (
+            (f"\nAUTHORITATIVE_SOURCE_FACTS (judge against these, not invention):\n{source_facts}\n" if source_facts else "")
+            + (f"\nCONVERSATION_CONTEXT (established ground truth):\n{context}\n" if context else "")
+        ),
         "user": user_text,
         "assistant": assistant_text,
     }
@@ -82,6 +86,15 @@ def judge_exchange(
                 score = None
         out.append({"id": item["id"], "score": score, "rationale": str(item.get("rationale") or "")[:200]})
     return out
+
+
+def validate_score_ids(scores: list[dict[str, Any]], rubric: dict[str, Any]) -> tuple[bool, str]:
+    """Require one score object per rubric dimension before counting a judge."""
+    required = {str(d["id"]) for d in rubric.get("dimensions", [])}
+    actual = [str(item.get("id")) for item in scores if isinstance(item, dict)]
+    if set(actual) != required or len(actual) != len(set(actual)):
+        return False, f"required={sorted(required)} actual={actual}"
+    return True, "ok"
 
 
 def aggregate(all_scores: list[list[dict[str, Any]]]) -> dict[str, Any]:
