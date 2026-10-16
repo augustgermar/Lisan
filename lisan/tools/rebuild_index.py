@@ -519,13 +519,15 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
     content_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     word_count = len(raw.split())
     token_count = max(1, round(word_count * 1.33))
-    content = f"{str(fm.get('summary', ''))}\n\n{doc.body.strip()}".strip()
-    # An entity's durable source_log is part of its searchable content: a fact
-    # compaction left out of the narrative prose is still findable via the log.
-    if fm.get("source_log"):
-        from .entity_story import shared_index_text, source_log_archive_path
-
-        content = shared_index_text(fm, doc.body, archive_path=source_log_archive_path(vault, path))
+    # Keep lexical and semantic indexes on the same bounded, attributed
+    # representation. An entity's durable source_log remains searchable even
+    # after compaction or archival.
+    from .entity_story import shared_index_text, source_log_archive_path
+    content = shared_index_text(
+        fm,
+        f"{str(fm.get('summary', ''))}\n\n{doc.body.strip()}",
+        archive_path=source_log_archive_path(vault, path),
+    )
     links = fm.get("links", []) or []
     if not isinstance(links, list):
         links = listify(links)
