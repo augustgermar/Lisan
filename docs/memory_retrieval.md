@@ -24,20 +24,21 @@ current date. Historical/as-of interpretation remains explicit when records
 are unresolved or contradictory.
 
 Conversation retrieval is bounded against a conservative retrieved-context
-budget before the final prompt is assembled. This reserves practical space
-for instructions, tools, conversation history, and model output, but it is not
-yet a hard accounting layer over the complete provider prompt or later tool
-outputs. When the retrieval bound is reached, the accounting records retrieved
-and included sizes and the omission reason; the canonical record link remains
-available.
+budget, then the fully rendered provider prompt is checked at the provider
+boundary. Only the retrieval block may be trimmed; stable instructions,
+history, tool schemas, trust markers, and contradiction markers are preserved.
+If the prompt cannot fit safely, the call is rejected rather than silently
+truncated. Prompt-budget events record the rendered and allowed sizes.
 
 Evaluation judges must receive authoritative source facts when available and
 must return exactly one score object for each rubric dimension. Empty or
 malformed results are recorded as unjudged, never as a successful evaluation.
 
-Known scope limits: embeddings remain one vector per record rather than
-passage-level vectors, and retrieval has no explicit as-of selector yet. The
-temporal fields prevent false freshness and preserve ambiguity, but they do
-not by themselves implement historical selection. The repository also does
-not yet contain the requested isolated raw-conversation capture-to-answer
-end-to-end harness.
+Passage-level vectors use additive stable IDs of the form
+record-id::passage:ordinal:content-hash; retrieval aggregates passage scores
+back to the record identity. Legacy record-level vectors remain readable, so
+rebuilding is compatible. Explicit ISO-date as-of queries exclude future
+event-time records and rank dated evidence ahead of unknown dates; unresolved
+contradictions remain visible. The disposable deterministic raw-capture to
+supported-answer harness is in evals/memory_e2e.py. Real model-dependent runs
+remain opt-in and were not run.
