@@ -63,7 +63,13 @@ def run_dreamer_task(
     prompt_file = _prompt_for_task(task)
     sections = _sections_for_task(vault, task)
     bundle = render(sections)
-    plan = plan_chunks(sections, **budget_from_config(config))
+    budget = budget_from_config(config)
+    plan = plan_chunks(
+        sections,
+        budget_chars=budget["budget_chars"],
+        per_record_chars=budget["per_record_chars"],
+        max_chunks=budget["max_chunks"],
+    )
 
     agent = DreamerAgent(vault=vault, prompt_file=prompt_file)
     schema = get_schema(_TASK_OUTPUT_SCHEMAS[task]) if task in _TASK_OUTPUT_SCHEMAS else None

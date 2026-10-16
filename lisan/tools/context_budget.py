@@ -38,6 +38,7 @@ DEFAULT_RESERVE_CHARS = 131_072
 DEFAULT_PER_RECORD_CHARS = 100_000
 # A ceiling on how many model calls one bundle may become.
 DEFAULT_MAX_CHUNKS = 12
+DEFAULT_FINAL_CONTEXT_CHARS = 180_000
 
 
 @dataclass(frozen=True)
@@ -122,6 +123,21 @@ def budget_from_config(config: dict[str, Any] | None) -> dict[str, int]:
         "budget_chars": provider_chars - reserve,
         "per_record_chars": _int("per_record_chars", DEFAULT_PER_RECORD_CHARS),
         "max_chunks": _int("max_chunks", DEFAULT_MAX_CHUNKS),
+        "final_context_chars": _int("final_context_chars", DEFAULT_FINAL_CONTEXT_CHARS),
+    }
+
+
+def bound_final_context(text: str, *, budget_chars: int) -> tuple[str, dict[str, Any]]:
+    """Conservatively bound retrieved context and report what was omitted."""
+    if len(text) <= budget_chars:
+        return text, {"retrieved_chars": len(text), "included_chars": len(text), "omitted": []}
+    marker = "\n\n[retrieval context bounded by final-prompt budget; consult canonical records for omitted detail]\n"
+    keep = max(0, budget_chars - len(marker))
+    head = keep * 2 // 3
+    bounded = text[:head] + marker + text[-(keep - head):]
+    return bounded, {
+        "retrieved_chars": len(text), "included_chars": len(bounded),
+        "omitted": ["middle_of_retrieved_context"],
     }
 
 
