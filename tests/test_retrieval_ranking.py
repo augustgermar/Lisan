@@ -18,15 +18,18 @@ def _row(**updates):
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.execute(
-        "CREATE TABLE f (id TEXT, type TEXT, status TEXT, significance TEXT, updated TEXT, created TEXT, summary TEXT, path TEXT)"
+        "CREATE TABLE f (id TEXT, type TEXT, status TEXT, significance TEXT, "
+        "observed_at TEXT, event_date TEXT, valid_from TEXT, "
+        "updated TEXT, created TEXT, summary TEXT, path TEXT)"
     )
     values = {
         "id": "r", "type": "knowledge", "status": "active", "significance": "low",
+        "observed_at": None, "event_date": None, "valid_from": None,
         "updated": "2026-01-01", "created": "2026-01-01",
         "summary": "test claim", "path": "claims/test.md",
     }
     values.update(updates)
-    conn.execute("INSERT INTO f VALUES (?,?,?,?,?,?,?,?)", tuple(values.values()))
+    conn.execute("INSERT INTO f VALUES (?,?,?,?,?,?,?,?,?,?,?)", tuple(values.values()))
     return conn.execute("SELECT * FROM f").fetchone()
 
 
@@ -59,7 +62,10 @@ class RetrievalRankingSignalsTests(unittest.TestCase):
         )
 
     def test_contradicted_memory_is_demoted_for_current_queries_but_not_history(self):
-        row = _row(status="disputed")
+        # Dated so the undated-evidence penalty does not confound the
+        # disputed-status assertion: this test is about status demotion,
+        # not about unknown event time.
+        row = _row(status="disputed", observed_at="2025-06-01")
         current = _rank_quality_multiplier(row, query="current status", today=date(2026, 1, 1))
         historical = _rank_quality_multiplier(row, query="what was true historically", today=date(2026, 1, 1))
         self.assertGreater(historical, current)
@@ -100,6 +106,61 @@ class RetrievalRankingSignalsTests(unittest.TestCase):
         self.assertTrue(notes)
         self.assertIn("Vendor A", notes[0])
         self.assertIn("Vendor B", notes[0])
+
+
+class EventTimeRankingTests(unittest.TestCase):
+    """Recency follows observation time, not record-edit time."""
+
+    @staticmethod
+    def _event_row(**updates):
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            "CREATE TABLE f (id TEXT, type TEXT, status TEXT, significance TEXT, "
+            "observed_at TEXT, event_date TEXT, valid_from TEXT, "
+            "updated TEXT, created TEXT)"
+        )
+        values = {
+            "id": "r", "type": "evidence", "status": "active", "significance": "medium",
+            "observed_at": None, "event_date": None, "valid_from": None,
+            "updated": "2026-01-01", "created": "2026-01-01",
+        }
+        values.update(updates)
+        conn.execute("INSERT INTO f VALUES (?,?,?,?,?,?,?,?,?)", tuple(values.values()))
+        return conn.execute("SELECT * FROM f").fetchone()
+
+    def test_as_of_query_penalizes_created_only_rows(self):
+        # A created-only row has unknown event time: the as-of penalty must
+        # apply instead of being defeated by the created fallback.
+        query = "As of 2025-06-01, what was the favorite food?"
+        dated = self._event_row(observed_at="2025-01-15", created="2025-01-15", updated="2025-01-15")
+        undated = self._event_row(observed_at=None, created="2025-03-01", updated="2025-03-01")
+        as_of = date(2025, 6, 1)
+        self.assertGreater(
+            _rank_quality_multiplier(dated, query=query, today=as_of),
+            _rank_quality_multiplier(undated, query=query, today=as_of),
+        )
+
+    def test_current_query_prefers_observation_time_over_edit_time(self):
+        # A backfilled record (old event, new file) is old evidence; a recent
+        # edit to a record is not a new observation.
+        query = "What is the favorite food?"
+        backfill = self._event_row(observed_at="2020-05-01", created="2026-10-17", updated="2026-10-17")
+        fresh = self._event_row(observed_at="2026-10-01", created="2026-10-01", updated="2026-10-01")
+        today = date(2026, 10, 17)
+        self.assertGreater(
+            _rank_quality_multiplier(fresh, query=query, today=today),
+            _rank_quality_multiplier(backfill, query=query, today=today),
+        )
+
+    def test_all_months_recognized_as_historical(self):
+        from lisan.tools.retrieval_layers import _query_is_as_of
+        for month in (
+            "january", "february", "march", "april", "may", "june",
+            "july", "august", "september", "october", "november", "december",
+        ):
+            with self.subTest(month=month):
+                self.assertTrue(_query_is_as_of(f"what happened in {month}"))
 
 
 if __name__ == "__main__":

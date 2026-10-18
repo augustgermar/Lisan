@@ -349,7 +349,14 @@ def _retrieval_context(*, vault: Path, text: str, conversation_id: str | None, d
         # rendering layer itself (see _format_item_detail) — this caller
         # used to regex-strip the rendered text, which silently broke the
         # moment the format changed.
-        return assemble_context(text, vault=vault, conversation_id=conversation_id, db_path=db_path, lean=True)
+        context = assemble_context(text, vault=vault, conversation_id=conversation_id, db_path=db_path, lean=True)
+        from ..config import load_config
+        from .context_budget import bound_final_context, budget_from_config
+        budget = budget_from_config(load_config())["final_context_chars"]
+        bounded, accounting = bound_final_context(context, budget_chars=budget)
+        if accounting["omitted"]:
+            log_error(vault, "conversation.context_budget", ValueError(json.dumps(accounting)))
+        return bounded
     except Exception as exc:
         log_error(vault, "conversation.retrieval", exc)
         return ""

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import sqlite3
 from collections import defaultdict, deque
@@ -479,7 +480,13 @@ def _claim_is_agent_operational(claim_text: str) -> bool:
         return False
 
 
-def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> str:
+def _format_item_detail(
+    item: RetrievalItem,
+    path: Path,
+    lean: bool = False,
+    query: str = "",
+    vault: Path | None = None,
+) -> str:
     """Render one retrieved record for the model. ``lean`` omits scoring
     diagnostics and default-value noise (reason lines, 'none' evidence,
     status: active, chunk provenance) AT GENERATION — the conversation layer
@@ -523,6 +530,81 @@ def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> 
             return None
         return f"- {label}: {joined or 'none'}"
 
+    query_terms = [term for term in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]+", query.lower()) if len(term) > 2]
+
+    def _select_excerpt(text: str, coordinate: str) -> str | None:
+        lines = text.splitlines()
+        if not lines:
+            return None
+        scores = [sum(line.lower().count(term) for term in query_terms) for line in lines]
+        anchor = max(range(len(lines)), key=lambda index: (scores[index], -index))
+        start = max(0, anchor - 2)
+        end = min(len(lines), start + 12)
+        excerpt = "\n".join(lines[start:end])
+        if len(excerpt) > 1600:
+            excerpt = excerpt[:1600] + "\n[… source excerpt bounded; canonical record continues …]"
+        return f"- source_excerpt (derived canonical {coordinate} lines {start + 1}-{end}; not an original source coordinate): {excerpt}"
+
+    def _source_provenance() -> str | None:
+        fields = ("source_document", "source_section", "source_ref", "source_url", "source_path", "source_uri")
+        values = [f"{field}={fm[field]}" for field in fields if str(fm.get(field) or "").strip()]
+        return "- source_provenance: " + " | ".join(values) if values else None
+
+    def _bounded_source_excerpt() -> str | None:
+        """Keep answer-bearing source text beside the summary.
+
+        Retrieval is allowed to read a bounded window only; callers never
+        need to open the entire canonical file and the trust wrapper still
+        surrounds the excerpt with the record's other fields.
+        """
+        # Untrusted content is evidence metadata only at this boundary. The
+        # trust wrapper must not become a vehicle for injecting its body into
+        # the answer prompt.
+        if content_trust == "untrusted":
+            return None
+        body = doc.body.strip()
+        if not body:
+            return None
+        return _select_excerpt(body, "body")
+
+    def _source_log_excerpt() -> str | None:
+        if content_trust == "untrusted":
+            return None
+        entries: list[tuple[dict[str, Any], str]] = []
+        for entry in fm.get("source_log") or []:
+            if isinstance(entry, dict):
+                entries.append((entry, f"{path.name}:frontmatter"))
+        if vault is not None and item.type == "entity":
+            try:
+                from .entity_story import source_log_archive_path
+                archive = source_log_archive_path(vault, path)
+                if archive.exists():
+                    for line_no, line in enumerate(archive.read_text(encoding="utf-8").splitlines(), 1):
+                        try:
+                            entry = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(entry, dict):
+                            entries.append((entry, f"{archive.relative_to(vault)}#L{line_no}"))
+            except OSError:
+                pass
+        if not entries:
+            return None
+        scores = [sum(str(entry[0].get("text") or "").lower().count(term) for term in query_terms) for entry in entries]
+        index = max(range(len(entries)), key=lambda value: (scores[value], -value))
+        entry, location = entries[index]
+        text = str(entry.get("text") or "").strip()
+        if not text:
+            return None
+        source = str(entry.get("source_ref") or entry.get("source") or "source_log")
+        stamp = str(entry.get("date") or entry.get("observed_at") or "unknown")
+        stable_id = str(entry.get("source_entry_id") or entry.get("id") or "")
+        if not stable_id:
+            stable_id = "entry:" + hashlib.sha256(
+                json.dumps(entry, sort_keys=True, ensure_ascii=True).encode("utf-8")
+            ).hexdigest()[:16]
+        return f"- source_passage (source_entry_id={stable_id}, source={source}, location={location}, observed_at={stamp}): {text[:1600]}"
+
     if item.type == "evidence":
         return _render([
             f"### `{item.id}`",
@@ -531,6 +613,8 @@ def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> 
             _list_line("actors", fm.get("actors")),
             f"- reliability: {fm.get('reliability', 'unknown')}",
             _list_line("observed_facts", fm.get("observed_facts")),
+            _source_provenance(),
+            _bounded_source_excerpt(),
             f"- link: `{item.path}`",
         ])
     if item.type == "artifact":
@@ -579,6 +663,19 @@ def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> 
             f"- confidence: {fm.get('confidence', 'unknown')}",
             _list_line("supporting_evidence", fm.get("supporting_evidence")),
             _list_line("contradicting_evidence", fm.get("contradicting_evidence")),
+            _bounded_source_excerpt(),
+            _source_provenance(),
+            f"- link: `{item.path}`",
+        ])
+    if item.type == "entity":
+        return _render([
+            f"### `{item.id}`",
+            f"- canonical_name: {fm.get('canonical_name', fm.get('name', item.summary))}",
+            _list_line("aliases", fm.get("aliases")),
+            f"- summary: {fm.get('summary', item.summary)}",
+            _source_provenance(),
+            _bounded_source_excerpt(),
+            _source_log_excerpt(),
             f"- link: `{item.path}`",
         ])
     if item.type == "pattern":
@@ -641,6 +738,7 @@ def _format_item_detail(item: RetrievalItem, path: Path, lean: bool = False) -> 
             None if lean else f"- source_ref: {fm.get('source_ref', 'unknown')}",
             None if lean else f"- chunk_index: {fm.get('chunk_index', 'unknown')}",
             None if lean else f"- total_chunks: {fm.get('total_chunks', 'unknown')}",
+            _bounded_source_excerpt(),
             f"- link: `{item.path}`",
         ])
     if item.type == "episode":

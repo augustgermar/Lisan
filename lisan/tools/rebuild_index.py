@@ -519,13 +519,15 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
     content_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     word_count = len(raw.split())
     token_count = max(1, round(word_count * 1.33))
-    content = f"{str(fm.get('summary', ''))}\n\n{doc.body.strip()}".strip()
-    # An entity's durable source_log is part of its searchable content: a fact
-    # compaction left out of the narrative prose is still findable via the log.
-    if fm.get("source_log"):
-        from .entity_story import entity_search_text, source_log_archive_path
-
-        content = entity_search_text(fm, doc.body, archive_path=source_log_archive_path(vault, path))
+    # Keep lexical and semantic indexes on the same bounded, attributed
+    # representation. An entity's durable source_log remains searchable even
+    # after compaction or archival.
+    from .entity_story import shared_index_text, source_log_archive_path
+    content = shared_index_text(
+        fm,
+        f"{str(fm.get('summary', ''))}\n\n{doc.body.strip()}",
+        archive_path=source_log_archive_path(vault, path),
+    )
     links = fm.get("links", []) or []
     if not isinstance(links, list):
         links = listify(links)
@@ -872,9 +874,54 @@ def _embed_targets_from_index(vault: Path, conn: sqlite3.Connection) -> list[tup
             doc = load_markdown(vault / str(row["path"]))
         except (FrontmatterError, OSError):
             continue
-        content = f"{str(row['summary'] or '')}\n\n{doc.body.strip()}".strip()
-        targets.append((str(row["id"]), content))
+        from .entity_story import shared_index_text, source_log_archive_path
+        content = shared_index_text(
+            doc.frontmatter,
+            f"{str(row['summary'] or '')}\n\n{doc.body.strip()}",
+            archive_path=source_log_archive_path(vault, vault / str(row["path"])),
+        )
+        targets.extend(_passage_targets(str(row["id"]), content))
     return targets
+
+
+def _passage_targets(record_id: str, content: str, *, max_chars: int = 2400) -> list[tuple[str, str]]:
+    """Split a record into stable bounded semantic passages.
+
+    The record id remains the retrieval identity; passage ids are an additive
+    embedding-store detail. A content hash makes ids stable across rebuilds
+    when an unchanged passage moves, while the ordinal disambiguates repeated
+    identical passages.
+    """
+    paragraphs = [part.strip() for part in content.split("\n\n") if part.strip()]
+    pieces: list[str] = []
+    current = ""
+    for paragraph in paragraphs or [content.strip()]:
+        if current and len(current) + 2 + len(paragraph) > max_chars:
+            pieces.append(current)
+            current = ""
+        if len(paragraph) <= max_chars:
+            current = f"{current}\n\n{paragraph}".strip()
+            continue
+        for start in range(0, len(paragraph), max_chars):
+            chunk = paragraph[start : start + max_chars].strip()
+            if chunk:
+                if current:
+                    pieces.append(current)
+                    current = ""
+                pieces.append(chunk)
+    if current:
+        pieces.append(current)
+    if not pieces:
+        pieces = [""]
+    targets: list[tuple[str, str]] = []
+    for ordinal, passage in enumerate(pieces):
+        digest = hashlib.sha256(passage.encode("utf-8")).hexdigest()[:12]
+        targets.append((f"{record_id}::passage:{ordinal}:{digest}", passage))
+    return targets
+
+
+def _parent_record_id(embedding_id: str) -> str:
+    return embedding_id.split("::passage:", 1)[0]
 
 
 def _index_counts(conn: sqlite3.Connection) -> dict[str, int]:
@@ -1016,7 +1063,7 @@ def _embed_and_write(
                 status = "hash"
             else:
                 status = "embedded"
-            status_updates.append((status, file_id))
+            status_updates.append((status, _parent_record_id(file_id)))
         if outcome.mode_used == "semantic":
             saw_semantic = True
             index_model = outcome.model
@@ -1068,8 +1115,13 @@ def embed_pending_records(
                 doc = load_markdown(doc_path)
             except (FrontmatterError, OSError):
                 continue
-            content = f"{str(doc.frontmatter.get('summary', ''))}\n\n{doc.body.strip()}".strip()
-            targets.append((str(row["id"]), content))
+            from .entity_story import shared_index_text, source_log_archive_path
+            content = shared_index_text(
+                doc.frontmatter,
+                f"{str(doc.frontmatter.get('summary', ''))}\n\n{doc.body.strip()}",
+                archive_path=source_log_archive_path(vault, doc_path),
+            )
+            targets.extend(_passage_targets(str(row["id"]), content))
 
         provider = EmbeddingProvider(load_config())
         existing = load_index(embeddings_file)
@@ -1097,6 +1149,15 @@ def embed_pending_records(
             return {"pending": len(pending), "embedded": 0,
                     "still_pending": len(pending), "mode_used": "refused"}
         merged: dict[str, list[float]] = dict(existing.vectors)
+        for row in pending:
+            prefix = f"{str(row['id'])}::passage:"
+            # A pending record may have been indexed by an older writer under
+            # its parent id.  Remove that stale representation as well as all
+            # passage vectors before replacing it with the canonical set.
+            merged.pop(str(row["id"]), None)
+            for embedding_id in list(merged):
+                if embedding_id.startswith(prefix):
+                    del merged[embedding_id]
         index_model = existing.model
         index_dimension = existing.dimension
 
@@ -1126,7 +1187,7 @@ def embed_pending_records(
                     continue
                 merged[file_id] = vector
                 status = "hash" if outcome.mode_used == "hash" else "embedded"
-                status_updates.append((status, file_id))
+                status_updates.append((status, _parent_record_id(file_id)))
                 embedded += 1
 
         conn.executemany("UPDATE files SET embedding_status = ? WHERE id = ?", status_updates)

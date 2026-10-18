@@ -79,7 +79,9 @@ def _normalize_history_entries(entries: list[dict[str, Any]] | None) -> list[dic
             continue
         normalized.append(
             {
-                "date": str(entry.get("date") or today_iso()),
+                # An absent event date is unresolved, not an observation made
+                # on the day the record was edited.
+                "date": str(entry.get("date") or ""),
                 "summary": summary,
                 "confidence": str(entry.get("confidence") or "low"),
             }

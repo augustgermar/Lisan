@@ -426,12 +426,7 @@ def run_memory_pipeline_evaluation() -> dict[str, Any]:
             if historic_a_rank < historic_b_rank:
                 evaluate("as-of query ranks the January fact first", True, temporal_evidence)
             else:
-                cases.append({
-                    "name": "as-of query ranks the January fact first",
-                    "passed": False,
-                    "known_gap": True,
-                    "evidence": temporal_evidence,
-                })
+                evaluate("as-of query ranks the January fact first", False, temporal_evidence)
 
             preference = retrieve_context(
                 "What is the current beverage preference?", vault=vault, db_path=db_path

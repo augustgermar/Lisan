@@ -222,12 +222,22 @@ def _fts_ranked_candidates(
 
     fts_query = " OR ".join(f'"{_fts_escape(term)}"' for term in query_terms)
     try:
-        rows = conn.execute(
-            "SELECT id, bm25(files_fts) AS rank FROM files_fts WHERE files_fts MATCH ? ORDER BY rank ASC LIMIT ?",
-            (fts_query, limit),
-        ).fetchall()
-        if rows:
-            candidates: list[_LayerCandidate] = []
+        # Visibility is applied after the FTS query because the FTS table is
+        # intentionally denormalized. Page until the eligible limit is full;
+        # a fixed surplus can still hide valid matches behind an arbitrarily
+        # large run of excluded operational/quarantined rows.
+        candidates: list[_LayerCandidate] = []
+        offset = 0
+        page_size = max(64, limit * 4)
+        while len(candidates) < limit:
+            rows = conn.execute(
+                "SELECT id, bm25(files_fts) AS rank FROM files_fts WHERE files_fts MATCH ? "
+                "ORDER BY rank ASC LIMIT ? OFFSET ?",
+                (fts_query, page_size, offset),
+            ).fetchall()
+            if not rows:
+                break
+            offset += len(rows)
             for row in rows:
                 candidate_id = str(row["id"] or "")
                 file_row = _row_by_id(file_rows, candidate_id)
@@ -247,6 +257,7 @@ def _fts_ranked_candidates(
                 except Exception:
                     score = 0.0
                 candidates.append(_LayerCandidate(id=candidate_id, score=score, source="fts_bm25"))
+        if candidates:
             return _truncate_layer_candidates(candidates, limit), "bm25"
     except sqlite3.Error:
         pass
@@ -422,17 +433,28 @@ def _rank_quality_multiplier(
         str(row["significance"] or "").lower(), 1.0
     )
     # Recent material gets a bounded advantage; old records remain retrievable.
-    for field in ("updated", "created"):
-        if field not in row.keys():
-            continue
-        try:
-            stamp = date.fromisoformat(str(row[field] or "")[:10])
-            age = max(0, (today - stamp).days)
-            half_life = max(1, int(recency_decay_days))
-            factor *= 0.65 + 0.35 * (0.5 ** (age / half_life))
-            break
-        except (TypeError, ValueError):
-            continue
+    # Prefer event/observation time over record-edit time: an edit is not a
+    # new observation, and a backfilled record is old evidence. Rows without
+    # any event time fall back to record time for backward compatibility,
+    # except for historical queries where unknown event time is penalized below.
+    stamp = _row_observed_date(row)
+    if stamp is None and not _query_is_as_of(query):
+        for field in ("updated", "created"):
+            if field not in row.keys():
+                continue
+            try:
+                stamp = date.fromisoformat(str(row[field] or "")[:10])
+                break
+            except ValueError:
+                continue
+    if stamp is not None:
+        age = max(0, (today - stamp).days)
+        half_life = max(1, int(recency_decay_days))
+        factor *= 0.65 + 0.35 * (0.5 ** (age / half_life))
+    elif _query_is_as_of(query):
+        # Unknown event time is retained, but must not outrank dated evidence
+        # for an explicit historical question.
+        factor *= 0.72
     # Frequently recalled memories are gently diversified, not hidden.
     factor *= max(0.82, 1.0 / (1.0 + 0.012 * max(0, access_count)))
 
@@ -453,6 +475,78 @@ def _rank_quality_multiplier(
     elif current_query:
         factor *= 1.12 if record_type in {"state", "entity", "claim"} else 0.97
     return factor
+
+
+def _row_event_date(row: sqlite3.Row) -> date | None:
+    """Resolve event/observation time without treating edits as observations."""
+    for field in ("observed_at", "event_date", "valid_from", "created"):
+        if field not in row.keys():
+            continue
+        value = str(row[field] or "")[:10]
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            continue
+    return None
+
+
+def _row_observed_date(row: sqlite3.Row) -> date | None:
+    """True event/observation time only.
+
+    ``created`` is record time, not an observation: a row carrying only
+    ``created`` has unknown event time for ranking purposes. Used by the
+    recency scorer so the as-of penalty for undated evidence cannot be
+    defeated by the ``created`` compatibility fallback.
+    """
+    return _row_date(row, "observed_at", "event_date", "valid_from")
+
+
+def _row_date(row: sqlite3.Row, *fields: str) -> date | None:
+    for field in fields:
+        if field not in row.keys():
+            continue
+        try:
+            return date.fromisoformat(str(row[field] or "")[:10])
+        except ValueError:
+            continue
+    return None
+
+
+def _row_valid_at(row: sqlite3.Row, as_of: date) -> bool:
+    """Apply explicit valid-time intervals; review dates are not expiry."""
+    # When an older record has no explicit valid/event time, `created` is the
+    # backward-compatible knowledge/recorded-time fallback.  It is not used
+    # as an observation date by freshness scoring, but it prevents a record
+    # first known after an as-of cutoff from leaking into that answer.
+    start = _row_date(row, "valid_from", "event_date", "observed_at", "created")
+    end = _row_date(row, "valid_to", "valid_until", "expired_at")
+    return (start is None or start <= as_of) and (end is None or as_of < end)
+
+
+def _query_as_of(query: str) -> date | None:
+    match = re.search(r"\b(?:as\s+of|on|at)\s+(\d{4}-\d{2}-\d{2})\b", query, re.I)
+    if not match:
+        return None
+    try:
+        return date.fromisoformat(match.group(1))
+    except ValueError:
+        return None
+
+
+_AS_OF_MONTHS = (
+    "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december",
+)
+_AS_OF_MONTH_RE = re.compile(r"\bin\s+(?:" + "|".join(_AS_OF_MONTHS) + r")\b")
+
+
+def _query_is_as_of(query: str) -> bool:
+    lowered = query.lower()
+    return (
+        _query_as_of(query) is not None
+        or _AS_OF_MONTH_RE.search(lowered) is not None
+        or any(phrase in lowered for phrase in ("historically", "used to", "at the time"))
+    )
 
 
 def _recent_access_counts(conn: sqlite3.Connection, *, limit: int = 500) -> dict[str, int]:
@@ -536,8 +630,14 @@ def _demote_graph_neighbors(
                     break
             if linked_from_kept:
                 break
-        if linked_from_kept:
+        if linked_from_kept and item.type != "evidence":
+            # A graph relationship is useful evidence, not proof that a
+            # lexical/semantic hit is redundant. Preserve direct evidence in
+            # the direct lane; claims remain graph-derived so blocked
+            # cross-domain interpretations cannot leak through a lexical hit.
             continue
+        if linked_from_kept:
+            item.reason = f"{item.reason};linked_direct_evidence"
         kept.append(item)
     return kept
 

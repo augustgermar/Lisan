@@ -107,7 +107,7 @@ class _FakeLLM:
         return r
 
 
-def test_judge_parses_and_clamps(tmp_path):
+def test_judge_rejects_malformed_scores(tmp_path):
     _seed_kernel_with_voice(tmp_path)
     rubric = rubric_mod.rubric_from_kernel(tmp_path)
     dim = rubric["dimensions"][0]["id"]
@@ -116,10 +116,9 @@ def test_judge_parses_and_clamps(tmp_path):
         {"id": "not-a-dimension", "score": 3},
         {"id": "continuity", "score": None, "rationale": "no evidence"},
     ]}))
-    scores = judge_mod.judge_exchange(rubric, "hi", "hello", llm=fake)
-    assert {s["id"] for s in scores} == {dim, "continuity"}
-    assert next(s for s in scores if s["id"] == dim)["score"] == 5
-    assert next(s for s in scores if s["id"] == "continuity")["score"] is None
+    import pytest
+    with pytest.raises(tool_judge.JudgeValidationError):
+        judge_mod.judge_exchange(rubric, "hi", "hello", llm=fake)
     assert "DIMENSIONS" in fake.last_prompt
 
 
@@ -127,12 +126,15 @@ def test_judge_context_enters_prompt(tmp_path):
     _seed_kernel_with_voice(tmp_path)
     rubric = rubric_mod.rubric_from_kernel(tmp_path)
     fake = _FakeLLM(json.dumps({"scores": []}))
-    judge_mod.judge_exchange(rubric, "tell me everything", "recap", llm=fake,
-                             context="USER: the barn find\nASSISTANT: noted")
+    import pytest
+    with pytest.raises(tool_judge.JudgeValidationError):
+        judge_mod.judge_exchange(rubric, "tell me everything", "recap", llm=fake,
+                                 context="USER: the barn find\nASSISTANT: noted")
     assert "CONVERSATION_CONTEXT (established ground truth):" in fake.last_prompt
     assert "the barn find" in fake.last_prompt
     fake2 = _FakeLLM(json.dumps({"scores": []}))
-    judge_mod.judge_exchange(rubric, "hi", "hello", llm=fake2)
+    with pytest.raises(tool_judge.JudgeValidationError):
+        judge_mod.judge_exchange(rubric, "hi", "hello", llm=fake2)
     assert "CONVERSATION_CONTEXT (established ground truth):" not in fake2.last_prompt
 
 
@@ -157,7 +159,9 @@ def test_judge_defaults_route_to_codex_analyst_without_model_override():
     with patch.object(tool_judge, "LisanLLM", FakeLLM):
         assert tool_judge.DEFAULT_JUDGE_PROVIDER == "codex"
         assert tool_judge.DEFAULT_JUDGE_MODEL is None
-        tool_judge.judge_exchange(rubric, "hi", "hello")
+        import pytest
+        with pytest.raises(tool_judge.JudgeValidationError):
+            tool_judge.judge_exchange(rubric, "hi", "hello")
     assert calls == [{"agent": "analyst", "significance": "high", "provider": "codex"}]
 
 
