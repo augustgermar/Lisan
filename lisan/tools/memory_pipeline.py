@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from .db import connect as _db_connect
 
-from ..agents import AssemblerAgent, InterlocutorAgent, ListenerAgent, SkepticAgent, WriterAgent
+from ..agents import AssemblerAgent, InterlocutorAgent, ListenerAgent, WriterAgent
 from .heuristic_gate import is_correction_turn
 from ..frontmatter import load_markdown, write_markdown
 from ..utils import slugify, today_iso
@@ -41,6 +41,7 @@ from .record_factory import (
 )
 from .reference_resolution import normalize_text, resolve_reference, resolution_action
 from .transcripts import append_transcript, transcript_path_for
+from .writer_skeptic_graph import run_writer_skeptic_graph
 from ..agents.writer import _truncate_summary as _truncate_summary_boundary
 
 
@@ -231,42 +232,31 @@ def run_memory_pipeline(
             db_path=db_path,
             conversation_id=conversation_id,
         )
-    record_inline_step("memory_pipeline.writer")
-    # The episode path is split across two writer calls. The core call returns body + claims;
-    # the artifact call returns entities / decisions / open loops / state /
-    # evidence. Non-episode tasks stay single-shot — they're already small.
+    # Spike: LangGraph owns only the bounded Writer <-> Skeptic editorial loop.
+    # Durable memory, artifact extraction, validation, and fanout remain in this
+    # existing deterministic pipeline.
     writer_task = "episode_full_turn" if task == "episode" and tool_calls else ("episode_core" if task == "episode" else task)
-    if task == "episode":
-        writer_core = WriterAgent(vault=vault).run_json(
-            text,
-            task=writer_task,
-            interlocutor_response=json.dumps(interlocutor, indent=2, ensure_ascii=True),
-            tool_calls=json.dumps(tool_calls, indent=2, ensure_ascii=True),
+    writer_core, skeptic, _revision_count = run_writer_skeptic_graph(
+        vault=vault,
+        text=text,
+        writer_task=writer_task,
+        writer_kwargs={
             **common_kwargs,
-        )
-        writer = dict(writer_core)
-    else:
-        writer = WriterAgent(vault=vault).run_json(
-            text,
-            task=writer_task,
-            interlocutor_response=json.dumps(interlocutor, indent=2, ensure_ascii=True),
-            tool_calls=json.dumps(tool_calls, indent=2, ensure_ascii=True),
-            **common_kwargs,
-        )
-        writer_core = writer
-    writer_core = tokenize_principal_obj(writer_core, vault)
-    writer = tokenize_principal_obj(writer, vault)
-    record_inline_step("memory_pipeline.skeptic")
-    skeptic = SkepticAgent(vault=vault).run_json(
-        json.dumps(writer_core, indent=2, ensure_ascii=True),
-        significance="medium",
-        provider=provider,
-        model=model,
-        provider_error_mode="raise",
-        db_path=db_path,
-        conversation_id=conversation_id,
-        conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
+            "interlocutor_response": json.dumps(interlocutor, indent=2, ensure_ascii=True),
+            "tool_calls": json.dumps(tool_calls, indent=2, ensure_ascii=True),
+        },
+        skeptic_kwargs={
+            "significance": "medium",
+            "provider": provider,
+            "model": model,
+            "provider_error_mode": "raise",
+            "db_path": db_path,
+            "conversation_id": conversation_id,
+            "conversation_policy": json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
+        },
+        max_revisions=2,
     )
+    writer = dict(writer_core)
     skeptic_approved = _skeptic_approves(skeptic)
     # Only run the artifact pass when the skeptic approved the core.
     # If the core is rejected, we hold the draft as needs_revision and never

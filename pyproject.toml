@@ -11,6 +11,7 @@ readme = "README.md"
 authors = [{name = "Lisan Contributors"}]
 dependencies = [
     "fastembed>=0.3.0",
+    "langgraph>=1.2,<2",
 ]
 
 [project.optional-dependencies]
