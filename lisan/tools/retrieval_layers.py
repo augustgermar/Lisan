@@ -433,7 +433,11 @@ def _rank_quality_multiplier(
         str(row["significance"] or "").lower(), 1.0
     )
     # Recent material gets a bounded advantage; old records remain retrievable.
-    stamp = _row_event_date(row) if _query_is_as_of(query) else None
+    # Prefer event/observation time over record-edit time: an edit is not a
+    # new observation, and a backfilled record is old evidence. Rows without
+    # any event time fall back to record time for backward compatibility,
+    # except for historical queries where unknown event time is penalized below.
+    stamp = _row_observed_date(row)
     if stamp is None and not _query_is_as_of(query):
         for field in ("updated", "created"):
             if field not in row.keys():
@@ -486,6 +490,17 @@ def _row_event_date(row: sqlite3.Row) -> date | None:
     return None
 
 
+def _row_observed_date(row: sqlite3.Row) -> date | None:
+    """True event/observation time only.
+
+    ``created`` is record time, not an observation: a row carrying only
+    ``created`` has unknown event time for ranking purposes. Used by the
+    recency scorer so the as-of penalty for undated evidence cannot be
+    defeated by the ``created`` compatibility fallback.
+    """
+    return _row_date(row, "observed_at", "event_date", "valid_from")
+
+
 def _row_date(row: sqlite3.Row, *fields: str) -> date | None:
     for field in fields:
         if field not in row.keys():
@@ -518,10 +533,19 @@ def _query_as_of(query: str) -> date | None:
         return None
 
 
+_AS_OF_MONTHS = (
+    "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december",
+)
+_AS_OF_MONTH_RE = re.compile(r"\bin\s+(?:" + "|".join(_AS_OF_MONTHS) + r")\b")
+
+
 def _query_is_as_of(query: str) -> bool:
     lowered = query.lower()
-    return _query_as_of(query) is not None or any(
-        phrase in lowered for phrase in ("historically", "used to", "at the time", "in january", "in february")
+    return (
+        _query_as_of(query) is not None
+        or _AS_OF_MONTH_RE.search(lowered) is not None
+        or any(phrase in lowered for phrase in ("historically", "used to", "at the time"))
     )
 
 
