@@ -75,6 +75,16 @@ class PromptAgent:
         for key, value in kwargs.items():
             if value is None or key in self._INTERNAL_KWARGS:
                 continue
+            if key == "retrieved_context":
+                # Sentinel markers let the provider-prompt budget locate the
+                # retrieval block deterministically. Regexing rendered text
+                # for section headers is fragile: record bodies can contain
+                # ALL-CAPS: lines that look like headers and would truncate the
+                # trimmable region mid-block, turning a trimmable prompt into
+                # a spurious budget rejection.
+                value = (
+                    "[BEGIN RETRIEVED CONTEXT]\n" + str(value) + "\n[END RETRIEVED CONTEXT]"
+                )
             extras.append(f"{key.upper()}:\n{value}")
         if extras:
             rendered += "\n\n" + "\n\n".join(extras)

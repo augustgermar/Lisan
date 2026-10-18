@@ -160,13 +160,20 @@ def bound_final_context(text: str, *, budget_chars: int) -> tuple[str, dict[str,
 def fit_provider_prompt(prompt: str, *, budget_chars: int) -> tuple[str, dict[str, Any]]:
     """Fit a fully rendered prompt, trimming only retrieved context.
 
-    Stable instructions, tool schemas, conversation history, and output
-    headroom are never truncated. If safety markers or unresolved
-    contradiction headings would be omitted, reject the prompt instead.
+    The retrieval block is located by the sentinel markers that
+    ``PromptAgent.render_input`` wraps around it — never by regexing for
+    section headers, which record bodies can mimic. Stable instructions,
+    tool schemas, conversation history, and output headroom are never
+    truncated. If safety markers or unresolved contradiction headings would
+    be omitted, reject the prompt instead.
     """
     if len(prompt) <= budget_chars:
         return prompt, {"prompt_chars": len(prompt), "budget_chars": budget_chars, "trimmed": False}
-    match = re.search(r"RETRIEVED_CONTEXT:\n(.*?)(?=\n\n[A-Z][A-Z_]+:\n|\Z)", prompt, re.S)
+    match = re.search(
+        r"RETRIEVED_CONTEXT:\n\[BEGIN RETRIEVED CONTEXT\]\n(.*?)\n\[END RETRIEVED CONTEXT\]",
+        prompt,
+        re.S,
+    )
     if match is None:
         raise PromptBudgetError("provider prompt exceeds budget and has no safely trimmable retrieval block")
     context = match.group(1)

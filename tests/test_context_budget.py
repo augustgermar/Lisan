@@ -61,8 +61,16 @@ class BudgetResolutionTests(unittest.TestCase):
 
 
 class PackingTests(unittest.TestCase):
+    @staticmethod
+    def _prompt_with_sentinels(context: str) -> str:
+        return (
+            "INSTRUCTIONS\n" + "i" * 100
+            + "\n\nRETRIEVED_CONTEXT:\n[BEGIN RETRIEVED CONTEXT]\n" + context
+            + "\n[END RETRIEVED CONTEXT]\n\nCONVERSATION:\n" + "h" * 100
+        )
+
     def test_provider_boundary_trims_only_retrieval_context(self) -> None:
-        prompt = "INSTRUCTIONS\n" + "i" * 100 + "\n\nRETRIEVED_CONTEXT:\n" + "r" * 500 + "\n\nCONVERSATION:\n" + "h" * 100
+        prompt = self._prompt_with_sentinels("r" * 500)
         fitted, accounting = fit_provider_prompt(prompt, budget_chars=400)
         self.assertLessEqual(len(fitted), 400)
         self.assertIn("INSTRUCTIONS", fitted)
@@ -70,9 +78,28 @@ class PackingTests(unittest.TestCase):
         self.assertTrue(accounting["trimmed"])
 
     def test_provider_boundary_rejects_when_protected_markers_would_be_lost(self) -> None:
-        prompt = "INSTRUCTIONS\n\nRETRIEVED_CONTEXT:\n" + "x" * 500 + "\n[BEGIN UNTRUSTED CONTENT]\nsecret\n[END UNTRUSTED CONTENT]\n"
+        prompt = self._prompt_with_sentinels(
+            "x" * 500 + "\n[BEGIN UNTRUSTED CONTENT]\nsecret\n[END UNTRUSTED CONTENT]\n"
+        )
         with self.assertRaises(PromptBudgetError):
             fit_provider_prompt(prompt, budget_chars=180)
+
+    def test_provider_boundary_ignores_header_like_lines_inside_context(self) -> None:
+        # A record body containing an ALL-CAPS: line must not truncate the
+        # trimmable region mid-block; the sentinels delimit the whole block.
+        prompt = self._prompt_with_sentinels("r" * 300 + "\n\nNOTES:\n" + "n" * 300)
+        fitted, accounting = fit_provider_prompt(prompt, budget_chars=400)
+        self.assertLessEqual(len(fitted), 400)
+        self.assertIn("INSTRUCTIONS", fitted)
+        self.assertIn("CONVERSATION:", fitted)
+        self.assertTrue(accounting["trimmed"])
+
+    def test_provider_boundary_rejects_prompt_without_retrieval_sentinels(self) -> None:
+        # Without sentinels the retrieval block cannot be located safely, so
+        # an over-budget prompt is rejected rather than cut by guesswork.
+        prompt = "INSTRUCTIONS\n" + "i" * 100 + "\n\nRETRIEVED_CONTEXT:\n" + "r" * 500
+        with self.assertRaises(PromptBudgetError):
+            fit_provider_prompt(prompt, budget_chars=200)
     def test_a_bundle_under_budget_is_one_chunk_and_unchanged(self) -> None:
         sections = [_section("## Entities", 3, 100)]
         plan = plan_chunks(sections, budget_chars=100_000)
