@@ -8,6 +8,7 @@ from langgraph.graph import END, START, StateGraph
 
 from ..agents import SkepticAgent, WriterAgent
 from .deixis import tokenize_principal_obj
+from .tracing import record_inline_step
 
 
 class WriterSkepticState(TypedDict, total=False):
@@ -38,6 +39,7 @@ def run_writer_skeptic_graph(
     """
 
     def writer_node(state: WriterSkepticState) -> dict[str, Any]:
+        record_inline_step("memory_pipeline.writer")
         prior_writer = state.get("writer")
         prior_skeptic = state.get("skeptic")
         revision_count = int(state.get("revision_count", 0))
@@ -66,6 +68,7 @@ def run_writer_skeptic_graph(
         return {"writer": writer, "revision_count": revision_count}
 
     def skeptic_node(state: WriterSkepticState) -> dict[str, Any]:
+        record_inline_step("memory_pipeline.skeptic")
         skeptic = SkepticAgent(vault=vault).run_json(
             json.dumps(state["writer"], indent=2, ensure_ascii=True),
             **skeptic_kwargs,
