@@ -121,7 +121,8 @@ def run_deterministic_e2e(*, budget_chars: int = 8000) -> E2EResult:
         with patch("lisan.tools.memory_pipeline.ListenerAgent", FakeListener), \
              patch("lisan.tools.memory_pipeline.AssemblerAgent", FakeAssembler), \
              patch("lisan.tools.memory_pipeline.WriterAgent", FakeWriter), \
-             patch("lisan.tools.memory_pipeline.SkepticAgent", FakeSkeptic):
+             patch("lisan.tools.writer_skeptic_graph.WriterAgent", FakeWriter), \
+             patch("lisan.tools.writer_skeptic_graph.SkepticAgent", FakeSkeptic):
             pipeline = run_memory_pipeline(
                 vault=vault,
                 text=raw_user,

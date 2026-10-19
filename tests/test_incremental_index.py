@@ -15,6 +15,7 @@ from lisan.tools.rebuild_index import index_single_record, open_index_connection
 from lisan.tools.record_factory import new_claim
 from lisan.tools.retrieval import assemble_context
 from lisan.tools import memory_pipeline as mp
+from lisan.tools import writer_skeptic_graph as wsg
 
 
 class IncrementalIndexTests(unittest.TestCase):
@@ -148,7 +149,7 @@ class IncrementalIndexTests(unittest.TestCase):
             patch.object(mp.AssemblerAgent, "run", return_value=SimpleNamespace(text="context")),
             patch.object(mp.ListenerAgent, "run_json", return_value=listener),
             patch.object(mp.WriterAgent, "run_json", return_value=writer),
-            patch.object(mp.SkepticAgent, "run_json", return_value=skeptic),
+            patch.object(wsg.SkepticAgent, "run_json", return_value=skeptic),
             patch.object(mp.InterlocutorAgent, "run_json", return_value=interlocutor),
         ):
             result = capture_text(

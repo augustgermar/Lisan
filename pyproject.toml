@@ -11,7 +11,6 @@ readme = "README.md"
 authors = [{name = "Lisan Contributors"}]
 dependencies = [
     "fastembed>=0.3.0",
-    "langgraph>=1.2,<2",
 ]
 
 [project.optional-dependencies]
@@ -23,6 +22,11 @@ pdf = ["pymupdf>=1.24.0"]
 claude = ["claude-agent-sdk>=0.2"]
 docs = ["mkdocs-material>=9.5"]
 test = ["pytest>=8.0"]
+# LangGraph is experimental (spike/langgraph-writer-skeptic): it orchestrates
+# the bounded Writer-Skeptic loop only. The deterministic fallback in
+# lisan/tools/writer_skeptic_graph.py runs the identical loop when LangGraph
+# is not installed, so the core install stays dependency-lean by design.
+langgraph = ["langgraph>=1.2,<2"]
 
 [project.scripts]
 lisan = "lisan.cli:main"
