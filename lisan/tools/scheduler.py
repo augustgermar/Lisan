@@ -559,7 +559,7 @@ def seconds_until_next_due(
 #   long     plan.run, task.run_codex and the delegation report (a capture round
 #            trip): one at a time, as before, but off main
 #   delegate agent.delegate children: up to delegation.max_concurrent at once
-LONG_LANE_TYPES = frozenset({"plan.run", "task.run_codex", "agent.delegate_report", "skill.review"})
+LONG_LANE_TYPES = frozenset({"plan.run", "task.run_codex", "agent.delegate_report", "skill.review", "self_update.check"})
 DELEGATE_LANE_TYPES = frozenset({"agent.delegate"})
 LANE_TYPES = LONG_LANE_TYPES | DELEGATE_LANE_TYPES
 _LANE_POLL_SECONDS = 5.0
@@ -670,6 +670,12 @@ def run_scheduler_loop(
     ticks = 0
     lane_threads: list[threading.Thread] = []
     exclude = LANE_TYPES if lanes else None
+    try:
+        from .self_update import ensure_self_update_job
+
+        ensure_self_update_job(db_path=db_path)
+    except Exception:
+        pass  # the owner may not have resolved an update posture yet; never blocks the loop
     if lanes:
         try:
             lane_threads = _start_lanes(

@@ -45,6 +45,7 @@ DEFAULT_JOB_PRIORITIES = {
     "agent.delegate_report": 16,
     "skill.review": 88,
     "capture.observe": 22,
+    "self_update.check": 95,
 }
 
 COALESCE_AGGRESSIVE = {
@@ -60,6 +61,7 @@ COALESCE_AGGRESSIVE = {
     "manifest.regenerate",
     "index.rebuild_all",
     "self_repair.bake_check",
+    "self_update.check",
 }
 
 COALESCE_BY_RECORD = {

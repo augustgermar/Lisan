@@ -216,6 +216,21 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # Allowlist of paths collect tasks may scan.
         "collect_paths": [],
     },
+    # Auto-update (docs/README.md self-update section). mode starts
+    # unresolved: the periodic check never runs until the owner answers
+    # once, at `lisan init` or with `lisan update config --mode ...`.
+    #   automatic - fast-forward pull, verified by the full test suite,
+    #               restarts the resident service; refuses and rolls back
+    #               on a dirty tree, a diverged branch, or a failing suite.
+    #   notify    - pages the owner once per newly seen remote commit;
+    #               applies nothing until `lisan update apply`.
+    #   off       - the periodic check is not scheduled.
+    "update": {
+        "mode": None,
+        "remote": "origin",
+        "branch": "main",
+        "check_interval_hours": 12,
+    },
     "ingest": {
         "max_file_size_bytes": 5 * 1024 * 1024,
         "text_preview_chars": 4000,

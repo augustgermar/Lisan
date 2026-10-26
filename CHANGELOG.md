@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Auto-update.** A periodic `self_update.check` job compares local HEAD
+  against the configured remote branch. `update.mode` starts unresolved
+  (`null`) — `lisan init` now ends with a one-time choice, automatic or
+  notify-only, same deny-by-default posture as `adjutant.enabled`; change it
+  anytime with `lisan update config --mode automatic|notify|off`. `notify`
+  pages the owner once per newly seen remote commit over the existing
+  Telegram escalation path and applies nothing. `automatic` fast-forwards,
+  reinstalls dependencies if `pyproject.toml`/`uv.lock` changed, verifies
+  with the full test suite, and restarts the resident service (refuses the
+  bounce over in-flight jobs, as `lisan restart` always has) — it refuses
+  outright, with no rollback needed, on a dirty working tree, a diverged
+  local branch, or a checkout off the target branch, and rolls back
+  (`git reset --hard`) if dependency install or the suite fails after the
+  pull. `lisan update status|check|apply|config`; surfaced in `lisan self
+  state`.
 - **Learning notices.** The agent now tells the owner on Telegram, in a line or two,
   when it learns on its own: a skill the loop wrote, changed, trusted or flagged;
   a belief the dreamer revised on evidence; a new ache, and an ache that stops being true. Off with

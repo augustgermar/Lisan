@@ -437,6 +437,14 @@ def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) 
     state["stale_code_services"] = _stale_code_services()
 
     try:
+        from .self_update import read_update_state
+
+        update_cfg = load_config().get("update") or {}
+        state["update"] = {"mode": update_cfg.get("mode"), **read_update_state(db)}
+    except Exception as exc:
+        state["update"] = {"error": str(exc)}
+
+    try:
         import re as _re
 
         from .log import tail_log
@@ -774,6 +782,15 @@ def render_self_state(state: dict[str, Any]) -> str:
     plans = state.get("active_plans") or []
     for pl in plans:
         lines.append(f"Active plan ({pl['progress']} steps): {pl['goal']}")
+    update = state.get("update") or {}
+    if update and not update.get("error"):
+        mode = update.get("mode") or "unresolved (run `lisan update config --mode automatic|notify`)"
+        line = f"Update: mode {mode}"
+        if update.get("checked_at"):
+            line += f", last checked {update['checked_at']}"
+        if update.get("update_available"):
+            line += " — UPDATE AVAILABLE"
+        lines.append(line)
     learning = state.get("learning") or {}
     if learning:
         line = f"Learning: mode {learning.get('mode')} — {learning.get('events', 0)} event(s) observed"

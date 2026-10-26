@@ -63,6 +63,7 @@ JOB_TYPES = {
     "prediction.reconcile",
     "corpus.audit_priors",
     "adjutant.cycle",
+    "self_update.check",
 }
 
 # Indexing/embedding jobs are deterministic and cheap (no LLM call). These are
@@ -1497,6 +1498,11 @@ def dispatch_job(
             "verdicts": len(result.get("verdicts", [])),
             "executed": len(result.get("executed", [])),
         }
+
+    if job_type == "self_update.check":
+        from .self_update import run_periodic_check
+
+        return run_periodic_check(vault, db_path=db_path)
 
     if job_type in {"task.reminder", "task.prompt", "task.run_codex"}:
         from .scheduler import current_send_fn, run_task_job

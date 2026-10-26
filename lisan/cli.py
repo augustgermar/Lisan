@@ -669,6 +669,23 @@ def build_parser() -> argparse.ArgumentParser:
     restart.add_argument("--db-path", type=Path, default=None)
     restart.add_argument("--force", action="store_true", help="Restart even while jobs are mid-run")
 
+    update_cmd = subparsers.add_parser("update", help="Check GitHub for a newer Lisan version, or apply it")
+    update_subparsers = update_cmd.add_subparsers(dest="update_command", required=True)
+    update_status = update_subparsers.add_parser("status", help="Show the update posture and last check")
+    update_status.add_argument("--db-path", type=Path, default=None)
+    update_check = update_subparsers.add_parser("check", help="Fetch the remote and report whether an update is available")
+    update_check.add_argument("--remote", default=None)
+    update_check.add_argument("--branch", default=None)
+    update_apply = update_subparsers.add_parser(
+        "apply", help="Fast-forward pull, verify with the test suite, and restart (refuses a dirty or diverged tree)"
+    )
+    update_apply.add_argument("--remote", default=None)
+    update_apply.add_argument("--branch", default=None)
+    update_apply.add_argument("--no-restart", action="store_true", dest="no_restart")
+    update_apply.add_argument("--no-tests", action="store_true", dest="no_tests", help="Skip the test-suite gate (not recommended)")
+    update_config = update_subparsers.add_parser("config", help="Show or change the update posture")
+    update_config.add_argument("--mode", choices=["automatic", "notify", "off"], default=None)
+
     logs = subparsers.add_parser("logs", help="Show recent log entries")
     logs.add_argument("--vault", type=Path, default=vault_root())
     logs.add_argument("--tail", type=int, default=50, metavar="N")
@@ -1082,6 +1099,48 @@ def main(argv: list[str] | None = None) -> int:
         report = restart_service(db_path=args.db_path, force=args.force)
         print(render_restart_report(report))
         return 0 if report.get("restarted") or report.get("reason") == "jobs_in_flight" else 1
+
+    if args.command == "update":
+        from .tools.self_update import (
+            apply_update, check_remote, ensure_self_update_job, read_update_state,
+            render_update_status, set_update_mode,
+        )
+
+        if args.update_command == "status":
+            config = load_config()
+            print(render_update_status(config, read_update_state(args.db_path)))
+            return 0
+
+        if args.update_command == "check":
+            config = load_config()
+            update_cfg = config.get("update") or {}
+            remote = args.remote or update_cfg.get("remote") or "origin"
+            branch = args.branch or update_cfg.get("branch") or "main"
+            result = check_remote(remote=remote, branch=branch)
+            print(json.dumps(result, indent=2, ensure_ascii=True))
+            return 0 if result.get("ok") else 1
+
+        if args.update_command == "apply":
+            config = load_config()
+            update_cfg = config.get("update") or {}
+            remote = args.remote or update_cfg.get("remote") or "origin"
+            branch = args.branch or update_cfg.get("branch") or "main"
+            result = apply_update(
+                remote=remote, branch=branch,
+                restart=not args.no_restart, run_tests=not args.no_tests,
+            )
+            print(json.dumps(result, indent=2, ensure_ascii=True))
+            return 0 if result.get("applied") or result.get("reason") == "up_to_date" else 1
+
+        if args.update_command == "config":
+            if args.mode:
+                set_update_mode(args.mode)
+                ensure_self_update_job()
+                print(f"Update mode set to {args.mode}.")
+                return 0
+            config = load_config()
+            print(render_update_status(config, read_update_state(None)))
+            return 0
 
     if args.command == "logs":
         from .tools.log import tail_log
