@@ -390,6 +390,38 @@ class ChatPerformanceTests(unittest.TestCase):
         self.assertGreater(len(result["queued_jobs"]), 0)
         self.assertEqual(result["trace"]["jobs_queued"], len(result["queued_jobs"]))
 
+    def test_forget_turn_is_answered_but_never_captured(self) -> None:
+        result = _process_chat_turn(
+            vault=self.vault,
+            conversation_id="demo",
+            text="/forget my account password is hunter2",
+            provider=None,
+            model=None,
+            db_path=self.db_path,
+        )
+        self.assertTrue(result["response"])
+        self.assertEqual(result["queued_jobs"], [])
+        from lisan.tools.jobs import list_jobs
+
+        self.assertFalse([j for j in list_jobs(db_path=self.db_path) if j["job_type"] == "capture.observe"])
+
+    def test_remember_flag_reaches_the_capture_payload(self) -> None:
+        _process_chat_turn(
+            vault=self.vault,
+            conversation_id="demo",
+            text="/remember the gate code is 4411",
+            provider=None,
+            model=None,
+            db_path=self.db_path,
+        )
+        from lisan.tools.jobs import list_jobs
+
+        observed = [j for j in list_jobs(db_path=self.db_path) if j["job_type"] == "capture.observe"]
+        self.assertTrue(observed)
+        payload = observed[0]["payload"]
+        payload = json.loads(payload) if isinstance(payload, str) else payload
+        self.assertTrue(payload["text"].startswith("/remember"))
+
     def test_failed_provider_call_returns_explicit_error_and_no_memory(self) -> None:
         self.client.complete.side_effect = ProviderError("permission denied creating session files")
         result = _process_chat_turn(

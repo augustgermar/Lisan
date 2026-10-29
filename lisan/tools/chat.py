@@ -320,16 +320,17 @@ def run_chat(
 
         response = str(turn_result.get("response") or "").strip()
         if response:
+            # Printed exactly once below. The provider-failure branch used to
+            # print and then fall through to the shared print, and the advice
+            # (fast-path) branch re-appended a reply _process_chat_turn had
+            # already written to the transcript.
             if turn_result.get("provider_failure"):
-                print()
-                print(color(f"  ● {agent_name}", BLUE, BOLD) + color("  ", DIM) + response)
-                print()
+                pass
             elif turn_result.get("route") == "advice":
                 advice_context_active = True
                 advice_topic = str(turn_result.get("topic") or advice_topic or "")
                 advice_history.append({"speaker": "user", "text": str(turn_result.get("content_text") or raw)})
                 advice_history.append({"speaker": "assistant", "text": response})
-                append_transcript(vault=vault, conversation_id=conv_id, speaker="LISAN", text=response)
             else:
                 advice_context_active = False
                 if turn_result.get("route") != "advice":
@@ -369,10 +370,16 @@ def _process_chat_turn(
     classification = classify_turn(text, vault=vault, conversation_id=conversation_id)
     lowered = text.lower().strip()
     content_text = text
+    # /forget: answer, but never hand the exchange to memory capture.
+    # /remember: the agent sees the stripped text; capture sees the flag.
+    # Until 2026-10-29 both prefixes were stripped and nothing else changed,
+    # so /forget turns were captured anyway and /remember lost its flag.
+    capture_suppressed = False
     if lowered.startswith("/remember "):
         content_text = text[len("/remember "):].strip()
     elif lowered.startswith("/forget "):
         content_text = text[len("/forget "):].strip()
+        capture_suppressed = True
     turn_id = f"turn.{time.strftime('%Y%m%d%H%M%S')}.{uuid.uuid4().hex[:8]}"
     trace, token = start_turn_trace(turn_id, text, classification.label, classification.fast_path_used)
     record_inline_step("classify_turn")
@@ -419,6 +426,8 @@ def _process_chat_turn(
                 model=model,
                 db_path=db_path,
                 approval_fn=approval_fn,
+                queue_capture=not capture_suppressed,
+                capture_text=text,
             ),
             agent_name=assistant_display_name(vault),
         )

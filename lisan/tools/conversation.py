@@ -43,9 +43,15 @@ def run_conversation_turn(
     db_path: Path | None = None,
     approval_fn: Callable[[str, dict[str, Any]], bool] | None = None,
     queue_capture: bool = True,
+    capture_text: str | None = None,
 ) -> dict[str, Any]:
     """One conversational turn: transcript in, one agent call, transcript out,
-    capture observed in the background."""
+    capture observed in the background.
+
+    ``queue_capture=False`` is the /forget contract: the exchange is answered
+    but never handed to the memory pipeline. ``capture_text`` lets the caller
+    give the pipeline the owner's original words (e.g. with the /remember
+    flag the heuristics key on) while the agent sees the stripped text."""
     from ..agents.conversation import ConversationAgent
 
     vault = vault or vault_root()
@@ -173,7 +179,7 @@ def run_conversation_turn(
     if queue_capture:
         queued_job = _queue_observation(
             vault=vault,
-            text=text,
+            text=capture_text or text,
             response=response,
             tool_calls=tool_calls,
             conversation_id=conversation_id,
