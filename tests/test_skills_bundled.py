@@ -42,7 +42,7 @@ EXPECTED_SKILLS = {
     "youtube_transcript",
 }
 
-APPROVAL_GATED = {"gmail_send", "imessage_send"}
+APPROVAL_GATED = {"gmail_send", "imessage_send", "drive_write"}
 
 
 @requires_bundled
@@ -130,7 +130,15 @@ def test_gated_skill_denied_without_approval(tmp_path: Path) -> None:
     assert "approval" in result.lower()
 
 
-def test_gated_skill_runs_with_approval(tmp_path: Path) -> None:
+def _allow_outbound(monkeypatch) -> None:
+    """A fake gated skill is not a real send; opt this test out of the
+    outbound kill switch explicitly, as the scheduler tests do."""
+    monkeypatch.delenv("LISAN_NO_OUTBOUND", raising=False)
+    monkeypatch.setenv("LISAN_ALLOW_TEST_OUTBOUND", "1")
+
+
+def test_gated_skill_runs_with_approval(tmp_path: Path, monkeypatch) -> None:
+    _allow_outbound(monkeypatch)
     _write_skill(tmp_path, "danger_skill", requires_approval=True)
     seen: list[tuple[str, dict]] = []
 
@@ -149,6 +157,15 @@ def test_gated_skill_denied_when_no_approval_channel(tmp_path: Path) -> None:
     handlers = load_skill_handlers(tmp_path, vault=tmp_path, config={}, approval_fn=None)
     result = handlers["danger_skill"]()
     assert "RAN" not in result
+
+
+def test_approved_gated_skill_still_honours_outbound_kill_switch(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LISAN_NO_OUTBOUND", "1")
+    _write_skill(tmp_path, "danger_skill", requires_approval=True)
+    handlers = load_skill_handlers(tmp_path, vault=tmp_path, config={}, approval_fn=lambda *_: True)
+    result = handlers["danger_skill"]()
+    assert "RAN" not in result
+    assert "LISAN_NO_OUTBOUND" in result
 
 
 def test_ungated_skill_never_asks_for_approval(tmp_path: Path) -> None:

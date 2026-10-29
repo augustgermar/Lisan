@@ -228,9 +228,11 @@ def test_asking_for_an_unknown_skill_lists_what_exists(tmp_path, monkeypatch):
 
 # ── approval survives the rewrite ─────────────────────────────────────────────
 
-def test_an_approval_gated_skill_is_still_gated(tmp_path):
+def test_an_approval_gated_skill_is_still_gated(tmp_path, monkeypatch):
     """Anything that leaves the machine keeps its gate through the format
     change."""
+    monkeypatch.delenv("LISAN_NO_OUTBOUND", raising=False)
+    monkeypatch.setenv("LISAN_ALLOW_TEST_OUTBOUND", "1")
     _executable(tmp_path, "sender", requires_approval=True)
     denied = load_skill_handlers(tmp_path, vault=tmp_path, config={}, approval_fn=lambda n, a: False)
     assert "did not run" in denied["sender"](q="x")

@@ -139,6 +139,14 @@ def load_skill_handlers(
                         f"Approval was not granted, so I did not run {_name}. This is the "
                         "approval gate — not a permissions or system error."
                     )
+                # A gated skill is by definition one whose action leaves the
+                # machine, so the global outbound kill switch applies to it.
+                from .outbound import OutboundDisabled, assert_outbound_allowed
+
+                try:
+                    assert_outbound_allowed(f"skill {_name}")
+                except OutboundDisabled as exc:
+                    return f"Did not run {_name}: {exc}."
             if "approval_fn" in inspect.signature(_run).parameters:
                 return str(_run(args, vault, config, approval_fn=approval_fn))
             return str(_run(args, vault, config))

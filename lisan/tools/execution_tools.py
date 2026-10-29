@@ -497,7 +497,8 @@ def build_tool_handlers(
         "self_state": lambda: self_state(vault=vault, db_path=db_path),
         "send_email": lambda subject, body, recipients, html_body=None, sender=None, attachments=None, dry_run=False: _send_email_tool(
             subject, body, recipients, html_body=html_body, sender=sender,
-            attachments=attachments, dry_run=dry_run, config=config or load_config()),
+            attachments=attachments, dry_run=dry_run, config=config or load_config(),
+            approval_fn=approval_fn),
         "checkin": lambda person, note, tags=None, quote=None: _checkin_tool(
             person, note, tags=tags, quote=quote, vault=vault, db_path=db_path),
         "support_note": lambda person, strategy, outcome, note=None: _support_note_tool(
@@ -1086,13 +1087,42 @@ def _ratify_framework_tool(name: str, summary: str, source: str | None, *, vault
 
 def _send_email_tool(subject: str, body: str, recipients: list[str], *, html_body: str | None = None,
                      sender: str | None = None, attachments: list[str] | None = None,
-                     dry_run: bool = False, config: dict[str, Any]) -> str:
+                     dry_run: bool = False, config: dict[str, Any],
+                     approval_fn: Callable[[str, dict[str, Any]], bool] | None = None) -> str:
+    """Email leaves the machine, so a real send needs the owner's yes for
+    this exact message. A dry run validates and returns without sending.
+
+    Validation runs first (as a dry run) so the owner is never asked to
+    approve a message that would be rejected anyway, and so the approval
+    prompt shows the resolved recipients rather than the model's spelling.
+    """
     from .mail import send_email
 
     try:
+        preview = send_email(subject=subject, body=body, recipients=recipients, config=config,
+                             html_body=html_body, sender=sender, attachments=attachments,
+                             dry_run=True)
+        if dry_run:
+            return json.dumps(preview, ensure_ascii=False)
+        if approval_fn is None:
+            return json.dumps({"ok": False, "error": (
+                "Approval required to send email, but no approval channel is available "
+                "in this context, so nothing was sent.")}, ensure_ascii=False)
+        approval = {
+            "task": (f"send_email to {', '.join(preview['recipients'])} from {preview['sender']}: "
+                     f"{subject}\n\n{body}"),
+            "recipients": preview["recipients"],
+            "sender": preview["sender"],
+            "subject": subject,
+            "attachments": preview["attachments"],
+        }
+        if not approval_fn("send_email", approval):
+            return json.dumps({"ok": False, "error": (
+                "Approval was not granted, so the email was not sent. This is the approval "
+                "gate — not a permissions or system error.")}, ensure_ascii=False)
         result = send_email(subject=subject, body=body, recipients=recipients, config=config,
                             html_body=html_body, sender=sender, attachments=attachments,
-                            dry_run=dry_run)
+                            dry_run=False)
         return json.dumps(result, ensure_ascii=False)
     except Exception as exc:
         return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)

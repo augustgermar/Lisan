@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 import smtplib
 from email.message import EmailMessage
 from pathlib import Path
@@ -25,7 +26,8 @@ def send_email(*, subject: str, body: str, recipients: list[str], config: dict[s
                html_body: str | None = None, sender: str | None = None,
                attachments: list[str] | None = None, dry_run: bool = False) -> dict[str, Any]:
     mail = config.get("mail", {})
-    sender = (sender or mail.get("sender") or "").strip()
+    configured = str(mail.get("sender") or "").strip()
+    sender = (sender or configured).strip()
     relay = str(mail.get("relay") or "localhost").strip()
     port = int(mail.get("port") or 25)
     domain = str(mail.get("default_domain") or "").strip()
@@ -38,18 +40,27 @@ def send_email(*, subject: str, body: str, recipients: list[str], config: dict[s
         raise ValueError("email subject is required")
     if not _valid_address(sender):
         raise ValueError(f"invalid sender address: {sender}")
+    # The relay is unauthenticated, so the From header is whatever we say it
+    # is. A model-chosen sender is a spoofing primitive; only the configured
+    # sender (or an explicit allowlist) may appear there.
+    allowed = {configured.lower()} | {str(a).strip().lower() for a in mail.get("allowed_senders") or []}
+    if sender.lower() not in allowed:
+        raise ValueError(f"sender {sender} is not the configured mail.sender or in mail.allowed_senders")
     resolved = list(dict.fromkeys(_resolve(item, domain) for item in recipients))
     if not resolved:
         raise ValueError("at least one recipient is required")
     paths = [str(Path(item)) for item in (attachments or [])]
     for path in paths:
-        if not Path(path).is_file() or not Path(path).readable():
+        if not Path(path).is_file() or not os.access(path, os.R_OK):
             raise ValueError(f"attachment is not readable: {path}")
     result = {"ok": True, "dry_run": dry_run, "sender": sender, "recipients": resolved,
               "relay": relay, "port": port, "attachments": [Path(p).name for p in paths]}
     if dry_run:
         result["accepted_response"] = "250 dry-run; not sent"
         return result
+    from .outbound import assert_outbound_allowed
+
+    assert_outbound_allowed("email")
     message = EmailMessage()
     message["From"] = sender
     message["To"] = ", ".join(resolved)
