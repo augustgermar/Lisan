@@ -9,7 +9,6 @@ from typing import Any, Callable, Iterable
 from ..frontmatter import load_markdown, write_markdown
 from ..providers.embeddings import EmbeddingProvider
 from ..utils import today_iso
-from .action_policy import action_allowed
 from .research import LocalRootProvider, SourceFinding, SourceProvider, search_owner_sources, search_published_sources
 from .retrieval import retrieve_context
 from .transcript_lane import TranscriptHit, search_transcripts
@@ -106,7 +105,9 @@ def seek(
         raise ValueError("enrichment.seek requires a named deficit_id")
     if not deficit.strip():
         raise ValueError("enrichment.seek requires a non-empty deficit")
-    if not action_allowed("enrich", config):
+    from .authority import rule as authority_rule
+
+    if not authority_rule("drive.enrich", vault=vault, config=config, detail={"deficit": deficit_id}).allowed:
         _record_attempt(
             vault, loop_id=loop_id, deficit_id=deficit_id, entity_path=entity_path,
             terminal_outcome="blocked_by_policy", stop_ring="policy",

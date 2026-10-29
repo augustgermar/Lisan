@@ -365,17 +365,17 @@ def _execute_step(
         # nobody is present to answer. The provider is called directly so a
         # failure is an exception, not a string to be sniffed.
         from ..providers.codex import CodexClient
-        from .execution_tools import _build_codex_prompt, _chat_intent_verdict
+        from .execution_tools import _build_codex_prompt
 
         from .execution_tools import codex_workspace
 
         # The approval above never outranks intent.md's never-rules — same
         # rail run_codex honours for a direct chat command.
-        ruling = _chat_intent_verdict(vault)
-        if ruling is not None and ruling[0].decision == "deny":
-            verdict, version = ruling
-            reasons = "; ".join(verdict.reasons or ["denied"])
-            return f"refused: intent.md (v{version}) forbids this — {verdict.rule}: {reasons}", False
+        from .authority import rule as authority_rule
+
+        ruling = authority_rule("plan.codex_step", vault=vault, config=config, detail={"step": description})
+        if not ruling.allowed:
+            return f"refused: intent.md forbids this — {ruling.rule}: {'; '.join(ruling.reasons) or 'denied'}", False
 
         wd = Path(str(payload.get("working_directory") or codex_workspace())).expanduser()
         prompt = _build_codex_prompt(

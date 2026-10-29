@@ -120,7 +120,15 @@ def _write_skill(root: Path, name: str, *, requires_approval: bool = False) -> N
     )
 
 
-def test_gated_skill_denied_without_approval(tmp_path: Path) -> None:
+def _allow_outbound(monkeypatch) -> None:
+    """A fake gated skill is not a real send; opt this test out of the
+    outbound kill switch explicitly, as the scheduler tests do."""
+    monkeypatch.delenv("LISAN_NO_OUTBOUND", raising=False)
+    monkeypatch.setenv("LISAN_ALLOW_TEST_OUTBOUND", "1")
+
+
+def test_gated_skill_denied_without_approval(tmp_path: Path, monkeypatch) -> None:
+    _allow_outbound(monkeypatch)
     _write_skill(tmp_path, "danger_skill", requires_approval=True)
     handlers = load_skill_handlers(
         tmp_path, vault=tmp_path, config={}, approval_fn=lambda *_: False
@@ -128,13 +136,6 @@ def test_gated_skill_denied_without_approval(tmp_path: Path) -> None:
     result = handlers["danger_skill"]()
     assert "RAN" not in result
     assert "approval" in result.lower()
-
-
-def _allow_outbound(monkeypatch) -> None:
-    """A fake gated skill is not a real send; opt this test out of the
-    outbound kill switch explicitly, as the scheduler tests do."""
-    monkeypatch.delenv("LISAN_NO_OUTBOUND", raising=False)
-    monkeypatch.setenv("LISAN_ALLOW_TEST_OUTBOUND", "1")
 
 
 def test_gated_skill_runs_with_approval(tmp_path: Path, monkeypatch) -> None:

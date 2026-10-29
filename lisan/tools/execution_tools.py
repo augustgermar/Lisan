@@ -498,7 +498,7 @@ def build_tool_handlers(
         "send_email": lambda subject, body, recipients, html_body=None, sender=None, attachments=None, dry_run=False: _send_email_tool(
             subject, body, recipients, html_body=html_body, sender=sender,
             attachments=attachments, dry_run=dry_run, config=config or load_config(),
-            approval_fn=approval_fn),
+            approval_fn=approval_fn, vault=vault),
         "checkin": lambda person, note, tags=None, quote=None: _checkin_tool(
             person, note, tags=tags, quote=quote, vault=vault, db_path=db_path),
         "support_note": lambda person, strategy, outcome, note=None: _support_note_tool(
@@ -870,7 +870,7 @@ def codex_workspace() -> str:
     return str(repo_root())
 
 
-def _chat_intent_verdict(vault: Path) -> tuple[Any, int] | None:
+def _chat_intent_verdict(vault: Path, capabilities: list[str] | None = None) -> tuple[Any, int] | None:
     """Chat-side codex runs answer to the same authority document as the
     Adjutant: primer/intent.md, arena ``chat``, the run_script capability
     set. Returns (verdict, intent_version). Since the owner deleted the
@@ -899,7 +899,7 @@ def _chat_intent_verdict(vault: Path) -> tuple[Any, int] | None:
                 reasons=["intent.md is still the template (sentinel dates) — adopt it with `lisan intent edit`"],
             ), intent.version
         verdict = resolve_capabilities(
-            intent.delegations, "chat", TASK_KIND_CAPABILITIES["run_script"]
+            intent.delegations, "chat", list(capabilities or TASK_KIND_CAPABILITIES["run_script"])
         )
         return verdict, intent.version
     except IntentError as exc:
@@ -930,12 +930,12 @@ def run_codex(
     if not wd.is_absolute():
         wd = repo_root()
 
-    intent_ruling = _chat_intent_verdict(vault)
-    if intent_ruling is not None and intent_ruling[0].decision == "deny":
-        verdict, version = intent_ruling
-        reasons = "; ".join(verdict.reasons or ["denied"])
+    from .authority import rule as authority_rule
+
+    ruling = authority_rule("run_codex", vault=vault, config=config, detail={"task": task})
+    if not ruling.allowed:
         return (
-            f"Your intent.md (v{version}) forbids this: {verdict.rule} — {reasons}. "
+            f"Your intent.md forbids this: {ruling.rule} — {'; '.join(ruling.reasons) or 'denied'}. "
             "I didn't run it, because never-rules outrank an in-chat command. "
             "Change the standing rule with `lisan intent edit` if you want this allowed."
         )
@@ -1108,7 +1108,8 @@ def _ratify_framework_tool(name: str, summary: str, source: str | None, *, vault
 def _send_email_tool(subject: str, body: str, recipients: list[str], *, html_body: str | None = None,
                      sender: str | None = None, attachments: list[str] | None = None,
                      dry_run: bool = False, config: dict[str, Any],
-                     approval_fn: Callable[[str, dict[str, Any]], bool] | None = None) -> str:
+                     approval_fn: Callable[[str, dict[str, Any]], bool] | None = None,
+                     vault: Path | None = None) -> str:
     """Email leaves the machine, so a real send needs the owner's yes for
     this exact message. A dry run validates and returns without sending.
 
@@ -1116,6 +1117,8 @@ def _send_email_tool(subject: str, body: str, recipients: list[str], *, html_bod
     approve a message that would be rejected anyway, and so the approval
     prompt shows the resolved recipients rather than the model's spelling.
     """
+    from .authority import ASK
+    from .authority import rule as authority_rule
     from .mail import send_email
 
     try:
@@ -1124,10 +1127,19 @@ def _send_email_tool(subject: str, body: str, recipients: list[str], *, html_bod
                              dry_run=True)
         if dry_run:
             return json.dumps(preview, ensure_ascii=False)
-        if approval_fn is None:
-            return json.dumps({"ok": False, "error": (
-                "Approval required to send email, but no approval channel is available "
-                "in this context, so nothing was sent.")}, ensure_ascii=False)
+        from ..paths import vault_root
+
+        ruling = authority_rule(
+            "send_email", vault=vault or vault_root(), config=config,
+            approval_channel=approval_fn is not None,
+            detail={"to": ", ".join(preview["recipients"]), "subject": subject},
+        )
+        if ruling.decision != ASK:
+            if ruling.rule == "approval.no_channel":
+                return json.dumps({"ok": False, "error": (
+                    "Approval required to send email, but no approval channel is available "
+                    "in this context, so nothing was sent.")}, ensure_ascii=False)
+            return json.dumps({"ok": False, "error": f"Not sent — {ruling.explain()}"}, ensure_ascii=False)
         approval = {
             "task": (f"send_email to {', '.join(preview['recipients'])} from {preview['sender']}: "
                      f"{subject}\n\n{body}"),

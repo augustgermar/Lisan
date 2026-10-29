@@ -53,18 +53,29 @@ def test_tool_returns_json_error_for_invalid_recipient():
     assert "invalid email address" in result["error"]
 
 
-def test_tool_refuses_real_send_without_an_approval_channel(monkeypatch):
+@pytest.fixture()
+def sendable(tmp_path, monkeypatch):
+    """An adopted intent and outbound allowed: only the approval gate remains."""
+    from tests.intent_helpers import adopt_intent
+
+    adopt_intent(tmp_path)
+    monkeypatch.delenv("LISAN_NO_OUTBOUND", raising=False)
+    monkeypatch.setenv("LISAN_ALLOW_TEST_OUTBOUND", "1")
+    return tmp_path
+
+
+def test_tool_refuses_real_send_without_an_approval_channel(monkeypatch, sendable):
     sent = []
     monkeypatch.setattr("smtplib.SMTP", lambda *a, **k: sent.append(a))
     result = json.loads(_send_email_tool(
-        "Test", "Body", ["owner@example.com"], config=_test_config(),
+        "Test", "Body", ["owner@example.com"], config=_test_config(), vault=sendable,
     ))
     assert result["ok"] is False
     assert "Approval required" in result["error"]
     assert sent == []
 
 
-def test_tool_refuses_when_owner_denies_and_shows_resolved_recipients():
+def test_tool_refuses_when_owner_denies_and_shows_resolved_recipients(sendable):
     seen = {}
 
     def deny(name, args):
@@ -72,7 +83,7 @@ def test_tool_refuses_when_owner_denies_and_shows_resolved_recipients():
         return False
 
     result = json.loads(_send_email_tool(
-        "Test", "Body", ["Owner"], config=_test_config(), approval_fn=deny,
+        "Test", "Body", ["Owner"], config=_test_config(), approval_fn=deny, vault=sendable,
     ))
     assert result["ok"] is False
     assert "not granted" in result["error"]
@@ -91,12 +102,12 @@ def test_dry_run_never_asks_for_approval():
     assert result["ok"] is True and result["dry_run"] is True
 
 
-def test_approved_send_still_honours_the_outbound_kill_switch(monkeypatch):
+def test_approved_send_still_honours_the_outbound_kill_switch(monkeypatch, sendable):
     monkeypatch.setenv("LISAN_NO_OUTBOUND", "1")
     monkeypatch.setattr("smtplib.SMTP", lambda *a, **k: (_ for _ in ()).throw(AssertionError("sent")))
     result = json.loads(_send_email_tool(
         "Test", "Body", ["owner@example.com"], config=_test_config(),
-        approval_fn=lambda *_: True,
+        approval_fn=lambda *_: True, vault=sendable,
     ))
     assert result["ok"] is False
     assert "LISAN_NO_OUTBOUND" in result["error"]
@@ -122,3 +133,16 @@ def test_readable_attachment_is_accepted(tmp_path):
     result = send_email(subject="T", body="B", recipients=["a@example.com"], config=_test_config(),
                         attachments=[str(attachment)], dry_run=True)
     assert result["attachments"] == ["note.txt"]
+
+
+def test_an_unadopted_intent_blocks_email_before_anyone_is_asked(tmp_path, monkeypatch):
+    monkeypatch.delenv("LISAN_NO_OUTBOUND", raising=False)
+    monkeypatch.setenv("LISAN_ALLOW_TEST_OUTBOUND", "1")
+
+    def explode(*_):
+        raise AssertionError("must not ask when intent cannot be checked")
+
+    result = json.loads(_send_email_tool(
+        "Test", "Body", ["owner@example.com"], config=_test_config(), approval_fn=explode, vault=tmp_path,
+    ))
+    assert result["ok"] is False and "intent" in result["error"]

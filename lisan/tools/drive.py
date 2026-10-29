@@ -137,9 +137,9 @@ def session_open_callback(
     cfg = drive_config(config)
     if not cfg.get("enabled", True):
         return None
-    from .action_policy import action_allowed
+    from .authority import rule as authority_rule
 
-    if not action_allowed("session_callback", config):
+    if not authority_rule("drive.session_callback", vault=vault, config=config, audit=False).allowed:
         return None
     now = now or date.today()
     logger = get_logger(vault)

@@ -138,13 +138,11 @@ def normalize_child_spec(
 def _refuse_if_intent_denies(vault: Path | None) -> None:
     if vault is None:
         return
-    from .execution_tools import _chat_intent_verdict
+    from .authority import rule as authority_rule
 
-    ruling = _chat_intent_verdict(vault)
-    if ruling is not None and ruling[0].decision == "deny":
-        verdict, version = ruling
-        reasons = "; ".join(verdict.reasons or ["denied"])
-        raise ValueError(f"intent.md (v{version}) forbids this: {verdict.rule} — {reasons}")
+    ruling = authority_rule("delegate", vault=vault)
+    if not ruling.allowed:
+        raise ValueError(f"intent.md forbids this: {ruling.rule} — {'; '.join(ruling.reasons) or 'denied'}")
 
 
 def _enqueue_child(

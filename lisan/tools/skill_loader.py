@@ -128,25 +128,26 @@ def load_skill_handlers(
 
         def _handler(*, _run=run, _name=name, _gated=gated, **args: Any) -> str:
             if _gated:
-                if approval_fn is None:
-                    return (
-                        f"Approval required to run {_name}, but no approval channel is "
-                        "available in this context, so I did not run it."
-                    )
+                from .authority import ASK
+                from .authority import rule as authority_rule
+
+                ruling = authority_rule(
+                    "skill.outbound", vault=vault, config=config,
+                    approval_channel=approval_fn is not None, detail={"skill": _name},
+                )
+                if ruling.decision != ASK:
+                    if ruling.rule == "approval.no_channel":
+                        return (
+                            f"Approval required to run {_name}, but no approval channel is "
+                            "available in this context, so I did not run it."
+                        )
+                    return f"Did not run {_name}: {ruling.explain()}."
                 summary = json.dumps(args, ensure_ascii=True, sort_keys=True)
                 if not approval_fn(_name, {"task": f"{_name} {summary}", **args}):
                     return (
                         f"Approval was not granted, so I did not run {_name}. This is the "
                         "approval gate — not a permissions or system error."
                     )
-                # A gated skill is by definition one whose action leaves the
-                # machine, so the global outbound kill switch applies to it.
-                from .outbound import OutboundDisabled, assert_outbound_allowed
-
-                try:
-                    assert_outbound_allowed(f"skill {_name}")
-                except OutboundDisabled as exc:
-                    return f"Did not run {_name}: {exc}."
             if "approval_fn" in inspect.signature(_run).parameters:
                 return str(_run(args, vault, config, approval_fn=approval_fn))
             return str(_run(args, vault, config))

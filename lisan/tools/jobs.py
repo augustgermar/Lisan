@@ -1193,9 +1193,10 @@ def dispatch_job(
         from .self_repair import propose
 
         cfg = load_config()
-        from .action_policy import action_allowed
+        from .authority import rule as authority_rule
 
-        if not action_allowed("self_repair_propose", cfg):
+        if not authority_rule("self_repair.propose", vault=vault, config=cfg,
+                              detail={"loop": payload.get("loop_id")}).allowed:
             return {"status": "blocked", "reason": "self-repair proposal action is not enabled"}
         loop_id = str(payload.get("loop_id") or "").strip()
         if not loop_id:

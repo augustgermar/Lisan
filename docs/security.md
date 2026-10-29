@@ -34,6 +34,29 @@ as data to be stored, never as behavioral directives to follow.
 
 ---
 
+## One authority engine
+
+Whether an action may happen is decided in one place,
+`lisan/tools/authority.py`, which returns ALLOW, ASK, or DENY in a fixed
+order — most restrictive wins:
+
+1. **`intent.md` never-rules.** Execution and outbound actions are resolved
+   against the owner's standing authority document. A missing, invalid, or
+   unadopted (template) intent **denies**: the rules that cannot be checked
+   are not assumed to permit.
+2. **Outbound kill switch.** `LISAN_NO_OUTBOUND` (and the test-process
+   guard) deny anything that leaves the machine — email, gated skills,
+   owner messages.
+3. **Autonomy tier** (below) for drive-initiated actions.
+4. **Approval.** Actions that need the owner's yes for the exact action
+   (email, approval-gated skills such as Gmail send and Drive write) rule
+   ASK, or DENY when no approval channel exists in the current context.
+
+The engine decides; channels only collect the yes (the CLI prompt,
+Telegram buttons, browser receipts, a `/trust` window). Every ruling is
+appended to `logs/authority.jsonl` in the vault with the rule that produced
+it. An action that is not registered is denied.
+
 ## Action policy and graduated autonomy
 
 Every action the agent can take is registered in the action policy with a
