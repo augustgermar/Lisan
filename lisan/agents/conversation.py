@@ -64,6 +64,13 @@ class ConversationAgent(PromptAgent):
         # validator checks the "interpretation" object — so only request
         # the schema then.
         needs_schema = kwargs.get("interpretation_protocol") is not None
+        # The owner's ceiling applied only to the interlocutor; this agent
+        # always stopped at the hard-coded 10.
+        conversation_cfg = (self.config or {}).get("conversation") or {}
+        kwargs.setdefault(
+            "max_iterations",
+            max(1, min(int(conversation_cfg.get("max_tool_iterations") or 10), 60)),
+        )
         result = self.complete_with_tools(
             user_input,
             significance=significance,
@@ -178,6 +185,15 @@ class ConversationAgent(PromptAgent):
         ))
 
     accepts_prose_finale = True
+
+    def tool_limit_output(self, user_input: str, max_iterations: int, tool_log: list[dict[str, Any]], **kwargs: Any) -> str:
+        done = ", ".join(dict.fromkeys(str(c.get("tool")) for c in tool_log)) or "none"
+        note = (
+            f"I ran out of steps before finishing — I used all {max_iterations} tool calls this turn "
+            f"(tools used: {done}). Tell me to continue and I'll pick up from there, or raise "
+            "conversation.max_tool_iterations if this kind of task needs more room."
+        )
+        return json.dumps({"response": note})
 
     def fallback_output(self, user_input: str, significance: str = "medium", **kwargs: Any) -> str:
         try:

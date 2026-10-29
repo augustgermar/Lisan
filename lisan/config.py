@@ -173,6 +173,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # eight calls, so anything with stages needs headroom. Capped at 60
         # in code — a loop that cannot finish in 60 is a loop, not a task.
         "max_tool_iterations": 10,
+        # Characters of tool calls + results carried between rounds. Older
+        # results are elided first (their calls stay visible).
+        "max_tool_prompt_chars": 120000,
     },
     "sources": {
         "local_files": {

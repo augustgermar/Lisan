@@ -24,6 +24,43 @@ def assistant_identity_block(vault: Path) -> str:
     )
 
 
+# Every tool round re-sends the whole prompt plus every earlier call and
+# result. Nothing bounded that growth: a long browsing or file-reading turn
+# could push the prompt past the provider's context and fail outright.
+DEFAULT_TOOL_PROMPT_BUDGET_CHARS = 120_000
+
+
+def _tool_prompt_budget(config: dict[str, Any] | None) -> int:
+    raw = ((config or {}).get("conversation") or {}).get("max_tool_prompt_chars")
+    try:
+        return max(4_000, int(raw)) if raw is not None else DEFAULT_TOOL_PROMPT_BUDGET_CHARS
+    except (TypeError, ValueError):
+        return DEFAULT_TOOL_PROMPT_BUDGET_CHARS
+
+
+def _render_tool_rounds(rounds: list[dict[str, str]], budget: int) -> str:
+    """Render the tool transcript within ``budget`` characters.
+
+    Newest results are kept whole; when the total would exceed the budget,
+    the oldest results are elided (their calls stay, so the model still sees
+    what it already did and can call again if it needs the data)."""
+    if not rounds:
+        return ""
+    elided = "[result elided to fit the context budget; call the tool again if you still need it]"
+    results = [r["result"] for r in rounds]
+    total = sum(len(r["call"]) + len(res) for r, res in zip(rounds, results))
+    i = 0
+    while total > budget and i < len(results) - 1:
+        total -= len(results[i]) - len(elided)
+        results[i] = elided
+        i += 1
+    parts = [
+        "\n\nTOOL_CALL:\n" + r["call"] + "\n\nTOOL_RESULT:\n" + res
+        for r, res in zip(rounds, results)
+    ]
+    return "".join(parts) + "\n\nContinue. If you have enough information, provide the final JSON response now."
+
+
 def invoke_tool(handler: Any, args: dict[str, Any], *, tool_name: str = "tool") -> Any:
     """Call a tool handler exactly once.
 
@@ -148,7 +185,7 @@ class PromptAgent:
             available_tools=json.dumps(tools or [], indent=2, ensure_ascii=True) if tools else None,
             **render_kwargs,
         )
-        current_prompt = prompt
+        base_prompt = prompt
         llm_schema = schema
         if tools and schema is not None:
             # The provider layer renders `schema` as a hard "your response must
@@ -157,7 +194,7 @@ class PromptAgent:
             # the schema instead goes into the prompt as one of two legal
             # response forms.
             llm_schema = None
-            current_prompt += (
+            base_prompt += (
                 "\n\nYou do NOT execute anything yourself — no shell, no file inspection; your ONLY "
                 "way to act is the tool-call JSON below, which a harness executes and returns to you. "
                 "Respond with valid JSON only — no prose, no code fences. Your response must be "
@@ -168,7 +205,10 @@ class PromptAgent:
                 "the correct response is the tool call."
             )
         last_response: LLMResponse | None = None
+        rounds: list[dict[str, str]] = []
+        budget = _tool_prompt_budget(self.config)
         for iteration in range(max_iterations):
+            current_prompt = base_prompt + _render_tool_rounds(rounds, budget)
             try:
                 response = self.llm.complete(
                     current_prompt,
@@ -222,19 +262,24 @@ class PromptAgent:
                     except Exception as exc:
                         result = f"Error: {exc}"
                 tool_log.append({"tool": tool_name, "args": args, "result": result, "iteration": iteration + 1})
-                current_prompt += (
-                    "\n\nTOOL_CALL:\n"
-                    + json.dumps({"tool": tool_name, "args": args}, indent=2, ensure_ascii=True)
-                    + "\n\nTOOL_RESULT:\n"
-                    + fence_tool_result(tool_name, str(result))
-                    + "\n\nContinue. If you have enough information, provide the final JSON response now."
-                )
+                rounds.append({
+                    "call": json.dumps({"tool": tool_name, "args": args}, indent=2, ensure_ascii=True),
+                    "result": fence_tool_result(tool_name, str(result)),
+                })
         if last_response is not None:
-            data = self.parse_output(last_response.text)
-            fallback = self.fallback_output(user_input, significance=significance, **kwargs)
-            return AgentResult(text=fallback, response=last_response, data=self.parse_output(fallback), tool_calls=tool_log)
+            # The loop ran out of rounds while the model was still calling
+            # tools. That is not "the model didn't respond" — say what
+            # actually happened so the owner can raise the ceiling or narrow
+            # the task.
+            limit_text = self.tool_limit_output(user_input, max_iterations, tool_log, **kwargs)
+            return AgentResult(text=limit_text, response=last_response, data=self.parse_output(limit_text), tool_calls=tool_log)
         fallback = self.fallback_output(user_input, significance=significance, **kwargs)
         return AgentResult(text=fallback, response=None, data=self.parse_output(fallback), tool_calls=tool_log)
+
+    def tool_limit_output(self, user_input: str, max_iterations: int, tool_log: list[dict[str, Any]], **kwargs: Any) -> str:
+        """What to return when the tool loop exhausts its rounds. Agents that
+        speak to the owner override this; others keep their fallback."""
+        return self.fallback_output(user_input, **kwargs)
 
     def run(
         self,
