@@ -1257,7 +1257,7 @@ def _ingest_single_file(
     imported_at = now
     artifact_hash = _hash_file(source_path)
     sensitivity = _classify_sensitivity(source_path, source_type, preview_path=source_path)
-    if sensitivity == "sealed":
+    if sensitivity == "sealed" and not allow_sealed:
         reason = "Sealed content is excluded from default ingestion"
         _upsert_manifest(conn, source_path_str, artifact_hash=artifact_hash, last_seen=now, last_ingested=None, status="skipped", error=reason, batch_id=batch_id)
         conn.commit()
