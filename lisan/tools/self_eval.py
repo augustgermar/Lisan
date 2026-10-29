@@ -511,7 +511,7 @@ def _judge_sample(
     from .judge import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, judge_exchange
     from .rubric import rubric_from_kernel
 
-    rubric = rubric_from_kernel(vault)
+    rubric = rubric_from_kernel(vault, persist=True)
     provider = str(cfg.get("judge_provider") or DEFAULT_JUDGE_PROVIDER)
     # NOT str(): "no model, let the provider choose its default" is None, and
     # str(None) is the four-character string "None", which reaches the codex
