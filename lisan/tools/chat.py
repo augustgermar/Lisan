@@ -19,7 +19,6 @@ from ..paths import sqlite_path, vault_root
 from .primer_index import assistant_display_name
 from ..utils import today_iso
 from .chat_turns import classify_turn
-from .conversation_policy import assess_conversation_turn
 from .log import log_error, tail_log
 from .transcripts import append_transcript
 from .tracing import finalize_turn_trace, record_inline_step, record_jobs_queued, reset_current_turn_trace, start_turn_trace
@@ -477,14 +476,6 @@ def _cli_approval_fn(
     return approved
 
 
-def _extract_capture_response(result: dict[str, Any]) -> str:
-    elicitor = result.get("elicitor") or {}
-    response_text = str(elicitor.get("response") or "").strip()
-    if not response_text:
-        interlocutor = result.get("interlocutor") or {}
-        response_text = str(interlocutor.get("response") or "").strip()
-    return response_text
-
 
 def _short_provider_reason(exc: Exception) -> str:
     message = str(exc).strip().replace("\n", " ")
@@ -581,26 +572,6 @@ def _humanize_trace_step(step: str) -> str:
 
 # ── Response rendering ────────────────────────────────────────────────────────
 
-def _render_response(result: dict[str, Any], vault: Path | None = None, conversation_id: str | None = None) -> None:
-    elicitor     = result.get("elicitor") or {}
-    response_text = str(elicitor.get("response") or "").strip()
-
-    if not response_text:
-        interlocutor = result.get("interlocutor") or {}
-        response_text = str(interlocutor.get("response") or "").strip()
-
-    if response_text:
-        if vault and conversation_id:
-            append_transcript(vault=vault, conversation_id=conversation_id, speaker="LISAN", text=response_text)
-        agent_name = assistant_display_name(vault) if vault else "Lisan"
-        print()
-        print(color(f"  ● {agent_name}", BLUE, BOLD) + color("  ", DIM) + response_text)
-        print()
-    elif result.get("mode", "skip") not in ("skip",):
-        # Fallback dot for extraction when interlocutor produced nothing.
-        print(color("  ·", DIM))
-        print()
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -664,48 +635,6 @@ def _print_help() -> None:
     print(color("  Advice questions are answered directly and are not stored in the vault.", GREY_DIM, ITALIC))
     print()
 
-
-def _should_answer_directly(
-    text: str,
-    score: Any,
-    advice_context_active: bool,
-    policy: Any | None = None,
-    route_hint: Any | None = None,
-) -> bool:
-    route = str((route_hint or {}).get("route") or "").lower()
-    if route == "advice":
-        return True
-    if route == "memory":
-        return False
-    return advice_context_active
-
-
-def _run_advice_response(
-    vault: Path,
-    text: str,
-    provider: str | None,
-    model: str | None,
-    history: list[dict[str, str]],
-    conversation_policy: Any | None = None,
-) -> str:
-    from ..agents import AdviceAgent
-    from .assembler import assemble_context
-
-    vault_context = assemble_context(text, vault=vault) or None
-    agent = AdviceAgent(vault=vault)
-    result = agent.run(
-        text,
-        significance="low",
-        provider=provider,
-        model=model,
-        provider_error_mode="raise",
-        conversation_history=_format_advice_history(history),
-        conversation_policy=conversation_policy.as_dict() if conversation_policy is not None else {},
-        vault_context=vault_context,
-        capabilities=_capability_index_safe(),
-        self_state=_self_state_safe(vault),
-    )
-    return str(result.text).strip()
 
 
 # Pipeline step names → what the user sees in the live activity feed.
@@ -1028,14 +957,6 @@ def _run_with_thinking_indicator(callable_obj, agent_name: str = "Lisan"):
         if elapsed_ms >= 700:
             print(color(f"  [took {elapsed_ms / 1000:.1f}s]", DIM))
 
-
-def _load_current_state(vault: Path, conversation_id: str) -> Any:
-    from .narrative_state import load_narrative_state
-
-    try:
-        return load_narrative_state(vault, conversation_id)
-    except Exception:
-        return None
 
 
 def _format_advice_history(history: list[dict[str, str]]) -> str:

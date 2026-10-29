@@ -12,26 +12,8 @@ _IDENTITY_PATTERNS = (
     r"\bwhat(?:'s| is) this\b",
 )
 
-_HELP_PATTERNS = (
-    r"\bhelp\b",
-    r"\bwhat can you do\b",
-    r"\bhow do i use you\b",
-    r"\bwhat do you do\b",
-)
 
-_STATUS_PATTERNS = (
-    r"\bwhat(?:'s| is) up\b",
-    r"\bwhat(?:'s| is) going on\b",
-    r"\bwhat are you up to\b",
-    r"\bwhat are you doing\b",
-    r"\bhow are you\b",
-)
 
-_GREETING_PATTERNS = (
-    r"^(hi|hello|hey|yo|hiya)$",
-    r"^(thanks|thank you|thx|ty)$",
-    r"^(ok|okay|cool|nice|great|good|yep|yup|sure|alright)$",
-)
 
 _MEMORY_REQUEST_PATTERNS = (
     r"\bremember this\b",
@@ -204,12 +186,6 @@ def _matches_any(text: str, patterns: tuple[str, ...]) -> bool:
     return any(re.search(pattern, text) for pattern in patterns)
 
 
-def _is_short_acknowledgment(text: str) -> bool:
-    tokens = [token for token in re.findall(r"[a-z']+", text) if token]
-    if not tokens:
-        return False
-    return len(tokens) <= 3 and tokens[0] in {"ok", "okay", "cool", "nice", "great", "good", "thanks", "thank", "thx", "ty", "yep", "yup", "sure", "alright"}
-
 
 def _looks_like_memory_story(text: str, lowered: str) -> bool:
     personal_markers = [
@@ -281,13 +257,6 @@ def _identity_response(vault: Path | None = None) -> str:
     return f"My name is {name}. I am your local personal assistant and memory system."
 
 
-def _help_response() -> str:
-    return "I can chat, remember things, show logs, and run maintenance. Use /help for the command list."
-
-
-def _status_response() -> str:
-    return "I am here and ready to help."
-
 
 def _ack_response(lowered: str) -> str:
     if lowered in {"hi", "hello", "hey", "yo", "hiya"}:
@@ -299,9 +268,3 @@ def _ack_response(lowered: str) -> str:
     return "Got it."
 
 
-def _smalltalk_response(lowered: str) -> str:
-    if "what are you up to" in lowered or "what are you doing" in lowered or "what's up" in lowered:
-        return "I am here and keeping things moving."
-    if "how are you" in lowered:
-        return "Doing fine. Ready when you are."
-    return "I am here and ready to help."

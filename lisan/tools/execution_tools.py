@@ -1532,24 +1532,6 @@ def _build_codex_prompt(*, task: str, working_directory: Path, vault: Path, db_p
     )
 
 
-def _approve_action(tool_name: str, args: dict[str, Any]) -> bool:
-    if not sys.stdin.isatty():
-        return False
-    print(f"[self] I'd like to run {tool_name}: {args.get('task', '')}")
-    if args.get("working_directory"):
-        print(f"Working directory: {args.get('working_directory', '')}")
-    while True:
-        answer = input("[approve / deny / modify]: ").strip().lower()
-        if answer in {"approve", "yes", "y"}:
-            return True
-        if answer in {"deny", "no", "n", ""}:
-            return False
-        if answer.startswith("modify "):
-            args["task"] = answer.removeprefix("modify ").strip()
-            if args["task"]:
-                return True
-            return False
-
 
 def parse_tool_calls(text: str) -> list[dict[str, Any]]:
     calls: list[dict[str, Any]] = []

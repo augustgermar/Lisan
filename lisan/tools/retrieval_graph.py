@@ -15,54 +15,15 @@ from .retrieval_layers import (
     RetrievalItem,
     RetrievalResult,
     _LayerCandidate,
+    _fts_escape,
+    _json_list,
+    _metadata_haystack,
+    _type_boost,
     _visibility_block_reason,
 )
 from .freshness import line as freshness_line
 
-DOMAIN_KEYWORDS: dict[str, set[str]] = {
-    "physical": {
-        "body", "sleep", "health", "fitness", "exercise", "pain", "energy",
-        "doctor", "appointment", "medication", "therapy", "diagnosis", "symptom",
-        "clinic", "hospital", "physical", "weight", "diet", "eating", "tired",
-        "sick", "injury", "recovery", "surgery", "prescription", "checkup",
-        "dr.", "dr ", "physician", "therapist",
-    },
-    "environmental": {
-        "home", "room", "space", "environment", "apartment", "house",
-        "rent", "lease", "move", "moving", "neighborhood", "city", "place",
-        "office", "commute", "landlord", "furniture", "clean", "declutter",
-    },
-    "financial": {
-        "money", "budget", "cash", "expense", "income", "tax", "finance",
-        "salary", "savings", "spending", "pay", "bill", "debt", "loan",
-        "invest", "investment", "afford", "cost", "price", "payment", "raise",
-        "bonus", "account", "bank", "mortgage", "insurance",
-    },
-    "relational": {
-        "friend", "partner", "family", "relationship", "dating", "marriage",
-        "son", "daughter", "brother", "sister", "mom", "dad", "mother", "father",
-        "wife", "husband", "boyfriend", "girlfriend", "fiance", "colleague",
-        "coworker", "neighbor", "cousin", "uncle", "aunt", "grandma", "grandpa",
-        "breakup", "divorce", "engaged", "wedding", "baby", "pregnant",
-    },
-    "work": {
-        "work", "job", "project", "team", "meeting", "deadline", "client",
-        "boss", "manager", "promotion", "fired", "hired", "resign", "quit",
-        "interview", "offer", "onboard", "sprint", "launch", "product",
-        "colleague", "performance", "review", "feedback", "career",
-    },
-    "status": {"status", "reputation", "credibility", "resume", "linkedin", "profile"},
-    "appearance": {"appearance", "look", "style", "dress", "hair", "clothes", "outfit", "presentation"},
-    "competence": {"competence", "skill", "capable", "ability", "performance", "learn", "practice", "improve"},
-    "social_presence": {"social", "presence", "network", "community", "visibility", "post", "audience", "followers"},
-    "desirability": {"desirable", "attractive", "desired", "romantic", "dating", "attractive"},
-}
-
-SENSITIVE_COMPARTMENTS = {
-    "legal": {"legal", "lawsuit", "contract", "attorney", "court"},
-    "health": {"health", "medical", "doctor", "diagnosis", "therapy"},
-    "children": {"child", "children", "kid", "custody", "school"},
-}
+from .retrieval_vocab import DOMAIN_KEYWORDS, SENSITIVE_COMPARTMENTS  # noqa: F401 — re-exported
 
 @dataclass(slots=True)
 class _GraphEdge:
@@ -428,55 +389,6 @@ def _explicit_query_domains(query: str) -> set[str]:
 
 
 
-def _type_boost(record_type: str) -> float:
-    boosts = {
-        "evidence": 3.0,
-        "claim": 2.6,
-        "pattern": 2.4,
-        "skeptical_review": 2.2,
-        "artifact": 2.0,
-        "report": 1.8,
-        "contradiction_log": 1.7,
-        "episode": 1.4,
-        "decision": 1.2,
-        "open_loop": 1.1,
-        "state": 1.0,
-        "entity": 0.8,
-        "knowledge": 0.7,
-        # WO-ADJUTANT operational records: findable, but never crowding out
-        # substantive memory in an assembled context.
-        "confirmation": 0.6,
-        "schedule": 0.4,
-    }
-    return boosts.get(record_type, 0.0)
-
-
-def _metadata_haystack(row: sqlite3.Row) -> str:
-    parts = [
-        str(row["summary"]),
-        str(row["id"]),
-        str(row["path"]),
-        str(row["source_type"] or ""),
-        str(row["source_path"] or ""),
-        str(row["file_name"] or ""),
-        str(row["file_ext"] or ""),
-        str(row["mime_type"] or ""),
-        str(row["ingestion_status"] or ""),
-        str(row["arena"] or ""),
-        str(row["pattern_type"] or ""),
-        str(row["hypothesis"] or ""),
-        str(row["claim_class"] or ""),
-        str(row["owner"] or ""),
-        str(row["status"] or ""),
-        str(row["risk"] or ""),
-        str(row["recommended_action"] or ""),
-        str(row["reviewed_record_id"] or ""),
-        str(row["reviewed_record_type"] or ""),
-    ]
-    for field in ["actors", "compartments", "linked_claims", "linked_episodes", "supporting_evidence", "contradicting_evidence", "linked_patterns", "reasoning_errors", "supporting_records", "counterexamples", "alternative_explanations", "predictions", "linked_evidence", "parse_errors"]:
-        parts.extend(_json_list(row[field]) if field in row.keys() else [])
-    return "\n".join(parts).lower()
-
 
 def _calibration_line(fm: dict[str, Any]) -> str | None:
     """The source's predictive record, said plainly wherever it is retrieved
@@ -698,23 +610,6 @@ def _fts_candidate_ids(conn: sqlite3.Connection, query: str) -> set[str]:
         return set()
     return {str(row["id"]) for row in rows if row["id"]}
 
-
-def _fts_escape(term: str) -> str:
-    return term.replace('"', "").replace("'", "")
-
-
-def _json_list(value: Any) -> list[str]:
-    if value in (None, "", []):
-        return []
-    if isinstance(value, list):
-        return [str(item) for item in value]
-    try:
-        decoded = json.loads(value)
-        if isinstance(decoded, list):
-            return [str(item) for item in decoded]
-    except Exception:
-        pass
-    return [str(value)]
 
 
 def _log_retrieval(

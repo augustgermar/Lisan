@@ -21,7 +21,7 @@ documented policy. Representative sites:
   `capture.py:240` (documented: a failed embed must never fail a
   capture), `record_fanout.py` per-fanout logging, `chat.py` init/rebuild
   failures (printed), `execution_tools.py` (error strings returned to the
-  agent), `turn_router.py:92` (deterministic fallback by design),
+  agent), `turn_router.py:92` (deterministic fallback by design; module removed 2026-10-29 as unused),
   `memory_pipeline.py:555` (honest "failure is logged" reply),
   `plans.py:267` (documented best-effort delivery), `health_report.py`
   (logs and reports), `provider_diagnostics.py` (collects errors into the
