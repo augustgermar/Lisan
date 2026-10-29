@@ -28,6 +28,7 @@ from .record_fanout import (
     fanout_evidence,
     apply_behavioral_contracts,
     fanout_knowledge,
+    close_completed_open_loops,
     fanout_open_loops,
     fanout_state_updates,
     index_created_record,
@@ -311,6 +312,9 @@ def run_memory_pipeline(
             claim_id_map = fanout_claims(vault, writer, draft_rel, db_path=db_path, evidence_id_map=evidence_id_map, index_conn=index_conn) or {}
             fanout_state_updates(vault, writer, draft_rel, index_conn=index_conn)
             fanout_knowledge(vault, writer, draft_rel, index_conn=index_conn)
+            # Closing an owner's open loop is an interpretation ("this turn
+            # says that is done"), so it runs only behind the skeptic.
+            close_completed_open_loops(vault, text, draft_rel=draft_rel, index_conn=index_conn)
             _supersede_corrected_records(vault, writer, db_path=db_path)
         else:
             record_inline_step("memory_pipeline.fanout.skeptic_blocked")
@@ -792,6 +796,10 @@ def _skeptic_approves(skeptic: dict[str, Any] | None) -> bool:
         return True
     action = str(skeptic.get("recommended_action") or "").lower()
     if action in {"hold", "needs_revision"}:
+        return False
+    # SPEC 10.1 #8: high-risk material is never auto-committed. "revise"
+    # stores with caveats only when the skeptic does not rate it high-risk.
+    if str(skeptic.get("risk") or "").lower() == "high" and action != "approve":
         return False
     approved = skeptic.get("approved")
     # approved=False with no explicit hold action is treated as revise — proceed.

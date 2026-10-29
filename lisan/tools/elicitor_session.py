@@ -26,6 +26,7 @@ from .record_fanout import (
     fanout_evidence,
     apply_behavioral_contracts,
     fanout_open_loops,
+    close_completed_open_loops,
     fanout_state_updates,
 )
 from .rebuild_index import open_index_connection
@@ -266,6 +267,7 @@ Elicitor mode closure was detected.
         fanout_claims(vault, writer, draft_rel, evidence_id_map=evidence_id_map, db_path=db_path, index_conn=index_conn)
         fanout_state_updates(vault, writer, draft_rel, index_conn=index_conn)
         fanout_open_loops(vault, writer, draft_rel, source_text=text, index_conn=index_conn)
+        close_completed_open_loops(vault, text, draft_rel=draft_rel, index_conn=index_conn)
         apply_behavioral_contracts(vault, writer, source_ref=draft_rel)
         fanout_decisions(vault, writer, draft_rel, source_text=text, index_conn=index_conn)
         index_conn.commit()

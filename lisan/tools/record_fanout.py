@@ -479,7 +479,6 @@ def fanout_open_loops(
     explicit ownership; this filter is a backstop so other people's pending
     questions never become user-owned todos.
     """
-    _close_matching_open_loops(vault, source_text or str(writer.get("summary") or ""), draft_rel=draft_rel)
     loops = list(writer.get("open_loops_to_create") or [])
     if not loops:
         loops = _open_loop_from_top_level(writer)
@@ -652,16 +651,45 @@ _OPEN_LOOP_COMPLETION_MARKERS = (
     "reconciled",
     "fixed",
 )
+# Whole words only: substring matching closed loops on "present" (sent),
+# "abandoned" (done), "recalled" (called).
+_COMPLETION_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(m) for m in _OPEN_LOOP_COMPLETION_MARKERS) + r")\b"
+)
+# Owner-calibrated reference threshold (pinned by the synonym-closure test).
+LOOP_CLOSE_MIN_CONFIDENCE = 0.35
 
 
 def _looks_like_completion(text: str) -> bool:
-    lowered = normalize_text(text)
-    return any(marker in lowered for marker in _OPEN_LOOP_COMPLETION_MARKERS)
+    return bool(_COMPLETION_RE.search(normalize_text(text)))
 
 
-def _close_matching_open_loops(vault: Path, source_text: str, *, draft_rel: str) -> None:
+def close_completed_open_loops(
+    vault: Path,
+    source_text: str,
+    *,
+    draft_rel: str,
+    index_conn: sqlite3.Connection | None = None,
+) -> Path | None:
+    """Resolve the one active open loop this turn says is finished.
+
+    Called only behind the skeptic gate. Never raises: a failure to close a
+    loop must not abort the rest of a capture (it used to sit outside every
+    try, so a lock timeout here escaped the whole pipeline). The closed loop
+    is reindexed at once instead of showing "active" until the nightly
+    rebuild."""
+    try:
+        return _close_matching_open_loops(vault, source_text, draft_rel=draft_rel, index_conn=index_conn)
+    except Exception as exc:
+        log_error(vault, "fanout.close_open_loops", exc)
+        return None
+
+
+def _close_matching_open_loops(
+    vault: Path, source_text: str, *, draft_rel: str, index_conn: sqlite3.Connection | None = None,
+) -> Path | None:
     if not source_text or not _looks_like_completion(source_text):
-        return
+        return None
     candidates = []
     for path, fm in _load_records_by_type(vault, "open_loops", "open_loop"):
         if str(fm.get("status") or "") != "active":
@@ -669,10 +697,10 @@ def _close_matching_open_loops(vault: Path, source_text: str, *, draft_rel: str)
         text = _record_text(fm.get("summary"), fm.get("next_action"), fm.get("title"), fm.get("owner"), fm.get("blocked_by"))
         candidates.append({"path": path, "id": fm.get("id"), "summary": text, "title": fm.get("title"), "next_action": fm.get("next_action"), "owner": fm.get("owner")})
     if not candidates:
-        return
+        return None
     result = resolve_reference(source_text, candidates)
-    if result.candidate is None or result.confidence < 0.35:
-        return
+    if result.candidate is None or result.confidence < LOOP_CLOSE_MIN_CONFIDENCE:
+        return None
     path = Path(str(result.candidate["path"]))
     resolved_note = f"Resolved by {draft_rel}"
     _update_frontmatter(
@@ -685,6 +713,10 @@ def _close_matching_open_loops(vault: Path, source_text: str, *, draft_rel: str)
             "links": merge_links(load_markdown(path).frontmatter.get("links"), [draft_rel]),
         },
     )
+    if index_conn is not None:
+        index_single_record(path, vault, index_conn)
+        index_conn.commit()
+    return path
 
 
 # ── Shared fanout: decisions ──────────────────────────────────────────────────

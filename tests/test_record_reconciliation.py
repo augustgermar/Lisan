@@ -10,7 +10,7 @@ from unittest.mock import patch
 from lisan.frontmatter import dump_markdown, load_markdown
 from lisan.providers.embeddings import EmbeddingProvider
 from lisan.tools.record_factory import upsert_state
-from lisan.tools.record_fanout import fanout_decisions, fanout_open_loops
+from lisan.tools.record_fanout import close_completed_open_loops, fanout_decisions
 
 
 def _write_record(path: Path, frontmatter: dict[str, object], body: str) -> None:
@@ -426,11 +426,10 @@ class OpenLoopClosureTests(unittest.TestCase):
             )
 
             with patch.object(EmbeddingProvider, "embed_text", new=_fake_embed_text):
-                fanout_open_loops(
+                close_completed_open_loops(
                     vault,
-                    {"open_loops_to_create": []},
+                    "I separated the tax balance.",
                     draft_rel="drafts/test.md",
-                    source_text="I separated the tax balance.",
                 )
 
             self.assertEqual(load_markdown(budget_path).frontmatter["status"], "resolved")
@@ -469,11 +468,10 @@ class OpenLoopClosureTests(unittest.TestCase):
                 "# Call the plumber\n\n## Next Action\n\nCall the plumber\n",
             )
             with patch.object(EmbeddingProvider, "embed_text", new=_fake_embed_text):
-                fanout_open_loops(
+                close_completed_open_loops(
                     vault,
-                    {"open_loops_to_create": []},
+                    "I mailed the invitation.",
                     draft_rel="drafts/test-2.md",
-                    source_text="I mailed the invitation.",
                 )
             self.assertEqual(load_markdown(vague_path).frontmatter["status"], "active")
 
