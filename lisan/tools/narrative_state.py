@@ -148,14 +148,13 @@ def update_narrative_state(
 # (path, conversation) -> (mtime_ns, size, parsed turns). A chat turn asked
 # for the full history three or more times, and each call read and parsed
 # every transcript file the vault has ever written; past days never change,
-# so only a file whose stat changed is read again.
+# so only a file whose stat changed is read again. Cached turns carry their
+# timestamp ("at") for session logic; conversation_history strips it.
 _TRANSCRIPT_CACHE: dict[tuple[str, str], tuple[int, int, list[dict[str, str]]]] = {}
 
 
-def conversation_history(vault: Path | None = None, conversation_id: str | None = None) -> list[dict[str, str]]:
-    vault = vault or vault_root()
-    conv = conversation_id or "default"
-    history: list[dict[str, str]] = []
+def _timed_turns(vault: Path, conv: str) -> list[dict[str, str]]:
+    turns: list[dict[str, str]] = []
     for path in sorted((vault / "transcripts").glob("*.md")):
         try:
             stat = path.stat()
@@ -163,17 +162,59 @@ def conversation_history(vault: Path | None = None, conversation_id: str | None 
             continue
         key = (str(path), conv)
         cached = _TRANSCRIPT_CACHE.get(key)
-        if cached is not None and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
-            history.extend(dict(turn) for turn in cached[2])
-            continue
+        if cached is None or cached[0] != stat.st_mtime_ns or cached[1] != stat.st_size:
+            try:
+                text = path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            parsed = _parse_transcript(text, conv, day=path.stem)
+            cached = (stat.st_mtime_ns, stat.st_size, parsed)
+            _TRANSCRIPT_CACHE[key] = cached
+        turns.extend(cached[2])
+    return turns
+
+
+def conversation_history(vault: Path | None = None, conversation_id: str | None = None) -> list[dict[str, str]]:
+    vault = vault or vault_root()
+    conv = conversation_id or "default"
+    return [{"speaker": t["speaker"], "text": t["text"]} for t in _timed_turns(vault, conv)]
+
+
+SESSION_GAP_HOURS = 4
+
+
+def conversation_session(
+    vault: Path | None = None,
+    conversation_id: str | None = None,
+    *,
+    gap_hours: float = SESSION_GAP_HOURS,
+) -> list[dict[str, str]]:
+    """The turns of the current sitting: the trailing run of turns with no
+    silence longer than ``gap_hours`` between them, across day boundaries.
+
+    "Recent", "fresh", and "turn N" used to mean "in today's transcript
+    file", so a conversation that crossed midnight suddenly looked brand new
+    (the recent-activity preamble was injected mid-thread and the turn
+    counter reset), while a persistent id like a Telegram chat looked
+    continuous all day regardless of gaps."""
+    from datetime import datetime, timedelta
+
+    vault = vault or vault_root()
+    turns = _timed_turns(vault, conversation_id or "default")
+    session: list[dict[str, str]] = []
+    later: datetime | None = None
+    for turn in reversed(turns):
         try:
-            text = path.read_text(encoding="utf-8")
-        except Exception:
-            continue
-        turns = _parse_transcript(text, conv)
-        _TRANSCRIPT_CACHE[key] = (stat.st_mtime_ns, stat.st_size, [dict(t) for t in turns])
-        history.extend(turns)
-    return history
+            at = datetime.fromisoformat(turn.get("at") or "")
+        except ValueError:
+            at = None
+        if later is not None and at is not None and later - at > timedelta(hours=gap_hours):
+            break
+        session.append(dict(turn))
+        if at is not None:
+            later = at
+    session.reverse()
+    return session
 
 
 def format_history(history: list[dict[str, str]]) -> str:
@@ -185,7 +226,7 @@ def format_history(history: list[dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
-def _parse_transcript(text: str, conversation_id: str) -> list[dict[str, str]]:
+def _parse_transcript(text: str, conversation_id: str, day: str | None = None) -> list[dict[str, str]]:
     """Parse transcript headings into complete conversation turns.
 
     A turn body is allowed to contain paragraphs, bullets, and colons.  The
@@ -219,7 +260,12 @@ def _parse_transcript(text: str, conversation_id: str) -> list[dict[str, str]]:
         message_parts = [msg.strip()]
         if separator and remainder.strip():
             message_parts.append(remainder.strip())
-        turns.append({"speaker": speaker, "text": "\n".join(message_parts).strip()})
+        turn = {"speaker": speaker, "text": "\n".join(message_parts).strip()}
+        if day:
+            time_match = re.match(r"\s*(\d{2}:\d{2})", header)
+            if time_match:
+                turn["at"] = f"{day}T{time_match.group(1)}"
+        turns.append(turn)
     return turns
 
 

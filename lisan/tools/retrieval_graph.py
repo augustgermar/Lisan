@@ -863,57 +863,25 @@ def _load_relevant_contradictions(vault: Path, query: str) -> list[str]:
 
 
 def _recent_conversation_turns(vault: Path, conversation_id: str, limit: int = 4) -> list[dict[str, str]]:
-    """Return the last *limit* turns for *conversation_id* from today's transcript."""
-    today_transcript = vault / "transcripts" / f"{today_iso()}.md"
-    if not today_transcript.exists():
-        return []
-    try:
-        text = today_transcript.read_text(encoding="utf-8")
-    except Exception:
-        return []
-    turns: list[dict[str, str]] = []
-    target_header = f"[{conversation_id}]"
-    in_block = False
-    for line in text.splitlines():
-        if line.startswith("## Conversation — "):
-            in_block = target_header in line
-            continue
-        if not in_block:
-            continue
-        stripped = line.strip()
-        if stripped.startswith("USER:") or stripped.startswith("LISAN:"):
-            speaker, _, utterance = stripped.partition(": ")
-            if utterance.strip():
-                turns.append({"speaker": speaker, "text": utterance.strip()})
-    return turns[-limit:]
+    """The last *limit* turns of this conversation's current sitting
+    (crosses midnight; see narrative_state.conversation_session)."""
+    from .narrative_state import conversation_session
+
+    return [{"speaker": t["speaker"], "text": t["text"]}
+            for t in conversation_session(vault, conversation_id)][-limit:]
 
 
 def _is_fresh_conversation(vault: Path, conversation_id: str) -> bool:
-    """True when this conversation has no narrative state and no prior USER turn today."""
+    """True when this conversation has no narrative state and its current
+    sitting holds at most the opening USER turn (written before the
+    assembler runs)."""
     narrative_path = vault / "transcripts" / "narrative" / f"{conversation_id}.json"
     if narrative_path.exists():
         return False
-    today_transcript = vault / "transcripts" / f"{today_iso()}.md"
-    if not today_transcript.exists():
-        return True
-    try:
-        text = today_transcript.read_text(encoding="utf-8")
-    except Exception:
-        return True
-    marker = f"[{conversation_id}]"
-    if marker not in text:
-        return True
-    # The current turn writes its USER line BEFORE the assembler runs. One
-    # USER line means this is still the opening turn; two or more means the
-    # conversation has history.
-    user_count = 0
-    for block in text.split("## Conversation — "):
-        if marker not in block:
-            continue
-        for line in block.splitlines():
-            if line.strip().startswith("USER:"):
-                user_count += 1
-    return user_count <= 1
+    from .narrative_state import conversation_session
+
+    users = sum(1 for t in conversation_session(vault, conversation_id) if t["speaker"] == "USER")
+    return users <= 1
 
 
 def _recent_activity_block(vault: Path) -> str:

@@ -1025,33 +1025,20 @@ def _supersede_corrected_records(vault: Path, writer: dict[str, Any], db_path: P
 
 
 def _conversation_turn_count(vault: Path, conversation_id: str | None) -> int:
-    """Count completed USER turns for `conversation_id` from today's transcript.
+    """Count USER turns in this conversation's current sitting.
 
     Narrative state only increments on the elicitor path, so
     extraction-only conversations end up with `turn_count` permanently at 0.
     Computing turn position deterministically from the transcript avoids that
     blind spot and lets the Turn-1 elicitor preference fire only once per
     conversation, not on every extraction turn that happens to carry affect.
+    (It used to count today's file only, so the count reset at midnight.)
     """
     if not conversation_id:
         return 0
-    today_file = vault / "transcripts" / f"{today_iso()}.md"
-    if not today_file.exists():
-        return 0
-    try:
-        text = today_file.read_text(encoding="utf-8")
-    except Exception:
-        return 0
-    marker = f"[{conversation_id}]"
-    blocks = text.split("## Conversation — ")
-    count = 0
-    for block in blocks:
-        if marker not in block:
-            continue
-        for line in block.splitlines():
-            if line.strip().startswith("USER:"):
-                count += 1
-    return count
+    from .narrative_state import conversation_session
+
+    return sum(1 for t in conversation_session(vault, conversation_id) if t["speaker"] == "USER")
 
 
 def _write_draft(
