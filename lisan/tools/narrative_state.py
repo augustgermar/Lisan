@@ -145,16 +145,34 @@ def update_narrative_state(
     )
 
 
+# (path, conversation) -> (mtime_ns, size, parsed turns). A chat turn asked
+# for the full history three or more times, and each call read and parsed
+# every transcript file the vault has ever written; past days never change,
+# so only a file whose stat changed is read again.
+_TRANSCRIPT_CACHE: dict[tuple[str, str], tuple[int, int, list[dict[str, str]]]] = {}
+
+
 def conversation_history(vault: Path | None = None, conversation_id: str | None = None) -> list[dict[str, str]]:
     vault = vault or vault_root()
     conv = conversation_id or "default"
     history: list[dict[str, str]] = []
     for path in sorted((vault / "transcripts").glob("*.md")):
         try:
+            stat = path.stat()
+        except OSError:
+            continue
+        key = (str(path), conv)
+        cached = _TRANSCRIPT_CACHE.get(key)
+        if cached is not None and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+            history.extend(dict(turn) for turn in cached[2])
+            continue
+        try:
             text = path.read_text(encoding="utf-8")
         except Exception:
             continue
-        history.extend(_parse_transcript(text, conv))
+        turns = _parse_transcript(text, conv)
+        _TRANSCRIPT_CACHE[key] = (stat.st_mtime_ns, stat.st_size, [dict(t) for t in turns])
+        history.extend(turns)
     return history
 
 

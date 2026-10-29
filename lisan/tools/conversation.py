@@ -62,6 +62,7 @@ def run_conversation_turn(
     # reader cannot reconstruct the turn.  This protects the live path from
     # silently degrading back into stateless behavior after a parser or vault
     # regression.
+    persisted: list[dict[str, str]] | None = None
     try:
         persisted = conversation_history(vault, conversation_id)
         if not any(turn.get("speaker") == "USER" and turn.get("text") == text for turn in persisted):
@@ -90,7 +91,8 @@ def run_conversation_turn(
     # must never break a conversation turn.
     unresolved_thread = None
     try:
-        if len(conversation_history(vault, conversation_id)) <= 1:
+        # `persisted` was read just above, after this turn was appended.
+        if persisted is not None and len(persisted) <= 1:
             from .drive import session_open_callback
 
             unresolved_thread = session_open_callback(vault, conversation_id)
