@@ -53,6 +53,30 @@ def load_markdown(path: Path) -> MarkdownDocument:
     return parse_markdown(path.read_text(encoding="utf-8"))
 
 
+# str(path) -> (mtime_ns, size, frontmatter). Whole-vault passes (the
+# write-boundary validator's reference index and duplicate-id scan, run once
+# for the proposed record and once for the current one on every update)
+# re-read every record in the vault per write: ~4.6 s per validation on the
+# live vault, measured 2026-10-29. A file whose stat is unchanged is not
+# read again. Callers get a deep copy, never the cached dict.
+_FRONTMATTER_CACHE: dict[str, tuple[int, int, str]] = {}
+
+
+def load_frontmatter_cached(path: Path) -> dict[str, Any]:
+    """Frontmatter only, cached by (mtime_ns, size). Raises like load_markdown.
+
+    The cache holds the serialized JSON, so every caller gets a fresh dict
+    (C-speed json.loads) and can never mutate a shared copy."""
+    stat = path.stat()
+    key = str(path)
+    cached = _FRONTMATTER_CACHE.get(key)
+    if cached is not None and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+        return json.loads(cached[2])
+    frontmatter = load_markdown(path).frontmatter
+    _FRONTMATTER_CACHE[key] = (stat.st_mtime_ns, stat.st_size, json.dumps(frontmatter, ensure_ascii=False))
+    return frontmatter
+
+
 def dump_markdown(frontmatter: dict[str, Any], body: str) -> str:
     frontmatter_text = json.dumps(frontmatter, indent=2, sort_keys=False, ensure_ascii=True)
     body = body.rstrip()

@@ -10,7 +10,7 @@ from typing import Any
 from .db import connect as _db_connect
 
 from ..config import load_config
-from ..frontmatter import FrontmatterError, load_markdown
+from ..frontmatter import FrontmatterError, load_markdown, load_frontmatter_cached
 from ..paths import vault_root, schemas_dir, repo_root
 from ..schemas import load_schemas
 from .domain_fields import normalize_domain_fields
@@ -447,7 +447,7 @@ def validate_record_candidate(
             if "archive" in other_rel.parts or not _is_structured_record(other, vault):
                 continue
             try:
-                other_id = str(load_markdown(other).frontmatter.get("id", "")).strip()
+                other_id = str(load_frontmatter_cached(other).get("id", "")).strip()
             except (FrontmatterError, OSError):
                 continue
             if other_id == record_id:

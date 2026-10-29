@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..frontmatter import FrontmatterError, load_markdown
+from ..frontmatter import FrontmatterError, load_markdown, load_frontmatter_cached
 from .common import iter_markdown_files
 
 # A reference is an id or a path. Anything with sentence punctuation, spaces
@@ -147,7 +147,7 @@ def build_reference_index(vault: Path) -> ReferenceIndex:
         except ValueError:
             continue
         try:
-            frontmatter = load_markdown(path).frontmatter
+            frontmatter = load_frontmatter_cached(path)
         except (FrontmatterError, OSError):
             continue
         record_id = frontmatter.get("id")
