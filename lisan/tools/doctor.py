@@ -110,7 +110,9 @@ def _check_kernel(vault: Path, db_path: Path) -> Check:
 def _connect(db_path: Path) -> sqlite3.Connection | None:
     if not db_path.exists():
         return None
-    return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    from .db import connect
+
+    return connect(db_path, readonly=True)
 
 
 def _check_edges_in_markdown(vault: Path, db_path: Path) -> Check:
