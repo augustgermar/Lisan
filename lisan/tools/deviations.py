@@ -38,7 +38,7 @@ import sqlite3
 from collections import defaultdict
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from .db import connect as _db_connect
 
 from ..frontmatter import load_markdown, write_markdown
@@ -449,17 +449,37 @@ def _self_loops(vault: Path) -> list[tuple[Path, dict[str, Any]]]:
     return out
 
 
+def _owned_by_scan(fm: dict[str, Any]) -> bool:
+    """Loops the daily deviation scan is the authority on: the classes its
+    own detectors produce."""
+    return str(fm.get("deviation_class") or "") in _CLASS_ORDER
+
+
 def _satiate(
-    vault: Path, current_fingerprints: set[str], *, db_path: Path | None, config: dict[str, Any] | None = None
+    vault: Path,
+    current_fingerprints: set[str],
+    *,
+    db_path: Path | None,
+    config: dict[str, Any] | None = None,
+    owns: Callable[[dict[str, Any]], bool] = _owned_by_scan,
+    resolved_by: str = "deviation.scan",
 ) -> int:
     """A previously-reported deviation that is no longer true closes its own
     loop. This IS the drive being satiable — nobody has to answer a question
-    about an ache that healed."""
+    about an ache that healed.
+
+    Only the producer that can re-detect a deviation may declare it healed
+    (``owns``). The daily scan used to satiate every origin:self loop whose
+    fingerprint its own detectors did not return — including the weekly
+    self-eval and self-analyst loops, which they never return — so a quality
+    regression was closed as "no longer detected" the next morning."""
     logger = get_logger(vault)
     resolved = 0
     healed: list[tuple[str, str]] = []
     for path, fm in _self_loops(vault):
         if str(fm.get("status") or "") != "active":
+            continue
+        if not owns(fm):
             continue
         fp = str(fm.get("deviation_fingerprint") or "")
         if not fp or fp in current_fingerprints:
@@ -470,7 +490,7 @@ def _satiate(
             "status": "resolved",
             "updated": today_iso(),
             "resolved_at": today_iso(),
-            "resolved_by": "deviation.scan",
+            "resolved_by": resolved_by,
             "resolved_note": "deviation no longer detected",
         }, doc.body)
         _index_quietly(path, vault, db_path)

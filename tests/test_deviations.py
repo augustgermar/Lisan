@@ -245,3 +245,33 @@ class PolicyTests(_Env):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SatiationOwnershipTests(_Env):
+    """Only the producer that can re-detect an ache may declare it healed."""
+
+    def _self_eval_loop(self):
+        from datetime import date
+
+        from lisan.tools.deviations import _emit, deviations_config
+
+        _emit(self.vault, [{"klass": "self_eval", "fingerprint": "self-eval-dim-warmth",
+                            "summary": "Warmth scores slipped"}],
+              deviations_config(None), date.today(), db_path=self.db)
+        return next((self.vault / "open_loops").glob("*self-eval-dim-warmth*.md"))
+
+    def test_the_daily_scan_leaves_self_eval_loops_alone(self):
+        loop = self._self_eval_loop()
+        result = scan_deviations(self.vault, db_path=self.db)
+        self.assertEqual(result["satiated"], 0)
+        self.assertEqual(load_markdown(loop).frontmatter["status"], "active")
+
+    def test_self_eval_heals_its_own_loop_when_the_suggestion_is_gone(self):
+        from lisan.tools.self_eval import _satiate_self_eval_loops
+
+        loop = self._self_eval_loop()
+        self.assertEqual(_satiate_self_eval_loops(
+            self.vault, [{"fingerprint": "self-eval-dim-warmth"}], db_path=self.db, config=None), 0)
+        self.assertEqual(_satiate_self_eval_loops(self.vault, [], db_path=self.db, config=None), 1)
+        fm = load_markdown(loop).frontmatter
+        self.assertEqual((fm["status"], fm["resolved_by"]), ("resolved", "self.evaluate"))

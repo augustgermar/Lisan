@@ -91,6 +91,7 @@ def run_self_evaluation(
     report_path = _write_report(vault, now, entry, judged, judge_note, suggestions, previous)
     _append_history(vault, entry)
     emitted = _emit_suggestions(vault, suggestions, report_path, db_path=db_path)
+    _satiate_self_eval_loops(vault, suggestions, db_path=db_path, config=config)
 
     get_logger(vault).info(
         f"self_eval.run window_days={cfg['days']} exchanges={len(exchanges)} "
@@ -644,6 +645,26 @@ def _worst_rationale(judged: list[dict[str, Any]], dim: str) -> str:
             if s.get("id") == dim and s.get("score") is not None and s["score"] < worst_score:
                 worst_score, rationale = s["score"], str(s.get("rationale") or "")
     return f" (worst case: {rationale})" if rationale else ""
+
+
+def _satiate_self_eval_loops(
+    vault: Path,
+    suggestions: list[dict[str, Any]],
+    *,
+    db_path: Path | None,
+    config: dict[str, Any] | None,
+) -> int:
+    """Self-eval is the only producer that can re-detect a self-eval ache,
+    so it is the one that declares those healed: a weekly run that no longer
+    derives a suggestion closes that suggestion's open loop."""
+    from .deviations import _satiate
+
+    current = {str(s.get("fingerprint") or "") for s in suggestions}
+    return _satiate(
+        vault, current, db_path=db_path, config=config,
+        owns=lambda fm: str(fm.get("deviation_fingerprint") or "").startswith("self-eval-"),
+        resolved_by="self.evaluate",
+    )
 
 
 def _emit_suggestions(
