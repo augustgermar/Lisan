@@ -36,21 +36,24 @@ from ..utils import utc_now_iso
 # Capabilities that are designed but deliberately not built yet. Declared
 # explicitly so the agent can say "not yet" with confidence instead of
 # improvising — honesty about absence is part of the self-model.
+#
+# This is the one hand-maintained section of the self-model, so it is the
+# one that can lie. Until 2026-10-29 it told the agent two false things:
+# that "Obsidian life-ingestion" was unbuilt (ingest_life.py and the
+# ingest_files tool's default "life" mode do exactly that), and that it
+# could not message anyone but the owner (send_email and the approval-gated
+# Gmail skill can). tests/test_self_model.py now checks that no entry here
+# names a capability the generated manifest shows.
 NOT_BUILT: list[dict[str, str]] = [
-    {
-        "name": "Obsidian life-ingestion",
-        "detail": "Seeding entity stories from personal notes and wiki-links. "
-                  "Reference ingestion (lisan ingest --reference) is the available alternative: "
-                  "notes become citable knowledge records, not living entity stories.",
-    },
     {
         "name": "Chat/SMS history import",
         "detail": "Bulk import of historical conversations with per-sender deixis resolution.",
     },
     {
-        "name": "External communication",
-        "detail": "Messaging anyone other than the owner. Scheduled reminders deliver to the "
-                  "owner's allowlisted Telegram chat only; a disclosure gate comes first.",
+        "name": "Unsupervised outbound messaging",
+        "detail": "Sending anything to anyone without the owner approving that exact message. "
+                  "Email and approval-gated skills can reach other people, but every send needs "
+                  "the owner's yes; scheduled tasks deliver to the owner's allowlisted chat only.",
     },
 ]
 

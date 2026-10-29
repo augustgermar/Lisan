@@ -35,9 +35,22 @@ Most fast-path turns are answered deterministically. Identity questions always r
 ## Expected LLM Calls
 
 - Deterministic fast-path turn: `0` calls
-- Simple direct advice turn: usually `1` call
-- Memory capture turn: multiple calls are expected
-- If the provider fails before it can answer, chat now returns an explicit provider error instead of falling back to generic identity-contaminated text.
+- Every other turn: one conversation agent call, plus one per tool round
+  (capped by `conversation.max_tool_iterations`, default 10). The tool
+  transcript carried between rounds is bounded by
+  `conversation.max_tool_prompt_chars`; the oldest results are elided first.
+- Memory capture never runs in the reply path: the finished exchange is
+  queued as a `capture.observe` job and the Listener/Writer/Skeptic pipeline
+  runs in the background.
+- `/forget <text>` answers without queueing capture; `/remember <text>`
+  passes the flag through to capture.
+- If the provider fails before it can answer, chat returns an explicit provider error instead of falling back to generic identity-contaminated text.
+- If the tool loop exhausts its rounds, the reply says so (and which tools
+  ran) rather than reporting a provider failure.
+
+Retrieval on the live index takes roughly 0.3–0.4 s per turn once its
+per-file caches are warm (transcripts, report coupling scan, metadata
+haystacks); the first turn of a process pays the cold read.
 
 If a trivial turn takes several seconds or shows multiple calls, inspect the trace output first.
 

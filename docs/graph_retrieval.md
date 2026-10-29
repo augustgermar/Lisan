@@ -5,7 +5,7 @@ Lisan retrieval is now a two-stage process:
 1. Direct retrieval scores records against the query.
 2. Bounded graph expansion adds a small number of linked records when they are explicitly connected and still safe to load.
 
-The goal is to recover useful context that is only reachable through links, while keeping the system deterministic and compartment-safe.
+The goal is to recover useful context that is only reachable through links, while keeping the system deterministic and quarantine-safe.
 
 ## Ranking signals
 
@@ -55,9 +55,20 @@ The traversal is bounded to two hops.
 
 ## Safety Rules
 
-Expansion is blocked when the target record is not visible under the active compartment rules.
+Expansion is blocked when the target record is not visible — today that
+means quarantined: a quarantined artifact, a record from a quarantined
+ingestion batch, or a record derived from a quarantined artifact never enters
+the assembled context, even when linked from a visible record.
 
-Sealed or compartment-blocked records never enter the assembled context, even if they are linked from a visible record.
+Privacy compartments are **not** enforced on internal retrieval. That is a
+deliberate change from the original SPEC (10.1 #9–10): the system reasons
+over everything it knows, and disclosure is controlled where information
+leaves — every outbound message needs the owner's approval of its exact
+content (see `docs/security.md`, "One authority engine"). See the note in
+`_visibility_block_reason` (`lisan/tools/retrieval_layers.py`).
+
+Records whose provenance is untrusted or unknown are fenced in the prompt as
+data, never instructions (`lisan/tools/content_trust.py`).
 
 Cross-domain expansion is also controlled. It is allowed only when at least one of the following is true:
 
@@ -92,7 +103,7 @@ Use these cues when reviewing retrieval results:
 
 - Direct matches are the records that scored directly against the query.
 - Graph-expanded matches are only there because they were explicitly linked from a direct or already-expanded record.
-- A graph-expanded record still has to pass compartment checks.
+- A graph-expanded record still has to pass the visibility (quarantine) check.
 - A blocked record may exist in the index, but it was not allowed into the final context.
 
 ## Why This Matters

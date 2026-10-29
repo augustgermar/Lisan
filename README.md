@@ -36,8 +36,9 @@ every repair. Language models come and go; the substrate persists. Lisan
 treats the model as a replaceable engine mounted in a permanent airframe
 of memory, identity, and policy.
 
-It remains a research vehicle rather than a product: one author, ~440
-commits since May 2026, 1,375 passing tests with green as the floor, and
+It remains a research vehicle rather than a product: one human author
+working with Claude, ~530 commits since May 2026, 2,090 passing tests with
+green as the floor, and
 risky capabilities that ship implemented but switched off until an owner
 deliberately turns the key. It is MIT licensed and installable today, and
 the specifications, sealed work orders, and reasoning behind each
@@ -368,7 +369,7 @@ coding-agent CLI as the executor.
   README used to be.
 
 Development follows the repo conventions: `python3 -m pytest tests/`
-(currently 1,375 passed, 7 skipped, green is the floor), deterministic logic
+(currently 2,090 passed, 10 skipped, green is the floor), deterministic logic
 in `lisan/tools/`, schema changes with their gates, prompts under version
 control in `prompts/`.
 

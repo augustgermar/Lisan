@@ -37,7 +37,18 @@ class ManifestTests(unittest.TestCase):
 
     def test_not_built_declared(self):
         names = " ".join(i["name"] for i in self.manifest["not_built"]).lower()
-        self.assertIn("obsidian", names)
+        self.assertIn("chat/sms", names)
+
+    def test_not_built_never_denies_a_capability_the_manifest_shows(self):
+        """The hand-written list must not contradict the generated one."""
+        from lisan.tools.execution_tools import TOOLS
+
+        tool_names = {t["name"] for t in TOOLS}
+        self.assertIn("send_email", tool_names)
+        self.assertIn("ingest_files", tool_names)
+        claims = " ".join(f"{i['name']} {i['detail']}" for i in self.manifest["not_built"]).lower()
+        self.assertNotIn("obsidian life-ingestion", claims)
+        self.assertNotIn("messaging anyone other than the owner.", claims)
 
     def test_email_tool_is_built(self):
         names = {i["name"] for i in self.manifest["tools"]}
