@@ -95,6 +95,7 @@ class PromptAgent:
         max_iterations: int = 10,
         **kwargs: Any,
     ) -> AgentResult:
+        from ..tools.content_trust import fence_tool_result
         from ..tools.execution_tools import parse_tool_calls
 
         render_kwargs = dict(kwargs)
@@ -200,7 +201,7 @@ class PromptAgent:
                     "\n\nTOOL_CALL:\n"
                     + json.dumps({"tool": tool_name, "args": args}, indent=2, ensure_ascii=True)
                     + "\n\nTOOL_RESULT:\n"
-                    + str(result).strip()
+                    + fence_tool_result(tool_name, str(result))
                     + "\n\nContinue. If you have enough information, provide the final JSON response now."
                 )
         if last_response is not None:
