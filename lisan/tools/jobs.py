@@ -43,6 +43,7 @@ JOB_TYPES = {
     "analyst.scan",
     "analyst.self_scan",
     "dreamer.maintenance",
+    "dreamer.reconcile_beliefs",
     "manifest.regenerate",
     "pattern.audit",
     "skeptic.review_pattern",
@@ -134,6 +135,7 @@ def _is_nonempty(result: Any) -> tuple[bool, str]:
 
 JOB_OUTPUT_VALIDATORS: dict[str, Any] = {
     "dreamer.maintenance": _is_nonempty,
+    "dreamer.reconcile_beliefs": _is_nonempty,
     "analyst.scan": _has_summary,
     "analyst.self_scan": _has_summary,
     "self.evaluate": _self_eval_valid,
@@ -1335,6 +1337,11 @@ def dispatch_job(
 
         task = str(payload.get("task") or "compress")
         return run_dreamer_task(vault=vault, task=task, provider=provider, model=model)
+
+    if job_type == "dreamer.reconcile_beliefs":
+        from .dreamer_ops import run_dreamer_task
+
+        return run_dreamer_task(vault=vault, task="reconcile", provider=provider, model=model)
 
     if job_type == "manifest.regenerate":
         from .manifest_gen import generate_manifests

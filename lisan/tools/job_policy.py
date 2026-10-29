@@ -54,6 +54,7 @@ COALESCE_AGGRESSIVE = {
     "prediction.reconcile",
     "corpus.audit_priors",
     "dreamer.maintenance",
+    "dreamer.reconcile_beliefs",
     "deviation.scan",
     "self.evaluate",
     "pattern.audit",
@@ -266,6 +267,12 @@ def which_jobs_for_turn(turn_metadata: dict[str, Any] | None, db_path: Path | No
     if _should_queue_dreamer(turn_metadata, db_path):
         jobs.append(_job_spec("dreamer.maintenance", turn_metadata, priority_for_job_type("dreamer.maintenance"), extra={"task": "compress"}))
 
+    if _should_queue_belief_reconcile(turn_metadata, db_path):
+        # Its own job type: dreamer.maintenance coalesces every task into one
+        # queued job per vault, so a reconcile queued beside a compress would
+        # be swallowed by it.
+        jobs.append(_job_spec("dreamer.reconcile_beliefs", turn_metadata, priority_for_job_type("dreamer.maintenance")))
+
     if _should_queue_prediction_reconcile(turn_metadata, db_path):
         jobs.append(_job_spec("prediction.reconcile", turn_metadata, priority_for_job_type("prediction.reconcile")))
 
@@ -381,6 +388,29 @@ def _should_queue_prediction_reconcile(turn_metadata: dict[str, Any], db_path: P
     if last is None:
         return True
     return _hours_since(last) >= 24
+
+
+BELIEF_RECONCILE_INTERVAL_HOURS = 24 * 7
+
+
+def _should_queue_belief_reconcile(turn_metadata: dict[str, Any], db_path: Path | None) -> bool:
+    """Weekly, and only when there are self-beliefs to reconcile.
+
+    Belief revision existed only as a manual CLI task: the Dreamer was
+    scheduled with task=compress alone, so ratified self-beliefs were never
+    re-checked against the first-person record unless the owner asked."""
+    vault = str(turn_metadata.get("vault") or "")
+    if not vault:
+        return False
+    try:
+        from .self_beliefs import list_self_beliefs
+
+        if not list_self_beliefs(Path(vault)):
+            return False
+    except Exception:
+        return False
+    last = _last_successful_job_time("dreamer.reconcile_beliefs", db_path)
+    return last is None or _hours_since(last) >= BELIEF_RECONCILE_INTERVAL_HOURS
 
 
 def _should_queue_dreamer(turn_metadata: dict[str, Any], db_path: Path | None) -> bool:

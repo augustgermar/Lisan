@@ -623,6 +623,21 @@ def _apply_hindsight_elevations(vault: Path, response: dict[str, Any]) -> Path |
     return applied
 
 
+def _belief_calibration(belief: dict[str, Any]) -> str:
+    cal = belief.get("prediction_calibration")
+    if not cal:
+        path = belief.get("path")
+        if path:
+            try:
+                cal = load_markdown(Path(str(path))).frontmatter.get("prediction_calibration")
+            except Exception:
+                cal = None
+    if not isinstance(cal, dict):
+        return ""
+    keys = ("hits", "misses", "unclear", "standing")
+    return ", ".join(f"{k}={cal[k]}" for k in keys if k in cal)
+
+
 def _bundle_self_reconciliation(vault: Path) -> str:
     """Beliefs plus the recent first-person record, for contradiction hunting."""
     from .self_beliefs import list_self_beliefs
@@ -633,6 +648,12 @@ def _bundle_self_reconciliation(vault: Path) -> str:
             f"- id: {belief.get('id')} | confidence: {belief.get('belief_confidence')} | "
             f"revisions: {len(belief.get('revisions') or [])}\n  statement: {belief.get('summary')}"
         )
+        # The prediction ledger's verdict on this belief, when it has one:
+        # calibration was computed and rendered for retrieval but never
+        # reached the one pass that revises beliefs.
+        calibration = _belief_calibration(belief)
+        if calibration:
+            lines.append(f"  prediction_calibration: {calibration}")
     lines.append("")
     lines.append("## First-person episodes (evidence pool)")
     lines.append("")
@@ -649,6 +670,9 @@ def _bundle_self_reconciliation(vault: Path) -> str:
                 f"{fm.get('summary')}"
             )
     return "\n".join(lines) + "\n"
+
+
+MIN_REFS_FOR_HIGH_CONFIDENCE = 3
 
 
 def _apply_belief_revisions(vault: Path, response: dict[str, Any]) -> Path | None:
@@ -676,14 +700,21 @@ def _apply_belief_revisions(vault: Path, response: dict[str, Any]) -> Path | Non
         if not isinstance(prop, dict):
             continue
         belief_path = beliefs.get(str(prop.get("belief_id") or ""))
-        refs = [str(r) for r in (prop.get("evidence_refs") or []) if str(r) in episode_ids]
+        refs = sorted({str(r) for r in (prop.get("evidence_refs") or []) if str(r) in episode_ids})
         if belief_path is None or not refs:
             continue  # unresolvable belief or zero real evidence: rejected
+        # Confidence is earned by evidence, as at formation: a revision citing
+        # one episode could previously raise a belief straight to "high".
+        new_confidence = str(prop.get("new_confidence") or "low").lower()
+        if new_confidence not in {"low", "medium", "high"}:
+            new_confidence = "low"
+        if new_confidence == "high" and len(refs) < MIN_REFS_FOR_HIGH_CONFIDENCE:
+            new_confidence = "medium"
         try:
             applied = revise_self_belief(
                 belief_path,
                 new_statement=str(prop.get("new_statement") or ""),
-                new_confidence=str(prop.get("new_confidence") or "low"),
+                new_confidence=new_confidence,
                 reason=str(prop.get("reason") or ""),
                 evidence_refs=refs,
             )
