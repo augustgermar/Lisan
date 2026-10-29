@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.intent_helpers import adopt_intent
+
 import json
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -56,6 +58,7 @@ def test_run_codex_executes_without_asking(tmp_path: Path, monkeypatch) -> None:
             return LLMResponse(text="ok", provider="codex", model="fake")
 
     monkeypatch.setattr(execution_tools, "CodexClient", FakeCodex)
+    adopt_intent(tmp_path)
     result = run_codex(
         "fix the config",
         working_directory=str(tmp_path),
@@ -110,9 +113,9 @@ def test_run_codex_intent_never_rule_is_final(tmp_path: Path, monkeypatch) -> No
     assert called["complete"] == 0
 
 
-def test_run_codex_uncustomized_intent_still_executes(tmp_path: Path, monkeypatch) -> None:
-    """Sentinel dates = no standing authority either way: with the gate
-    deleted, the command simply executes."""
+def test_run_codex_refuses_with_an_uncustomized_intent(tmp_path: Path, monkeypatch) -> None:
+    """Fail closed (2026-10-29): template intent = never-rules not adopted,
+    so nothing runs and the refusal names the fix."""
     from lisan.tools.intent import default_intent_document, intent_path
 
     monkeypatch.setattr(execution_tools, "CodexClient", _FakeCodex)
@@ -123,7 +126,33 @@ def test_run_codex_uncustomized_intent_still_executes(tmp_path: Path, monkeypatc
         "fix the config", working_directory=str(tmp_path), vault=tmp_path,
         config={"providers": {}},
     )
-    assert result == "ok"
+    assert result != "ok"
+    assert "intent.unadopted" in result and "lisan intent edit" in result
+
+
+def test_run_codex_refuses_when_intent_is_missing(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(execution_tools, "CodexClient", _FakeCodex)
+    result = run_codex(
+        "fix the config", working_directory=str(tmp_path), vault=tmp_path,
+        config={"providers": {}},
+    )
+    assert result != "ok"
+    assert "intent.unavailable" in result
+
+
+def test_run_codex_refuses_when_intent_is_invalid(tmp_path: Path, monkeypatch) -> None:
+    from lisan.tools.intent import intent_path
+
+    monkeypatch.setattr(execution_tools, "CodexClient", _FakeCodex)
+    path = intent_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("---\nnot json\n---\nbroken", encoding="utf-8")
+    result = run_codex(
+        "fix the config", working_directory=str(tmp_path), vault=tmp_path,
+        config={"providers": {}},
+    )
+    assert result != "ok"
+    assert "forbids" in result
 
 
 def test_execute_task_tool_description_mentions_lisan_cli_commands() -> None:

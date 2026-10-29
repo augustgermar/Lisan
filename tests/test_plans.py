@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+
+from tests.intent_helpers import adopt_intent
 from pathlib import Path
 from unittest.mock import patch
 
@@ -24,6 +26,7 @@ class _Env(unittest.TestCase):
         self.root = Path(self.tmp.name)
         ensure_repo_layout(self.root)
         self.vault = vault_root(self.root)
+        adopt_intent(self.vault)
         self.db = self.root / "jobs.sqlite"
         self.sent: list[tuple[str, int | None]] = []
         # Plans report outcomes through the real capture pipeline (an LLM

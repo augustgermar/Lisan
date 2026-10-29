@@ -873,25 +873,45 @@ def codex_workspace() -> str:
 def _chat_intent_verdict(vault: Path) -> tuple[Any, int] | None:
     """Chat-side codex runs answer to the same authority document as the
     Adjutant: primer/intent.md, arena ``chat``, the run_script capability
-    set. Returns (verdict, intent_version), or None when intent is absent,
-    invalid, or uncustomized (sentinel dates). Since the owner deleted the
+    set. Returns (verdict, intent_version). Since the owner deleted the
     per-action approval gate (2026-07-26), only a DENY matters here — and
     it is final: never-rules outrank even the owner's in-chat command,
     exactly as they outrank stale approvals in the Adjutant. Everything
-    short of DENY executes; the owner's command is the consent."""
+    short of DENY executes; the owner's command is the consent.
+
+    Fail closed (2026-10-29): until then an absent, invalid, or
+    uncustomized intent.md returned None and every caller treated None as
+    "go ahead" — so deleting or breaking the one document that holds the
+    never-rules silently removed them. The Adjutant already halts in that
+    state; chat-side execution now refuses the same way, with a synthetic
+    DENY that names the cause and the fix."""
+    from .intent import IntentError, Verdict
+
     try:
         from .adjutant_gate import TASK_KIND_CAPABILITIES
         from .intent import has_sentinel_dates, load_intent, resolve_capabilities
 
         intent = load_intent(vault)
         if has_sentinel_dates(intent):
-            return None
+            return Verdict(
+                decision="deny",
+                rule="intent.unadopted",
+                reasons=["intent.md is still the template (sentinel dates) — adopt it with `lisan intent edit`"],
+            ), intent.version
         verdict = resolve_capabilities(
             intent.delegations, "chat", TASK_KIND_CAPABILITIES["run_script"]
         )
         return verdict, intent.version
-    except Exception:
-        return None
+    except IntentError as exc:
+        return Verdict(
+            decision="deny", rule="intent.unavailable",
+            reasons=[f"{exc} — never-rules cannot be checked, so nothing runs"],
+        ), 0
+    except Exception as exc:  # noqa: BLE001 — any failure to read the rules is a refusal
+        return Verdict(
+            decision="deny", rule="intent.unreadable",
+            reasons=[f"{type(exc).__name__}: {exc} — never-rules cannot be checked, so nothing runs"],
+        ), 0
 
 
 def run_codex(

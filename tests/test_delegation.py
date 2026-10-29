@@ -17,6 +17,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.intent_helpers import adopt_intent
+
 from lisan.providers.base import LLMResponse, ProviderError
 from lisan.tools import delegation
 from lisan.tools.delegation import (
@@ -37,6 +39,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.delenv("LISAN_CODEX_TIMEOUT", raising=False)
     vault = tmp_path / "vault"
     vault.mkdir()
+    adopt_intent(vault)
     return SimpleNamespace(vault=vault, db=tmp_path / "jobs.sqlite", tmp=tmp_path)
 
 

@@ -12,6 +12,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.intent_helpers import adopt_intent
+
 from lisan.providers.base import LLMResponse
 from lisan.tools import learning as L
 from lisan.tools.jobs import dispatch_job, enqueue_job, get_job, run_jobs_worker
@@ -21,6 +23,7 @@ from lisan.tools.jobs import dispatch_job, enqueue_job, get_job, run_jobs_worker
 def env(tmp_path, monkeypatch):
     vault = tmp_path / "vault"
     vault.mkdir()
+    adopt_intent(vault)
     skills = tmp_path / "skills"
     skills.mkdir()
     monkeypatch.setenv("LISAN_SKILLS_DIR", str(skills))
