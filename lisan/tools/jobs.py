@@ -11,6 +11,9 @@ from typing import Any
 from ..paths import sqlite_path, vault_root
 from .job_policy import (
     DEFAULT_STUCK_TIMEOUT_MINUTES,
+    LONG_JOB_MIN_STUCK_MINUTES,
+    LONG_JOB_TYPES,
+    NON_IDEMPOTENT_JOB_TYPES,
     coalesce_key_for_job,
     priority_for_job_type,
     unique_group_for_job,
@@ -1831,9 +1834,13 @@ def _promote_ready_retry_wait_jobs(db_path: Path | None = None) -> int:
 
 def reclaim_stale_running_jobs(db_path: Path | None = None, *, stale_minutes: int = 45) -> int:
     """Jobs claimed by a worker that died stay 'running' forever — there is
-    no liveness signal, so age is the heuristic. Requeued jobs re-run; every
-    handler is idempotent (compaction is guarded, indexing converges), which
-    is what makes this safe."""
+    no liveness signal, so age is the heuristic. Idempotent jobs (compaction
+    is guarded, indexing converges) are requeued and re-run. Jobs whose side
+    effects are unknown (NON_IDEMPOTENT_JOB_TYPES) are failed with a reason
+    instead — the docstring used to claim every handler was idempotent, but
+    a codex run, a chat-turn prompt, or an Adjutant cycle is not. Delegated
+    children are left to delegation.reap_overdue_delegations, which knows
+    their wall limits. Returns the number requeued."""
     from datetime import datetime, timedelta, timezone
 
     cutoff = (datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1844,13 +1851,21 @@ def reclaim_stale_running_jobs(db_path: Path | None = None, *, stale_minutes: in
     try:
         ensure_jobs_table(conn)
         conn.execute("BEGIN IMMEDIATE")
+        unsafe = sorted(NON_IDEMPOTENT_JOB_TYPES - {"agent.delegate"})
+        marks = ",".join("?" for _ in unsafe)
+        conn.execute(
+            "UPDATE jobs SET status = 'failed', finished_at = ?, started_at = NULL, worker_id = NULL, "
+            "error = 'worker died mid-run; not re-run because its side effects are unknown' "
+            f"WHERE status = 'running' AND started_at IS NOT NULL AND started_at < ? AND job_type IN ({marks})",
+            (_iso(), cutoff, *unsafe),
+        )
         cur = conn.execute(
             "UPDATE jobs SET status = 'queued', started_at = NULL "
             "WHERE status = 'running' AND started_at IS NOT NULL AND started_at < ? "
             # a delegated child is never silently re-run: delegation.reap_overdue_delegations
             # fails it instead, because its side effects are unknown
-            "AND job_type != 'agent.delegate'",
-            (cutoff,),
+            f"AND job_type != 'agent.delegate' AND job_type NOT IN ({marks})",
+            (cutoff, *unsafe),
         )
         conn.commit()
         return cur.rowcount or 0
@@ -2054,9 +2069,17 @@ def reap_stuck_jobs(
             job = _row_to_job(row)
             if job is None:
                 continue
-            if not _is_stuck(job, timeout_minutes):
+            job_type = str(job.get("job_type") or "")
+            limit = max(timeout_minutes, LONG_JOB_MIN_STUCK_MINUTES) if job_type in LONG_JOB_TYPES else timeout_minutes
+            if not _is_stuck(job, limit):
                 continue
-            updated = mark_job_failed(job["id"], f"stuck running job exceeded {timeout_minutes} minutes", retry=retry, db_path=db_path)
+            # A reaped job is not killed — its process may still be running —
+            # so requeueing a non-idempotent one could run its side effect twice.
+            safe_retry = retry and job_type not in NON_IDEMPOTENT_JOB_TYPES
+            reason = f"stuck running job exceeded {limit} minutes"
+            if retry and not safe_retry:
+                reason += "; not retried because its side effects are unknown (retry deliberately with `lisan jobs retry`)"
+            updated = mark_job_failed(job["id"], reason, retry=safe_retry, db_path=db_path)
             if updated is not None:
                 reaped.append(updated)
         return {

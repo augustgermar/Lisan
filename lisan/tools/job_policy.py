@@ -85,6 +85,25 @@ NO_COALESCE = {
 }
 
 DEFAULT_STUCK_TIMEOUT_MINUTES = 15
+
+# Jobs whose side effects are unknown if a worker dies mid-run: a re-run may
+# repeat a send, a codex edit, a chat turn with tools, or an executed task.
+# The stale-claim reclaimer and the manual reaper fail these instead of
+# requeueing them; the owner can `lisan jobs retry` deliberately.
+NON_IDEMPOTENT_JOB_TYPES = frozenset({
+    "agent.delegate",
+    "task.run_codex",
+    "task.prompt",
+    "adjutant.cycle",
+    "self_repair.propose",
+    "self_repair.restart",
+})
+
+# Job types that legitimately run long (codex/delegate wall limits reach 40
+# minutes). The reaper never calls them stuck before this.
+LONG_JOB_MIN_STUCK_MINUTES = 45
+LONG_JOB_TYPES = frozenset({"plan.run", "task.run_codex", "task.prompt", "agent.delegate",
+                            "agent.delegate_report", "skill.review", "self_repair.propose"})
 DEFAULT_ANALYST_DELTA_THRESHOLD = 5
 DEFAULT_DREAMER_INTERVAL_HOURS = 24
 

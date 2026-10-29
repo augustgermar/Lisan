@@ -61,6 +61,9 @@ DECISION_RUN_WALL_FACTOR = 6
 _monotonic = time.monotonic  # indirection so tests can drive the budget clock
 
 
+CYCLE_LOCK_NAME = ".adjutant-cycle.lock"
+
+
 def run_cycle(
     vault: Path | None = None,
     db_path: Path | None = None,
@@ -71,7 +74,53 @@ def run_cycle(
     deliver: Callable[[str], None] | None = None,
     scratch_root: Path | None = None,
 ) -> dict[str, Any]:
+    """One cycle, never two at once per vault.
+
+    The daemon's pid lock only stops a second *daemon*; the ``adjutant.cycle``
+    job (the schedule alarm clock) and ``lisan adjutant run`` called this
+    function directly, so a job-queue cycle could overlap a daemon cycle and
+    both could claim and execute the same task. The cycle itself now takes a
+    non-blocking OS file lock; a caller that finds a cycle in progress
+    returns ``skipped`` instead of waiting — the running cycle will see
+    whatever it was woken for, or the next one will.
+    """
     vault = vault or vault_root()
+    lock_path = vault / CYCLE_LOCK_NAME
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover — non-POSIX: no OS lock available
+        fcntl = None  # type: ignore[assignment]
+    handle = None
+    if fcntl is not None:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(lock_path, "a+")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            handle.close()
+            return {"halted": False, "skipped": "another adjutant cycle is running",
+                    "verdicts": [], "executed": [], "dry_run": None}
+    try:
+        return _run_cycle_unlocked(
+            vault, db_path, config=config, complete=complete, capture=capture,
+            deliver=deliver, scratch_root=scratch_root,
+        )
+    finally:
+        if handle is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            handle.close()
+
+
+def _run_cycle_unlocked(
+    vault: Path,
+    db_path: Path | None = None,
+    *,
+    config: dict[str, Any] | None = None,
+    complete: Callable[[str], str] | None = None,
+    capture: Callable[..., Any] | None = None,
+    deliver: Callable[[str], None] | None = None,
+    scratch_root: Path | None = None,
+) -> dict[str, Any]:
     db_path = db_path or sqlite_path()
     config = config or load_config()
     adjutant_cfg = config.get("adjutant") or {}
