@@ -24,6 +24,33 @@ def assistant_identity_block(vault: Path) -> str:
     )
 
 
+def invoke_tool(handler: Any, args: dict[str, Any], *, tool_name: str = "tool") -> Any:
+    """Call a tool handler exactly once.
+
+    Handlers take keyword arguments (most) or a single args dict (a few).
+    This used to be ``try: handler(**args) except TypeError: handler(args)``,
+    which re-ran the handler whenever a TypeError escaped from *inside* it —
+    executing a side effect (send, schedule, delegate) twice. The calling
+    convention is now decided by binding the signature before the call, so
+    an error raised by the tool itself is never a reason to call it again.
+    """
+    import inspect
+
+    try:
+        signature = inspect.signature(handler)
+    except (TypeError, ValueError):
+        return handler(**args)
+    try:
+        signature.bind(**args)
+    except TypeError as kw_error:
+        try:
+            signature.bind(args)
+        except TypeError:
+            return f"Error: invalid arguments for {tool_name}: {kw_error}"
+        return handler(args)
+    return handler(**args)
+
+
 @dataclass(slots=True)
 class AgentResult:
     text: str
@@ -191,9 +218,7 @@ class PromptAgent:
                     result = f"Error: unknown tool {tool_name!r}. Available tools: {available}. Re-read the list and call the correct tool name."
                 else:
                     try:
-                        result = handler(**args)
-                    except TypeError:
-                        result = handler(args)
+                        result = invoke_tool(handler, args, tool_name=tool_name)
                     except Exception as exc:
                         result = f"Error: {exc}"
                 tool_log.append({"tool": tool_name, "args": args, "result": result, "iteration": iteration + 1})

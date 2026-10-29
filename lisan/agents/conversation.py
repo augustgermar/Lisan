@@ -53,6 +53,7 @@ class ConversationAgent(PromptAgent):
             domain=kwargs.get("domain"),
             approval_fn=approval_fn,
         )
+        tool_handlers = self._once_per_turn(tool_handlers)
         # Ordinary turns answer in plain prose: memory capture reads the
         # finished transcript afterward (run_conversation_turn appends
         # `response` verbatim and hands it to capture.observe) and never
@@ -129,6 +130,41 @@ class ConversationAgent(PromptAgent):
         if text and not text.startswith("{"):
             return {"response": text}
         return {"response": ""}
+
+    # Tools whose repetition has no effect beyond returning fresh data; a
+    # re-run of these within a turn should see current state, not a memo.
+    READ_ONLY_TOOLS = frozenset({"search_memory", "read_file", "self_state", "skill"})
+
+    def _once_per_turn(self, handlers: dict[str, Callable[..., Any]]) -> dict[str, Callable[..., Any]]:
+        """A turn can run the tool loop more than once — the empty-response
+        retry, interpretation-protocol regeneration, check-in recovery — and
+        each pass re-executes whatever tool calls the model repeats. Every
+        side-effecting call is therefore memoized for the life of this agent
+        (one agent per turn): an identical repeat returns the first result,
+        marked as reused, instead of sending, scheduling, or delegating
+        again."""
+        from .base import invoke_tool
+
+        memo: dict[str, Any] = self.__dict__.setdefault("_turn_tool_memo", {})
+        wrapped: dict[str, Callable[..., Any]] = {}
+        for name, handler in handlers.items():
+            if name in self.READ_ONLY_TOOLS:
+                wrapped[name] = handler
+                continue
+
+            def _call(*, _name=name, _handler=handler, **args: Any) -> Any:
+                key = _name + "\x00" + json.dumps(args, sort_keys=True, ensure_ascii=True, default=str)
+                if key in memo:
+                    return (
+                        "(Already executed earlier in this turn with identical arguments; "
+                        "not run again. Original result follows.)\n" + str(memo[key])
+                    )
+                result = invoke_tool(_handler, args, tool_name=_name)
+                memo[key] = result
+                return result
+
+            wrapped[name] = _call
+        return wrapped
 
     @staticmethod
     def _claims_checkin_unavailable(result: Any) -> bool:
