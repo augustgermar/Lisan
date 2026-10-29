@@ -356,16 +356,30 @@ def _reindex(entity_path: Path, vault: Path, db_path: Path | None) -> None:
     reindex_record(entity_path, vault, db_path)
 
 
+_SOURCE_TEXT_HEADING = re.compile(r"^## Source Text\s*$", re.MULTILINE)
+
+
 def _read_draft_body(draft_path: Path | None) -> str:
+    """The material a story learns from is what was actually said.
+
+    Pipeline drafts render Status, Task, and the Listener/Writer/Skeptic/
+    Interlocutor JSON first and the owner's words last, under "## Source
+    Text". This returned the whole body, and _condense keeps the first 1,200
+    characters — so source_log entries held agent JSON and the real text was
+    cut off. Return the Source Text section when there is one."""
     if not draft_path:
         return ""
     try:
         path = Path(draft_path)
         if not path.exists():
             return ""
-        return load_markdown(path).body.strip()
+        body = load_markdown(path).body
     except Exception:
         return ""
+    match = _SOURCE_TEXT_HEADING.search(body)
+    if match:
+        return body[match.end():].strip()
+    return body.strip()
 
 
 def _read_transcript_tail(transcript_path: Path | None, chars: int = 4000) -> str:
