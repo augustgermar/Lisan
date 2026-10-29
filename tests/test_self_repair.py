@@ -483,3 +483,65 @@ def test_full_bake_regression_lifecycle(tmp_path: Path):
 
     rollback_episodes = list((vault / "self" / "episodes").glob("*rollback*"))
     assert len(rollback_episodes) == 1
+
+
+def _diff(path: str, *, new: bool = False) -> str:
+    mode = "new file mode 100644\n--- /dev/null\n" if new else f"--- a/{path}\n"
+    return f"diff --git a/{path} b/{path}\n{mode}+++ b/{path}\n@@ -0,0 +1 @@\n+x\n"
+
+
+@pytest.mark.parametrize("path", [
+    "lisan/tools/authority.py",
+    "lisan/tools/intent.py",
+    "lisan/tools/firewall.py",
+    "lisan/tools/judge.py",
+    "lisan/tools/purge.py",
+    "lisan/tools/self_repair_helpers.py",
+    "tests/test_mail.py",
+    ".github/workflows/ci.yml",
+])
+def test_the_mechanisms_that_judge_or_bound_a_repair_are_protected(path):
+    from lisan.tools.self_repair import validate_patch_paths
+
+    with pytest.raises(SelfRepairRefused, match="protected"):
+        validate_patch_paths(_diff(path))
+
+
+def test_a_repair_may_add_a_new_regression_test():
+    from lisan.tools.self_repair import validate_patch_paths
+
+    assert validate_patch_paths(_diff("tests/test_new_regression.py", new=True)) == ["tests/test_new_regression.py"]
+    assert validate_patch_paths(_diff("lisan/tools/ordinary.py")) == ["lisan/tools/ordinary.py"]
+
+
+def _proposal_report(vault: Path, name: str, **fm):
+    from lisan.frontmatter import write_markdown
+
+    root = vault / "reports" / "self-repair-proposals"
+    root.mkdir(parents=True, exist_ok=True)
+    write_markdown(root / f"{name}.md", {"id": f"report.{name}", **fm}, "x")
+
+
+def test_one_open_proposal_at_a_time(tmp_path: Path):
+    from datetime import date
+
+    from lisan.tools.self_repair import assert_appetite_for_proposal
+
+    vault = tmp_path / "vault"
+    _proposal_report(vault, "sr-old", status="active", created="2026-01-01")
+    assert_appetite_for_proposal(vault, today=date(2026, 10, 29))  # stale: ignored
+    _proposal_report(vault, "sr-new", status="active", created="2026-10-28")
+    with pytest.raises(SelfRepairRefused, match="one open proposal"):
+        assert_appetite_for_proposal(vault, today=date(2026, 10, 29))
+
+
+def test_one_applied_patch_per_week(tmp_path: Path):
+    from datetime import date
+
+    from lisan.tools.self_repair import assert_appetite_for_apply
+
+    vault = tmp_path / "vault"
+    _proposal_report(vault, "sr-a", status="applied", applied_at="2026-10-25")
+    with pytest.raises(SelfRepairRefused, match="one applied patch"):
+        assert_appetite_for_apply(vault, today=date(2026, 10, 29))
+    assert_appetite_for_apply(vault, today=date(2026, 11, 2))

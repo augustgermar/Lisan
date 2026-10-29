@@ -27,15 +27,49 @@ from .adjutant_confirmations import create_confirmation_for_task
 Author = Callable[[str], str]
 Verifier = Callable[[dict[str, Any]], dict[str, Any] | bool]
 
+# The repair loop may never modify what decides what it may change, how a
+# change is verified, or how one is undone (docs/security.md). The list used
+# to stop at the kernel, the tier table and self_repair.py — leaving the
+# intent resolver, the outbound gates, the content fences, the write
+# boundary, the judge and rubric that score its own bake, purge/backup, and
+# every existing test free to patch. And the "self_repair_" prefix never
+# matched anything, because only ".py" entries were suffix-checked.
 PROTECTED_PATHS = (
     "primer/identity-core.md",
-    "kernel.py",
-    "action_policy.py",
-    "self_repair.py",
-    "self_repair_",
     ".gitignore",
+    "pyproject.toml",
 )
-PROTECTED_DIRECTORIES = ("credentials/", "backup/", "backups/", "purge/")
+PROTECTED_BASENAMES = frozenset({
+    # identity
+    "kernel.py",
+    "voice_extract.py",
+    # policy: what may happen
+    "action_policy.py",
+    "authority.py",
+    "outbound.py",
+    "intent.py",
+    "intent_scopes.py",
+    "adjutant_gate.py",
+    "skill_gate.py",
+    "approval_receipts.py",
+    # epistemic boundary: what counts as instructions
+    "firewall.py",
+    "content_trust.py",
+    # integrity: what may be written
+    "write_boundary.py",
+    "validator.py",
+    "validation_gate.py",
+    # verification: how a change is judged
+    "judge.py",
+    "rubric.py",
+    "self_eval.py",
+    "conftest.py",
+    # undo: how a change is reversed or data recovered
+    "purge.py",
+    "backup.py",
+})
+PROTECTED_BASENAME_PREFIXES = ("self_repair",)
+PROTECTED_DIRECTORIES = ("credentials/", "backup/", "backups/", "purge/", ".github/", ".githooks/")
 
 
 class SelfRepairRefused(RuntimeError):
@@ -105,14 +139,36 @@ def patch_paths(patch: str) -> list[str]:
     return paths
 
 
+def _new_file_paths(patch: str) -> set[str]:
+    new: set[str] = set()
+    current: str | None = None
+    for line in patch.splitlines():
+        if line.startswith("diff --git a/"):
+            fields = line.split()
+            current = fields[3][2:] if len(fields) == 4 else None
+        elif line.startswith("new file mode") and current:
+            new.add(current)
+    return new
+
+
 def validate_patch_paths(patch: str) -> list[str]:
     paths = patch_paths(patch)
+    new_files = _new_file_paths(patch)
     for path in paths:
         normalized = path.replace("\\", "/")
         if normalized.startswith("/") or normalized == ".." or normalized.startswith("../") or "/../" in normalized:
             raise SelfRepairRefused(f"unsafe patch path: {path}")
-        if normalized in PROTECTED_PATHS or any(normalized.endswith(item) for item in PROTECTED_PATHS if item.endswith(".py")):
+        basename = normalized.rsplit("/", 1)[-1]
+        if (
+            normalized in PROTECTED_PATHS
+            or basename in PROTECTED_BASENAMES
+            or basename.startswith(PROTECTED_BASENAME_PREFIXES)
+        ):
             raise SelfRepairRefused(f"protected patch path: {path}")
+        if (normalized.startswith("tests/") or "/tests/" in normalized) and normalized not in new_files:
+            # A repair may add a regression test; it may not edit or delete
+            # the existing ones that judge it.
+            raise SelfRepairRefused(f"protected patch path: {path} (existing tests are verification)")
         if any(normalized == item or normalized.startswith(item) for item in PROTECTED_DIRECTORIES):
             raise SelfRepairRefused(f"protected patch path: {path}")
         if normalized.startswith(".git/"):
@@ -160,6 +216,57 @@ def _default_verifier(result: dict[str, Any]) -> dict[str, Any]:
     return {"ok": bool(result.get("suite_ok") and result.get("targeted_ok")), "method": "deterministic test commands"}
 
 
+# Bounded appetite (docs/self_repair_workorder.md §2.3): at most one open
+# proposal at a time and one applied patch per week. The work order called
+# these "shipped at these values"; until 2026-10-29 nothing enforced them.
+APPLY_COOLDOWN_DAYS = 7
+# A proposal the owner neither approved nor denied stops counting as open
+# after this long, so an ignored confirmation cannot wedge the loop.
+OPEN_PROPOSAL_STALE_DAYS = 14
+
+
+def _proposal_reports(vault: Path) -> list[dict[str, Any]]:
+    root = vault / "reports" / "self-repair-proposals"
+    out: list[dict[str, Any]] = []
+    for path in sorted(root.glob("*.md")) if root.exists() else []:
+        try:
+            out.append(dict(load_markdown(path).frontmatter))
+        except Exception:
+            continue
+    return out
+
+
+def _days_since(stamp: str, today: date) -> int | None:
+    try:
+        return (today - date.fromisoformat(str(stamp)[:10])).days
+    except ValueError:
+        return None
+
+
+def assert_appetite_for_proposal(vault: Path, *, today: date | None = None) -> None:
+    today = today or date.today()
+    for fm in _proposal_reports(vault):
+        status = str(fm.get("status") or "")
+        age = _days_since(str(fm.get("created") or ""), today)
+        if status == "approved" or (status == "active" and age is not None and age < OPEN_PROPOSAL_STALE_DAYS):
+            raise SelfRepairRefused(
+                f"proposal {fm.get('id')} is still open; one open proposal at a time"
+            )
+
+
+def assert_appetite_for_apply(vault: Path, *, today: date | None = None) -> None:
+    today = today or date.today()
+    for fm in _proposal_reports(vault):
+        if not fm.get("applied_at"):
+            continue
+        age = _days_since(str(fm.get("applied_at")), today)
+        if age is not None and age < APPLY_COOLDOWN_DAYS:
+            raise SelfRepairRefused(
+                f"a patch was applied {age} day(s) ago ({fm.get('id')}); one applied patch per "
+                f"{APPLY_COOLDOWN_DAYS} days so each is judged in isolation"
+            )
+
+
 def propose(
     *,
     vault: Path,
@@ -179,6 +286,7 @@ def propose(
     """Create a Phase A proposal.  No operation here mutates ``repo``."""
     if author_id == verifier_id:
         raise SelfRepairRefused("examiner and examinee must be independent")
+    assert_appetite_for_proposal(vault)
     loop_file, loop = _loop_record(vault, loop_id, loop_path)
     base_commit = ensure_clean_checkout(repo)
     prompt = _author_prompt(loop_id, loop, candidate_paths)
@@ -406,6 +514,7 @@ def apply_approved_proposal(
     fm = dict(doc.frontmatter)
     if str(fm.get("status") or "") != "approved":
         raise SelfRepairRefused("proposal is not owner-approved")
+    assert_appetite_for_apply(vault)
     approval = _approved_confirmation(vault, proposal_id, db_path)
     base_commit = str(fm.get("base_commit") or "").strip()
     loop_id = str(fm.get("loop_id") or "").strip()

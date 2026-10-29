@@ -86,12 +86,27 @@ instructions:
 
 ### Protected paths (never modifiable by self-repair)
 
-- `primer/identity-core.md` and the kernel machinery
-- `action_policy.py` and any policy clamp or capability gate
-- The self-repair implementation itself and its work order
-- Purge, backup, and rollback machinery
-- Anything under `credentials/`
-- `.gitignore` and repository-boundary controls
+Enforced by `validate_patch_paths` in `lisan/tools/self_repair.py`:
+
+- Identity: `primer/identity-core.md`, `kernel.py`, `voice_extract.py`
+- Policy — what may happen: `authority.py`, `action_policy.py`,
+  `outbound.py`, `intent.py`, `intent_scopes.py`, `adjutant_gate.py`,
+  `skill_gate.py`, `approval_receipts.py`
+- The epistemic boundary: `firewall.py`, `content_trust.py`
+- Integrity — what may be written: `write_boundary.py`, `validator.py`,
+  `validation_gate.py`
+- Verification — how a change is judged: `judge.py`, `rubric.py`,
+  `self_eval.py`, `conftest.py`, and every **existing** file under `tests/`
+  (a repair may add a new regression test, never edit or delete one)
+- Undo: `purge.py`, `backup.py`, and anything named `self_repair*`
+- `credentials/`, `backup(s)/`, `purge/`, `.github/`, `.githooks/`,
+  `.gitignore`, `pyproject.toml`
+
+### Bounded appetite
+
+At most one open proposal at a time (an unanswered proposal stops counting
+after 14 days) and one applied patch per 7 days, enforced in `propose` and
+`apply_approved_proposal`.
 
 ### Anti-self-amplification
 
