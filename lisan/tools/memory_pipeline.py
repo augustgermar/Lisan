@@ -27,6 +27,7 @@ from .record_fanout import (
     fanout_decisions,
     fanout_evidence,
     apply_behavioral_contracts,
+    fanout_knowledge,
     fanout_open_loops,
     fanout_state_updates,
     index_created_record,
@@ -309,6 +310,7 @@ def run_memory_pipeline(
             evidence_id_map = fanout_evidence(vault, writer, transcript_path, draft_rel, index_conn=index_conn)
             claim_id_map = fanout_claims(vault, writer, draft_rel, db_path=db_path, evidence_id_map=evidence_id_map, index_conn=index_conn) or {}
             fanout_state_updates(vault, writer, draft_rel, index_conn=index_conn)
+            fanout_knowledge(vault, writer, draft_rel, index_conn=index_conn)
             _supersede_corrected_records(vault, writer, db_path=db_path)
         else:
             record_inline_step("memory_pipeline.fanout.skeptic_blocked")
@@ -422,6 +424,17 @@ def _merge_writer_outputs(core: dict[str, Any], artifacts: dict[str, Any]) -> di
         value = artifacts.get(key)
         if isinstance(value, list):
             merged[key] = value
+    # Behavioural contracts are emitted by the artifacts prompt (and by the
+    # full-turn fast lane on the core side). They were missing from the
+    # overlay list above, so every contract the artifacts call extracted was
+    # dropped before fanout. Union, core first, order-preserving.
+    contracts: list[Any] = []
+    for source in (core.get("behavioral_contracts"), artifacts.get("behavioral_contracts")):
+        for item in source if isinstance(source, list) else []:
+            if item not in contracts:
+                contracts.append(item)
+    if contracts:
+        merged["behavioral_contracts"] = contracts
     return merged
 
 

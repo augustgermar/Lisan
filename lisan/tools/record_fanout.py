@@ -480,7 +480,9 @@ def fanout_open_loops(
     questions never become user-owned todos.
     """
     _close_matching_open_loops(vault, source_text or str(writer.get("summary") or ""), draft_rel=draft_rel)
-    loops = writer.get("open_loops_to_create") or []
+    loops = list(writer.get("open_loops_to_create") or [])
+    if not loops:
+        loops = _open_loop_from_top_level(writer)
     entity_names = _entity_canonical_names(writer)
     for loop in loops:
         if not isinstance(loop, dict):
@@ -499,7 +501,10 @@ def fanout_open_loops(
         )
         if not title or not next_action:
             continue
-        if owner not in {"user", "self", "me", ""}:
+        # The principal-name pass rewrites the owner's name to the token, so a
+        # loop the writer attributed to the owner by name arrives as
+        # "{{principal}}" — that is the user, not someone else.
+        if owner not in {"user", "self", "me", "", "{{principal}}"}:
             continue
         if priority not in ("low", "medium", "high"):
             priority = "medium"
@@ -522,6 +527,110 @@ def fanout_open_loops(
             pass
         except Exception as exc:
             log_error(vault, "fanout.open_loop", exc)
+
+
+def _open_loop_from_top_level(writer: dict[str, Any]) -> list[dict[str, Any]]:
+    """writer_open_loop_v1 describes the loop at top level (record_type,
+    summary, frontmatter.next_action, sections.next_action) and never emits
+    open_loops_to_create, so a turn routed to the open-loop writer produced
+    no loop at all. Synthesize the one loop it describes — the same fallback
+    fanout_decisions has always had."""
+    if str(writer.get("record_type") or "").strip().lower() != "open_loop":
+        return []
+    summary = str(writer.get("summary") or "").strip()
+    raw_fm = writer.get("frontmatter")
+    fm: dict[str, Any] = raw_fm if isinstance(raw_fm, dict) else {}
+    raw_sections = writer.get("sections")
+    sections: dict[str, Any] = raw_sections if isinstance(raw_sections, dict) else {}
+    next_action = str(fm.get("next_action") or sections.get("next_action") or "").strip()
+    if not summary or not next_action:
+        return []
+    return [{
+        "title": summary,
+        "summary": str(sections.get("open_loop") or summary).strip(),
+        "next_action": next_action,
+        "priority": fm.get("priority") or "medium",
+        "owner": fm.get("owner") or "user",
+        "domain": fm.get("domain_primary") or fm.get("domain") or "",
+        "confidence_basis": fm.get("confidence_basis"),
+        "blocked_by": fm.get("blocked_by"),
+    }]
+
+
+# ── Shared fanout: knowledge ──────────────────────────────────────────────────
+
+def fanout_knowledge(
+    vault: Path,
+    writer: dict[str, Any],
+    draft_rel: str | None = None,
+    index_conn: sqlite3.Connection | None = None,
+) -> Path | None:
+    """A turn routed to writer_knowledge_v1 used to produce a draft and an
+    episode but never a knowledge record — there was no knowledge fanout.
+
+    Knowledge is mutable reference material: a second capture on the same
+    subject appends a dated update to the existing record instead of being
+    dropped (never lose data in the name of tidiness)."""
+    from .record_factory import KNOWLEDGE_DIRS, new_knowledge
+
+    if str(writer.get("record_type") or "").strip().lower() != "knowledge":
+        return None
+    summary = str(writer.get("summary") or "").strip()
+    raw_sections = writer.get("sections")
+    sections: dict[str, Any] = raw_sections if isinstance(raw_sections, dict) else {}
+    content = str(sections.get("knowledge") or "").strip()
+    if not summary or not content:
+        return None
+    raw_fm = writer.get("frontmatter")
+    fm: dict[str, Any] = raw_fm if isinstance(raw_fm, dict) else {}
+    category = str(fm.get("category") or writer.get("category") or "frameworks").strip().lower()
+    if category not in KNOWLEDGE_DIRS:
+        category = "frameworks"
+    significance = str(writer.get("significance") or fm.get("significance") or "low")
+    if significance not in {"low", "medium", "high"}:
+        significance = "low"
+    confidence = str(fm.get("confidence") or "medium")
+    if confidence not in {"low", "medium", "high"}:
+        confidence = "medium"
+    try:
+        created = new_knowledge(
+            vault,
+            summary,
+            category=category,
+            significance=significance,
+            summary=summary,
+            confidence=confidence,
+            confidence_basis=str(fm.get("confidence_basis") or "Stated by the owner in conversation"),
+            links=merge_links(fm.get("links"), [draft_rel] if draft_rel else []),
+            source_ref=draft_rel,
+            body=content,
+        )
+        index_created_record(vault, created, index_conn)
+        return created.path
+    except FileExistsError as exc:
+        path = Path(str(exc.args[0])) if exc.args else None
+        if path is None or not path.exists():
+            return None
+        try:
+            doc = load_markdown(path)
+            today = today_iso()
+            if content in doc.body:
+                return path
+            fm_existing = dict(doc.frontmatter)
+            fm_existing["updated"] = today
+            fm_existing["links"] = merge_links(fm_existing.get("links"), [draft_rel] if draft_rel else [])
+            body = doc.body.rstrip() + f"\n\n## Update {today}\n\n{content}\n"
+            write_markdown(path, fm_existing, body)
+            if index_conn is not None:
+                index_single_record(path, vault, index_conn)
+                index_conn.commit()
+            return path
+        except Exception as inner:
+            log_error(vault, "fanout.knowledge.update", inner)
+            return None
+    except Exception as exc:
+        log_error(vault, "fanout.knowledge", exc)
+        return None
 
 
 _OPEN_LOOP_COMPLETION_MARKERS = (
