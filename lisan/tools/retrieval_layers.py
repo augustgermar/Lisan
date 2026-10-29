@@ -456,21 +456,13 @@ def _rank_quality_multiplier(
 
 
 def _recent_access_counts(conn: sqlite3.Connection, *, limit: int = 500) -> dict[str, int]:
-    """Count recent retrieval appearances from the derived operational log."""
-    try:
-        rows = conn.execute(
-            "SELECT files_loaded FROM retrieval_log WHERE files_loaded IS NOT NULL "
-            "ORDER BY id DESC LIMIT ?", (limit,),
-        ).fetchall()
-    except sqlite3.Error:
-        return {}
+    """Count recent retrieval appearances from the derived operational log
+    (conversation retrievals only, exploratory picks excluded)."""
+    from .learned_edges import learning_signal_rows
+
     counts: dict[str, int] = defaultdict(int)
-    for row in rows:
-        try:
-            ids = json.loads(row[0] or "[]")
-        except (TypeError, json.JSONDecodeError):
-            continue
-        for record_id in set(map(str, ids)):
+    for ids in learning_signal_rows(conn, limit):
+        for record_id in ids:
             counts[record_id] += 1
     return dict(counts)
 
@@ -620,7 +612,9 @@ def _sql_metadata_score(
             score += 0.8
     if str(row["status"]) == "active":
         score += 0.5
-    elif str(row["status"]) in {"confirmed", "disputed"}:
+    elif str(row["status"]) == "confirmed":
+        # "disputed" used to sit in this +0.2 branch too, which made the
+        # -1.0 "contradicted_demoted" branch below unreachable for it.
         score += 0.2
     elif str(row["status"]) in {"superseded", "rejected", "stale", "retired"}:
         # Settled history must lose the retrieval lottery to the current
@@ -769,7 +763,9 @@ def _score_row(
 
     if str(row["status"]) == "active":
         score += 0.5
-    elif str(row["status"]) in {"confirmed", "disputed"}:
+    elif str(row["status"]) == "confirmed":
+        # "disputed" used to sit in this +0.2 branch too, which made the
+        # -1.0 "contradicted_demoted" branch below unreachable for it.
         score += 0.2
     elif str(row["status"]) in {"superseded", "rejected", "stale", "retired"}:
         # Settled history must lose the retrieval lottery to the current

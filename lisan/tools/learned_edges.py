@@ -56,6 +56,40 @@ CREATE INDEX IF NOT EXISTS idx_learned_edges_source ON learned_edges(source_id, 
 """
 
 
+def learning_signal_rows(conn: sqlite3.Connection, limit: int) -> list[set[str]]:
+    """Recent retrievals that count as evidence of association: the owner's
+    conversation turns only, with exploratory (serendipity) picks removed.
+
+    Serendipity exists so the same memories don't calcify; feeding its
+    random picks back into co-occurrence mining did the opposite, and
+    maintenance passes (self-eval probes, enrichment, prediction scoring)
+    reinforced associations nobody exercised. Rows logged before the
+    purpose column existed count as conversation."""
+    try:
+        columns = {str(r[1]) for r in conn.execute("PRAGMA table_info(retrieval_log)").fetchall()}
+    except sqlite3.Error:
+        return []
+    if "purpose" in columns:
+        sql = ("SELECT files_loaded, exploratory_ids FROM retrieval_log WHERE files_loaded IS NOT NULL "
+               "AND COALESCE(purpose, 'conversation') = 'conversation' ORDER BY id DESC LIMIT ?")
+    else:
+        sql = ("SELECT files_loaded, NULL FROM retrieval_log WHERE files_loaded IS NOT NULL "
+               "ORDER BY id DESC LIMIT ?")
+    try:
+        rows = conn.execute(sql, (limit,)).fetchall()
+    except sqlite3.Error:
+        return []
+    out: list[set[str]] = []
+    for loaded_raw, exploratory_raw in rows:
+        try:
+            loaded = {str(i) for i in json.loads(loaded_raw or "[]") if str(i).strip()}
+            exploratory = {str(i) for i in json.loads(exploratory_raw or "[]")}
+        except (TypeError, json.JSONDecodeError):
+            continue
+        out.append(loaded - exploratory)
+    return out
+
+
 def learned_edges_settings(config: dict[str, Any] | None) -> dict[str, Any]:
     out = dict(DEFAULTS)
     out.update(((config or {}).get("retrieval") or {}).get("learned_edges") or {})
@@ -89,23 +123,7 @@ def mine_learned_edges(
     conn = _db_connect(db)
     try:
         ensure_learned_edges_table(conn)
-        try:
-            rows = conn.execute(
-                "SELECT files_loaded FROM retrieval_log WHERE files_loaded IS NOT NULL "
-                "ORDER BY id DESC LIMIT ?",
-                (window,),
-            ).fetchall()
-        except sqlite3.OperationalError:
-            rows = []
-        events: list[set[str]] = []
-        for (raw,) in rows:
-            try:
-                loaded = json.loads(raw or "[]")
-            except json.JSONDecodeError:
-                continue
-            ids = {str(i) for i in loaded if str(i).strip()}
-            if len(ids) >= 2:
-                events.append(ids)
+        events: list[set[str]] = [ids for ids in learning_signal_rows(conn, window) if len(ids) >= 2]
 
         n_events = len(events)
         occurrences: dict[str, int] = {}

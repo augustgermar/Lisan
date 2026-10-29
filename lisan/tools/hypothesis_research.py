@@ -52,7 +52,7 @@ def investigate_hypothesis(
 
     internal: list[dict[str, str]] = []
     try:
-        context = retrieve_context(query=query, vault=vault, db_path=db_path)
+        context = retrieve_context(query=query, vault=vault, db_path=db_path, purpose="maintenance")
         for item in list(context.loaded)[:5]:
             if str(getattr(item, "id", "") or "").startswith("prediction."):
                 continue

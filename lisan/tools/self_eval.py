@@ -397,7 +397,7 @@ def run_memory_pipeline_evaluation() -> dict[str, Any]:
             "lisan.tools.retrieval.build_query_scorer", return_value=inactive_scorer
         ):
             current = retrieve_context(
-                "What is the current office supply vendor?", vault=vault, db_path=db_path
+                "What is the current office supply vendor?", vault=vault, db_path=db_path, purpose="maintenance"
             )
             current_ids = [item.id for item in current.loaded]
             current_context = assemble_context(
@@ -415,7 +415,7 @@ def run_memory_pipeline_evaluation() -> dict[str, Any]:
 
             historic = retrieve_context(
                 "What did we know about the office supply vendor on 2026-01-15 historically?",
-                vault=vault, db_path=db_path,
+                vault=vault, db_path=db_path, purpose="maintenance",
             )
             historic_ids = [item.id for item in historic.loaded]
             historic_a_rank = historic_ids.index("episode.vendor-jan") if "episode.vendor-jan" in historic_ids else 999
@@ -435,7 +435,7 @@ def run_memory_pipeline_evaluation() -> dict[str, Any]:
                 })
 
             preference = retrieve_context(
-                "What is the current beverage preference?", vault=vault, db_path=db_path
+                "What is the current beverage preference?", vault=vault, db_path=db_path, purpose="maintenance"
             )
             preference_ids = [item.id for item in preference.loaded]
             evaluate(
@@ -451,7 +451,7 @@ def run_memory_pipeline_evaluation() -> dict[str, Any]:
             relationship_ids = [
                 item.id for item in retrieve_context(
                     "What is the current relationship status and household arrangement?",
-                    vault=vault, db_path=db_path,
+                    vault=vault, db_path=db_path, purpose="maintenance",
                 ).loaded
             ]
             evaluate(
@@ -464,7 +464,7 @@ def run_memory_pipeline_evaluation() -> dict[str, Any]:
             )
 
             identity = retrieve_context(
-                "Ruth Varga Project SDP plan details", vault=vault, db_path=db_path
+                "Ruth Varga Project SDP plan details", vault=vault, db_path=db_path, purpose="maintenance"
             )
             identity_ids = [item.id for item in identity.loaded]
             evaluate(

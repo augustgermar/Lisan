@@ -359,7 +359,12 @@ def retrieve_context(
     conversation_id: str | None = None,
     include_quarantined: bool = False,
     include_operational: bool = False,
+    purpose: str = "conversation",
 ) -> RetrievalResult:
+    """``purpose`` labels the retrieval log row. Only "conversation"
+    retrievals teach learned edges and access counts; maintenance passes
+    (self-eval probes, enrichment, prediction scoring, capture) must not
+    reinforce associations the owner never exercised."""
     vault = vault or vault_root()
     db_path = db_path or sqlite_path()
     config = load_config()
@@ -607,6 +612,7 @@ def retrieve_context(
                 per_layer_limit=retrieval_settings["per_layer_limit"],
                 fused_limit=retrieval_settings["fused_limit"],
                 fts_mode=fts_mode,
+                purpose=purpose,
             )
             return RetrievalResult(
                 domain=inferred_domain,
@@ -681,6 +687,7 @@ def retrieve_context(
             per_layer_limit=None,
             fused_limit=None,
             fts_mode="match_fallback",
+            purpose=purpose,
         )
         return RetrievalResult(
             domain=inferred_domain,

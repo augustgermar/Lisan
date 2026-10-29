@@ -668,6 +668,7 @@ def _build_skip_response(
     if not _is_recall_query(text):
         return _closing_acknowledgment(text)
 
+    # Opened only to ensure the index schema exists before retrieval reads it.
     conn = open_index_connection(db_path)
     conn.close()
 
@@ -678,6 +679,7 @@ def _build_skip_response(
         vault=vault,
         db_path=db_path,
         conversation_id=conversation_id,
+        purpose="capture",
     )
     items = _dedupe_retrieval_items(result.loaded)
     if not items:

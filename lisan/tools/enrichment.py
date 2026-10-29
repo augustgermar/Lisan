@@ -167,7 +167,7 @@ def seek(
         )
 
     # Ring 0: existing structured memory, through the canonical fusion path.
-    result = retrieve_context(query=query, vault=vault, db_path=db_path)
+    result = retrieve_context(query=query, vault=vault, db_path=db_path, purpose="maintenance")
     entity_rel = str(entity_path.relative_to(vault)) if entity_path.is_relative_to(vault) else str(entity_path)
     for item in result.direct_loaded:
         if item.path in {entity_rel} or item.path.startswith("open_loops/"):

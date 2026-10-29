@@ -720,6 +720,7 @@ def _log_retrieval(
     fused_limit: int | None = None,
     fts_mode: str | None = None,
     embedding_mode: str | None = None,
+    purpose: str = "conversation",
 ) -> None:
     try:
         _ensure_retrieval_log_columns(conn)
@@ -732,8 +733,9 @@ def _log_retrieval(
                 retrieved_token_estimate, privacy_level,
                 cross_compartment, model_used, retrieval_mode, fusion_enabled,
                 sql_candidate_count, fts_candidate_count, vector_candidate_count, fused_candidate_count,
-                overlap_count, rrf_k, per_layer_limit, fused_limit, fts_mode, embedding_mode
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                overlap_count, rrf_k, per_layer_limit, fused_limit, fts_mode, embedding_mode,
+                purpose, exploratory_ids
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 conversation_id,
@@ -764,6 +766,8 @@ def _log_retrieval(
                 fused_limit,
                 fts_mode,
                 embedding_mode,
+                purpose,
+                json.dumps([item.id for item in loaded if item.reason == "serendipity"]),
             ),
         )
         conn.commit()
@@ -790,6 +794,11 @@ def _ensure_retrieval_log_columns(conn: sqlite3.Connection) -> None:
         "fts_mode": "TEXT",
         "embedding_mode": "TEXT",
         "retrieved_token_estimate": "INTEGER",
+        # Who asked, and which loaded ids were exploration rather than
+        # relevance. Learned edges and access counts learn only from
+        # conversation retrievals, minus exploratory picks.
+        "purpose": "TEXT",
+        "exploratory_ids": "TEXT",
     }
     for column, column_type in desired.items():
         if column in existing:

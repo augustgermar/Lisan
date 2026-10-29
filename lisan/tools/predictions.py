@@ -205,7 +205,7 @@ def _evidence_pool(vault: Path, fm: dict[str, Any], db_path: Path | None) -> lis
     made = str(fm.get("created") or "")
     query = f"{fm.get('expectation') or ''} {fm.get('trigger') or ''} {fm.get('subject') or ''}".strip()
     try:
-        result = retrieve_context(query=query, vault=vault, db_path=db_path)
+        result = retrieve_context(query=query, vault=vault, db_path=db_path, purpose="maintenance")
         loaded = list(result.loaded)
     except Exception:
         loaded = []
