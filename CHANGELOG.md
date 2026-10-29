@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+- **The 2026-10-29 audit series** (Claude, co-author; one commit per fix,
+  each with a regression test). Highlights:
+  - *Safety.* `send_email` now needs the owner's yes for the exact message
+    and can no longer spoof a sender; `LISAN_NO_OUTBOUND` covers email and
+    every approval-gated skill; chat-side execution fails closed when
+    `intent.md` is missing, invalid or still the template; the untrusted-
+    content fence can't be closed from inside and now covers every record
+    type and every tool result; `/forget` really skips capture; a tool's
+    side effect runs once per turn; crash recovery never re-runs a job with
+    unknown side effects; Adjutant cycles can't overlap.
+  - *One authority engine* (`lisan/tools/authority.py`): ALLOW / ASK / DENY
+    in a fixed order (intent never-rules, outbound kill switch, autonomy
+    tier, approval), every ruling audited to `logs/authority.jsonl`.
+  - *Memory integrity.* Behavioural contracts, knowledge records and
+    open-loop-writer loops are no longer dropped; relationship edges live in
+    entity frontmatter and survive rebuilds; surname conflicts exclude one
+    candidate instead of ending the match; story logs store what was said,
+    not pipeline JSON; same-title records on later days are no longer lost
+    to duplicate ids; loops close only on whole-word signals behind the
+    Skeptic; high-risk material needs an explicit approve (SPEC 10.1 #8);
+    vectors are written before rows are marked embedded, under a lock.
+  - *Self-correction.* Only the producer that can re-detect an ache may heal
+    it (self-eval loops no longer close overnight); a healed ache that
+    returns is reported again; self-eval findings honour the owner's config
+    and can queue self-repair; beliefs are reconciled weekly, earn "high"
+    only on three episodes, and see their prediction calibration; rubric
+    dimension ids survive a reworded voice; the autobiography stops
+    narrating unratified extractions as ratified and records one drift per
+    edit; disputed records are demoted; learned edges learn only from
+    conversation, minus serendipity.
+  - *Self-repair.* Protected paths now cover policy, the epistemic
+    boundary, integrity, verification (including existing tests) and undo;
+    one open proposal at a time and one applied patch per week are
+    enforced.
+  - *Performance.* Retrieval 1.9 s → 0.35 s per turn on the live index;
+    write-boundary validation 4.6 s → 1.1 s; transcripts parsed once per
+    change; a conversation's "sitting" crosses midnight.
+  - *Honesty.* The self-model no longer tells the agent that life
+    ingestion and email are unbuilt; the tool loop's prompt is bounded and
+    its limit is reported as such; docs match the code.
+  - *Structure.* `dispatch_job` is a handler registry; dead modules and the
+    triplicated retrieval vocabulary are gone.
+  - *`lisan doctor`* checks the architecture's claims against the live
+    install.
+
 - **Learning notices.** The agent now tells the owner on Telegram, in a line or two,
   when it learns on its own: a skill the loop wrote, changed, trusted or flagged;
   a belief the dreamer revised on evidence; a new ache, and an ache that stops being true. Off with
