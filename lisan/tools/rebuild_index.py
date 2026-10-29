@@ -1037,7 +1037,10 @@ def _embed_and_write(
 
     conn.executemany("UPDATE files SET embedding_status = ? WHERE id = ?", status_updates)
     conn.commit()
-    write_embeddings(embeddings_file, records, model=index_model, dimension=index_dimension)
+    from .vector_store import embeddings_lock
+
+    with embeddings_lock(embeddings_file):
+        write_embeddings(embeddings_file, records, model=index_model, dimension=index_dimension)
 
 
 def embed_pending_records(
@@ -1061,104 +1064,111 @@ def embed_pending_records(
     # 2026-07-27). Identical to embeddings_path() in the default case.
     embeddings_file = embeddings_file or (Path(db_path).parent / "embeddings.bin")
 
-    conn = _db_connect(db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        _ensure_files_columns(conn)
-        pending = conn.execute(
-            "SELECT id, path FROM files WHERE COALESCE(embedding_status, 'pending') = 'pending'"
-        ).fetchall()
-        if not pending:
-            return {"pending": 0, "embedded": 0, "still_pending": 0, "mode_used": "none"}
+    from .vector_store import embeddings_lock
 
-        targets: list[tuple[str, str]] = []
-        for row in pending:
-            doc_path = vault / str(row["path"])
-            try:
-                doc = load_markdown(doc_path)
-            except (FrontmatterError, OSError):
-                continue
-            content = f"{str(doc.frontmatter.get('summary', ''))}\n\n{doc.body.strip()}".strip()
-            targets.append((str(row["id"]), content))
+    with embeddings_lock(embeddings_file):
+        conn = _db_connect(db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            _ensure_files_columns(conn)
+            pending = conn.execute(
+                "SELECT id, path FROM files WHERE COALESCE(embedding_status, 'pending') = 'pending'"
+            ).fetchall()
+            if not pending:
+                return {"pending": 0, "embedded": 0, "still_pending": 0, "mode_used": "none"}
 
-        provider = EmbeddingProvider(load_config())
-        existing = load_index(embeddings_file)
-        # Consistency guard: an (almost) empty index while the files table
-        # claims many embedded records means we are racing a rebuild or the
-        # index was clobbered — a merge-and-rewrite from this state would
-        # persist the loss (observed live 2026-07-05: a 62-byte index under
-        # 622 'embedded' rows). Refuse; the next full rebuild reconciles.
-        embedded_count = int(
-            conn.execute(
-                "SELECT COUNT(*) FROM files WHERE embedding_status = 'embedded'"
-            ).fetchone()[0]
-        )
-        if embedded_count > 10 and len(existing.vectors) < embedded_count // 2:
-            from .log import log_error
-
-            log_error(
-                vault,
-                "embed_pending refused: index/status mismatch",
-                RuntimeError(
-                    f"index holds {len(existing.vectors)} vectors but {embedded_count} rows "
-                    "claim 'embedded' — run `lisan rebuild-index` to reconcile"
-                ),
-            )
-            return {"pending": len(pending), "embedded": 0,
-                    "still_pending": len(pending), "mode_used": "refused"}
-        merged: dict[str, list[float]] = dict(existing.vectors)
-        index_model = existing.model
-        index_dimension = existing.dimension
-
-        embedded = 0
-        mode_used = "skip"
-        # Collected, then applied in one short transaction below — see
-        # _embed_and_write: UPDATEs issued between slow embedding batches hold
-        # the writer lock for the whole run.
-        status_updates: list[tuple[str, str]] = []
-        batch_size = max(1, int(provider.settings.get("batch_size", 64) or 64))
-        for start in range(0, len(targets), batch_size):
-            chunk = targets[start : start + batch_size]
-            outcome = provider.embed_records([content for _, content in chunk])
-            mode_used = outcome.mode_used
-            if outcome.mode_used == "skip":
-                break  # still unreachable; leave the rest pending
-            if outcome.mode_used == "semantic":
-                if index_dimension and existing.vectors and outcome.dimension != index_dimension:
-                    raise ValueError(
-                        f"pending re-embed dimension {outcome.dimension} != index dimension "
-                        f"{index_dimension}; the embedding model changed — run `lisan rebuild-index`"
-                    )
-                index_model = outcome.model
-                index_dimension = outcome.dimension
-            for (file_id, _content), vector in zip(chunk, outcome.vectors):
-                if vector is None:
+            targets: list[tuple[str, str]] = []
+            for row in pending:
+                doc_path = vault / str(row["path"])
+                try:
+                    doc = load_markdown(doc_path)
+                except (FrontmatterError, OSError):
                     continue
-                merged[file_id] = vector
-                status = "hash" if outcome.mode_used == "hash" else "embedded"
-                status_updates.append((status, file_id))
-                embedded += 1
+                content = f"{str(doc.frontmatter.get('summary', ''))}\n\n{doc.body.strip()}".strip()
+                targets.append((str(row["id"]), content))
 
-        conn.executemany("UPDATE files SET embedding_status = ? WHERE id = ?", status_updates)
-        conn.commit()
-        write_embeddings(
-            embeddings_file,
-            list(merged.items()),
-            model=index_model,
-            dimension=index_dimension,
-        )
-        clear_index_cache()
-        still_pending = conn.execute(
-            "SELECT COUNT(*) FROM files WHERE COALESCE(embedding_status, 'pending') = 'pending'"
-        ).fetchone()[0]
-        return {
-            "pending": len(targets),
-            "embedded": embedded,
-            "still_pending": int(still_pending),
-            "mode_used": mode_used,
-        }
-    finally:
-        conn.close()
+            provider = EmbeddingProvider(load_config())
+            existing = load_index(embeddings_file)
+            # Consistency guard: an (almost) empty index while the files table
+            # claims many embedded records means we are racing a rebuild or the
+            # index was clobbered — a merge-and-rewrite from this state would
+            # persist the loss (observed live 2026-07-05: a 62-byte index under
+            # 622 'embedded' rows). Refuse; the next full rebuild reconciles.
+            embedded_count = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM files WHERE embedding_status = 'embedded'"
+                ).fetchone()[0]
+            )
+            if embedded_count > 10 and len(existing.vectors) < embedded_count // 2:
+                from .log import log_error
+
+                log_error(
+                    vault,
+                    "embed_pending refused: index/status mismatch",
+                    RuntimeError(
+                        f"index holds {len(existing.vectors)} vectors but {embedded_count} rows "
+                        "claim 'embedded' — run `lisan rebuild-index` to reconcile"
+                    ),
+                )
+                return {"pending": len(pending), "embedded": 0,
+                        "still_pending": len(pending), "mode_used": "refused"}
+            merged: dict[str, list[float]] = dict(existing.vectors)
+            index_model = existing.model
+            index_dimension = existing.dimension
+
+            embedded = 0
+            mode_used = "skip"
+            # Collected, then applied in one short transaction below — see
+            # _embed_and_write: UPDATEs issued between slow embedding batches hold
+            # the writer lock for the whole run.
+            status_updates: list[tuple[str, str]] = []
+            batch_size = max(1, int(provider.settings.get("batch_size", 64) or 64))
+            for start in range(0, len(targets), batch_size):
+                chunk = targets[start : start + batch_size]
+                outcome = provider.embed_records([content for _, content in chunk])
+                mode_used = outcome.mode_used
+                if outcome.mode_used == "skip":
+                    break  # still unreachable; leave the rest pending
+                if outcome.mode_used == "semantic":
+                    if index_dimension and existing.vectors and outcome.dimension != index_dimension:
+                        raise ValueError(
+                            f"pending re-embed dimension {outcome.dimension} != index dimension "
+                            f"{index_dimension}; the embedding model changed — run `lisan rebuild-index`"
+                        )
+                    index_model = outcome.model
+                    index_dimension = outcome.dimension
+                for (file_id, _content), vector in zip(chunk, outcome.vectors):
+                    if vector is None:
+                        continue
+                    merged[file_id] = vector
+                    status = "hash" if outcome.mode_used == "hash" else "embedded"
+                    status_updates.append((status, file_id))
+                    embedded += 1
+
+            # Vectors first, statuses second: a row may say "embedded" only
+            # once its vector is on disk. The reverse order left rows marked
+            # embedded with no vector whenever the write failed.
+            if status_updates:
+                write_embeddings(
+                    embeddings_file,
+                    list(merged.items()),
+                    model=index_model,
+                    dimension=index_dimension,
+                )
+            conn.executemany("UPDATE files SET embedding_status = ? WHERE id = ?", status_updates)
+            conn.commit()
+            clear_index_cache()
+            still_pending = conn.execute(
+                "SELECT COUNT(*) FROM files WHERE COALESCE(embedding_status, 'pending') = 'pending'"
+            ).fetchone()[0]
+            return {
+                "pending": len(targets),
+                "embedded": embedded,
+                "still_pending": int(still_pending),
+                "mode_used": mode_used,
+            }
+        finally:
+            conn.close()
 
 
 

@@ -100,9 +100,45 @@ def write_embeddings(
             )
 
     # Atomic replace: a concurrent reader never sees a half-written index.
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    # The temp name is unique per writer — a fixed ".tmp" let two concurrent
+    # writers interleave into one temp file before either replaced the index.
+    import os
+    import uuid
+
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def embeddings_lock(path: Path):
+    """Serialize read-merge-write cycles on one embeddings file.
+
+    embed_pending loads the index, merges new vectors, and rewrites the whole
+    file. Two drains at once (the capture's inline drain and the job worker)
+    each merged into the snapshot they loaded, and the later write erased the
+    earlier one's vectors while their rows stayed marked "embedded". Holders
+    of this lock must (re)load the index inside it."""
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover — non-POSIX
+        yield
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path.with_name(path.name + ".lock"), "a+") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            clear_index_cache()
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 # (mtime, size) -> EmbeddingIndex, keyed by resolved path string.

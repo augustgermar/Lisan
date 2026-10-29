@@ -8,6 +8,7 @@ config.json
 config.yaml
 lisan.sqlite
 embeddings.bin
+embeddings.bin.*
 transcript_embeddings.bin
 .DS_Store
 
