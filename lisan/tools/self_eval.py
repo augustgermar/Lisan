@@ -90,7 +90,7 @@ def run_self_evaluation(
 
     report_path = _write_report(vault, now, entry, judged, judge_note, suggestions, previous)
     _append_history(vault, entry)
-    emitted = _emit_suggestions(vault, suggestions, report_path, db_path=db_path)
+    emitted = _emit_suggestions(vault, suggestions, report_path, db_path=db_path, config=config)
     _satiate_self_eval_loops(vault, suggestions, db_path=db_path, config=config)
 
     get_logger(vault).info(
@@ -673,9 +673,16 @@ def _emit_suggestions(
     report_path: Path,
     *,
     db_path: Path | None,
+    config: dict[str, Any] | None = None,
 ) -> list[str]:
     """Through the deviation seam: same daily cap, same fingerprint dedup,
-    same drive surfacing. A quality slippage is an ache like any other."""
+    same drive surfacing. A quality slippage is an ache like any other.
+
+    The owner's config goes through. It used to be dropped
+    (deviations_config(None), no policy_config), so the owner's daily cap
+    was ignored and action_allowed() always saw tier 0 — a self-eval
+    finding could never queue a self-repair proposal, which left the bake
+    monitor's targeted-score comparison reachable only by hand."""
     if not suggestions:
         return []
     from .deviations import _emit, deviations_config
@@ -683,7 +690,8 @@ def _emit_suggestions(
     rel = str(report_path.relative_to(vault))
     for s in suggestions:
         s.setdefault("links", []).append(rel)
-    return _emit(vault, suggestions, deviations_config(None), date.today(), db_path=db_path)
+    return _emit(vault, suggestions, deviations_config(config), date.today(), db_path=db_path,
+                 policy_config=config)
 
 
 # ---------------------------------------------------------------- artifacts

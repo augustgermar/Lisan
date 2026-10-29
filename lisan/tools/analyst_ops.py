@@ -628,7 +628,7 @@ def run_self_analyst_scan(
         if review is not None:
             review_paths.append(review.path)
 
-    _emit_self_pattern_loops(vault, pattern_paths, db_path=db_path)
+    _emit_self_pattern_loops(vault, pattern_paths, db_path=db_path, config=load_config())
 
     report_path = _write_self_analyst_report(vault, response, pattern_paths, review_paths)
     response["report"] = str(report_path.relative_to(vault))
@@ -648,6 +648,7 @@ def _emit_self_pattern_loops(
     pattern_paths: list[Path],
     *,
     db_path: Path | None,
+    config: dict[str, Any] | None = None,
 ) -> list[str]:
     """A confirmed negative self-pattern emits an origin:self improvement loop
     through the deviation seam, feeding into the self-repair pipeline."""
@@ -674,7 +675,8 @@ def _emit_self_pattern_loops(
 
     if not deviations:
         return []
-    return _emit(vault, deviations, deviations_config(None), date.today(), db_path=db_path)
+    return _emit(vault, deviations, deviations_config(config), date.today(), db_path=db_path,
+                 policy_config=config)
 
 
 def _write_self_analyst_report(

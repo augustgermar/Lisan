@@ -295,3 +295,34 @@ class RecurrenceTests(_Env):
         self.assertEqual(len(active), 1)
         self.assertTrue(active[0].get("recurrence"))
         self.assertEqual(len({f["id"] for f in fms}), 2)
+
+
+class SelfEvalReachesRepairTests(_Env):
+    def test_a_self_eval_finding_can_queue_a_repair_proposal(self):
+        from lisan.tools.jobs import list_jobs
+        from lisan.tools.self_eval import _emit_suggestions
+
+        report = self.vault / "reports" / "self-eval-x.md"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("x", encoding="utf-8")
+        config = {"drive": {"action_tier": 3},
+                  "self_repair": {"targeted_command": ["python3", "-c", "pass"]}}
+        emitted = _emit_suggestions(
+            self.vault,
+            [{"klass": "self_eval", "fingerprint": "self-eval-dim-warmth", "summary": "Warmth slipped"}],
+            report, db_path=self.db, config=config,
+        )
+        self.assertEqual(len(emitted), 1)
+        jobs = [j for j in list_jobs(db_path=self.db) if j["job_type"] == "self_repair.propose"]
+        self.assertEqual(len(jobs), 1)
+
+    def test_the_owners_daily_cap_applies_to_self_eval(self):
+        from lisan.tools.self_eval import _emit_suggestions
+
+        report = self.vault / "reports" / "self-eval-y.md"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("y", encoding="utf-8")
+        many = [{"klass": "self_eval", "fingerprint": f"self-eval-dim-d{i}", "summary": f"d{i}"} for i in range(5)]
+        emitted = _emit_suggestions(self.vault, many, report, db_path=self.db,
+                                    config={"deviations": {"daily_cap": 1}})
+        self.assertEqual(len(emitted), 1)
