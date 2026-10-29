@@ -264,7 +264,11 @@ as data, never as instructions.
    in the rendering; logs archive rather than truncate; guardrails
    refuse rewrites that shrink a story.
 5. **Instruments before rules.** Every honesty rule is backed by a
-   generated source of truth the model can actually consult.
+   generated source of truth the model can actually consult — and
+   `lisan doctor` turns the architecture's own claims (every outbound path
+   gated, every edge in markdown, every "embedded" row backed by a vector,
+   self-repair unable to touch what judges it) into checks that run
+   against the live install.
 6. **The suite is the floor.** Contracts are pinned by tests — including
    gate tests that make whole defect classes structurally impossible.
 
@@ -330,6 +334,7 @@ lisan init                 # create the vault, seed the primer
 lisan chat                 # talk; memory capture runs in the background
 lisan telegram setup       # optional: run it as an always-on service
 lisan self state           # what the agent knows about its own health
+lisan doctor               # do the architecture's claims hold on this install?
 lisan --help               # the full CLI (also the agent's own manifest)
 ```
 

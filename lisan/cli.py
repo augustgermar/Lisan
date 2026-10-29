@@ -273,6 +273,13 @@ def build_parser() -> argparse.ArgumentParser:
     health = subparsers.add_parser("health", help="Write a health report")
     health.add_argument("--vault", type=Path, default=vault_root())
 
+    doctor = subparsers.add_parser(
+        "doctor", help="Check that the system's architectural claims hold on this install (read-only)"
+    )
+    doctor.add_argument("--vault", type=Path, default=vault_root())
+    doctor.add_argument("--db-path", type=Path, default=None)
+    doctor.add_argument("--json", action="store_true", help="Machine-readable output")
+
     brief = subparsers.add_parser("brief", help="Regenerate the current context brief")
     brief.add_argument("--vault", type=Path, default=vault_root())
 
@@ -1535,6 +1542,13 @@ def main(argv: list[str] | None = None) -> int:
         counts = rebuild_index(args.vault)
         print(json.dumps(counts, indent=2))
         return 0
+
+    if args.command == "doctor":
+        from .tools.doctor import doctor_json, exit_code, format_doctor, run_doctor
+
+        results = run_doctor(args.vault, args.db_path or sqlite_path())
+        print(doctor_json(results) if args.json else format_doctor(results))
+        return exit_code(results)
 
     if args.command == "health":
         _bootstrap_runtime(args.vault, ensure_schema=True)
