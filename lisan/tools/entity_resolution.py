@@ -1049,12 +1049,13 @@ def _match_existing_entity(
         # Single-word proposal can absorb into an existing multi-word entity
         # only when exactly one entity claims that token.
         entry = index.get(tokens[0])
-        if entry is not None and entry.get("kind") in ("token", "full") and entry.get("kind") != "ambiguous" and _entity_subtype(entry["path"]) == subtype:
+        if entry is not None and entry.get("kind") in ("token", "full") and _entity_subtype(entry["path"]) == subtype:
             return entry["path"]
-        if entry is not None and entry.get("kind") in ("token", "full") and entry.get("kind") != "ambiguous":
-            entry_path = entry.get("path")
-            if isinstance(entry_path, Path) and _entity_subtype(entry_path) == "person":
-                return entry_path
+        # (A single shared token used to fold a proposal of ANY kind into a
+        # person — a garden called "Atlas" into "Atlas Reed". That is the
+        # speculative cross-kind merge this module promises never to make;
+        # removed 2026-10-29. Exact full-name identity still crosses kinds,
+        # above, as does the exact-slug person safeguard below.)
         candidates = _entity_resolution_candidates(vault, name, subtype, index)
         if not candidates:
             return None
@@ -1068,9 +1069,16 @@ def _match_existing_entity(
                 return path
         return None
 
+    # Surname conflicts exclude the conflicting candidate — they do not end
+    # the search. This loop used to `return None` as soon as ANY entity of
+    # the same kind had a different surname, and since every unrelated
+    # "Bob Jones" conflicts with a proposed "Dana Smith", no multi-word
+    # variant ever reached the token tally or resolve_reference below: each
+    # one minted a duplicate. (2026-10-29)
+    conflicted: set[Path] = set()
     for entry in index.values():
         path = entry.get("path")
-        if not isinstance(path, Path):
+        if not isinstance(path, Path) or path in conflicted:
             continue
         if _entity_subtype(path) != subtype:
             continue
@@ -1082,7 +1090,7 @@ def _match_existing_entity(
         candidate["path"] = path
         candidate["body"] = doc.body
         if _candidate_has_surname_conflict(name, candidate):
-            return None
+            conflicted.add(path)
 
     # Multi-word proposal: tally per-target token hits.
     hits: dict[Path, int] = {}
@@ -1090,14 +1098,17 @@ def _match_existing_entity(
         entry = index.get(tok)
         if not entry or entry.get("kind") == "ambiguous":
             continue
-        if _entity_subtype(entry["path"]) != subtype:
+        if entry["path"] in conflicted or _entity_subtype(entry["path"]) != subtype:
             continue
         hits[entry["path"]] = hits.get(entry["path"], 0) + 1
     # Require >= 2 token overlap for a multi-word merge.
     for path, n in hits.items():
         if n >= 2:
             return path
-    candidates = _entity_resolution_candidates(vault, name, subtype, index)
+    candidates = [
+        candidate for candidate in _entity_resolution_candidates(vault, name, subtype, index)
+        if candidate.get("path") not in conflicted
+    ]
     if candidates:
         neighborhood = " ".join(part for part in (summary, source_text, name) if part).strip()
         from . import memory_pipeline as _memory_pipeline
