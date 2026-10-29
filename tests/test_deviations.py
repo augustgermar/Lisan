@@ -275,3 +275,23 @@ class SatiationOwnershipTests(_Env):
         self.assertEqual(_satiate_self_eval_loops(self.vault, [], db_path=self.db, config=None), 1)
         fm = load_markdown(loop).frontmatter
         self.assertEqual((fm["status"], fm["resolved_by"]), ("resolved", "self.evaluate"))
+
+
+class RecurrenceTests(_Env):
+    def test_a_healed_ache_that_returns_is_reported_again(self):
+        from datetime import date, timedelta
+
+        _entity(self.vault, "larkspur-place", "Larkspur", "place")
+        person = _entity(self.vault, "larkspur-person", "Larkspur", "person")
+        scan_deviations(self.vault, db_path=self.db)
+        saved = person.read_text(encoding="utf-8")
+        person.unlink()
+        self.assertEqual(scan_deviations(self.vault, db_path=self.db)["satiated"], 1)
+        person.write_text(saved, encoding="utf-8")  # the defect comes back
+        again = scan_deviations(self.vault, db_path=self.db, now=date.today() + timedelta(days=1))
+        self.assertEqual(again["emitted"], 1)
+        fms = [dict(load_markdown(p).frontmatter) for p in (self.vault / "open_loops").glob("*.md")]
+        active = [f for f in fms if f.get("status") == "active"]
+        self.assertEqual(len(active), 1)
+        self.assertTrue(active[0].get("recurrence"))
+        self.assertEqual(len({f["id"] for f in fms}), 2)

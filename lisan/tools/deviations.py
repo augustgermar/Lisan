@@ -449,6 +449,10 @@ def _self_loops(vault: Path) -> list[tuple[Path, dict[str, Any]]]:
     return out
 
 
+# Resolvers that mean "the deviation healed", as opposed to an owner answer.
+HEALING_RESOLVERS = frozenset({"deviation.scan", "self.evaluate"})
+
+
 def _owned_by_scan(fm: dict[str, Any]) -> bool:
     """Loops the daily deviation scan is the authority on: the classes its
     own detectors produce."""
@@ -514,7 +518,24 @@ def _emit(
     policy_config: dict[str, Any] | None = None,
 ) -> list[str]:
     logger = get_logger(vault)
-    existing = {str(fm.get("deviation_fingerprint") or "") for _, fm in _self_loops(vault)}
+    # Which fingerprints may not be filed again:
+    # - one with a live loop (already aching), and
+    # - one the owner answered (resolved by anyone but a healing producer).
+    # A loop resolved because the deviation *healed* no longer blocks: if the
+    # defect comes back, that recurrence is news. Every past resolution used
+    # to block forever, so a job that failed again, or a score that slipped
+    # again, was never reported a second time.
+    loops = _self_loops(vault)
+    existing: set[str] = set()
+    healed_before: set[str] = set()
+    for _, loop_fm in loops:
+        fp = str(loop_fm.get("deviation_fingerprint") or "")
+        status = str(loop_fm.get("status") or "")
+        if status == "resolved" and str(loop_fm.get("resolved_by") or "") in HEALING_RESOLVERS:
+            healed_before.add(fp)
+        else:
+            existing.add(fp)
+    taken_ids = {str(loop_fm.get("id") or "") for _, loop_fm in loops}
     today = now.isoformat()
     made_today = sum(
         1 for _, fm in _self_loops(vault) if str(fm.get("created") or "") == today
@@ -530,8 +551,13 @@ def _emit(
             break
         if dev["fingerprint"] in existing:
             continue  # already aching, or already answered — never re-file
+        recurrence = dev["fingerprint"] in healed_before
         loop_id = f"open_loop.deviation-{dev['fingerprint']}"
+        if loop_id in taken_ids:
+            loop_id = f"{loop_id}-{today}"
         path = root / f"{today}-deviation-{dev['fingerprint']}.md"
+        if path.exists():
+            continue
         summary = tokenize_principal(str(dev["summary"]), vault)
         fm = {
             "id": loop_id,
@@ -539,6 +565,7 @@ def _emit(
             "origin": "self",
             "deviation_fingerprint": dev["fingerprint"],
             "deviation_class": dev["klass"],
+            **({"recurrence": True} if recurrence else {}),
             "created": today,
             "updated": today,
             "status": "active",
