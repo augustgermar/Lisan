@@ -261,54 +261,76 @@ def _create_relationship_edges(
     writer: dict[str, Any],
     db_path: Path | None = None,
     index_conn: Any | None = None,
-) -> None:
-    """Write entity-to-entity relationship edges from writer relationships_to_create."""
+) -> int:
+    """Record entity-to-entity relationships from writer relationships_to_create.
+
+    Markdown is the source of truth (SPEC 10.1 #12). Edges used to be
+    inserted only into the SQLite ``links`` table, and index_single_record
+    deletes every link whose source is the record it reindexes — so the
+    next touch of the entity, or any full rebuild, erased them. Each edge
+    is now written into the source entity's frontmatter ``relationships``
+    list and the entity is reindexed, which derives the link rows from the
+    file. Returns the number of new edges.
+    """
     import sqlite3 as _sqlite3
+    from ..frontmatter import load_markdown, write_markdown
     from ..paths import sqlite_path
+    from ..tools.rebuild_index import index_single_record
+
     relationships = list(writer.get("relationships_to_create") or [])
     if not relationships:
-        return
+        return 0
     _db = db_path or sqlite_path()
     if index_conn is None and not _db.exists():
-        return
+        return 0
     conn = index_conn or _db_connect(_db)
+    added = 0
     try:
         for rel in relationships:
             if not isinstance(rel, dict):
                 continue
             entity_a = str(rel.get("entity_a") or "").strip()
             entity_b = str(rel.get("entity_b") or "").strip()
-            rel_type = str(rel.get("relationship_type") or "related_to").strip()
+            rel_type = str(rel.get("relationship_type") or "related_to").strip() or "related_to"
             if not entity_a or not entity_b:
                 continue
             # Resolve names to entity IDs via the alias table.
             row_a = conn.execute(
-                "SELECT entity_id FROM entity_aliases WHERE alias = ? LIMIT 1",
-                (entity_a,),
+                "SELECT entity_id FROM entity_aliases WHERE alias = ? LIMIT 1", (entity_a,),
             ).fetchone()
             row_b = conn.execute(
-                "SELECT entity_id FROM entity_aliases WHERE alias = ? LIMIT 1",
-                (entity_b,),
+                "SELECT entity_id FROM entity_aliases WHERE alias = ? LIMIT 1", (entity_b,),
             ).fetchone()
-            if not row_a or not row_b:
+            if not row_a or not row_b or row_a[0] == row_b[0]:
                 continue
             id_a, id_b = row_a[0], row_b[0]
-            existing = conn.execute(
-                "SELECT 1 FROM links WHERE source_id=? AND target_id=? AND relationship_type=?",
-                (id_a, id_b, rel_type),
-            ).fetchone()
-            if not existing:
-                conn.execute(
-                    "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
-                    (id_a, id_b, rel_type),
-                )
-        if index_conn is None:
+            path_row = conn.execute("SELECT path FROM files WHERE id = ? LIMIT 1", (id_a,)).fetchone()
+            if not path_row:
+                continue
+            path = vault / str(path_row[0])
+            if not path.exists():
+                continue
+            doc = load_markdown(path)
+            fm = dict(doc.frontmatter)
+            existing = [r for r in (fm.get("relationships") or []) if isinstance(r, dict)]
+            if any(r.get("target") == id_b and r.get("type") == rel_type for r in existing):
+                continue
+            fm["relationships"] = existing + [{"target": id_b, "type": rel_type}]
+            write_markdown(path, fm, doc.body)
+            index_single_record(path, vault, conn)
+            # Commit per edge: this is the capture's long-lived connection,
+            # and an open write transaction here stalls the next record's id
+            # reservation on its own connection (see index_created_record).
             conn.commit()
-    except _sqlite3.Error:
-        pass
+            added += 1
+    except (_sqlite3.Error, OSError) as exc:
+        from .log import log_error
+
+        log_error(vault, "entity_resolution.relationship_edges", exc)
     finally:
         if index_conn is None:
             conn.close()
+    return added
 
 def _normalize_entity_subtype(
     *,

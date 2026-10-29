@@ -854,6 +854,16 @@ def index_single_record(path: Path, vault: Path, conn: sqlite3.Connection) -> bo
                     "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
                     (file_id, target, relationship),
                 )
+    # Entity-to-entity relationships live in the entity's frontmatter so a
+    # reindex or full rebuild re-derives them instead of erasing them.
+    for relationship in fm.get("relationships") or []:
+        if isinstance(relationship, dict):
+            target = str(relationship.get("target") or "").strip()
+            if target:
+                conn.execute(
+                    "INSERT INTO links (source_id, target_id, relationship_type) VALUES (?, ?, ?)",
+                    (file_id, target, str(relationship.get("type") or "related_to")),
+                )
     for target_key, relationship in [("reviewed_record_id", "reviews"), ("corrects", "corrects")]:
         target = str(fm.get(target_key, "")).strip()
         if target:
