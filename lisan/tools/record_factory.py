@@ -251,6 +251,48 @@ def new_entity(
     return CreatedRecord(path=path, created=True)
 
 
+_ACTIVE_STATUSES = {"active", "open", "pending", "proposed", "in_progress", "blocked", "confirmed", "disputed", ""}
+
+
+def _resolve_record_id(directory: Path, base_id: str, slug: str, *, same_if_active: bool) -> str:
+    """Pick the id for a new dated record whose id carries no date.
+
+    Paths are ``<date>-<slug>.md`` but ids are ``<type>.<slug>``, so the same
+    title on a later day got a fresh path and a duplicate id; the write
+    boundary rejected it and fanout only logged the error — the record was
+    lost. Now:
+
+    - ``same_if_active`` (open loops, decisions, claims): if a live record
+      already holds the id, this is the same thing mentioned again —
+      raise FileExistsError(existing path), which every caller already
+      treats as "exists, skip".
+    - otherwise (or when the holder is settled), the first free id among
+      ``base``, ``base-2``, ``base-3``… is returned.
+
+    The markdown is the source of truth, so ids are read from the record
+    directory itself (a cheap slug-scoped glob), not from the index.
+    """
+    holders: dict[str, tuple[Path, str]] = {}
+    if directory.exists():
+        for path in directory.glob(f"*{slug}*.md"):
+            try:
+                fm = load_markdown(path).frontmatter
+            except Exception:
+                continue
+            record_id = str(fm.get("id") or "")
+            if record_id == base_id or record_id.startswith(base_id + "-"):
+                holders[record_id] = (path, str(fm.get("status") or "").lower())
+    if base_id not in holders:
+        return base_id
+    if same_if_active:
+        live = [path for path, status in holders.values() if status in _ACTIVE_STATUSES]
+        if live:
+            raise FileExistsError(live[0])
+    n = 2
+    while f"{base_id}-{n}" in holders:
+        n += 1
+    return f"{base_id}-{n}"
+
 def new_knowledge(
     vault: Path,
     title: str,
@@ -528,7 +570,7 @@ def new_decision(
         raise FileExistsError(path)
 
     frontmatter = {
-        "id": f"decision.{safe_slug}",
+        "id": _resolve_record_id(path.parent, f"decision.{safe_slug}", safe_slug, same_if_active=True),
         "type": "decision",
         "created": today,
         "updated": today,
@@ -611,7 +653,7 @@ def new_open_loop(
         raise FileExistsError(path)
 
     frontmatter = {
-        "id": f"open_loop.{safe_slug}",
+        "id": _resolve_record_id(path.parent, f"open_loop.{safe_slug}", safe_slug, same_if_active=True),
         "type": "open_loop",
         "created": today,
         "updated": today,
@@ -897,7 +939,7 @@ def new_evidence(
     source_type = normalize_evidence_source_type(source_type)
     sensitivity = normalize_evidence_sensitivity(sensitivity)
     frontmatter = {
-        "id": f"evidence.{safe_slug}",
+        "id": _resolve_record_id(record_path.parent, f"evidence.{safe_slug}", safe_slug, same_if_active=False),
         "type": "evidence",
         "created": today,
         "created_at": today,
@@ -1037,7 +1079,7 @@ def new_claim(
         if not (support or artifact_ref):
             confidence_basis = "agent self-report, unverified"
     frontmatter = {
-        "id": f"claim.{safe_slug}",
+        "id": _resolve_record_id(record_path.parent, f"claim.{safe_slug}", safe_slug, same_if_active=True),
         "type": "claim",
         "created": today,
         "created_at": today,
