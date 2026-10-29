@@ -1072,477 +1072,554 @@ def dispatch_job(
     db_path = _resolve_db_path(payload, fallback=db_path)
     batch_id = _resolve_batch_id(payload)
 
-    if job_type == "index.rebuild_record":
-        from .rebuild_index import rebuild_index
-
-        embeddings_file = Path(str(payload.get("embeddings_file"))) if payload.get("embeddings_file") else None
-        return rebuild_index(vault=vault, db_path=db_path, embeddings_file=embeddings_file)
-
-    if job_type == "index.rebuild_all":
-        from .rebuild_index import rebuild_index
-
-        embeddings_file = Path(str(payload.get("embeddings_file"))) if payload.get("embeddings_file") else None
-        return rebuild_index(vault=vault, db_path=db_path, embeddings_file=embeddings_file)
-
-    if job_type == "index.embed_pending":
-        from .rebuild_index import embed_pending_records
-
-        embeddings_file = Path(str(payload.get("embeddings_file"))) if payload.get("embeddings_file") else None
-        return embed_pending_records(vault=vault, db_path=db_path, embeddings_file=embeddings_file)
-
-    if job_type == "ingest.scan_path":
-        from .ingest import scan_path
-        from .ingest_batches import create_batch
-
-        scan_target = payload.get("path") or payload.get("source_path") or payload.get("root")
-        if not scan_target:
-            raise ValueError("ingest.scan_path requires path")
-        if not batch_id:
-            batch_id = create_batch(str(Path(str(scan_target)).resolve()), "scan", payload, db_path=db_path)
-            payload["batch_id"] = batch_id
-        return scan_path(Path(str(scan_target)), vault=vault, db_path=db_path, queue_jobs=True, batch_id=batch_id, batch_mode=str(payload.get("mode") or "scan"), batch_options=payload)
-
-    if job_type == "ingest.parse_file":
-        from .ingest import parse_file
-
-        artifact_id = str(payload.get("artifact_id") or "").strip()
-        source_path = str(payload.get("source_path") or "").strip()
-        artifact_hash = str(payload.get("artifact_hash") or "").strip()
-        if not artifact_id or not source_path or not artifact_hash:
-            raise ValueError("ingest.parse_file requires artifact_id, source_path, and artifact_hash")
-        return parse_file(
-            artifact_id=artifact_id,
-            source_path=source_path,
-            artifact_hash=artifact_hash,
-            file_name=str(payload.get("file_name") or Path(source_path).name),
-            file_ext=str(payload.get("file_ext") or Path(source_path).suffix),
-            source_type=str(payload.get("source_type") or "text"),
-            imported_at=str(payload.get("imported_at") or _iso()),
-            modified_at=str(payload.get("modified_at") or _iso()),
-            size_bytes=int(payload.get("size_bytes") or 0),
-            sensitivity=str(payload.get("sensitivity") or "medium"),
-            source_uri=payload.get("source_uri"),
-            db_path=db_path,
-            vault=vault,
-            extracted_text_ref=payload.get("extracted_text_ref"),
-            batch_id=batch_id,
-        )
-
-    if job_type == "ingest.extract_evidence":
-        from .ingest import extract_evidence
-
-        artifact_id = str(payload.get("artifact_id") or "").strip()
-        source_path = str(payload.get("source_path") or "").strip()
-        artifact_hash = str(payload.get("artifact_hash") or "").strip()
-        if not artifact_id or not source_path or not artifact_hash:
-            raise ValueError("ingest.extract_evidence requires artifact_id, source_path, and artifact_hash")
-        return extract_evidence(
-            artifact_id=artifact_id,
-            source_path=source_path,
-            artifact_hash=artifact_hash,
-            file_name=str(payload.get("file_name") or Path(source_path).name),
-            file_ext=str(payload.get("file_ext") or Path(source_path).suffix),
-            source_type=str(payload.get("source_type") or "text"),
-            imported_at=str(payload.get("imported_at") or _iso()),
-            modified_at=str(payload.get("modified_at") or _iso()),
-            size_bytes=int(payload.get("size_bytes") or 0),
-            sensitivity=str(payload.get("sensitivity") or "medium"),
-            extracted_text_ref=payload.get("extracted_text_ref"),
-            source_uri=payload.get("source_uri"),
-            db_path=db_path,
-            vault=vault,
-            batch_id=batch_id,
-        )
-
-    if job_type == "ingest.reindex_artifact":
-        from .ingest import reindex_artifact
-
-        artifact_id = str(payload.get("artifact_id") or "").strip()
-        source_path = str(payload.get("source_path") or "").strip()
-        artifact_hash = str(payload.get("artifact_hash") or "").strip()
-        if not artifact_id or not source_path or not artifact_hash:
-            raise ValueError("ingest.reindex_artifact requires artifact_id, source_path, and artifact_hash")
-        return reindex_artifact(
-            artifact_id=artifact_id,
-            source_path=source_path,
-            artifact_hash=artifact_hash,
-            batch_id=batch_id,
-            db_path=db_path,
-            vault=vault,
-        )
-
-    if job_type == "analyst.scan":
-        from .analyst_ops import run_analyst_scan
-
-        return run_analyst_scan(vault=vault, provider=provider, model=model)
-
-    if job_type == "analyst.self_scan":
-        from .analyst_ops import run_self_analyst_scan
-
-        return run_self_analyst_scan(vault=vault, provider=provider, model=model, db_path=db_path)
-
-    if job_type == "self.evaluate":
-        from ..config import load_config
-        from .self_eval import run_self_evaluation
-
-        return run_self_evaluation(vault, db_path=db_path, config=load_config())
-
-    if job_type == "self_repair.propose":
-        from ..config import load_config
-        from ..providers.base import LisanLLM
-        from .self_repair import propose
-
-        cfg = load_config()
-        from .authority import rule as authority_rule
-
-        if not authority_rule("self_repair.propose", vault=vault, config=cfg,
-                              detail={"loop": payload.get("loop_id")}).allowed:
-            return {"status": "blocked", "reason": "self-repair proposal action is not enabled"}
-        loop_id = str(payload.get("loop_id") or "").strip()
-        if not loop_id:
-            raise ValueError("self_repair.propose requires loop_id")
-        llm = LisanLLM(cfg, db_path)
-
-        def author(prompt: str) -> str:
-            response = llm.complete(prompt, agent="self_repair_author", significance="high")
-            return str(getattr(response, "text", response))
-
-        repo = Path(str(payload.get("repo") or Path(__file__).resolve().parents[2])).resolve()
-        candidate_paths = [str(item) for item in (payload.get("candidate_paths") or [])]
-        proposal = propose(
-            vault=vault,
-            repo=repo,
-            loop_id=loop_id,
-            loop_path=Path(str(payload["loop_path"])) if payload.get("loop_path") else None,
-            candidate_paths=candidate_paths or None,
-            author=author,
-            db_path=db_path,
-            test_command=[str(item) for item in (payload.get("test_command") or ["python3", "-m", "pytest", "-q"])],
-            targeted_command=[str(item) for item in (payload.get("targeted_command") or [])] or None,
-            worktree_root=Path(str(payload["worktree_root"])) if payload.get("worktree_root") else None,
-            author_id="resident-agent",
-            verifier_id="deterministic-test-harness",
-        )
-        notified = False
-        try:
-            from .scheduler import _deliver_owner_message
-            from .adjutant_confirmations import confirmation_keyboard
-
-            if proposal.confirmation_id:
-                _deliver_owner_message(
-                    proposal.telegram_message,
-                    config=cfg,
-                    reply_markup=confirmation_keyboard(proposal.confirmation_id),
-                )
-            else:
-                _deliver_owner_message(proposal.telegram_message, config=cfg)
-            notified = True
-        except Exception:
-            # The proposal and confirmation remain durable; the scheduler or
-            # owner can retry delivery without regenerating the patch.
-            pass
-        return {"proposal_id": proposal.proposal_id, "report": str(proposal.report_path),
-                "confirmation_id": proposal.confirmation_id, "notified": notified,
-                "patch_hash": proposal.patch_hash}
-
-    if job_type == "self_repair.restart":
-        from .restart import restart_service
-
-        result = restart_service(db_path=db_path, exclude_job_id=str(job.get("id") or ""))
-        if result.get("reason") == "jobs_in_flight":
-            # Waiting is the whole point of the guard — come back later
-            # rather than spending an attempt on a condition that has not
-            # had time to change.
-            running = ", ".join(str(item.get("id")) for item in result.get("running_jobs") or [])
-            raise JobDeferred(
-                f"restart is waiting on jobs still mid-run: {running or 'unknown'}",
-            )
-        if not result.get("restarted"):
-            raise RuntimeError(result.get("reason") or "self-repair service restart failed")
-        return result
-
-    if job_type == "self_repair.bake_check":
-        from .self_repair import run_bake_check
-
-        proposal_id = str(payload.get("proposal_id") or "").strip()
-        if not proposal_id:
-            raise ValueError("self_repair.bake_check requires proposal_id")
-        repo = Path(str(payload.get("repo") or Path(__file__).resolve().parents[2])).resolve()
-        return run_bake_check(vault, proposal_id, repo=repo, db_path=db_path)
-
-    if job_type == "deviation.scan":
-        from ..config import load_config
-        from .deviations import scan_deviations
-
-        return scan_deviations(vault, db_path=db_path, config=load_config())
-
-    if job_type == "enrichment.seek":
-        from ..config import load_config
-        from .enrichment import seek
-        from .research import installed_owner_providers, installed_published_providers
-
-        entity_path = str(payload.get("entity_path") or "").strip()
-        loop_id = str(payload.get("loop_id") or "").strip()
-        deficit_id = str(payload.get("deficit_id") or "").strip()
-        deficit = str(payload.get("deficit") or "").strip()
-        if not entity_path or not loop_id or not deficit_id or not deficit:
-            raise ValueError("enrichment.seek requires entity_path, loop_id, deficit_id, and deficit")
-        cfg = load_config()
-        providers = installed_owner_providers(vault=vault, config=cfg)
-        published_providers = installed_published_providers(config=cfg)
-        historical = [Path(str(item)) for item in (payload.get("historical_transcripts") or [])]
-        result = seek(
-            vault=vault,
-            db_path=db_path,
-            loop_id=loop_id,
-            deficit_id=deficit_id,
-            deficit=deficit,
-            entity_path=Path(entity_path),
-            config=cfg,
-            current_transcript=Path(str(payload["current_transcript"])) if payload.get("current_transcript") else None,
-            historical_transcripts=historical,
-            providers=providers,
-            published_providers=published_providers,
-        )
-        if result.get("status") == "pending":
-            from .jobs import enqueue_job as _enqueue_job
-
-            _enqueue_job(
-                "enrichment.retry_pending",
-                {"pending_path": result["pending_path"], "vault": str(vault)},
-                max_attempts=3,
-                db_path=db_path,
-            )
-        return result
-
-    if job_type == "enrichment.retry_pending":
-        from .enrichment import retry_pending
-
-        pending_path = str(payload.get("pending_path") or "").strip()
-        if not pending_path:
-            raise ValueError("enrichment.retry_pending requires pending_path")
-        return retry_pending(Path(pending_path), vault=vault, db_path=db_path)
-
-    if job_type == "prediction.reconcile":
-        from .predictions import run_prediction_reconcile
-
-        return run_prediction_reconcile(vault=vault, provider=provider, model=model, db_path=db_path)
-
-    if job_type == "corpus.audit_priors":
-        from .attribution_priors import mine_attribution_priors
-
-        return mine_attribution_priors(vault, db_path=db_path)
-
-    if job_type == "dreamer.maintenance":
-        from .dreamer_ops import run_dreamer_task
-
-        task = str(payload.get("task") or "compress")
-        return run_dreamer_task(vault=vault, task=task, provider=provider, model=model)
-
-    if job_type == "dreamer.reconcile_beliefs":
-        from .dreamer_ops import run_dreamer_task
-
-        return run_dreamer_task(vault=vault, task="reconcile", provider=provider, model=model)
-
-    if job_type == "manifest.regenerate":
-        from .manifest_gen import generate_manifests
-
-        manifests = generate_manifests(vault=vault, write=True)
-        return {"manifests": sorted(manifests.keys())}
-
-    if job_type == "pattern.audit":
-        from .dreamer_ops import audit_patterns, format_pattern_audit
-
-        report = audit_patterns(vault)
-        out = vault / "reports" / f"pattern-audit-{_iso().replace(':', '').replace('-', '').replace('Z', '')}.md"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(format_pattern_audit(report), encoding="utf-8")
-        return {"report_path": str(out), "report": report}
-
-    if job_type == "skeptic.review_pattern":
-        from .analyst_ops import review_pattern
-
-        pattern_path = payload.get("pattern_path")
-        if not pattern_path and payload.get("pattern_id"):
-            pattern_path = _find_pattern_path(vault, str(payload.get("pattern_id")))
-        if not pattern_path:
-            raise ValueError("skeptic.review_pattern requires pattern_path or pattern_id")
-        return review_pattern(
-            vault=vault,
-            pattern_path=Path(str(pattern_path)),
-            provider=provider,
-            model=model,
-        )
-
-    if job_type == "writer.extract_turn":
-        from .capture import capture_text
-
-        text = str(payload.get("text") or "")
-        if not text:
-            raise ValueError("writer.extract_turn requires text")
-        return capture_text(
-            vault=vault,
-            text=text,
-            conversation_id=payload.get("conversation_id"),
-            speaker=str(payload.get("speaker") or "USER"),
-            provider=provider or payload.get("provider"),
-            model=model or payload.get("model"),
-            conversation_policy=payload.get("conversation_policy") if isinstance(payload.get("conversation_policy"), dict) else None,
-            queue_background=False,
-            db_path=db_path,
-        )
-
-    if job_type == "capture.observe":
-        from .memory_pipeline import run_memory_pipeline
-        from .enrichment import resolve_owner_clarification
-
-        text = str(payload.get("text") or "")
-        if not text:
-            raise ValueError("capture.observe requires text")
-        owner_clarification = resolve_owner_clarification(
-            vault=vault,
-            text=text,
-            conversation_id=payload.get("conversation_id"),
-            transcript_path=vault / "transcripts" / f"{today_iso()}.md",
-            db_path=db_path,
-        )
-        result = run_memory_pipeline(
-            vault=vault,
-            text=text,
-            conversation_id=payload.get("conversation_id"),
-            provider=provider or payload.get("provider"),
-            model=model or payload.get("model"),
-            db_path=db_path,
-            observed_response=str(payload.get("response") or ""),
-            observed_tool_calls=payload.get("tool_calls") if isinstance(payload.get("tool_calls"), list) else [],
-        )
-        # Learning loop, step 1: freeze what this turn did (tool calls, skills
-        # used) for the reviewer that comes later. Deterministic, no model call,
-        # and it must never be able to fail the capture it observes.
-        try:
-            from ..config import load_config
-            from .learning import record_turn_event
-
-            record_turn_event(
-                payload, job_id=str(job.get("id")), vault=vault, db_path=db_path, config=load_config(),
-            )
-        except Exception as exc:
-            try:
-                from .log import log_error
-
-                log_error(vault, "learning.record_turn_event", exc)
-            except Exception:
-                pass
-        # Living entity stories: every entity that received new material gets
-        # its narrative re-told. This ran inside capture_text on the legacy
-        # path; the observer bypasses that, so enqueue the rewrites here — or
-        # entity stories never grow past their first stub.
-        rewrites = _enqueue_entity_rewrites(
-            result, vault=vault, conversation_id=payload.get("conversation_id"), db_path=db_path,
-        )
-        # Post-turn job planning is the seam the maintenance drives hang off
-        # (analyst, dreamer, self-eval, deviation scan). The legacy path runs
-        # it inside capture_text; the observer must run it here — bypassing
-        # it silenced every drive from 2026-07-05 to 2026-07-15.
-        post_turn: list[dict[str, Any]] = []
-        if result.action != "skip":
-            from .capture import enqueue_post_turn_jobs
-
-            post_turn = enqueue_post_turn_jobs(
-                result,
-                vault=vault,
-                text=text,
-                conversation_id=payload.get("conversation_id"),
-                db_path=db_path,
-            )
-        return {
-            "action": result.action,
-            "mode": result.mode,
-            "draft": str(result.draft_path) if result.draft_path else None,
-            "skeptic_approved": result.skeptic_approved,
-            "owner_clarification": owner_clarification,
-            "entity_rewrites_queued": rewrites,
-            "post_turn_jobs_queued": post_turn,
-        }
-
-    if job_type == "plan.run":
-        from .plans import run_plan_step
-        from .scheduler import current_send_fn
-
-        return run_plan_step(
-            job,
-            vault=vault,
-            db_path=db_path,
-            provider=provider,
-            model=model,
-            send_fn=current_send_fn(),
-        )
-
-    if job_type == "agent.delegate":
-        from .delegation import run_delegation
-
-        return run_delegation(job, vault=vault, db_path=db_path)
-
-    if job_type == "skill.review":
-        from .scheduler import current_send_fn
-        from .skill_review import run_review_job
-
-        return run_review_job(job, vault=vault, db_path=db_path, send_fn=current_send_fn())
-
-    if job_type == "agent.delegate_report":
-        from .delegation import run_delegation_report
-        from .scheduler import current_send_fn
-
-        return run_delegation_report(job, vault=vault, db_path=db_path, send_fn=current_send_fn())
-
-    if job_type == "adjutant.cycle":
-        # The alarm clock for materialized schedule records: the job only
-        # says "check now" — the records decide what is actually due, the
-        # gate decides what may act, and the cycle advancing next_run
-        # re-materializes the next alarm. Cadence never lives in the DB.
-        from .adjutant_runner import run_cycle
-
-        result = run_cycle(vault, db_path)
-        return {
-            "halted": result.get("halted", False),
-            "verdicts": len(result.get("verdicts", [])),
-            "executed": len(result.get("executed", [])),
-        }
-
-    if job_type in {"task.reminder", "task.prompt", "task.run_codex"}:
-        from .scheduler import current_send_fn, run_task_job
-
-        return run_task_job(
-            job,
-            vault=vault,
-            db_path=db_path,
-            provider=provider,
-            model=model,
-            send_fn=current_send_fn(),
-        )
-
-    if job_type == "entity.rewrite_story":
-        from .entity_story import rewrite_entity_story
-
-        entity_path_str = str(payload.get("entity_path") or "").strip()
-        if not entity_path_str:
-            raise ValueError("entity.rewrite_story requires entity_path")
-        entity_path = Path(entity_path_str)
-        draft_path_str = str(payload.get("draft_path") or "").strip()
-        transcript_path_str = str(payload.get("transcript_path") or "").strip()
-        return rewrite_entity_story(
-            vault=vault,
-            entity_path=entity_path,
-            draft_path=Path(draft_path_str) if draft_path_str else None,
-            transcript_path=Path(transcript_path_str) if transcript_path_str else None,
-            conversation_id=payload.get("conversation_id"),
-            provider=provider or payload.get("provider"),
-            model=model or payload.get("model"),
-            db_path=db_path,
-            force_compact=bool(payload.get("force_compact")),
-        )
+    handler = _JOB_HANDLERS.get(job_type)
+    if handler is not None:
+        return handler(job, payload, job_type, vault, db_path, provider, model, batch_id)
 
     raise ValueError(f"Unsupported job_type: {job_type}")
+
+
+# One handler per job type (was a 480-line if-chain inside dispatch_job).
+# Each receives the resolved job context; bodies are unchanged.
+
+def _job_index_rebuild_record(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .rebuild_index import rebuild_index
+
+    embeddings_file = Path(str(payload.get("embeddings_file"))) if payload.get("embeddings_file") else None
+    return rebuild_index(vault=vault, db_path=db_path, embeddings_file=embeddings_file)
+
+
+def _job_index_rebuild_all(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .rebuild_index import rebuild_index
+
+    embeddings_file = Path(str(payload.get("embeddings_file"))) if payload.get("embeddings_file") else None
+    return rebuild_index(vault=vault, db_path=db_path, embeddings_file=embeddings_file)
+
+
+def _job_index_embed_pending(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .rebuild_index import embed_pending_records
+
+    embeddings_file = Path(str(payload.get("embeddings_file"))) if payload.get("embeddings_file") else None
+    return embed_pending_records(vault=vault, db_path=db_path, embeddings_file=embeddings_file)
+
+
+def _job_ingest_scan_path(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .ingest import scan_path
+    from .ingest_batches import create_batch
+
+    scan_target = payload.get("path") or payload.get("source_path") or payload.get("root")
+    if not scan_target:
+        raise ValueError("ingest.scan_path requires path")
+    if not batch_id:
+        batch_id = create_batch(str(Path(str(scan_target)).resolve()), "scan", payload, db_path=db_path)
+        payload["batch_id"] = batch_id
+    return scan_path(Path(str(scan_target)), vault=vault, db_path=db_path, queue_jobs=True, batch_id=batch_id, batch_mode=str(payload.get("mode") or "scan"), batch_options=payload)
+
+
+def _job_ingest_parse_file(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .ingest import parse_file
+
+    artifact_id = str(payload.get("artifact_id") or "").strip()
+    source_path = str(payload.get("source_path") or "").strip()
+    artifact_hash = str(payload.get("artifact_hash") or "").strip()
+    if not artifact_id or not source_path or not artifact_hash:
+        raise ValueError("ingest.parse_file requires artifact_id, source_path, and artifact_hash")
+    return parse_file(
+        artifact_id=artifact_id,
+        source_path=source_path,
+        artifact_hash=artifact_hash,
+        file_name=str(payload.get("file_name") or Path(source_path).name),
+        file_ext=str(payload.get("file_ext") or Path(source_path).suffix),
+        source_type=str(payload.get("source_type") or "text"),
+        imported_at=str(payload.get("imported_at") or _iso()),
+        modified_at=str(payload.get("modified_at") or _iso()),
+        size_bytes=int(payload.get("size_bytes") or 0),
+        sensitivity=str(payload.get("sensitivity") or "medium"),
+        source_uri=payload.get("source_uri"),
+        db_path=db_path,
+        vault=vault,
+        extracted_text_ref=payload.get("extracted_text_ref"),
+        batch_id=batch_id,
+    )
+
+
+def _job_ingest_extract_evidence(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .ingest import extract_evidence
+
+    artifact_id = str(payload.get("artifact_id") or "").strip()
+    source_path = str(payload.get("source_path") or "").strip()
+    artifact_hash = str(payload.get("artifact_hash") or "").strip()
+    if not artifact_id or not source_path or not artifact_hash:
+        raise ValueError("ingest.extract_evidence requires artifact_id, source_path, and artifact_hash")
+    return extract_evidence(
+        artifact_id=artifact_id,
+        source_path=source_path,
+        artifact_hash=artifact_hash,
+        file_name=str(payload.get("file_name") or Path(source_path).name),
+        file_ext=str(payload.get("file_ext") or Path(source_path).suffix),
+        source_type=str(payload.get("source_type") or "text"),
+        imported_at=str(payload.get("imported_at") or _iso()),
+        modified_at=str(payload.get("modified_at") or _iso()),
+        size_bytes=int(payload.get("size_bytes") or 0),
+        sensitivity=str(payload.get("sensitivity") or "medium"),
+        extracted_text_ref=payload.get("extracted_text_ref"),
+        source_uri=payload.get("source_uri"),
+        db_path=db_path,
+        vault=vault,
+        batch_id=batch_id,
+    )
+
+
+def _job_ingest_reindex_artifact(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .ingest import reindex_artifact
+
+    artifact_id = str(payload.get("artifact_id") or "").strip()
+    source_path = str(payload.get("source_path") or "").strip()
+    artifact_hash = str(payload.get("artifact_hash") or "").strip()
+    if not artifact_id or not source_path or not artifact_hash:
+        raise ValueError("ingest.reindex_artifact requires artifact_id, source_path, and artifact_hash")
+    return reindex_artifact(
+        artifact_id=artifact_id,
+        source_path=source_path,
+        artifact_hash=artifact_hash,
+        batch_id=batch_id,
+        db_path=db_path,
+        vault=vault,
+    )
+
+
+def _job_analyst_scan(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .analyst_ops import run_analyst_scan
+
+    return run_analyst_scan(vault=vault, provider=provider, model=model)
+
+
+def _job_analyst_self_scan(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .analyst_ops import run_self_analyst_scan
+
+    return run_self_analyst_scan(vault=vault, provider=provider, model=model, db_path=db_path)
+
+
+def _job_self_evaluate(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from ..config import load_config
+    from .self_eval import run_self_evaluation
+
+    return run_self_evaluation(vault, db_path=db_path, config=load_config())
+
+
+def _job_self_repair_propose(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from ..config import load_config
+    from ..providers.base import LisanLLM
+    from .self_repair import propose
+
+    cfg = load_config()
+    from .authority import rule as authority_rule
+
+    if not authority_rule("self_repair.propose", vault=vault, config=cfg,
+                          detail={"loop": payload.get("loop_id")}).allowed:
+        return {"status": "blocked", "reason": "self-repair proposal action is not enabled"}
+    loop_id = str(payload.get("loop_id") or "").strip()
+    if not loop_id:
+        raise ValueError("self_repair.propose requires loop_id")
+    llm = LisanLLM(cfg, db_path)
+
+    def author(prompt: str) -> str:
+        response = llm.complete(prompt, agent="self_repair_author", significance="high")
+        return str(getattr(response, "text", response))
+
+    repo = Path(str(payload.get("repo") or Path(__file__).resolve().parents[2])).resolve()
+    candidate_paths = [str(item) for item in (payload.get("candidate_paths") or [])]
+    proposal = propose(
+        vault=vault,
+        repo=repo,
+        loop_id=loop_id,
+        loop_path=Path(str(payload["loop_path"])) if payload.get("loop_path") else None,
+        candidate_paths=candidate_paths or None,
+        author=author,
+        db_path=db_path,
+        test_command=[str(item) for item in (payload.get("test_command") or ["python3", "-m", "pytest", "-q"])],
+        targeted_command=[str(item) for item in (payload.get("targeted_command") or [])] or None,
+        worktree_root=Path(str(payload["worktree_root"])) if payload.get("worktree_root") else None,
+        author_id="resident-agent",
+        verifier_id="deterministic-test-harness",
+    )
+    notified = False
+    try:
+        from .scheduler import _deliver_owner_message
+        from .adjutant_confirmations import confirmation_keyboard
+
+        if proposal.confirmation_id:
+            _deliver_owner_message(
+                proposal.telegram_message,
+                config=cfg,
+                reply_markup=confirmation_keyboard(proposal.confirmation_id),
+            )
+        else:
+            _deliver_owner_message(proposal.telegram_message, config=cfg)
+        notified = True
+    except Exception:
+        # The proposal and confirmation remain durable; the scheduler or
+        # owner can retry delivery without regenerating the patch.
+        pass
+    return {"proposal_id": proposal.proposal_id, "report": str(proposal.report_path),
+            "confirmation_id": proposal.confirmation_id, "notified": notified,
+            "patch_hash": proposal.patch_hash}
+
+
+def _job_self_repair_restart(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .restart import restart_service
+
+    result = restart_service(db_path=db_path, exclude_job_id=str(job.get("id") or ""))
+    if result.get("reason") == "jobs_in_flight":
+        # Waiting is the whole point of the guard — come back later
+        # rather than spending an attempt on a condition that has not
+        # had time to change.
+        running = ", ".join(str(item.get("id")) for item in result.get("running_jobs") or [])
+        raise JobDeferred(
+            f"restart is waiting on jobs still mid-run: {running or 'unknown'}",
+        )
+    if not result.get("restarted"):
+        raise RuntimeError(result.get("reason") or "self-repair service restart failed")
+    return result
+
+
+def _job_self_repair_bake_check(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .self_repair import run_bake_check
+
+    proposal_id = str(payload.get("proposal_id") or "").strip()
+    if not proposal_id:
+        raise ValueError("self_repair.bake_check requires proposal_id")
+    repo = Path(str(payload.get("repo") or Path(__file__).resolve().parents[2])).resolve()
+    return run_bake_check(vault, proposal_id, repo=repo, db_path=db_path)
+
+
+def _job_deviation_scan(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from ..config import load_config
+    from .deviations import scan_deviations
+
+    return scan_deviations(vault, db_path=db_path, config=load_config())
+
+
+def _job_enrichment_seek(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from ..config import load_config
+    from .enrichment import seek
+    from .research import installed_owner_providers, installed_published_providers
+
+    entity_path = str(payload.get("entity_path") or "").strip()
+    loop_id = str(payload.get("loop_id") or "").strip()
+    deficit_id = str(payload.get("deficit_id") or "").strip()
+    deficit = str(payload.get("deficit") or "").strip()
+    if not entity_path or not loop_id or not deficit_id or not deficit:
+        raise ValueError("enrichment.seek requires entity_path, loop_id, deficit_id, and deficit")
+    cfg = load_config()
+    providers = installed_owner_providers(vault=vault, config=cfg)
+    published_providers = installed_published_providers(config=cfg)
+    historical = [Path(str(item)) for item in (payload.get("historical_transcripts") or [])]
+    result = seek(
+        vault=vault,
+        db_path=db_path,
+        loop_id=loop_id,
+        deficit_id=deficit_id,
+        deficit=deficit,
+        entity_path=Path(entity_path),
+        config=cfg,
+        current_transcript=Path(str(payload["current_transcript"])) if payload.get("current_transcript") else None,
+        historical_transcripts=historical,
+        providers=providers,
+        published_providers=published_providers,
+    )
+    if result.get("status") == "pending":
+        from .jobs import enqueue_job as _enqueue_job
+
+        _enqueue_job(
+            "enrichment.retry_pending",
+            {"pending_path": result["pending_path"], "vault": str(vault)},
+            max_attempts=3,
+            db_path=db_path,
+        )
+    return result
+
+
+def _job_enrichment_retry_pending(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .enrichment import retry_pending
+
+    pending_path = str(payload.get("pending_path") or "").strip()
+    if not pending_path:
+        raise ValueError("enrichment.retry_pending requires pending_path")
+    return retry_pending(Path(pending_path), vault=vault, db_path=db_path)
+
+
+def _job_prediction_reconcile(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .predictions import run_prediction_reconcile
+
+    return run_prediction_reconcile(vault=vault, provider=provider, model=model, db_path=db_path)
+
+
+def _job_corpus_audit_priors(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .attribution_priors import mine_attribution_priors
+
+    return mine_attribution_priors(vault, db_path=db_path)
+
+
+def _job_dreamer_maintenance(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .dreamer_ops import run_dreamer_task
+
+    task = str(payload.get("task") or "compress")
+    return run_dreamer_task(vault=vault, task=task, provider=provider, model=model)
+
+
+def _job_dreamer_reconcile_beliefs(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .dreamer_ops import run_dreamer_task
+
+    return run_dreamer_task(vault=vault, task="reconcile", provider=provider, model=model)
+
+
+def _job_manifest_regenerate(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .manifest_gen import generate_manifests
+
+    manifests = generate_manifests(vault=vault, write=True)
+    return {"manifests": sorted(manifests.keys())}
+
+
+def _job_pattern_audit(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .dreamer_ops import audit_patterns, format_pattern_audit
+
+    report = audit_patterns(vault)
+    out = vault / "reports" / f"pattern-audit-{_iso().replace(':', '').replace('-', '').replace('Z', '')}.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(format_pattern_audit(report), encoding="utf-8")
+    return {"report_path": str(out), "report": report}
+
+
+def _job_skeptic_review_pattern(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .analyst_ops import review_pattern
+
+    pattern_path = payload.get("pattern_path")
+    if not pattern_path and payload.get("pattern_id"):
+        pattern_path = _find_pattern_path(vault, str(payload.get("pattern_id")))
+    if not pattern_path:
+        raise ValueError("skeptic.review_pattern requires pattern_path or pattern_id")
+    return review_pattern(
+        vault=vault,
+        pattern_path=Path(str(pattern_path)),
+        provider=provider,
+        model=model,
+    )
+
+
+def _job_writer_extract_turn(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .capture import capture_text
+
+    text = str(payload.get("text") or "")
+    if not text:
+        raise ValueError("writer.extract_turn requires text")
+    return capture_text(
+        vault=vault,
+        text=text,
+        conversation_id=payload.get("conversation_id"),
+        speaker=str(payload.get("speaker") or "USER"),
+        provider=provider or payload.get("provider"),
+        model=model or payload.get("model"),
+        conversation_policy=payload.get("conversation_policy") if isinstance(payload.get("conversation_policy"), dict) else None,
+        queue_background=False,
+        db_path=db_path,
+    )
+
+
+def _job_capture_observe(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .memory_pipeline import run_memory_pipeline
+    from .enrichment import resolve_owner_clarification
+
+    text = str(payload.get("text") or "")
+    if not text:
+        raise ValueError("capture.observe requires text")
+    owner_clarification = resolve_owner_clarification(
+        vault=vault,
+        text=text,
+        conversation_id=payload.get("conversation_id"),
+        transcript_path=vault / "transcripts" / f"{today_iso()}.md",
+        db_path=db_path,
+    )
+    result = run_memory_pipeline(
+        vault=vault,
+        text=text,
+        conversation_id=payload.get("conversation_id"),
+        provider=provider or payload.get("provider"),
+        model=model or payload.get("model"),
+        db_path=db_path,
+        observed_response=str(payload.get("response") or ""),
+        observed_tool_calls=payload.get("tool_calls") if isinstance(payload.get("tool_calls"), list) else [],
+    )
+    # Learning loop, step 1: freeze what this turn did (tool calls, skills
+    # used) for the reviewer that comes later. Deterministic, no model call,
+    # and it must never be able to fail the capture it observes.
+    try:
+        from ..config import load_config
+        from .learning import record_turn_event
+
+        record_turn_event(
+            payload, job_id=str(job.get("id")), vault=vault, db_path=db_path, config=load_config(),
+        )
+    except Exception as exc:
+        try:
+            from .log import log_error
+
+            log_error(vault, "learning.record_turn_event", exc)
+        except Exception:
+            pass
+    # Living entity stories: every entity that received new material gets
+    # its narrative re-told. This ran inside capture_text on the legacy
+    # path; the observer bypasses that, so enqueue the rewrites here — or
+    # entity stories never grow past their first stub.
+    rewrites = _enqueue_entity_rewrites(
+        result, vault=vault, conversation_id=payload.get("conversation_id"), db_path=db_path,
+    )
+    # Post-turn job planning is the seam the maintenance drives hang off
+    # (analyst, dreamer, self-eval, deviation scan). The legacy path runs
+    # it inside capture_text; the observer must run it here — bypassing
+    # it silenced every drive from 2026-07-05 to 2026-07-15.
+    post_turn: list[dict[str, Any]] = []
+    if result.action != "skip":
+        from .capture import enqueue_post_turn_jobs
+
+        post_turn = enqueue_post_turn_jobs(
+            result,
+            vault=vault,
+            text=text,
+            conversation_id=payload.get("conversation_id"),
+            db_path=db_path,
+        )
+    return {
+        "action": result.action,
+        "mode": result.mode,
+        "draft": str(result.draft_path) if result.draft_path else None,
+        "skeptic_approved": result.skeptic_approved,
+        "owner_clarification": owner_clarification,
+        "entity_rewrites_queued": rewrites,
+        "post_turn_jobs_queued": post_turn,
+    }
+
+
+def _job_plan_run(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .plans import run_plan_step
+    from .scheduler import current_send_fn
+
+    return run_plan_step(
+        job,
+        vault=vault,
+        db_path=db_path,
+        provider=provider,
+        model=model,
+        send_fn=current_send_fn(),
+    )
+
+
+def _job_agent_delegate(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .delegation import run_delegation
+
+    return run_delegation(job, vault=vault, db_path=db_path)
+
+
+def _job_skill_review(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .scheduler import current_send_fn
+    from .skill_review import run_review_job
+
+    return run_review_job(job, vault=vault, db_path=db_path, send_fn=current_send_fn())
+
+
+def _job_agent_delegate_report(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .delegation import run_delegation_report
+    from .scheduler import current_send_fn
+
+    return run_delegation_report(job, vault=vault, db_path=db_path, send_fn=current_send_fn())
+
+
+def _job_adjutant_cycle(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    # The alarm clock for materialized schedule records: the job only
+    # says "check now" — the records decide what is actually due, the
+    # gate decides what may act, and the cycle advancing next_run
+    # re-materializes the next alarm. Cadence never lives in the DB.
+    from .adjutant_runner import run_cycle
+
+    result = run_cycle(vault, db_path)
+    return {
+        "halted": result.get("halted", False),
+        "verdicts": len(result.get("verdicts", [])),
+        "executed": len(result.get("executed", [])),
+    }
+
+
+def _job_task(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .scheduler import current_send_fn, run_task_job
+
+    return run_task_job(
+        job,
+        vault=vault,
+        db_path=db_path,
+        provider=provider,
+        model=model,
+        send_fn=current_send_fn(),
+    )
+
+
+def _job_entity_rewrite_story(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .entity_story import rewrite_entity_story
+
+    entity_path_str = str(payload.get("entity_path") or "").strip()
+    if not entity_path_str:
+        raise ValueError("entity.rewrite_story requires entity_path")
+    entity_path = Path(entity_path_str)
+    draft_path_str = str(payload.get("draft_path") or "").strip()
+    transcript_path_str = str(payload.get("transcript_path") or "").strip()
+    return rewrite_entity_story(
+        vault=vault,
+        entity_path=entity_path,
+        draft_path=Path(draft_path_str) if draft_path_str else None,
+        transcript_path=Path(transcript_path_str) if transcript_path_str else None,
+        conversation_id=payload.get("conversation_id"),
+        provider=provider or payload.get("provider"),
+        model=model or payload.get("model"),
+        db_path=db_path,
+        force_compact=bool(payload.get("force_compact")),
+    )
+
+
+_JOB_HANDLERS: dict[str, Any] = {
+    "index.rebuild_record": _job_index_rebuild_record,
+    "index.rebuild_all": _job_index_rebuild_all,
+    "index.embed_pending": _job_index_embed_pending,
+    "ingest.scan_path": _job_ingest_scan_path,
+    "ingest.parse_file": _job_ingest_parse_file,
+    "ingest.extract_evidence": _job_ingest_extract_evidence,
+    "ingest.reindex_artifact": _job_ingest_reindex_artifact,
+    "analyst.scan": _job_analyst_scan,
+    "analyst.self_scan": _job_analyst_self_scan,
+    "self.evaluate": _job_self_evaluate,
+    "self_repair.propose": _job_self_repair_propose,
+    "self_repair.restart": _job_self_repair_restart,
+    "self_repair.bake_check": _job_self_repair_bake_check,
+    "deviation.scan": _job_deviation_scan,
+    "enrichment.seek": _job_enrichment_seek,
+    "enrichment.retry_pending": _job_enrichment_retry_pending,
+    "prediction.reconcile": _job_prediction_reconcile,
+    "corpus.audit_priors": _job_corpus_audit_priors,
+    "dreamer.maintenance": _job_dreamer_maintenance,
+    "dreamer.reconcile_beliefs": _job_dreamer_reconcile_beliefs,
+    "manifest.regenerate": _job_manifest_regenerate,
+    "pattern.audit": _job_pattern_audit,
+    "skeptic.review_pattern": _job_skeptic_review_pattern,
+    "writer.extract_turn": _job_writer_extract_turn,
+    "capture.observe": _job_capture_observe,
+    "plan.run": _job_plan_run,
+    "agent.delegate": _job_agent_delegate,
+    "skill.review": _job_skill_review,
+    "agent.delegate_report": _job_agent_delegate_report,
+    "adjutant.cycle": _job_adjutant_cycle,
+    "task.reminder": _job_task,
+    "task.prompt": _job_task,
+    "task.run_codex": _job_task,
+    "entity.rewrite_story": _job_entity_rewrite_story,
+}
 
 
 def _enqueue_entity_rewrites(result, *, vault: Path, conversation_id, db_path) -> int:
