@@ -148,6 +148,11 @@ def _record_drift(vault: Path, *, stored: str, actual: str) -> None:
         reports = vault / "reports"
         reports.mkdir(parents=True, exist_ok=True)
         drift_log = reports / "kernel-drift.md"
+        # verify_kernel runs on every turn: without this check one hand-edit
+        # appended a drift line per turn until the next ceremony, and each
+        # line became its own drift episode in the autobiography.
+        if drift_log.exists() and f"actual `{actual[:12]}…`" in drift_log.read_text(encoding="utf-8"):
+            return
         stamp = datetime.now().astimezone().isoformat(timespec="seconds")
         entry = (
             f"- {stamp} — kernel content changed outside a ceremony "

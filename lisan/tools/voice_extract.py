@@ -413,4 +413,16 @@ def ratify_voice(
     with ceremony():
         path.write_text(text, encoding="utf-8")
         stamp_kernel_hash(vault)
+    # Mark the artifact itself, so the autobiography can tell an extraction
+    # that was ratified from one that was only proposed.
+    try:
+        from ..frontmatter import write_markdown
+
+        artifact = Path(artifact_path)
+        art = load_markdown(artifact)
+        write_markdown(artifact, {**dict(art.frontmatter),
+                                  "ratified_at": datetime.now().astimezone().date().isoformat(),
+                                  "ratified_by": who}, art.body)
+    except Exception:
+        pass  # the kernel provenance line remains the authoritative record
     return path

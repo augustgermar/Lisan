@@ -131,28 +131,66 @@ def job_events(db_path: Path | None = None) -> list[SelfEvent]:
     return events
 
 
+def _ratified_voice_artifacts(vault: Path) -> set[str]:
+    """Artifact names the kernel's Voice Provenance says were ratified."""
+    try:
+        from .kernel import kernel_path
+
+        text = kernel_path(vault).read_text(encoding="utf-8")
+    except Exception:
+        return set()
+    return set(re.findall(r"^- artifact: (\S+)\s*$", text, flags=re.MULTILINE))
+
+
+def _artifact_was_ratified(path: Path, ratified_names: set[str]) -> bool:
+    if path.name in ratified_names:
+        return True
+    try:
+        from ..frontmatter import load_markdown
+
+        return bool(load_markdown(path).frontmatter.get("ratified_at"))
+    except Exception:
+        return False
+
+
 def ceremony_events(vault: Path) -> list[SelfEvent]:
     events: list[SelfEvent] = []
     reports = vault / "reports"
     if reports.exists():
+        ratified_names = _ratified_voice_artifacts(vault)
         for path in sorted(reports.glob("voice-extraction-*.md")):
             stamp = path.stem.replace("voice-extraction-", "")
             date = f"{stamp[0:4]}-{stamp[4:6]}-{stamp[6:8]}" if len(stamp) >= 8 and stamp[:8].isdigit() else today_iso()
+            # Every extraction report used to be narrated as "ratified — how
+            # the voice came to be", including proposals the owner never
+            # ratified. The autobiography now says which it was.
+            if _artifact_was_ratified(path, ratified_names):
+                title = "Voice extraction and ratification"
+                narration = (
+                    "{{self}} distilled its own voice from its accumulated conversation "
+                    "history — the extraction pass produced evidence-gated invariants, "
+                    "recorded in the ratification artifact. This is how {{self}}'s "
+                    "kernel voice came to be."
+                )
+                outcome, significance = "ratified", "high"
+            else:
+                title = "Voice extraction proposed"
+                narration = (
+                    "{{self}} distilled candidate voice invariants from its conversation "
+                    "history. They were proposed for ratification; this extraction did "
+                    "not become the kernel voice."
+                )
+                outcome, significance = "proposed", "medium"
             events.append(
                 SelfEvent(
                     event_id=f"ceremony-{stamp}",
                     event_kind="ceremony",
                     date=date,
-                    title="Voice extraction and ratification",
-                    narration=(
-                        "{{self}} distilled its own voice from its accumulated conversation "
-                        "history — the extraction pass produced evidence-gated invariants, "
-                        "recorded in the ratification artifact. This is how {{self}}'s "
-                        "kernel voice came to be."
-                    ),
-                    outcome="ratified",
+                    title=title,
+                    narration=narration,
+                    outcome=outcome,
                     source_refs=[f"reports/{path.name}"],
-                    significance="high",
+                    significance=significance,
                 )
             )
     drift = vault / "reports" / "kernel-drift.md"
