@@ -221,6 +221,8 @@ def _fts_ranked_candidates(
         return [], "bm25"
 
     fts_query = " OR ".join(f'"{_fts_escape(term)}"' for term in query_terms)
+    # One dict, not a linear scan of every row per FTS hit.
+    rows_by_id = {str(r["id"]): r for r in file_rows}
     try:
         rows = conn.execute(
             "SELECT id, bm25(files_fts) AS rank FROM files_fts WHERE files_fts MATCH ? ORDER BY rank ASC LIMIT ?",
@@ -230,7 +232,7 @@ def _fts_ranked_candidates(
             candidates: list[_LayerCandidate] = []
             for row in rows:
                 candidate_id = str(row["id"] or "")
-                file_row = _row_by_id(file_rows, candidate_id)
+                file_row = rows_by_id.get(candidate_id)
                 if file_row is None:
                     continue
                 if _visibility_block_reason(
@@ -264,7 +266,7 @@ def _fts_ranked_candidates(
         candidates = []
         for row in match_rows:
             candidate_id = str(row["id"] or "")
-            file_row = _row_by_id(file_rows, candidate_id)
+            file_row = rows_by_id.get(candidate_id)
             if file_row is None:
                 continue
             if _visibility_block_reason(
@@ -936,7 +938,26 @@ def _fts_escape(term: str) -> str:
     return term.replace('"', "").replace("'", "")
 
 
+# (id, content_hash) -> haystack. Building it JSON-decodes ~14 list fields
+# per row; with a few thousand rows that was ~0.4 s of every retrieval.
+_HAYSTACK_CACHE: dict[tuple[str, str], str] = {}
+
+
 def _metadata_haystack(row: sqlite3.Row) -> str:
+    keys = row.keys()
+    content_hash = str(row["content_hash"] or "") if "content_hash" in keys else ""
+    cache_key = (str(row["id"]), content_hash) if content_hash else None
+    if cache_key is not None:
+        cached = _HAYSTACK_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+    haystack = _build_metadata_haystack(row)
+    if cache_key is not None:
+        _HAYSTACK_CACHE[cache_key] = haystack
+    return haystack
+
+
+def _build_metadata_haystack(row: sqlite3.Row) -> str:
     parts = [
         str(row["summary"]),
         str(row["id"]),

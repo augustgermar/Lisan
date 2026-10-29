@@ -381,20 +381,41 @@ def _path_contains_bridge_pattern(path_ids: list[str], source_domain: str, targe
     return False
 
 
+# path -> (mtime_ns, size, domain tokens or None). Every retrieval used to
+# parse every report in the vault (≈500 live, 1.2 s of a 1.9 s retrieval,
+# measured 2026-10-29) to find the few that mention a coupling. Reports are
+# written once; each is now read once until it changes.
+_COUPLING_CACHE: dict[str, tuple[int, int, list[str] | None]] = {}
+
+
+def _report_coupling_domains(path: Path) -> list[str] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    cached = _COUPLING_CACHE.get(str(path))
+    if cached is not None and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+        return cached[2]
+    try:
+        text = path.read_text(encoding="utf-8").lower()
+    except OSError:
+        return None
+    tokens: list[str] | None = None
+    if "coupled" in text or "coupling" in text:
+        tokens = [domain for domain in DOMAIN_KEYWORDS if domain in text]
+    _COUPLING_CACHE[str(path)] = (stat.st_mtime_ns, stat.st_size, tokens)
+    return tokens
+
+
 def _dreamer_coupled_pairs(vault: Path) -> set[tuple[str, str]]:
     pairs: set[tuple[str, str]] = set()
     reports_root = vault / "reports"
     if not reports_root.exists():
         return pairs
     for path in sorted(reports_root.glob("*.md")):
-        try:
-            doc = load_markdown(path)
-        except Exception:
+        domain_tokens = _report_coupling_domains(path)
+        if not domain_tokens:
             continue
-        text = f"{json.dumps(doc.frontmatter, ensure_ascii=True)}\n{doc.body}".lower()
-        if "coupled" not in text and "coupling" not in text:
-            continue
-        domain_tokens = [domain for domain in DOMAIN_KEYWORDS if domain in text]
         for i, left in enumerate(domain_tokens):
             for right in domain_tokens[i + 1:]:
                 pairs.add((left, right))
