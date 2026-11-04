@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for lisan/tools/delegation.py: 92%</title>
+    <title>Coverage for lisan/tools/delegation.py: 93%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_54cfdca1.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>lisan<span class="sep">/</span>tools<span class="sep">/</span>delegation.py</b>:
-            <span class="pc_cov">92%</span>
+            <span class="pc_cov">93%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -55,8 +55,8 @@
         </aside>
         <h2>
             <span class="text">394 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">364<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">30<span class="text"> missing</span></button>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">365<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">29<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_e232f443b865f6ff_deviations_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-04 13:24 +0000
+            created at 2026-11-04 13:29 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -518,7 +518,7 @@
     <p class="run"><span class="n"><a id="t436" href="#t436">436</a></span><span class="t">    <span class="nam">reaped</span><span class="op">:</span> <span class="nam">list</span><span class="op">[</span><span class="nam">str</span><span class="op">]</span> <span class="op">=</span> <span class="op">[</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t437" href="#t437">437</a></span><span class="t">    <span class="key">for</span> <span class="nam">job</span> <span class="key">in</span> <span class="nam">list_jobs</span><span class="op">(</span><span class="nam">status</span><span class="op">=</span><span class="str">&quot;running&quot;</span><span class="op">,</span> <span class="nam">limit</span><span class="op">=</span><span class="num">5000</span><span class="op">,</span> <span class="nam">db_path</span><span class="op">=</span><span class="nam">db_path</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t438" href="#t438">438</a></span><span class="t">        <span class="key">if</span> <span class="nam">job</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">&quot;job_type&quot;</span><span class="op">)</span> <span class="op">!=</span> <span class="nam">JOB_TYPE</span> <span class="key">or</span> <span class="key">not</span> <span class="nam">job</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="str">&quot;started_at&quot;</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t439" href="#t439">439</a></span><span class="t">            <span class="key">continue</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t439" href="#t439">439</a></span><span class="t">            <span class="key">continue</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t440" href="#t440">440</a></span><span class="t">        <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t441" href="#t441">441</a></span><span class="t">            <span class="nam">started</span> <span class="op">=</span> <span class="nam">datetime</span><span class="op">.</span><span class="nam">strptime</span><span class="op">(</span><span class="nam">str</span><span class="op">(</span><span class="nam">job</span><span class="op">[</span><span class="str">&quot;started_at&quot;</span><span class="op">]</span><span class="op">)</span><span class="op">,</span> <span class="str">&quot;%Y-%m-%dT%H:%M:%SZ&quot;</span><span class="op">)</span><span class="op">.</span><span class="nam">replace</span><span class="op">(</span><span class="nam">tzinfo</span><span class="op">=</span><span class="nam">timezone</span><span class="op">.</span><span class="nam">utc</span><span class="op">)</span><span class="op">.</span><span class="nam">timestamp</span><span class="op">(</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t442" href="#t442">442</a></span><span class="t">        <span class="key">except</span> <span class="nam">ValueError</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
@@ -930,7 +930,7 @@
             <a class="nav" href="z_e232f443b865f6ff_deviations_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-04 13:24 +0000
+            created at 2026-11-04 13:29 +0000
         </p>
     </div>
 </footer>
