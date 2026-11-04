@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for lisan/tools/self_update.py: 85%</title>
+    <title>Coverage for lisan/tools/self_update.py: 86%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_54cfdca1.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>lisan<span class="sep">/</span>tools<span class="sep">/</span>self_update.py</b>:
-            <span class="pc_cov">85%</span>
+            <span class="pc_cov">86%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -55,8 +55,8 @@
         </aside>
         <h2>
             <span class="text">227 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">194<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">33<span class="text"> missing</span></button>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">195<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">32<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_e232f443b865f6ff_service_install_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-04 13:44 +0000
+            created at 2026-11-04 19:48 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -309,10 +309,10 @@
     <p class="pln"><span class="n"><a id="t227" href="#t227">227</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t228" href="#t228">228</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t229" href="#t229">229</a></span><span class="t"><span class="key">def</span> <span class="nam">_run_tests</span><span class="op">(</span><span class="nam">repo</span><span class="op">:</span> <span class="nam">Path</span><span class="op">,</span> <span class="nam">python</span><span class="op">:</span> <span class="nam">Path</span><span class="op">,</span> <span class="op">*</span><span class="op">,</span> <span class="nam">timeout</span><span class="op">:</span> <span class="nam">int</span> <span class="op">=</span> <span class="num">1800</span><span class="op">)</span> <span class="op">-&gt;</span> <span class="nam">dict</span><span class="op">[</span><span class="nam">str</span><span class="op">,</span> <span class="nam">Any</span><span class="op">]</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t230" href="#t230">230</a></span><span class="t">    <span class="nam">result</span> <span class="op">=</span> <span class="nam">subprocess</span><span class="op">.</span><span class="nam">run</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t231" href="#t231">231</a></span><span class="t">        <span class="op">[</span><span class="nam">str</span><span class="op">(</span><span class="nam">python</span><span class="op">)</span><span class="op">,</span> <span class="str">&quot;-m&quot;</span><span class="op">,</span> <span class="str">&quot;pytest&quot;</span><span class="op">,</span> <span class="str">&quot;tests/&quot;</span><span class="op">,</span> <span class="str">&quot;-q&quot;</span><span class="op">]</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t232" href="#t232">232</a></span><span class="t">        <span class="nam">cwd</span><span class="op">=</span><span class="nam">str</span><span class="op">(</span><span class="nam">repo</span><span class="op">)</span><span class="op">,</span> <span class="nam">capture_output</span><span class="op">=</span><span class="key">True</span><span class="op">,</span> <span class="nam">text</span><span class="op">=</span><span class="key">True</span><span class="op">,</span> <span class="nam">timeout</span><span class="op">=</span><span class="nam">timeout</span><span class="op">,</span> <span class="nam">check</span><span class="op">=</span><span class="key">False</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t233" href="#t233">233</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t230" href="#t230">230</a></span><span class="t">    <span class="nam">result</span> <span class="op">=</span> <span class="nam">subprocess</span><span class="op">.</span><span class="nam">run</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t231" href="#t231">231</a></span><span class="t">        <span class="op">[</span><span class="nam">str</span><span class="op">(</span><span class="nam">python</span><span class="op">)</span><span class="op">,</span> <span class="str">&quot;-m&quot;</span><span class="op">,</span> <span class="str">&quot;pytest&quot;</span><span class="op">,</span> <span class="str">&quot;tests/&quot;</span><span class="op">,</span> <span class="str">&quot;-q&quot;</span><span class="op">]</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t232" href="#t232">232</a></span><span class="t">        <span class="nam">cwd</span><span class="op">=</span><span class="nam">str</span><span class="op">(</span><span class="nam">repo</span><span class="op">)</span><span class="op">,</span> <span class="nam">capture_output</span><span class="op">=</span><span class="key">True</span><span class="op">,</span> <span class="nam">text</span><span class="op">=</span><span class="key">True</span><span class="op">,</span> <span class="nam">timeout</span><span class="op">=</span><span class="nam">timeout</span><span class="op">,</span> <span class="nam">check</span><span class="op">=</span><span class="key">False</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t233" href="#t233">233</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t234" href="#t234">234</a></span><span class="t">    <span class="nam">tail</span> <span class="op">=</span> <span class="str">&quot;\n&quot;</span><span class="op">.</span><span class="nam">join</span><span class="op">(</span><span class="op">(</span><span class="nam">result</span><span class="op">.</span><span class="nam">stdout</span> <span class="key">or</span> <span class="str">&quot;&quot;</span><span class="op">)</span><span class="op">.</span><span class="nam">splitlines</span><span class="op">(</span><span class="op">)</span><span class="op">[</span><span class="op">-</span><span class="num">20</span><span class="op">:</span><span class="op">]</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t235" href="#t235">235</a></span><span class="t">    <span class="key">return</span> <span class="op">{</span><span class="str">&quot;ok&quot;</span><span class="op">:</span> <span class="nam">result</span><span class="op">.</span><span class="nam">returncode</span> <span class="op">==</span> <span class="num">0</span><span class="op">,</span> <span class="str">&quot;tail&quot;</span><span class="op">:</span> <span class="nam">tail</span><span class="op">}</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t236" href="#t236">236</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
@@ -543,7 +543,7 @@
             <a class="nav" href="z_e232f443b865f6ff_service_install_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.0">coverage.py v7.17.0</a>,
-            created at 2026-11-04 13:44 +0000
+            created at 2026-11-04 19:48 +0000
         </p>
     </div>
 </footer>
