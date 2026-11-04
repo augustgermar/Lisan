@@ -385,3 +385,103 @@ class JobOutputValidationTests(unittest.TestCase):
         from lisan.tools.jobs import JOB_TYPES
         for jt in JOB_OUTPUT_VALIDATORS:
             self.assertIn(jt, JOB_TYPES, f"validator for {jt} but it's not in JOB_TYPES")
+
+
+class SelfRepairAutoChainTests(unittest.TestCase):
+    """Owner decision 2026-11-04: a verified proposal applies itself once
+    action_tier=4, with no `lisan self apply` or owner confirmation needed."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.vault = self.root / "vault"
+        self.db_path = self.root / "lisan.sqlite"
+
+        import subprocess
+
+        self.repo = self.root / "repo"
+        self.repo.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=self.repo, check=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=self.repo, check=True)
+        (self.repo / "ordinary.py").write_text("VALUE = 1\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=self.repo, check=True)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _tier4_config(self):
+        return {"drive": {"action_tier": 4}}
+
+    def test_propose_job_enqueues_an_apply_job_automatically(self):
+        from lisan.tools import jobs as jobs_module
+        from lisan.tools import self_repair as self_repair_module
+        from lisan.tools.self_repair import Proposal
+
+        self._write_loop()
+        fake_proposal = Proposal(
+            proposal_id="sr-fake-0001", loop_id="loop.self-repair-1",
+            base_commit="deadbeefbase", patch_hash="deadbeef",
+            worktree=self.repo, report_path=self.repo / "report.md",
+            confirmation_id="confirmation.fake", telegram_message="fake proposal",
+        )
+
+        with patch.object(self_repair_module, "propose", return_value=fake_proposal), \
+             patch("lisan.tools.authority.rule", return_value=type("R", (), {"allowed": True})()), \
+             patch("lisan.providers.base.LisanLLM"), \
+             patch("lisan.tools.scheduler._deliver_owner_message"):
+            job = {"job_type": "self_repair.propose",
+                   "payload": {"vault": str(self.vault), "db_path": str(self.db_path),
+                               "loop_id": "loop.self-repair-1", "repo": str(self.repo)}}
+            result = jobs_module.dispatch_job(job, vault=self.vault, db_path=self.db_path)
+
+        self.assertEqual(result["proposal_id"], "sr-fake-0001")
+        self.assertTrue(result.get("apply_job_id"))
+        queued = get_job(result["apply_job_id"], db_path=self.db_path)
+        self.assertIsNotNone(queued)
+        self.assertEqual(queued["job_type"], "self_repair.apply")
+        self.assertEqual(queued["payload"]["proposal_id"], "sr-fake-0001")
+
+    def test_apply_job_handler_applies_without_any_approval(self):
+        from lisan.tools import jobs as jobs_module
+        from lisan.tools.self_repair import propose
+        from tests.test_self_repair import _author
+
+        proposal = propose(
+            vault=self.vault, repo=self.repo, loop_id="loop.self-repair-1",
+            loop_path=self._write_loop(), author=_author, db_path=self.db_path,
+            test_command=["python3", "-c", "print('suite')"],
+            targeted_command=["python3", "-c", "print('target')"],
+            worktree_root=self.root / "worktrees",
+        )
+        self.assertEqual(
+            get_job_frontmatter_status(proposal.report_path), "active",
+        )
+
+        with patch("lisan.config.load_config", return_value=self._tier4_config()), \
+             patch("lisan.tools.scheduler._deliver_owner_message"):
+            job = {"job_type": "self_repair.apply",
+                   "payload": {"vault": str(self.vault), "db_path": str(self.db_path),
+                               "repo": str(self.repo), "proposal_id": proposal.proposal_id}}
+            result = jobs_module.dispatch_job(job, vault=self.vault, db_path=self.db_path)
+
+        self.assertTrue(result["commit"])
+        self.assertEqual((self.repo / "ordinary.py").read_text(encoding="utf-8"), "VALUE = 2\n")
+        self.assertEqual(get_job_frontmatter_status(proposal.report_path), "applied")
+
+    def _write_loop(self):
+        from lisan.frontmatter import write_markdown
+
+        loop_path = self.vault / "open_loops" / "loop.md"
+        write_markdown(loop_path, {
+            "id": "loop.self-repair-1", "type": "open_loop", "created": "2026-08-01",
+            "updated": "2026-08-01", "status": "active", "origin": "self",
+        }, "A loop")
+        return loop_path
+
+
+def get_job_frontmatter_status(report_path):
+    from lisan.frontmatter import load_markdown
+
+    return load_markdown(report_path).frontmatter["status"]

@@ -32,6 +32,7 @@ DEFAULT_JOB_PRIORITIES = {
     "enrichment.seek": 82,
     "enrichment.retry_pending": 83,
     "self_repair.propose": 84,
+    "self_repair.apply": 84,
     "self_repair.bake_check": 84,
     "self.evaluate": 90,
     "entity.rewrite_story": 85,
@@ -99,6 +100,7 @@ NON_IDEMPOTENT_JOB_TYPES = frozenset({
     "task.prompt",
     "adjutant.cycle",
     "self_repair.propose",
+    "self_repair.apply",
     "self_repair.restart",
 })
 
@@ -106,7 +108,8 @@ NON_IDEMPOTENT_JOB_TYPES = frozenset({
 # minutes). The reaper never calls them stuck before this.
 LONG_JOB_MIN_STUCK_MINUTES = 45
 LONG_JOB_TYPES = frozenset({"plan.run", "task.run_codex", "task.prompt", "agent.delegate",
-                            "agent.delegate_report", "skill.review", "self_repair.propose"})
+                            "agent.delegate_report", "skill.review", "self_repair.propose",
+                            "self_repair.apply"})
 DEFAULT_ANALYST_DELTA_THRESHOLD = 5
 DEFAULT_DREAMER_INTERVAL_HOURS = 24
 

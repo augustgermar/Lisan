@@ -60,6 +60,7 @@ JOB_TYPES = {
     "enrichment.seek",
     "enrichment.retry_pending",
     "self_repair.propose",
+    "self_repair.apply",
     "self_repair.restart",
     "self_repair.bake_check",
     "self.evaluate",
@@ -1260,9 +1261,50 @@ def _job_self_repair_propose(job: dict[str, Any], payload: dict[str, Any], job_t
         # The proposal and confirmation remain durable; the scheduler or
         # owner can retry delivery without regenerating the patch.
         pass
+
+    # Owner decision 2026-11-04: a verified proposal applies on its own once
+    # action_tier=4 — queue Phase B immediately rather than waiting on a
+    # human to run `lisan self apply`. _job_self_repair_apply re-checks the
+    # authority rule itself, so this queues even when the tier is too low;
+    # it will simply come back "blocked" until the owner raises it.
+    apply_job_id = enqueue_job(
+        "self_repair.apply",
+        {"vault": str(vault), "repo": str(repo), "proposal_id": proposal.proposal_id},
+        db_path=db_path,
+    )
     return {"proposal_id": proposal.proposal_id, "report": str(proposal.report_path),
             "confirmation_id": proposal.confirmation_id, "notified": notified,
-            "patch_hash": proposal.patch_hash}
+            "patch_hash": proposal.patch_hash, "apply_job_id": apply_job_id}
+
+
+def _job_self_repair_apply(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from ..config import load_config
+    from .self_repair import apply_approved_proposal
+
+    cfg = load_config()
+    from .authority import rule as authority_rule
+
+    proposal_id = str(payload.get("proposal_id") or "").strip()
+    if not authority_rule("self_repair.apply", vault=vault, config=cfg,
+                          detail={"proposal": proposal_id}).allowed:
+        return {"status": "blocked", "reason": "self-repair apply action is not enabled", "proposal_id": proposal_id}
+    if not proposal_id:
+        raise ValueError("self_repair.apply requires proposal_id")
+    repo = Path(str(payload.get("repo") or Path(__file__).resolve().parents[2])).resolve()
+    applied = apply_approved_proposal(vault=vault, repo=repo, proposal_id=proposal_id, db_path=db_path, config=cfg)
+    try:
+        from .scheduler import _deliver_owner_message
+
+        _deliver_owner_message(
+            f"Self-repair: applied proposal {applied.proposal_id} as commit {applied.commit} "
+            f"(owner action_tier=4, no confirmation required). Restart queued: {applied.restart_job_id}.",
+            config=cfg,
+        )
+    except Exception:
+        # The applied commit and queued restart are durable regardless.
+        pass
+    return {"proposal_id": applied.proposal_id, "commit": applied.commit,
+            "restart_job_id": applied.restart_job_id, "report": str(applied.report_path)}
 
 
 def _job_self_repair_restart(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
@@ -1601,6 +1643,7 @@ _JOB_HANDLERS: dict[str, Any] = {
     "analyst.self_scan": _job_analyst_self_scan,
     "self.evaluate": _job_self_evaluate,
     "self_repair.propose": _job_self_repair_propose,
+    "self_repair.apply": _job_self_repair_apply,
     "self_repair.restart": _job_self_repair_restart,
     "self_repair.bake_check": _job_self_repair_bake_check,
     "deviation.scan": _job_deviation_scan,
