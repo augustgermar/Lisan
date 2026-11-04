@@ -33,12 +33,17 @@ class CodexClient(ProviderClient):
         sandbox_mode: str | None = None,
         on_start: Callable[[int], None] | None = None,
         timeout_seconds: float | None = None,
+        approval_fn: Callable[[str, dict[str, Any]], bool] | None = None,
     ) -> LLMResponse:
         # `timeout_seconds` pins this call's wall limit over the config value.
         # `sandbox_mode` pins this one call's sandbox, beating every config
         # knob (delegated children carry their own scoped authority).
         # `on_start(pid)` fires once the process exists, so a caller can
         # record who to signal if the run must be cancelled.
+        # `approval_fn`, when given, lets this call clear a codex-side MCP
+        # tool-approval block by asking the owner through the caller's own
+        # approval channel (see `_maybe_unblock_mcp_approval`) instead of
+        # just surfacing codex's refusal.
         # The coding agent occasionally returns a truncated JSON response — the model
         # finishes mid-key when the streaming session is cut short by the
         # backend. The reply is unrecoverable, but a single fresh invocation
@@ -51,6 +56,7 @@ class CodexClient(ProviderClient):
                     agent=agent, significance=significance, model=model,
                     working_directory=working_directory,
                     sandbox_mode=sandbox_mode, on_start=on_start, timeout_seconds=timeout_seconds,
+                    approval_fn=approval_fn,
                 )
             except ProviderError as exc:
                 if not _is_truncated_json_error(exc):
@@ -72,6 +78,7 @@ class CodexClient(ProviderClient):
         sandbox_mode: str | None = None,
         on_start: Callable[[int], None] | None = None,
         timeout_seconds: float | None = None,
+        approval_fn: Callable[[str, dict[str, Any]], bool] | None = None,
     ) -> LLMResponse:
         if sandbox_mode is not None and sandbox_mode not in SANDBOX_MODES:
             raise ProviderError(f"unknown sandbox mode {sandbox_mode!r}; expected one of {sorted(SANDBOX_MODES)}")
@@ -132,34 +139,49 @@ class CodexClient(ProviderClient):
             args.extend(["--output-last-message", str(output_path)])
             args.append("-")
 
-            try:
-                record_codex_progress(
-                    "start",
-                    agent=agent,
-                    model=chosen_model or "",
-                    working_directory=str(working_directory or repo_root()),
-                )
-                if progress_listener_active():
-                    proc = _run_codex_process(
-                        args,
-                        prompt=full_prompt,
-                        env=env,
+            def run(run_args: list[str]) -> subprocess.CompletedProcess:
+                try:
+                    record_codex_progress(
+                        "start",
                         agent=agent,
                         model=chosen_model or "",
-                        working_directory=working_directory or repo_root(),
-                        started=started,
-                        timeout=timeout,
-                        on_start=on_start,
+                        working_directory=str(working_directory or repo_root()),
                     )
-                else:
-                    proc = _run_batch(args, prompt=full_prompt, env=env, timeout=timeout, on_start=on_start)
-            except subprocess.TimeoutExpired as exc:
-                raise ProviderError(_timeout_message(exc.timeout)) from exc
-            except OSError as exc:
-                # A missing/unlaunchable binary must surface as ProviderError so
-                # callers deliver an honest failure message instead of silence
-                # (raw FileNotFoundError bypasses the provider-failure path).
-                raise ProviderError(f"coding agent binary {binary!r} could not be launched: {exc}") from exc
+                    if progress_listener_active():
+                        return _run_codex_process(
+                            run_args,
+                            prompt=full_prompt,
+                            env=env,
+                            agent=agent,
+                            model=chosen_model or "",
+                            working_directory=working_directory or repo_root(),
+                            started=started,
+                            timeout=timeout,
+                            on_start=on_start,
+                        )
+                    return _run_batch(run_args, prompt=full_prompt, env=env, timeout=timeout, on_start=on_start)
+                except subprocess.TimeoutExpired as exc:
+                    raise ProviderError(_timeout_message(exc.timeout)) from exc
+                except OSError as exc:
+                    # A missing/unlaunchable binary must surface as ProviderError so
+                    # callers deliver an honest failure message instead of silence
+                    # (raw FileNotFoundError bypasses the provider-failure path).
+                    raise ProviderError(f"coding agent binary {binary!r} could not be launched: {exc}") from exc
+
+            proc = run(args)
+            if proc.returncode == 0 and approval_fn is not None:
+                blocked = _extract_blocked_mcp_tools(proc.stdout or "", proc.stderr or "")
+                if blocked:
+                    task_summary = _extract_task_summary(prompt)
+                    description = (
+                        "codex wants to call " + ", ".join(f"{server}.{tool}" for server, tool in blocked)
+                        + ", an MCP tool that requires approval. `codex exec` has no human attached "
+                        "to ask interactively, so it refused on its own — approve here to let it "
+                        "through for this one task:\n\n" + task_summary
+                    )
+                    if approval_fn("mcp_tool_approval", {"task": description}):
+                        retry_args = args[:-1] + _mcp_approval_override_args(blocked) + [args[-1]]
+                        proc = run(retry_args)
             if proc.returncode != 0:
                 raise ProviderError(
                     "coding agent exec failed with exit code "
@@ -196,6 +218,93 @@ class CodexClient(ProviderClient):
 DEFAULT_TIMEOUT_SECONDS = 1800
 
 SANDBOX_MODES = frozenset({"read-only", "workspace-write", "danger-full-access"})
+
+# `codex exec` runs with no human attached, so it refuses — client-side,
+# before the downstream MCP server ever sees the call — any tool the server
+# marked `destructiveHint: true`. This happens for whatever MCP server and
+# tool a given install has wired up (TDX, Zabbix, a third-party skill,
+# anything); nothing here names a specific one. Codex still prints the
+# attempt and the refusal to stdout even in non-interactive batch mode:
+#   mcp: <server>/<tool> started
+#   mcp: <server>/<tool> (failed)
+#   MCP tool call requires approval, but approval policy is never
+_MCP_CALL_FAILED_RE = re.compile(r"mcp:\s+([^/\s]+)/(\S+)\s+\(failed\)")
+_MCP_APPROVAL_REFUSAL_RE = re.compile(
+    r"MCP tool call requires approval, but approval policy is never"
+    r"|interactive approval is unavailable in exec mode"
+)
+
+
+def _extract_blocked_mcp_tools(stdout: str, stderr: str = "") -> list[tuple[str, str]]:
+    """Return the distinct (server, tool) pairs codex blocked this run,
+    identified generically from its own output — not from any registry this
+    codebase owns, since the MCP server is whatever the install configured.
+
+    Codex reports this two different ways depending on how it was invoked:
+
+    - with ``--json`` (the live-progress path always uses it): one JSONL
+      event per line on stdout, e.g. ``{"type":"item.completed","item":
+      {"type":"mcp_tool_call","server":"tdx","tool":"refresh_token",
+      "status":"failed","error":{"message":"MCP tool call requires
+      approval, but approval policy is never"}}}``.
+    - otherwise (the plain batch path): a human-readable transcript on
+      stderr — ``mcp: <server>/<tool> started`` / ``(failed)`` followed by
+      the same refusal message.
+
+    Both are checked so detection doesn't depend on which path ran."""
+    blocked: list[tuple[str, str]] = []
+
+    def add(pair: tuple[str, str]) -> None:
+        if pair not in blocked:
+            blocked.append(pair)
+
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        item = event.get("item") if isinstance(event, dict) else None
+        if not isinstance(item, dict) or item.get("type") != "mcp_tool_call" or item.get("status") != "failed":
+            continue
+        message = str((item.get("error") or {}).get("message") or "")
+        server, tool = item.get("server"), item.get("tool")
+        if server and tool and _MCP_APPROVAL_REFUSAL_RE.search(message):
+            add((str(server), str(tool)))
+
+    combined_lines = (stderr + "\n" + stdout).splitlines()
+    for index, line in enumerate(combined_lines):
+        match = _MCP_CALL_FAILED_RE.search(line)
+        if not match:
+            continue
+        window = "\n".join(combined_lines[index : index + 4])
+        if _MCP_APPROVAL_REFUSAL_RE.search(window):
+            add((match.group(1), match.group(2)))
+
+    return blocked
+
+
+def _mcp_approval_override_args(blocked: list[tuple[str, str]]) -> list[str]:
+    """`-c` overrides that tell codex the owner already approved these exact
+    tools for this one retry — the same per-tool `approval_mode` knob codex
+    already supports for interactive sessions, just scoped to a single
+    non-interactive invocation instead of written into config.toml."""
+    args: list[str] = []
+    for server, tool in blocked:
+        args.extend(["-c", f'mcp_servers.{server}.tools.{tool}.approval_mode="approve"'])
+    return args
+
+
+def _extract_task_summary(prompt: str) -> str:
+    """The short task text a codex prompt was built around, for showing the
+    owner what they're approving — falls back to the raw prompt's head when
+    the `Task:\\n...` marker this codebase's own prompt builder uses isn't
+    there (e.g. a caller that built its own prompt)."""
+    match = re.search(r"Task:\n(.*?)\n\n", prompt, re.S)
+    text = match.group(1).strip() if match else prompt.strip()
+    return text[:300]
 
 
 def _announce_pid(on_start: Callable[[int], None] | None, proc: subprocess.Popen) -> None:

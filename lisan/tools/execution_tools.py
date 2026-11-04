@@ -489,6 +489,7 @@ def build_tool_handlers(
             vault=vault,
             config=config,
             db_path=db_path,
+            approval_fn=approval_fn,
         ),
         "run_codex": lambda task, working_directory=None: run_codex(
             task,
@@ -496,6 +497,7 @@ def build_tool_handlers(
             vault=vault,
             config=config,
             db_path=db_path,
+            approval_fn=approval_fn,
         ),
         "self_state": lambda: self_state(vault=vault, db_path=db_path),
         "send_email": lambda subject, body, recipients, html_body=None, sender=None, attachments=None, dry_run=False: _send_email_tool(
@@ -926,6 +928,7 @@ def run_codex(
     db_path: Path | None = None,
     provider: str | None = None,
     model: str | None = None,
+    approval_fn: Callable[[str, dict[str, Any]], bool] | None = None,
 ) -> str:
     config = config or load_config()
 
@@ -961,6 +964,7 @@ def run_codex(
             significance="medium",
             model=model or _codex_default_model(config, provider),
             working_directory=wd,
+            approval_fn=approval_fn,
         )
         return response.text.strip()
     except Exception as exc:
