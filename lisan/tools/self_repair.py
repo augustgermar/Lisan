@@ -11,7 +11,6 @@ import hashlib
 import importlib.util
 import json
 import re
-import sqlite3
 import shutil
 import subprocess
 import sys
@@ -467,27 +466,6 @@ def _report_patch(body: str) -> str:
     return patch
 
 
-def _approved_confirmation(vault: Path, proposal_id: str, db_path: Path | None) -> dict[str, Any]:
-    """Return the exact owner-approved confirmation for a proposal."""
-    from .db import connect
-    from .rebuild_index import ensure_index_schema
-
-    conn = connect(db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        ensure_index_schema(conn)
-        row = conn.execute(
-            "SELECT * FROM confirmations WHERE task_id = ? AND resolution = 'approved' "
-            "AND status = 'pending' ORDER BY resolved_at DESC LIMIT 1",
-            (f"self-repair:{proposal_id}",),
-        ).fetchone()
-        if row is None:
-            raise SelfRepairRefused("proposal has no exact owner approval")
-        return dict(row)
-    finally:
-        conn.close()
-
-
 def _resolve_origin_loop(vault: Path, loop_id: str, *, proposal_id: str, commit: str) -> None:
     for path in sorted((vault / "open_loops").glob("*.md")):
         try:
@@ -520,11 +498,14 @@ def apply_approved_proposal(
     config: dict[str, Any] | None = None,
     policy_check: Callable[[str, dict[str, Any]], bool] | None = None,
 ) -> AppliedProposal:
-    """Phase B: apply one exact, owner-approved proposal as one local commit.
+    """Phase B: apply one independently-verified proposal as one local commit.
 
-    The default policy check remains blocked by the live tier-3 clamp. The
-    injectable check exists for deterministic tests without weakening runtime
-    policy.
+    Owner decision 2026-11-04: once the action-policy clamp is raised, a
+    proposal that passed Phase A's independent verification applies without
+    waiting on an owner confirmation — the clamp itself is the owner's
+    permission. The default policy check remains blocked below tier 4. The
+    injectable check exists for deterministic tests without weakening
+    runtime policy.
     """
     from .action_policy import action_allowed
 
@@ -543,10 +524,9 @@ def apply_approved_proposal(
         raise SelfRepairRefused(f"proposal report not found: {proposal_id}")
     doc = load_markdown(report)
     fm = dict(doc.frontmatter)
-    if str(fm.get("status") or "") != "approved":
-        raise SelfRepairRefused("proposal is not owner-approved")
+    if str(fm.get("status") or "") not in {"active", "approved"}:
+        raise SelfRepairRefused(f"proposal {proposal_id} is not open for apply (status={fm.get('status')!r})")
     assert_appetite_for_apply(vault)
-    approval = _approved_confirmation(vault, proposal_id, db_path)
     base_commit = str(fm.get("base_commit") or "").strip()
     loop_id = str(fm.get("loop_id") or "").strip()
     if not base_commit:
@@ -599,7 +579,7 @@ def apply_approved_proposal(
 
     restart_job = enqueue_job(
         "self_repair.restart",
-        {"vault": str(vault), "proposal_id": proposal_id, "applied_commit": commit, "approval_id": approval["id"]},
+        {"vault": str(vault), "proposal_id": proposal_id, "applied_commit": commit},
         db_path=db_path,
     )
     _resolve_origin_loop(vault, loop_id, proposal_id=proposal_id, commit=commit)
@@ -613,8 +593,9 @@ def apply_approved_proposal(
             event_kind="self_repair",
             date=today,
             title=f"Applied self-repair proposal {proposal_id}",
-            narration=(f"{{{{self}}}} applied the owner-approved self-repair proposal {proposal_id} "
-                       f"for {{{{principal}}}} as local commit {commit}."),
+            narration=(f"{{{{self}}}} applied the independently-verified self-repair proposal "
+                       f"{proposal_id} for {{{{principal}}}} as local commit {commit}, under the "
+                       f"owner's standing tier-4 action-policy clamp (no per-apply confirmation)."),
             outcome="succeeded",
             source_refs=[f"reports/self-repair-proposals/{proposal_id}.md", commit],
             significance="high",
@@ -626,7 +607,7 @@ def apply_approved_proposal(
     fm.update({
         "status": "applied", "updated": today, "applied_at": today,
         "applied_by": "self_repair", "applied_commit": commit,
-        "approval_id": str(approval["id"]), "restart_job_id": restart_job,
+        "restart_job_id": restart_job,
         **bake,
         "bake_check_job_id": bake_job,
     })

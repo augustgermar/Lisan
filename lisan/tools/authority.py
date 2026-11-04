@@ -66,8 +66,13 @@ ACTIONS: dict[str, ActionSpec] = {
     "drive.scheduled_delivery": ActionSpec(tier_action="scheduled_delivery", outbound=True),
     "drive.autonomous_check": ActionSpec(tier_action="autonomous_check"),
     "drive.enrich": ActionSpec(tier_action="enrich"),
+    # Owner decision 2026-11-04: self-repair applies need no approval once
+    # the owner's action_tier clamp is raised to 4. The tier check above is
+    # the owner's permission; PROTECTED_PATHS/PROTECTED_BASENAMES in
+    # self_repair.py (authority.py among them) remain the hard boundary no
+    # tier can widen.
     "self_repair.propose": ActionSpec(tier_action="self_repair_propose"),
-    "self_repair.apply": ActionSpec(tier_action="self_repair_apply", approval=True),
+    "self_repair.apply": ActionSpec(tier_action="self_repair_apply"),
     "self_repair.rollback": ActionSpec(tier_action="self_repair_rollback"),
 }
 

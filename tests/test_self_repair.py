@@ -187,6 +187,38 @@ def test_phase_b_applies_exact_approved_proposal_and_queues_restart(tmp_path: Pa
     assert queued and queued[0]["job_type"] == "self_repair.restart"
 
 
+def test_phase_b_applies_without_owner_approval_under_tier_4(tmp_path: Path):
+    """Owner decision 2026-11-04: once action_tier=4, a verified proposal
+    applies on its own status ("active") — no `approve <id>` step required."""
+    repo = _repo(tmp_path)
+    vault = tmp_path / "vault"
+    loop = _loop(vault)
+    db = tmp_path / "index.sqlite"
+    proposal = propose(
+        vault=vault, repo=repo, loop_id="loop.self-repair-1", loop_path=loop,
+        author=_author, db_path=db, test_command=["python3", "-c", "print('suite')"],
+        targeted_command=["python3", "-c", "print('target')"], worktree_root=tmp_path / "worktrees",
+    )
+    assert load_markdown(proposal.report_path).frontmatter["status"] == "active"
+
+    with pytest.raises(SelfRepairRefused, match="policy clamp"):
+        apply_approved_proposal(
+            vault=vault, repo=repo, proposal_id=proposal.proposal_id, db_path=db,
+            config={"drive": {"action_tier": 3}},
+        )
+
+    applied = apply_approved_proposal(
+        vault=vault, repo=repo, proposal_id=proposal.proposal_id, db_path=db,
+        config={"drive": {"action_tier": 4}},
+    )
+    assert applied.commit
+    assert (repo / "ordinary.py").read_text(encoding="utf-8") == "VALUE = 2\n"
+    assert load_markdown(proposal.report_path).frontmatter["status"] == "applied"
+    # The Phase A confirmation was never approved, and apply does not need it.
+    confirmation = load_markdown(vault / "confirmations" / f"{proposal.confirmation_id.removeprefix('confirmation.')}.md")
+    assert confirmation.frontmatter["status"] == "pending"
+
+
 def test_phase_b_refuses_changed_approved_report(tmp_path: Path):
     repo = _repo(tmp_path)
     vault = tmp_path / "vault"
