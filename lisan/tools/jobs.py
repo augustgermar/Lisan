@@ -1292,19 +1292,58 @@ def _job_self_repair_apply(job: dict[str, Any], payload: dict[str, Any], job_typ
         raise ValueError("self_repair.apply requires proposal_id")
     repo = Path(str(payload.get("repo") or Path(__file__).resolve().parents[2])).resolve()
     applied = apply_approved_proposal(vault=vault, repo=repo, proposal_id=proposal_id, db_path=db_path, config=cfg)
+    explanation = _explain_self_repair_apply(vault, applied, cfg, db_path)
     try:
         from .scheduler import _deliver_owner_message
 
         _deliver_owner_message(
-            f"Self-repair: applied proposal {applied.proposal_id} as commit {applied.commit} "
-            f"(owner action_tier=4, no confirmation required). Restart queued: {applied.restart_job_id}.",
+            f"Self-repair applied: {applied.proposal_id} -> commit {applied.commit}\n\n"
+            f"{explanation}\n\nRestart queued: {applied.restart_job_id}.",
             config=cfg,
         )
     except Exception:
         # The applied commit and queued restart are durable regardless.
         pass
     return {"proposal_id": applied.proposal_id, "commit": applied.commit,
-            "restart_job_id": applied.restart_job_id, "report": str(applied.report_path)}
+            "restart_job_id": applied.restart_job_id, "report": str(applied.report_path),
+            "explanation": explanation}
+
+
+def _explain_self_repair_apply(vault: Path, applied: Any, cfg: dict[str, Any], db_path: Path | None) -> str:
+    """A few plain-English sentences on what an applied patch changed and
+    why, for the owner's Telegram notification. Best-effort: a summarization
+    failure must never block the notification that the apply already
+    happened, so this always falls back to a deterministic sentence built
+    from the loop's own summary and the changed file paths."""
+    from .self_repair import find_loop_summary, read_proposal_patch
+    from ..frontmatter import load_markdown
+
+    try:
+        report_fm = load_markdown(applied.report_path).frontmatter
+        loop_id = str(report_fm.get("loop_id") or (report_fm.get("links") or [""])[0] or "")
+        patch, paths = read_proposal_patch(applied.report_path)
+    except Exception:
+        return f"Applied proposal {applied.proposal_id}; could not read its own report for details."
+    why = find_loop_summary(vault, loop_id) or loop_id or "a recurring issue the agent noticed on its own"
+    changed = ", ".join(paths) or "its proposed files"
+    fallback = f"Changed {changed} to address: {why}"
+
+    try:
+        from ..providers.base import LisanLLM
+
+        llm = LisanLLM(cfg, db_path)
+        prompt = (
+            "In 2-3 short, plain-English sentences for a non-programmer owner, explain what this "
+            "code patch changes and why. Do not quote the diff or use code syntax.\n\n"
+            f"Problem being fixed: {why}\n\n"
+            f"Files changed: {', '.join(paths)}\n\n"
+            f"Patch:\n{patch}\n"
+        )
+        response = llm.complete(prompt, agent="self_repair_notifier", significance="low")
+        text = str(getattr(response, "text", response) or "").strip()
+        return text or fallback
+    except Exception:
+        return fallback
 
 
 def _job_self_repair_restart(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:

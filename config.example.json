@@ -152,6 +152,11 @@
       "low": "codex",
       "medium": "codex",
       "high": "codex"
+    },
+    "self_repair_notifier": {
+      "low": "codex",
+      "medium": "codex",
+      "high": "codex"
     }
   },
   "context": {

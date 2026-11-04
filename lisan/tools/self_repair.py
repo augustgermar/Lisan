@@ -451,6 +451,30 @@ def _proposal_report_frontmatter(
     }
 
 
+def read_proposal_patch(report_path: Path) -> tuple[str, list[str]]:
+    """The exact diff and changed paths recorded in a proposal report —
+    for a caller (the apply-notification) that wants the patch content
+    without re-deriving the report's markdown layout."""
+    doc = load_markdown(report_path)
+    patch = _report_patch(doc.body)
+    return patch, patch_paths(patch)
+
+
+def find_loop_summary(vault: Path, loop_id: str) -> str | None:
+    """Best-effort lookup of an open loop's human-written summary, by id,
+    regardless of its status — used after apply, when the origin loop has
+    already been marked resolved."""
+    for path in sorted((vault / "open_loops").glob("*.md")):
+        try:
+            fm = load_markdown(path).frontmatter
+        except Exception:
+            continue
+        if str(fm.get("id") or "") == loop_id:
+            summary = fm.get("summary") or fm.get("description")
+            return str(summary) if summary else None
+    return None
+
+
 def _report_patch(body: str) -> str:
     marker = "```diff\n"
     start = body.find(marker)

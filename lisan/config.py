@@ -125,6 +125,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "skill_reviewer":     {"low": "codex", "medium": "codex", "high": "codex"},
         "provider_check":     {"low": "codex", "medium": "codex", "high": "codex"},
         "self_repair_author": {"low": "codex", "medium": "codex", "high": "codex"},
+        "self_repair_notifier": {"low": "codex", "medium": "codex", "high": "codex"},
     },
     # How much vault fits in one provider window. The ceiling is the
     # provider's, not ours: codex rejects >1,048,576 characters outright.

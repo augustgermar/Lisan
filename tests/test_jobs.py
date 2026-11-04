@@ -460,7 +460,8 @@ class SelfRepairAutoChainTests(unittest.TestCase):
         )
 
         with patch("lisan.config.load_config", return_value=self._tier4_config()), \
-             patch("lisan.tools.scheduler._deliver_owner_message"):
+             patch("lisan.providers.base.LisanLLM", side_effect=RuntimeError("no provider in test")), \
+             patch("lisan.tools.scheduler._deliver_owner_message") as deliver:
             job = {"job_type": "self_repair.apply",
                    "payload": {"vault": str(self.vault), "db_path": str(self.db_path),
                                "repo": str(self.repo), "proposal_id": proposal.proposal_id}}
@@ -470,6 +471,43 @@ class SelfRepairAutoChainTests(unittest.TestCase):
         self.assertEqual((self.repo / "ordinary.py").read_text(encoding="utf-8"), "VALUE = 2\n")
         self.assertEqual(get_job_frontmatter_status(proposal.report_path), "applied")
 
+        # Explanation falls back deterministically when the LLM is unavailable,
+        # and the owner notification carries it, not just the commit hash.
+        self.assertIn("ordinary.py", result["explanation"])
+        self.assertIn("ordinary behavior needs repair", result["explanation"])
+        self.assertEqual(deliver.call_count, 1)
+        sent_text = deliver.call_args.args[0]
+        self.assertIn("Self-repair applied", sent_text)
+        self.assertIn(result["explanation"], sent_text)
+
+    def test_apply_notification_uses_the_llm_summary_when_available(self):
+        from lisan.tools import jobs as jobs_module
+        from lisan.tools.self_repair import propose
+        from tests.test_self_repair import _author
+
+        proposal = propose(
+            vault=self.vault, repo=self.repo, loop_id="loop.self-repair-1",
+            loop_path=self._write_loop(), author=_author, db_path=self.db_path,
+            test_command=["python3", "-c", "print('suite')"],
+            targeted_command=["python3", "-c", "print('target')"],
+            worktree_root=self.root / "worktrees",
+        )
+
+        fake_llm = type("FakeLLM", (), {
+            "complete": lambda self, prompt, **kw: type("R", (), {"text": "Fixed a bug in ordinary.py."})(),
+        })()
+
+        with patch("lisan.config.load_config", return_value=self._tier4_config()), \
+             patch("lisan.providers.base.LisanLLM", return_value=fake_llm), \
+             patch("lisan.tools.scheduler._deliver_owner_message") as deliver:
+            job = {"job_type": "self_repair.apply",
+                   "payload": {"vault": str(self.vault), "db_path": str(self.db_path),
+                               "repo": str(self.repo), "proposal_id": proposal.proposal_id}}
+            result = jobs_module.dispatch_job(job, vault=self.vault, db_path=self.db_path)
+
+        self.assertEqual(result["explanation"], "Fixed a bug in ordinary.py.")
+        self.assertIn("Fixed a bug in ordinary.py.", deliver.call_args.args[0])
+
     def _write_loop(self):
         from lisan.frontmatter import write_markdown
 
@@ -477,6 +515,7 @@ class SelfRepairAutoChainTests(unittest.TestCase):
         write_markdown(loop_path, {
             "id": "loop.self-repair-1", "type": "open_loop", "created": "2026-08-01",
             "updated": "2026-08-01", "status": "active", "origin": "self",
+            "summary": "ordinary behavior needs repair",
         }, "A loop")
         return loop_path
 
