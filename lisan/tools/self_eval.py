@@ -28,7 +28,6 @@ from typing import Any
 from .db import connect as _db_connect
 
 from ..frontmatter import load_markdown, write_markdown
-from ..utils import today_iso
 from .log import get_logger, log_error
 
 DEFAULTS: dict[str, Any] = {
@@ -201,7 +200,6 @@ def _parse_transcript(path: Path, day: str) -> list[dict[str, Any]]:
 
 def machine_health(vault: Path, *, db_path: Path | None, days: int) -> dict[str, Any]:
     """Deterministic health signals for the window — no model involved."""
-    import sqlite3
 
     health: dict[str, Any] = {}
     cutoff = (date.today() - timedelta(days=days)).isoformat()
@@ -790,7 +788,7 @@ def _last_history_entry(vault: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
     try:
-        lines = [l for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
         return json.loads(lines[-1]) if lines else None
     except Exception:
         return None

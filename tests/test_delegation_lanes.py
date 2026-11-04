@@ -1,7 +1,6 @@
 """Delegation step 3: lanes, the atomic concurrency cap, and crash recovery."""
 from __future__ import annotations
 
-import os
 import sqlite3
 import subprocess
 import threading

@@ -9,9 +9,9 @@ from typing import Any, Callable, Iterable
 from ..frontmatter import load_markdown, write_markdown
 from ..providers.embeddings import EmbeddingProvider
 from ..utils import today_iso
-from .research import LocalRootProvider, SourceFinding, SourceProvider, search_owner_sources, search_published_sources
+from .research import LocalRootProvider, SourceProvider, search_owner_sources, search_published_sources
 from .retrieval import retrieve_context
-from .transcript_lane import TranscriptHit, search_transcripts
+from .transcript_lane import search_transcripts
 
 
 MAX_INFERENCE_CONFIDENCE = 0.6

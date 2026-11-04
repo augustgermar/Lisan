@@ -173,13 +173,13 @@ def test_a_provider_failure_marks_nothing_reviewed_and_propagates(env):
 
 
 def test_a_reviewer_that_cites_events_it_was_not_given_is_refused(env):
-    ids = record(env, 2)
+    record(env, 2)
     result = review(env, fake([good_patch(["turn:invented"])]))
     assert not result.verdicts[0].accepted and "not one of the events reviewed" in result.verdicts[0].reasons[0]
 
 
 def test_an_empty_answer_is_a_valid_review_and_still_marks_events_reviewed(env):
-    ids = record(env, 3)
+    record(env, 3)
     result = review(env, fake([], summary="routine work; nothing reusable"))
     assert result.verdicts == [] and L.unreviewed_ids(env.db) == []
     assert R.digest(result) is None  # nothing to tell the owner
@@ -281,7 +281,7 @@ def test_observe_mode_never_queues_a_review(env):
 
 
 def test_reviewed_events_do_not_count_toward_the_next_review(env):
-    ids = record(env, 3)
+    record(env, 3)
     review(env, fake())
     assert L.unreviewed_ids(env.db) == []
     assert L.maybe_enqueue_review(env.vault, env.db, SHADOW) is None

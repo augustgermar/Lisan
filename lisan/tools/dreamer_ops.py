@@ -13,7 +13,7 @@ from ..utils import today_iso
 from .context_budget import ChunkPlan, Record, Section, budget_from_config, plan_chunks, render
 from .deixis import render_for_display
 from .epistemic import canonical_pattern_status, pattern_age_days, pattern_minimum_age_days
-from .primer_audit import build_primer_audit_bundle, primer_audit_sections
+from .primer_audit import primer_audit_sections
 
 
 # Tasks whose contract is not the generic dreamer_output shape: the class

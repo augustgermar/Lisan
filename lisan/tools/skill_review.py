@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import learning
-from .skill_apply import Applied, ApplyRefused, apply_change
+from .skill_apply import ApplyRefused, apply_change
 from .skill_gate import GateVerdict, Operation, gate_batch, is_repairable, parse_operations
 from .skill_lifecycle import evaluate_lifecycle
 

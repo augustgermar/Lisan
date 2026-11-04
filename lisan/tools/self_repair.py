@@ -22,8 +22,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from ..frontmatter import dump_markdown, load_markdown, write_markdown
-from ..utils import slugify
+from ..frontmatter import load_markdown, write_markdown
 from .adjutant_confirmations import create_confirmation_for_task
 
 Author = Callable[[str], str]
@@ -779,7 +778,6 @@ def run_bake_check(
     now = datetime.now(timezone.utc)
     bake_end_str = str(fm.get("bake_end") or "")
     bake_start_str = str(fm.get("bake_start") or "")
-    applied_commit = str(fm.get("bake_applied_commit") or fm.get("applied_commit") or "")
     dimension = fm.get("targeted_dimension")
     pre_score = fm.get("bake_pre_score")
     extensions = int(fm.get("bake_extensions") or 0)

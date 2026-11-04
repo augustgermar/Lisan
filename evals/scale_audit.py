@@ -91,7 +91,6 @@ def retrieval_probe(ents: list[dict], sample: int = 8) -> list[dict]:
     picks = rng.sample(people, min(sample, len(people))) if people else []
     results = []
     for e in picks:
-        first = e["name"].split()[0]
         started = time.time()
         try:
             ctx = assemble_context(f"tell me about {e['name']}", vault=VAULT, db_path=DB)

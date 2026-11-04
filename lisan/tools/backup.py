@@ -6,12 +6,11 @@ import subprocess
 import tarfile
 import tempfile
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from ..config import load_config
-from ..paths import embeddings_path, repo_root, sqlite_path, vault_root
+from ..paths import repo_root, vault_root
 from ..utils import today_iso
 from .manifest_gen import generate_manifests
 from .rebuild_index import rebuild_index

@@ -283,11 +283,6 @@ class ConversationAgent(PromptAgent):
         return json.dumps({"response": note})
 
     def fallback_output(self, user_input: str, significance: str = "medium", **kwargs: Any) -> str:
-        try:
-            payload = json.loads(user_input)
-            message = str(payload.get("user_message") or "").strip()
-        except Exception:
-            message = ""
         # Name what failed: "provider failure" is opaque; "my language model
         # timed out" tells the user it's transient and worth retrying.
         note = "My language model didn't respond just now — that's a transient hiccup, not your message. Say that again and I'll take another run at it."

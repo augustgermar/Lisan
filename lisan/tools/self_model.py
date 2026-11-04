@@ -502,7 +502,6 @@ def _enrichment_audit_summary(vault: Path, *, days: int = 30) -> dict[str, Any]:
 
 
 def _last_success_time(job_type: str, db_path: Path) -> str | None:
-    import sqlite3
 
     try:
         conn = _db_connect(db_path)

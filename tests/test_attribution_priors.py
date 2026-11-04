@@ -215,7 +215,7 @@ class ChallengeEnforcementTests(PriorsMinerBase):
         result, calls = self._turn([all_in, cleared])
         self.assertEqual(calls, 2)
         self.assertNotIn("hold them extra loosely", result["response"])
-        events = [json.loads(l) for l in (self.vault / "logs" / "iip-challenges.jsonl").read_text().splitlines()]
+        events = [json.loads(line) for line in (self.vault / "logs" / "iip-challenges.jsonl").read_text().splitlines()]
         challenge = events[-1]["challenge"]
         self.assertEqual(challenge["outcome"], "cleared")
         self.assertTrue(challenge["priors_matched"])
@@ -228,7 +228,7 @@ class ChallengeEnforcementTests(PriorsMinerBase):
         result, calls = self._turn([all_in, all_in, all_in])
         self.assertEqual(calls, 2)  # shares the N=1 budget
         self.assertIn("hold them extra loosely", result["response"])
-        events = [json.loads(l) for l in (self.vault / "logs" / "iip-challenges.jsonl").read_text().splitlines()]
+        events = [json.loads(line) for line in (self.vault / "logs" / "iip-challenges.jsonl").read_text().splitlines()]
         self.assertEqual(events[-1]["challenge"]["outcome"], "still_in_register")
 
 

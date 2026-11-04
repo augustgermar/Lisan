@@ -17,13 +17,11 @@ from lisan.tools.self_update import (
     apply_update,
     check_remote,
     ensure_self_update_job,
-    read_update_state,
     render_update_status,
     run_periodic_check,
     set_update_mode,
 )
 from lisan.paths import ensure_repo_layout, vault_root
-from lisan.tools.jobs import enqueue_job
 
 
 def _git(repo: Path, args: list[str]) -> subprocess.CompletedProcess:

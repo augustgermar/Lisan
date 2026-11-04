@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.conversation import run_conversation_turn
-from lisan.tools.jobs import enqueue_job, get_job, mark_job_failed
+from lisan.tools.jobs import enqueue_job, mark_job_failed
 from lisan.tools.self_model import render_self_state, snapshot_self_state
 
 

@@ -67,7 +67,8 @@ class PrimerIndexTests(unittest.TestCase):
             self.assertIn("Maya", first)
 
             # Touch with new content + bump mtime.
-            import os, time
+            import os
+            import time
             time.sleep(0.05)
             primer.write_text("# Identity\n\nBob Jones.\n", encoding="utf-8")
             os.utime(primer, None)

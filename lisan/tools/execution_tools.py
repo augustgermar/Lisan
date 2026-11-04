@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 from pathlib import Path
 from typing import Any, Callable
 
@@ -1255,15 +1254,6 @@ def ingest_files_tool(
     total = sum(counts.values())
     if not total:
         return f"Nothing ingestible found at {source}."
-    new_entities = plan.get("would_create_entities") or []
-    task = (
-        f"assimilate {total} file(s) from {source}: "
-        f"{counts.get('entity', 0)} life notes (creating {len(new_entities)} new entities), "
-        f"{counts.get('episode', 0)} dated notes as episodes, "
-        f"{counts.get('knowledge', 0)} as knowledge, "
-        f"{counts.get('skipped_empty', 0)} empty skipped"
-        + (", replacing previous versions" if replace else "")
-    )
     try:
         result = ingest_life_sources([source], vault=vault, db_path=db_path, replace=replace, plan_only=False)
     except Exception as exc:

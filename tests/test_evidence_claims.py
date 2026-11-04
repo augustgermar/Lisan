@@ -7,7 +7,7 @@ from pathlib import Path
 
 from lisan.frontmatter import load_markdown, write_markdown
 from lisan.paths import ensure_repo_layout, vault_root
-from lisan.tools.analyst_ops import build_analyst_bundle, run_analyst_scan
+from lisan.tools.analyst_ops import run_analyst_scan
 from lisan.tools.epistemic import review_claim_against_evidence
 from lisan.tools.record_factory import new_claim, new_evidence, new_pattern, new_skeptical_review, new_state
 from lisan.tools.retrieval import assemble_context
@@ -216,7 +216,7 @@ class EvidenceClaimTests(unittest.TestCase):
             observed_facts=["The note says the user delayed the work reply and avoided the decision."],
             reliability="medium",
         )
-        evidence_three = new_evidence(
+        new_evidence(
             vault=self.vault,
             title="Avoidance note three",
             source_type="journal",
@@ -340,7 +340,7 @@ class EvidenceClaimTests(unittest.TestCase):
         self.assertIn("age<7d", blocked_text)
 
     def test_diagnostic_language_fails_validation(self) -> None:
-        pattern = new_pattern(
+        new_pattern(
             vault=self.vault,
             pattern_type="other",
             hypothesis="This is a narcissistic pattern.",

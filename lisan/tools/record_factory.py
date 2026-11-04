@@ -1726,7 +1726,6 @@ def new_confirmation(
 
 def supersede_record(vault: Path, record_id: str, db_path: Path | None = None) -> bool:
     """Mark an existing record as superseded in-place. Returns True if updated."""
-    import sqlite3 as _sqlite3
     from ..paths import sqlite_path
     _db = db_path or sqlite_path()
     if not _db.exists():

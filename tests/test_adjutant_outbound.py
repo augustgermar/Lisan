@@ -19,7 +19,6 @@ from lisan.paths import ensure_vault_layout
 from lisan.tools.adjutant_confirmations import (
     confirmation_command_response,
     create_confirmation_for_task,
-    expire_stale_confirmations,
     list_pending,
 )
 from lisan.tools.adjutant_executor import execute_notify, execute_research
@@ -268,7 +267,7 @@ def test_double_expiry_pings_owner_exactly_once(world):
         from lisan.tools.rebuild_index import reindex_record
 
         reindex_record(vault / row_path, vault, db)
-        result = run_cycle(vault, db, config=config, capture=Spy(), deliver=pings.append)
+        run_cycle(vault, db, config=config, capture=Spy(), deliver=pings.append)
         # Re-arm the loop for the next round.
         doc = load_markdown(loop_path)
         fm = dict(doc.frontmatter)

@@ -3,14 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from .db import connect as _db_connect
 
 from ..config import load_config
 from ..frontmatter import FrontmatterError, load_markdown
-from ..paths import embeddings_path, repo_root, sqlite_path, vault_root
+from ..paths import sqlite_path, vault_root
 from ..providers.embeddings import EmbeddingProvider
 from .domain_fields import normalize_domain_fields
 from .scope import record_scope
@@ -23,7 +22,7 @@ from .epistemic import (
 from .ingest import ensure_ingestion_manifest_table
 from .ingest_batches import ensure_ingestion_batches_table
 from .jobs import ensure_jobs_table
-from .common import iter_markdown_files, parse_date
+from .common import iter_markdown_files
 from .vector_store import clear_index_cache, load_index, write_embeddings
 
 

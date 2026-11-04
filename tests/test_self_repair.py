@@ -14,7 +14,6 @@ from lisan.tools.self_repair import (
     run_bake_check,
     _bake_metadata,
     _latest_dimension_score,
-    _targeted_dimension,
 )
 from lisan.tools.adjutant_confirmations import approve_confirmation
 from lisan.tools.jobs import list_jobs

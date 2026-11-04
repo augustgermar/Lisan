@@ -150,7 +150,7 @@ class AssimilationTests(_Env):
         self.assertGreaterEqual(len(linked), 1)
 
     def test_rerun_is_idempotent(self):
-        first = ingest_life_sources([self.src], vault=self.vault, db_path=self.db)
+        ingest_life_sources([self.src], vault=self.vault, db_path=self.db)
         second = ingest_life_sources([self.src], vault=self.vault, db_path=self.db)
         self.assertEqual(second["entities_created"], [])
         self.assertEqual(second["rewrite_jobs"], 0)  # same note content: no re-append

@@ -20,7 +20,6 @@ Pinned here:
 """
 from __future__ import annotations
 
-import json
 
 import pytest
 
@@ -409,7 +408,8 @@ def test_rederived_pattern_updates_in_place(vault):
                         supporting_records=[], first_seen="2026-07-15")
     # Simulate the record having been created on an earlier day.
     doc = load_markdown(first.path)
-    fm = dict(doc.frontmatter); fm["created"] = "2026-07-15"
+    fm = dict(doc.frontmatter)
+    fm["created"] = "2026-07-15"
     write_markdown(first.path, fm, doc.body)
 
     second = new_pattern(vault=vault, pattern_type="work_loop",

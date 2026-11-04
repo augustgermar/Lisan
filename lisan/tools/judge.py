@@ -8,7 +8,6 @@ scores (or null where the exchange offers no evidence).
 from __future__ import annotations
 
 import json
-import math
 from typing import Any
 
 from ..config import load_config

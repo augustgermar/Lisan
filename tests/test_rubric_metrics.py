@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+from lisan.tools import judge as tool_judge
+
 _EVALS = Path(__file__).resolve().parents[1] / "evals"
 
 
@@ -24,7 +26,6 @@ rubric_mod = _load("rubric")
 metrics_mod = _load("metrics")
 judge_mod = _load("judge")
 
-from lisan.tools import judge as tool_judge
 
 
 def _seed_kernel_with_voice(vault: Path) -> None:

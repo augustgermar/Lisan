@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import sqlite3
 import sys
 import textwrap
 import time
@@ -15,16 +14,16 @@ from typing import Any
 from .db import connect as _db_connect
 
 from ..config import load_config
-from ..paths import sqlite_path, vault_root
+from ..paths import sqlite_path
 from .primer_index import assistant_display_name
 from ..utils import today_iso
 from .chat_turns import classify_turn
 from .log import log_error, tail_log
 from .transcripts import append_transcript
-from .tracing import finalize_turn_trace, record_inline_step, record_jobs_queued, reset_current_turn_trace, start_turn_trace
+from .tracing import finalize_turn_trace, record_inline_step, reset_current_turn_trace, start_turn_trace
 from ..providers.base import ProviderError
 from .provider_diagnostics import ProviderDiagnosticResult, diagnose_provider
-from .term import color, readline_prompt, BOLD, DIM, ITALIC, CYAN, GREEN, YELLOW, RED, BLUE, BLUE_DEEP, SKY, GREY, GREY_DIM, GREY_FAINT, CODEX, CODEX_DIM, CODEX_CMD
+from .term import color, readline_prompt, BOLD, DIM, ITALIC, GREEN, YELLOW, RED, BLUE, BLUE_DEEP, SKY, GREY, GREY_DIM, GREY_FAINT, CODEX, CODEX_DIM, CODEX_CMD
 
 
 
@@ -136,19 +135,16 @@ def _check_vault(vault: Path) -> bool:
 
 def _check_index(vault: Path) -> bool:
     db = sqlite_path()
-    needs_rebuild = not db.exists()
     if db.exists():
         try:
             conn = _db_connect(db)
             count = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
             conn.close()
-            if count == 0:
-                needs_rebuild = True
-            else:
+            if count:
                 print(color('  ✓ ', GREEN) + color(f'index  {count} record' + ('s' if count != 1 else ''), GREY))
                 return True
         except Exception:
-            needs_rebuild = True
+            pass  # unreadable index: fall through and rebuild
 
     print(f"  {color('!', YELLOW)} Index missing or empty — rebuilding…")
     try:

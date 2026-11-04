@@ -65,7 +65,7 @@ Participants keep control over their budgets.
             self.assertTrue(all(_token_count(c.body) <= DEFAULT_MAX_TOKENS for c in chunks))
 
     def test_reference_ingest_creates_knowledge_and_links_entities(self) -> None:
-        maya = new_entity(self.vault, "Maya", subtype="person", summary="Maya is the principal's daughter.")
+        new_entity(self.vault, "Maya", subtype="person", summary="Maya is the principal's daughter.")
         doc = self.src / "sdp-manual.md"
         doc.write_text(
             "# SDP Training Manual\n\n## Budget Authority\n\nMaya can reallocate SDP funds through the Regional Center.\n",

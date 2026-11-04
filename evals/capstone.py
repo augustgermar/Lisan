@@ -88,7 +88,7 @@ def run_scenario(path: Path, *, judge: bool, judge_provider: str, judge_model: s
                                                     context=context)})
 
     log_after = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
-    new_markers = [l for l in log_after[len(log_before):].splitlines() if "drive." in l]
+    new_markers = [line for line in log_after[len(log_before):].splitlines() if "drive." in line]
 
     bundle = {
         "scenario": scenario["name"],

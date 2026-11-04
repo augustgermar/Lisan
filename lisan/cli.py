@@ -43,7 +43,7 @@ from .tools.ingest import (
     scan_path,
     show_artifact,
 )
-from .tools.ingest_batches import get_batch, list_batches, quarantine_batch, summarize_batch
+from .tools.ingest_batches import list_batches, quarantine_batch, summarize_batch
 from .tools.heuristic_gate import score_text
 from .tools.confidence_decay import detect_decay_candidates
 from .tools.manifest_gen import generate_manifests
@@ -867,7 +867,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     telegram_cmd = subparsers.add_parser("telegram", help="Talk to Lisan over a Telegram bot")
     telegram_subparsers = telegram_cmd.add_subparsers(dest="telegram_command", required=True)
-    telegram_setup = telegram_subparsers.add_parser("setup", help="Interactive wizard: token + allowlist")
+    telegram_subparsers.add_parser("setup", help="Interactive wizard: token + allowlist")
     telegram_run = telegram_subparsers.add_parser("run", help="Start the Telegram long-poll bot (Ctrl-C to stop)")
     telegram_run.add_argument("--vault", type=Path, default=vault_root())
     telegram_run.add_argument("--provider", default=None)
@@ -997,7 +997,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     entities_cmd = subparsers.add_parser("entities", help="Entity maintenance: find and merge duplicates")
     entities_sub = entities_cmd.add_subparsers(dest="entities_command", required=True)
-    entities_dedup = entities_sub.add_parser("dedup", help="List same-kind near-duplicate entities worth merging")
+    entities_sub.add_parser("dedup", help="List same-kind near-duplicate entities worth merging")
     entities_merge = entities_sub.add_parser("merge", help="Merge one entity into another (content absorbed, fragment archived, names become aliases)")
     entities_merge.add_argument("source", help="Entity to absorb (name, id, or file stem)")
     entities_merge.add_argument("target", help="Entity that survives")

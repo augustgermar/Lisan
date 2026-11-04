@@ -26,7 +26,7 @@ import sqlite3
 
 import pytest
 
-from lisan.frontmatter import dump_markdown, load_markdown, write_markdown
+from lisan.frontmatter import dump_markdown, load_markdown
 from lisan.paths import ensure_vault_layout
 from lisan.tools.adjutant_gate import gate
 from lisan.tools.db import connect as db_connect

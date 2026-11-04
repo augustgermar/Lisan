@@ -31,8 +31,8 @@ def test_kernel_provenance_also_counts_as_ratification(tmp_path, monkeypatch):
 def test_one_hand_edit_is_one_drift_line(tmp_path):
     for _ in range(5):  # verify_kernel runs every turn
         kernel._record_drift(tmp_path, stored="a" * 64, actual="b" * 64)
-    lines = [l for l in (tmp_path / "reports" / "kernel-drift.md").read_text().splitlines() if l.startswith("- ")]
+    lines = [line for line in (tmp_path / "reports" / "kernel-drift.md").read_text().splitlines() if line.startswith("- ")]
     assert len(lines) == 1
     kernel._record_drift(tmp_path, stored="b" * 64, actual="c" * 64)  # a second, different edit
-    lines = [l for l in (tmp_path / "reports" / "kernel-drift.md").read_text().splitlines() if l.startswith("- ")]
+    lines = [line for line in (tmp_path / "reports" / "kernel-drift.md").read_text().splitlines() if line.startswith("- ")]
     assert len(lines) == 2

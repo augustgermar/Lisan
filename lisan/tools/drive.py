@@ -25,7 +25,7 @@ marker — the WO-3 metrics count exactly these.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -75,7 +75,7 @@ def loop_score(fm: dict[str, Any], now: date | None = None, *, max_age_days: int
     salience = _SALIENCE.get(str(fm.get("significance") or "low"), 1.0)
     if str(fm.get("priority") or "") == "high":
         salience += 1.0
-    stake = 2.0 if any(str(l).startswith("self_episode.") for l in (fm.get("links") or [])) else 0.0
+    stake = 2.0 if any(str(link).startswith("self_episode.") for link in (fm.get("links") or [])) else 0.0
     age_component = min(2.0, age_days / 7.0)  # tension builds over the first two weeks
     return round((salience + stake + age_component) * decay, 3)
 

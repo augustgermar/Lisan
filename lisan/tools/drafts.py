@@ -7,7 +7,7 @@ from typing import Any
 
 from ..frontmatter import load_markdown, write_markdown
 from .domain_fields import normalize_domain_fields, with_domain_fields
-from .record_factory import new_decision, new_entity, new_episode, new_knowledge, new_open_loop, new_state
+from .record_factory import new_decision, new_entity, new_knowledge, new_open_loop, new_state
 from ..utils import slugify, today_iso
 
 _WRITER_BLOCK_RE = re.compile(r"## Writer\n\n```json\n(.*?)\n```", re.DOTALL)
@@ -93,7 +93,7 @@ def promote_episode_from_writer(
     confidence = wfm.get("confidence", "low")
     if isinstance(confidence, (int, float)):
         confidence = "high" if confidence >= 0.8 else "medium" if confidence >= 0.5 else "low"
-    links = [str(l) for l in (wfm.get("links") or [])]
+    links = [str(link) for link in (wfm.get("links") or [])]
     try:
         links.append(str(draft_path.relative_to(vault)))
     except ValueError:

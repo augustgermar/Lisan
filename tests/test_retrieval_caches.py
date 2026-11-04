@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 
 from lisan.frontmatter import write_markdown
-import lisan.tools.retrieval  # initialize the layer/graph import cycle
 from lisan.tools.retrieval_graph import _dreamer_coupled_pairs
 
 

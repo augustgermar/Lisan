@@ -463,7 +463,7 @@ def build_self_analyst_bundle(vault: Path, *, db_path: Path | None = None) -> st
             "## Analysis Subject",
             f"- id: {self_ent['id']}",
             f"- name: {self_ent['canonical_name']}",
-            f"- kind: agent (self)",
+            "- kind: agent (self)",
             "",
         ])
 
@@ -485,7 +485,7 @@ def build_self_analyst_bundle(vault: Path, *, db_path: Path | None = None) -> st
     if history_path.exists():
         sections.append("## Self-Evaluation History")
         try:
-            lines = [l for l in history_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+            lines = [line for line in history_path.read_text(encoding="utf-8").splitlines() if line.strip()]
             for line in lines[-20:]:
                 entry = json.loads(line)
                 dims = entry.get("dimensions") or {}

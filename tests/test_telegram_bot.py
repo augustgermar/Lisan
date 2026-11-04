@@ -538,7 +538,9 @@ class WizardTests(unittest.TestCase):
         self.assertFalse(_valid_token_format("123:short"))
 
     def test_get_me_returns_bot_on_ok(self):
-        api = lambda token, method, params, *, timeout=0: {"ok": True, "result": {"username": "lisanbot", "first_name": "Lisan"}}
+        def api(token, method, params, *, timeout=0):
+            return {"ok": True, "result": {"username": "lisanbot", "first_name": "Lisan"}}
+
         self.assertEqual(get_me("tok", api=api)["username"], "lisanbot")
 
     def test_get_me_returns_none_on_failure(self):
@@ -634,7 +636,7 @@ class SchedulerThreadTests(unittest.TestCase):
         return [p for m, p in self.calls if m == "sendMessage"]
 
     def test_due_reminder_delivers_through_bot_session(self):
-        from lisan.tools.jobs import enqueue_job, get_job, list_jobs
+        from lisan.tools.jobs import enqueue_job, get_job
 
         job_id = enqueue_job(
             "task.reminder",

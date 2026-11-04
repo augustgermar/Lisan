@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 import uuid
 from dataclasses import asdict, is_dataclass
@@ -18,7 +17,7 @@ from .job_policy import (
     priority_for_job_type,
     unique_group_for_job,
 )
-from .ingest_batches import ensure_ingestion_batches_table, get_batch
+from .ingest_batches import ensure_ingestion_batches_table
 from ..utils import json_dumps_stable as _json_dumps, json_loads_forgiving as _json_loads, parse_utc_timestamp as _parse_timestamp, today_iso
 from .db import connect as _connect
 
@@ -359,7 +358,6 @@ def _coalesce_or_insert(
         merged_priority = min(int(queued_row["priority"] or priority), int(priority))
         merged_max_attempts = max(int(queued_row["max_attempts"] or max_attempts), int(max_attempts))
         merged_scheduled_for = _min_timestamp(str(queued_row["scheduled_for"] or "") or None, scheduled_for)
-        existing_count = int(queued_row["coalesced_count"] or 0)
         conn.execute(
             """
             UPDATE jobs

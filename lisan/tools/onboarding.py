@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
 
 from ..config import load_config
@@ -10,7 +9,7 @@ from ..paths import write_high_stakes_seed
 from ..utils import slugify, today_iso
 from .agent_namer import AgentIdentity, generate_agent_identity
 from .primer_index import assistant_display_name, assistant_hash, assistant_nickname, assistant_name, assistant_seed, principal_name
-from .term import color, BOLD, DIM, CYAN, GREEN, YELLOW
+from .term import color, BOLD, DIM, GREEN
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

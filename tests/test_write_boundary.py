@@ -4,7 +4,6 @@ import json
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 import pytest
 

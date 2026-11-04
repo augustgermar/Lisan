@@ -15,11 +15,11 @@ from typing import Any
 
 from ..config import load_config
 from ..frontmatter import load_markdown, write_markdown
-from ..paths import sqlite_path, vault_root
+from ..paths import sqlite_path
 from ..utils import slugify, today_iso
 from .ingest import ingest_reference_sources
 from .research import SourceFinding, WebSearchProvider, installed_published_providers, search_published_sources
-from .source_tiers import SOURCE_TIERS, normalize_source_tier, now_utc, origin_for_url, origin_matches
+from .source_tiers import normalize_source_tier, now_utc, origin_for_url, origin_matches
 from .record_factory import supersede_record
 
 

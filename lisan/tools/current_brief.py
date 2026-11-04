@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
 
 from ..frontmatter import load_markdown, write_markdown
 from ..paths import ensure_vault_layout, vault_root

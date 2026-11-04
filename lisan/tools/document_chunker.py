@@ -124,7 +124,6 @@ def _parse_sections(text: str, *, title: str, source_ref_base: str) -> list[_Sec
             current_pages = set()
             return
         breadcrumb = " > ".join(part for _, part in stack if part)
-        source_ref = _source_ref_for(source_ref_base, breadcrumb, current_pages)
         sections.append(
             _Section(
                 title=current_title,

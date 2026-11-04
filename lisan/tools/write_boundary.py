@@ -8,7 +8,6 @@ filesystem existence check and mint the same live id.
 from __future__ import annotations
 
 import os
-import sqlite3
 import tempfile
 import uuid
 from collections import Counter

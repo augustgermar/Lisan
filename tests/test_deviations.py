@@ -104,7 +104,8 @@ class DetectorTests(_Env):
         for _ in range(6):
             conn.execute("INSERT INTO jobs (job_type, status, payload_json, priority, attempts, max_attempts, created_at) "
                          "VALUES ('x', 'failed', '{}', 50, 1, 1, '2026-07-05T00:00:00Z')")
-        conn.commit(); conn.close()
+        conn.commit()
+        conn.close()
         found = [d for d in detect(self.vault, db_path=self.db) if d["klass"] == "interocept"]
         self.assertTrue(any("machinery" in d["summary"] for d in found))
 
