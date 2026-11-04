@@ -21,7 +21,7 @@ pdf = ["pymupdf>=1.24.0"]
 # Claude provider: drives the local `claude` CLI via the Claude Agent SDK (no API key).
 claude = ["claude-agent-sdk>=0.2"]
 docs = ["mkdocs-material>=9.5"]
-test = ["pytest>=8.0"]
+test = ["pytest>=8.0", "pytest-cov>=5.0"]
 
 [project.scripts]
 lisan = "lisan.cli:main"
@@ -34,3 +34,8 @@ packages = ["lisan", "lisan.providers", "lisan.tools", "lisan.agents", "lisan.sc
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["lisan"]
+# Relative paths are required by the coverage badge action in CI.
+relative_files = true

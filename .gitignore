@@ -87,3 +87,7 @@ lisan/tools/jd_unmerge_migration.py
 lisan/tools/title_alias_cleanup_migration.py
 lisan/tools/deixis_date_migration.py
 tests/test_deixis_date_migration.py
+
+# Coverage output
+.coverage
+htmlcov/
