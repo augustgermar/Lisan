@@ -175,7 +175,7 @@ class GraphRetrievalTests(unittest.TestCase):
         counterexample = self._record_id("evidence", "Positive demo")
         pattern_hypothesis = "I avoid visibility when a work request feels uncertain."
         pattern_id = f"pattern.{slugify(f'avoidance_loop-{pattern_hypothesis}')[:80]}"
-        evidence_a = new_evidence(
+        new_evidence(
             vault=self.vault,
             title="Manager follow-up one",
             source_type="journal",
@@ -186,7 +186,7 @@ class GraphRetrievalTests(unittest.TestCase):
             linked_claims=[],
             linked_episodes=[],
         )
-        evidence_b = new_evidence(
+        new_evidence(
             vault=self.vault,
             title="Manager follow-up two",
             source_type="journal",
@@ -264,7 +264,7 @@ class GraphRetrievalTests(unittest.TestCase):
         self.assertNotIn("Rejected By Quarantine", context)
 
     def test_vector_only_record_can_enter_fused_results(self) -> None:
-        vector_record = new_evidence(
+        new_evidence(
             vault=self.vault,
             title="Vector only record",
             source_type="journal",
@@ -293,7 +293,7 @@ class GraphRetrievalTests(unittest.TestCase):
         self.assertTrue(any(item.id == vector_id for item in result.direct_loaded))
 
     def test_keyword_only_record_can_enter_fused_results(self) -> None:
-        keyword_record = new_evidence(
+        new_evidence(
             vault=self.vault,
             title="Keyword only record",
             source_type="journal",
@@ -322,7 +322,7 @@ class GraphRetrievalTests(unittest.TestCase):
         self.assertTrue(any(item.id == keyword_id for item in result.direct_loaded))
 
     def test_multi_layer_record_outranks_single_layer_record(self) -> None:
-        multi_record = new_evidence(
+        new_evidence(
             vault=self.vault,
             title="Multi layer record",
             source_type="journal",
@@ -333,7 +333,7 @@ class GraphRetrievalTests(unittest.TestCase):
             linked_claims=[],
             linked_episodes=[],
         )
-        single_record = new_evidence(
+        new_evidence(
             vault=self.vault,
             title="Single layer record",
             source_type="journal",
@@ -374,7 +374,7 @@ class GraphRetrievalTests(unittest.TestCase):
         self.assertTrue(any(item.id == single_id for item in result.direct_loaded))
 
     def test_fusion_does_not_block_legacy_context_fields(self) -> None:
-        blocked_record = new_evidence(
+        new_evidence(
             vault=self.vault,
             title="Blocked legal record",
             source_type="document",
@@ -405,7 +405,7 @@ class GraphRetrievalTests(unittest.TestCase):
         self.assertFalse(any(item.id == blocked_id for item in result.rejected))
 
     def test_disabled_fusion_falls_back_to_legacy_retrieval(self) -> None:
-        legacy_record = new_evidence(
+        new_evidence(
             vault=self.vault,
             title="Legacy fallback record",
             source_type="journal",

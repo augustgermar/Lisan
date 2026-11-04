@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date
 from pathlib import Path
 from typing import Any
 
 from ..frontmatter import FrontmatterError, load_markdown
 from ..paths import vault_root
 from .domain_fields import normalize_domain_fields
-from .common import iter_markdown_files, parse_date
+from .common import iter_markdown_files
 
 
 def generate_manifests(vault: Path | None = None, write: bool = True) -> dict[str, str]:

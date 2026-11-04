@@ -34,7 +34,7 @@ from typing import Any
 from . import skill_frontmatter as fm
 from .learning import is_eval_conversation
 from .skill_format import SKILL_FILE, parse_frontmatter, parse_skill_md
-from .skill_history import CODE_ENTRIES, HISTORY_DIR, SkillHistoryError, is_pinned, read_provenance
+from .skill_history import CODE_ENTRIES, is_pinned, read_provenance
 
 OPS = ("patch", "add_reference", "create", "none")
 MIN_EVIDENCE = {"patch": 1, "add_reference": 1, "create": 2}  # create: 2 independent events (decision 4)

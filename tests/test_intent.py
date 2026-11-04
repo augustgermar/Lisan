@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from lisan.frontmatter import dump_markdown, load_markdown
+from lisan.frontmatter import dump_markdown
 from lisan.tools.intent import (
     CONFIRM,
     DENY,

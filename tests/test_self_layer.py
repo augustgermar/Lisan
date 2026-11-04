@@ -19,7 +19,6 @@ from lisan.tools.self_episodes import (
     SelfEvent,
     assemble_self_episodes,
     ceremony_events,
-    collect_events,
     job_events,
     record_job_episode,
     write_self_episode,

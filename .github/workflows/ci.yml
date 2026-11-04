@@ -154,7 +154,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: python -m pip install --upgrade pip && python -m pip install -e ".[test]" ruff
+      - run: python -m pip install --upgrade pip && python -m pip install -e ".[test,lint]"
 
       - name: Lint — defect classes that break at runtime, hard failure
         # Deliberately narrow, and every rule here earned its place on
@@ -171,14 +171,14 @@ jobs:
         #   F601 repeated dict key     -> a dead `"summary"` key in new_state that
         #                                 the later key silently overwrote.
         #   E9   syntax / IO errors
+        # 2026-11-04: the F401/F841 backlog (222 unused imports, 30 unused
+        # locals) was burned down, so the whole pyflakes family (F) is now
+        # hard, across the repo rather than lisan/ and tests/ only.
         # The tree is clean on all of these; keeping them hard means it stays so.
-        run: python -m ruff check lisan tests --select F821,F811,F402,F601,E9
+        run: python -m ruff check . --select F,E9 --output-format=github
 
-      - name: Lint — full ruleset, advisory
-        # ~212 findings remain, almost all F401 unused imports and F841 unused
-        # locals. Advisory rather than hard: gating on them today would mean a
-        # mass-rewrite commit landing next to real work, and an advisory check
-        # that reports is worth more than a strict one nobody turns on. Burn the
-        # backlog down, then promote rules into the hard list above.
-        continue-on-error: true
-        run: python -m ruff check lisan tests --statistics
+      - name: Lint — full ruleset, hard failure
+        # Ruleset comes from [tool.ruff.lint] in pyproject.toml, so local runs
+        # and CI agree. Promoted from advisory on 2026-11-04 once the last 31
+        # style findings were fixed; the tree is clean, keep it that way.
+        run: python -m ruff check . --output-format=github

@@ -3,7 +3,6 @@ from __future__ import annotations
 from lisan.frontmatter import load_markdown, write_markdown
 from lisan.tools.content_trust import UNTRUSTED, UNKNOWN, TRUSTED, normalize_content_trust, raise_content_trust
 from lisan.tools.record_factory import new_knowledge
-import lisan.tools.retrieval  # initialize the retrieval layer/graph cycle
 from lisan.tools.retrieval_graph import _format_item_detail
 from lisan.tools.retrieval_layers import RetrievalItem
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -113,8 +114,6 @@ def write_embeddings(
         if tmp.exists():
             tmp.unlink()
 
-
-from contextlib import contextmanager
 
 
 @contextmanager

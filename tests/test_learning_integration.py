@@ -4,11 +4,10 @@ the work it observes."""
 from __future__ import annotations
 
 import json
-import sqlite3
 import tarfile
 from contextlib import contextmanager
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 

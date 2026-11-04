@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import json
 import sqlite3
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from ..frontmatter import load_markdown, write_markdown
-from ..paths import sqlite_path, vault_root
+from ..paths import vault_root
 from ..utils import json_loads_forgiving as _json_loads, utc_now_iso as _iso_now
 from .db import connect as _connect
 from ..utils import json_dumps_stable

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,15 +9,15 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from lisan.frontmatter import dump_markdown, load_markdown
-from lisan.tools.memory_pipeline import (
-    _create_entity_stubs,
+from lisan.tools.entity_resolution import (
     _entity_nickname,
+    _has_person_role_context,
     _load_entity_index,
     _looks_like_entity,
     _match_existing_entity,
-    _has_person_role_context,
     _scan_user_stated_handle,
 )
+from lisan.tools.memory_pipeline import _create_entity_stubs
 
 
 def _seed_entity(

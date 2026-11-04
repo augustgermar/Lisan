@@ -13,20 +13,13 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from collections import defaultdict, deque
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
 
-from ..config import load_config
-from ..frontmatter import load_markdown
-from ..paths import sqlite_path, vault_root
-from .common import iter_markdown_files
-from .tracing import record_retrieval_result
-from .vector_store import VectorScorer, build_query_scorer
-from .primer_index import assistant_display_name, principal_name
-from ..utils import approx_word_count, today_iso
+from .vector_store import VectorScorer
 
 
 from .retrieval_vocab import DOMAIN_KEYWORDS, SENSITIVE_COMPARTMENTS  # noqa: F401 — re-exported
@@ -566,6 +559,10 @@ def _demote_graph_neighbors(
 ) -> list[RetrievalItem]:
     if len(direct_loaded) < 2:
         return direct_loaded
+    # Imported here, not at module top: retrieval_graph imports this module at
+    # load time, so a top-level import is circular.
+    from .retrieval_graph import _build_graph_edges
+
     edges_by_source = _build_graph_edges(rows_by_id, link_rows)
     kept: list[RetrievalItem] = []
     for item in direct_loaded:
@@ -1040,22 +1037,3 @@ def _build_metadata_haystack(row: sqlite3.Row) -> str:
         parts.extend(_json_list(row[field]) if field in row.keys() else [])
     return "\n".join(parts).lower()
 
-
-from .retrieval_graph import (
-    _GraphEdge,
-    _expand_graph,
-    _build_graph_edges,
-    _graph_relation_fields,
-    _graph_candidates,
-    _sort_graph_candidates,
-    _is_allowed_graph_edge,
-    _target_type,
-    _graph_expansion_reason,
-    _graph_score_reason,
-    _graph_relation_bonus,
-    _render_expansion_path,
-    _cross_domain_expansion_allowed,
-    _path_contains_bridge_pattern,
-    _dreamer_coupled_pairs,
-    _explicit_query_domains,
-)

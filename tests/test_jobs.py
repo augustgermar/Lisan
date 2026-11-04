@@ -326,7 +326,8 @@ class StaleReclaimTests(unittest.TestCase):
         job_id = enqueue_job("index.rebuild_record", {"x": 1}, db_path=self.db)
         conn = connect(self.db)
         conn.execute("UPDATE jobs SET status='running', started_at='2026-07-05T00:00:00Z' WHERE id=?", (job_id,))
-        conn.commit(); conn.close()
+        conn.commit()
+        conn.close()
 
         self.assertEqual(reclaim_stale_running_jobs(self.db), 1)
         self.assertEqual(get_job(job_id, db_path=self.db)["status"], "queued")
@@ -335,7 +336,8 @@ class StaleReclaimTests(unittest.TestCase):
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         conn.execute("UPDATE jobs SET status='running', started_at=? WHERE id=?", (now, job_id))
-        conn.commit(); conn.close()
+        conn.commit()
+        conn.close()
         self.assertEqual(reclaim_stale_running_jobs(self.db), 0)
 
 

@@ -10,6 +10,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from lisan.tools.anisotropy import Calibration, apply_correction, compute_calibration
+from lisan.tools.vector_store import build_query_scorer, clear_index_cache, cosine_similarity, load_index
+
 try:
     import numpy  # noqa: F401  — the correction itself is numpy-gated
     _HAS_NUMPY = True
@@ -20,9 +23,6 @@ except ImportError:
 # these tests exercise the corrected path, so an environment without numpy
 # should SKIP them, not report the degradation as five failures.
 requires_numpy = unittest.skipUnless(_HAS_NUMPY, "numpy not installed; anisotropy correction inactive")
-
-from lisan.tools.anisotropy import Calibration, apply_correction, compute_calibration
-from lisan.tools.vector_store import build_query_scorer, clear_index_cache, cosine_similarity, load_index
 
 
 def _cone_corpus(n: int = 40, dim: int = 16, seed: int = 7) -> list[list[float]]:

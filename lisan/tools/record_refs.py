@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..frontmatter import FrontmatterError, load_markdown, load_frontmatter_cached
+from ..frontmatter import FrontmatterError, load_frontmatter_cached
 from .common import iter_markdown_files
 
 # A reference is an id or a path. Anything with sentence punctuation, spaces

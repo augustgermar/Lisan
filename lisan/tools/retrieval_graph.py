@@ -14,12 +14,8 @@ from ..frontmatter import load_markdown
 from ..utils import approx_token_count, approx_word_count, today_iso
 from .retrieval_layers import (
     RetrievalItem,
-    RetrievalResult,
-    _LayerCandidate,
     _fts_escape,
     _json_list,
-    _metadata_haystack,
-    _type_boost,
     _visibility_block_reason,
 )
 from .freshness import line as freshness_line

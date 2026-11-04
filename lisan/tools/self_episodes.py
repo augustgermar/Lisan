@@ -98,7 +98,8 @@ def job_events(db_path: Path | None = None) -> list[SelfEvent]:
                 narration = "{{self}} delegated a task to a worker for {{principal}}, and it finished"
             else:
                 narration = "{{self}} carried out a scheduled task for {{principal}}"
-            if subject: narration += f': "{subject}"'
+            if subject:
+                narration += f': "{subject}"'
             narration += "."
             outcome = "succeeded"
         else:

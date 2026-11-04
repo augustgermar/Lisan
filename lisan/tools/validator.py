@@ -2,20 +2,18 @@ from __future__ import annotations
 
 import json
 import re
-from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any
 from .db import connect as _db_connect
 
-from ..config import load_config
 from ..frontmatter import FrontmatterError, load_markdown, load_frontmatter_cached
-from ..paths import vault_root, schemas_dir, repo_root
+from ..paths import vault_root
 from ..schemas import load_schemas
 from .domain_fields import normalize_domain_fields
 from .record_refs import ReferenceIndex, build_reference_index, resolve_reference
-from .common import iter_markdown_files, parse_date
+from .common import iter_markdown_files
 
 
 @dataclass(slots=True)
@@ -968,7 +966,6 @@ def _validate_alias_uniqueness(
 
     The index travels with the vault its caller named — see validate_vault.
     """
-    import sqlite3
     from ..paths import sqlite_path
     db = db_path or sqlite_path()
     if not db.exists():

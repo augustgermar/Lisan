@@ -4,7 +4,6 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 from .db import connect as _db_connect
@@ -17,12 +16,14 @@ from .elicitor_session import run_elicitor_session
 from .domain_fields import with_domain_fields
 from .firewall import scan_text
 from .log import log_error
+# Patch seam: entity_resolution calls _memory_pipeline.resolve_reference so tests
+# can patch it here. Unused in this module by design.
+from .reference_resolution import resolve_reference  # noqa: F401
 from ..utils import listify
 from .narrative_state import load_narrative_state
 from .retrieval import retrieve_context
-from .deixis import has_unresolved_token, render_deixis, tokenize_principal, tokenize_principal_obj
+from .deixis import render_deixis, tokenize_principal, tokenize_principal_obj
 from .record_fanout import (
-    basis_or_default,
     fanout_claims,
     fanout_decisions,
     fanout_evidence,
@@ -31,18 +32,15 @@ from .record_fanout import (
     close_completed_open_loops,
     fanout_open_loops,
     fanout_state_updates,
-    index_created_record,
 )
 from .rebuild_index import index_single_record, open_index_connection
 from .self_model import cached_capability_index
 from .tracing import record_inline_step
 from .record_factory import (
-    CreatedRecord,
-    new_entity,
     supersede_record,
 )
-from .reference_resolution import normalize_text, resolve_reference, resolution_action
 from .transcripts import append_transcript, transcript_path_for
+from .entity_resolution import _create_entity_stubs, _create_relationship_edges
 from ..agents.writer import _truncate_summary as _truncate_summary_boundary
 
 
@@ -1161,30 +1159,3 @@ def _render_draft_body(
 
 
 # ── Fanout: entities (extraction-only) ───────────────────────────────────────
-
-from .entity_resolution import (
-    _create_entity_stubs,
-    _create_relationship_edges,
-    _normalize_entity_subtype,
-    _looks_like_organization,
-    _has_person_role_context,
-    _looks_like_entity,
-    _load_entity_index,
-    _entity_resolution_candidates,
-    _entity_disambiguator,
-    _pascalize_token,
-    _entity_first_token,
-    _entity_name_roots,
-    _scan_user_stated_handle,
-    _entity_nickname,
-    _entity_identity_names,
-    _same_first_name_records,
-    _assign_entity_nickname,
-    _ensure_nicknames_for_collision,
-    _entity_disambiguator_from_candidates,
-    _match_existing_entity,
-    _entity_subtype,
-    _entity_name_tokens,
-    _candidate_has_surname_conflict,
-    _append_entity_alias,
-)

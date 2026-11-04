@@ -133,7 +133,6 @@ def _find_evidence(
     evidence_lines: list[tuple[Path, int, str, str]],
 ) -> tuple[str, str, str] | None:
     corrected_norm = _normalize(corrected)
-    corrected_words = set(WORD.findall(corrected_norm)) - STOP
     context_words = set(WORD.findall(_normalize(context))) - STOP
     date_parts = _date_parts(corrected)
 

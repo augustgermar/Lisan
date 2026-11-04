@@ -1,6 +1,8 @@
 """Content instruction-risk labels, separate from authority/source tier."""
 from __future__ import annotations
 
+import re as _re
+
 from typing import Any
 
 TRUSTED = "trusted"
@@ -32,7 +34,6 @@ def raise_content_trust(current: Any, incoming: Any) -> str:
 # fence-shaped marker inside fenced text is rewritten to a visibly quoted
 # form before the real markers are added. (2026-10-29)
 
-import re as _re
 
 _FENCE_MARKER_RE = _re.compile(
     r"\[\s*(BEGIN|END)\s+(UNTRUSTED|UNKNOWN-TRUST|TOOL\s+RESULT)",

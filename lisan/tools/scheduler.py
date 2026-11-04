@@ -27,7 +27,6 @@ from typing import Any, Callable
 from .db import connect as _db_connect
 
 from ..config import load_config
-from ..paths import sqlite_path
 
 TASK_JOB_TYPES = {"task.reminder", "task.prompt", "task.run_codex"}
 
@@ -698,7 +697,6 @@ def run_scheduler_loop(
     tick naturally catches up on everything past-due. ``send_fn`` is threaded
     through to task delivery so the in-bot scheduler reuses the bot's session.
     """
-    from .jobs import run_jobs_worker
     from .log import log_error
 
     stop_event = stop_event or threading.Event()

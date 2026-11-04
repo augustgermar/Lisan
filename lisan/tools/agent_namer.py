@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Deterministic agent identity generation.
 
 The generated identity has two layers:
@@ -8,6 +6,8 @@ The generated identity has two layers:
 
 The pronounceable name is only a human-facing projection of the digest.
 """
+
+from __future__ import annotations
 
 import hashlib
 import secrets

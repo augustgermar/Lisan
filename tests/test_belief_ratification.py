@@ -65,7 +65,7 @@ def test_the_artifact_numbers_its_candidates_and_says_how_to_choose(world):
 def test_editing_the_visible_lines_really_does_change_nothing(world):
     """The statement the artifact makes about itself must be true."""
     doc = load_markdown(world.artifact)
-    body = "\n".join(l for l in doc.body.splitlines() if "research" not in l and "youtube" not in l)
+    body = "\n".join(line for line in doc.body.splitlines() if "research" not in line and "youtube" not in line)
     world.artifact.write_text(dump_markdown(dict(doc.frontmatter), body), encoding="utf-8")
     formed = BF.ratify_beliefs(world.vault, artifact_path=world.artifact, db_path=world.db)
     assert len(formed) == 3  # all three, because the frontmatter decides

@@ -235,7 +235,7 @@ class RewriteEntityStoryTests(unittest.TestCase):
             MockWriter.return_value = instance
 
             from lisan.tools.entity_story import rewrite_entity_story
-            result = rewrite_entity_story(
+            rewrite_entity_story(
                 vault=self.vault,
                 entity_path=entity_path,
                 draft_path=draft_path,
@@ -403,7 +403,7 @@ class NoShrinkGuardrailTests(unittest.TestCase):
         with patch("lisan.agents.writer.WriterAgent.run_json",
                    return_value={"narrative": "Ada is a colleague with a dog.", "arc_note": "shrank"}):
             from lisan.tools.entity_story import rewrite_entity_story
-            result = rewrite_entity_story(self.vault, path, draft_path=draft, db_path=self.vault / "x.sqlite")
+            rewrite_entity_story(self.vault, path, draft_path=draft, db_path=self.vault / "x.sqlite")
 
         body = path.read_text(encoding="utf-8")
         self.assertIn("notable thing number 19", body)   # the established arc survived

@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 
 from lisan.tools.skill_format import parse_frontmatter, parse_skill_md, supporting_files
 from lisan.tools.skill_loader import load_skill_handlers, load_skill_manifest, load_skills, render_skill_body

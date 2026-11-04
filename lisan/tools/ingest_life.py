@@ -42,7 +42,7 @@ from typing import Any
 from ..frontmatter import load_markdown, write_markdown
 from ..utils import today_iso
 from .deixis import tokenize_principal
-from .log import get_logger, log_error
+from .log import log_error
 
 _FOLDER_KIND = {
     "people": "person", "person": "person", "friends": "person",
@@ -409,7 +409,7 @@ def _assimilate_episode_note(item: dict[str, Any], *, vault: Path, summary: dict
     raw = path.read_text(encoding="utf-8", errors="ignore")
     text, _ = _resolve_wikilinks(raw)
     text = tokenize_principal(text.strip(), vault)
-    first_line = next((l.strip().lstrip("# ") for l in text.splitlines() if l.strip()), "")
+    first_line = next((line.strip().lstrip("# ") for line in text.splitlines() if line.strip()), "")
 
     new_episode(
         vault,

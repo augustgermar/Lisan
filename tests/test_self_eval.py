@@ -157,9 +157,9 @@ class RunTests(_Env):
         fm = load_markdown(loops[0]).frontmatter
         self.assertEqual(fm["origin"], "self")
         self.assertEqual(fm["deviation_class"], "self_eval")
-        self.assertTrue(any("self-eval" in str(l) for l in [fm["deviation_fingerprint"]]))
+        self.assertIn("self-eval", str(fm["deviation_fingerprint"]))
         # report is linked as evidence
-        self.assertTrue(any("reports/self-eval" in str(l) for l in fm["links"]))
+        self.assertTrue(any("reports/self-eval" in str(link) for link in fm["links"]))
         # re-run: fingerprint dedup — no second loop for the same ache
         with patch("lisan.tools.judge.judge_exchange", side_effect=_fake_scores(2)):
             run_self_evaluation(self.vault, db_path=self.db, now=_TODAY)

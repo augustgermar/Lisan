@@ -182,7 +182,6 @@ class CodexBinaryErrorTests(unittest.TestCase):
         """A missing codex binary must surface as ProviderError, not a raw
         FileNotFoundError — the raw OSError bypasses the provider-failure
         path and the user gets silence instead of an honest error."""
-        import os
 
         from lisan.providers.codex import CodexClient
 

@@ -22,7 +22,6 @@ all (an empty belief ledger is a safe default).
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path

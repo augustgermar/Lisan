@@ -3,7 +3,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from lisan.frontmatter import dump_markdown, load_markdown, write_markdown
+from lisan.frontmatter import load_markdown, write_markdown
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.enrichment import EnrichmentResolution, _append_source_log, resolve_owner_clarification, seek
 from lisan.tools.record_factory import new_entity

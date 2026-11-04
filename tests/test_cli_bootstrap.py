@@ -30,7 +30,6 @@ class CliBootstrapTests(unittest.TestCase):
         stack.enter_context(patch("lisan.cli.sqlite_path", return_value=self.db_path))
         stack.enter_context(patch("lisan.tools.health_report.sqlite_path", return_value=self.db_path))
         stack.enter_context(patch("lisan.tools.rebuild_index.sqlite_path", return_value=self.db_path))
-        stack.enter_context(patch("lisan.tools.rebuild_index.embeddings_path", return_value=self.embeddings_path))
         stack.enter_context(patch("lisan.tools.health_report._embeddings_health_lines", return_value=["- embeddings skipped in test"]))
         return stack
 

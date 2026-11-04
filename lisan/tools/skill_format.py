@@ -102,7 +102,6 @@ def parse_frontmatter(text: str) -> tuple[dict[str, Any], str]:
         return {}, text
 
     data: dict[str, Any] = {}
-    current_key: str | None = None
     current_list: list[Any] | None = None
     nested_key: str | None = None
 
@@ -138,7 +137,7 @@ def parse_frontmatter(text: str) -> tuple[dict[str, Any], str]:
                 bucket[key] = _coerce(rest)
             continue
 
-        current_key, current_list, nested_key = key, None, None
+        current_list, nested_key = None, None
         if rest == "":
             # Either a block list or a nested mapping; decided by what follows.
             data[key] = []

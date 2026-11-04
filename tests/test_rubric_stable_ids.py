@@ -4,7 +4,7 @@ from lisan.tools import rubric
 
 
 def _with_voice(monkeypatch, lines):
-    monkeypatch.setattr(rubric, "kernel_voice_block", lambda vault: "\n".join(f"- {l}" for l in lines))
+    monkeypatch.setattr(rubric, "kernel_voice_block", lambda vault: "\n".join(f"- {line}" for line in lines))
 
 
 def test_a_reworded_invariant_keeps_its_dimension_id(tmp_path, monkeypatch):

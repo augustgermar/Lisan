@@ -6,7 +6,6 @@ import time
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 from .db import connect as _db_connect

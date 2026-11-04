@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import load_config
-from ..providers.base import LisanLLM, ProviderError
+from ..providers.base import LisanLLM
 from ..providers.config import select_provider
 
 

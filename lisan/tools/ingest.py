@@ -14,14 +14,12 @@ into records the pipeline understands. Two modes ride on those layers:
 """
 from __future__ import annotations
 
-import csv
 import hashlib
 import json
 import mimetypes
 import os
 import re
 import sqlite3
-from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
@@ -33,8 +31,8 @@ from ..utils import slugify
 from .document_chunker import Chunk, chunk_document
 from .entity_kind import assign_kind
 from .record_factory import new_artifact, new_claim, new_evidence, new_entity, new_knowledge
-from .ingest_batches import create_batch, update_batch_status, summarize_batch, list_batches, get_batch, artifacts_for_batch, jobs_for_batch, manifest_rows_for_batch, quarantine_batch
-from ..utils import json_loads_forgiving as _json_loads, utc_now_iso as _iso_now
+from .ingest_batches import create_batch, update_batch_status
+from ..utils import utc_now_iso as _iso_now
 from .db import connect as _connect
 from .source_tiers import tier_confidence
 
@@ -2472,7 +2470,7 @@ def _ensure_entity_record(
         matches = exact_person_identity_paths(vault, name)
         reason = "multiple_existing_identity_candidates" if len(matches) > 1 else "insufficient_identity_evidence"
         if len(matches) > 1 or not identity_evidence["qualified"]:
-            candidate = quarantine_identity_candidate(
+            quarantine_identity_candidate(
                 vault, name=name, summary=summary, source_ref="reference_ingest",
                 evidence=identity_evidence, reason=reason,
                 matching_entities=sorted(str(path) for path in matches),
