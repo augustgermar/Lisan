@@ -84,38 +84,63 @@ class ConversationAgent(PromptAgent):
         )
         unavailable_tools = self._registered_unavailable_tools(result, tools)
         if unavailable_tools:
-            recovery_input = (
-                user_input
-                + "\n\nINTERNAL TOOL-RECOVERY INSTRUCTION: Your previous response claimed that "
+            instruction = (
+                "INTERNAL TOOL-RECOVERY INSTRUCTION: Your previous response claimed that "
                 + ", ".join(unavailable_tools)
                 + " was unavailable, but the live registry for this turn contains that tool. "
                 + "Do not repeat the claim. If the user's request requires an action, call the "
                 + "appropriate registered tool now using the exact JSON tool-call format. "
                 + "If no action is required, state only that you did not call the tool."
             )
-            recovery = self.complete_with_tools(
-                recovery_input,
+            correction = (
+                "I did not call " + ", ".join(unavailable_tools)
+                + "; it is registered, but no action was performed."
+            )
+            result = self._run_hallucination_recovery(
+                result=result,
+                user_input=user_input,
+                instruction=instruction,
+                strip_fn=lambda text: self._strip_unavailable_claim_sentences(text, unavailable_tools),
+                correction=correction,
+                tools=tools,
+                tool_handlers=tool_handlers,
                 significance=significance,
                 provider=provider,
                 model=model,
                 schema=schema if schema is not None else (self.output_schema() if needs_schema else None),
+                provider_error_mode=provider_error_mode,
+                max_iterations=kwargs.get("max_iterations", 10),
+                extra_kwargs={k: v for k, v in kwargs.items() if k != "max_iterations"},
+            )
+        unconfirmed_actions = self._unconfirmed_action_claims(result, tools)
+        if unconfirmed_actions:
+            instruction = (
+                "INTERNAL TOOL-RECOVERY INSTRUCTION: Your previous response claimed you had "
+                "already completed an action (" + ", ".join(unconfirmed_actions) + ") but no "
+                "matching tool call was made this turn — that claim is false and must not be "
+                "repeated. Either call the real tool now with correct arguments, or tell the "
+                "user plainly that nothing was done yet."
+            )
+            correction = (
+                "I did not actually call " + ", ".join(unconfirmed_actions)
+                + " this turn, so that hasn't happened yet."
+            )
+            result = self._run_hallucination_recovery(
+                result=result,
+                user_input=user_input,
+                instruction=instruction,
+                strip_fn=lambda text: self._strip_action_claim_sentences(text, unconfirmed_actions),
+                correction=correction,
                 tools=tools,
                 tool_handlers=tool_handlers,
+                significance=significance,
+                provider=provider,
+                model=model,
+                schema=schema if schema is not None else (self.output_schema() if needs_schema else None),
                 provider_error_mode=provider_error_mode,
-                max_iterations=min(int(kwargs.get("max_iterations", 10)), 3),
-                **{k: v for k, v in kwargs.items() if k != "max_iterations"},
+                max_iterations=kwargs.get("max_iterations", 10),
+                extra_kwargs={k: v for k, v in kwargs.items() if k != "max_iterations"},
             )
-            if recovery.tool_calls:
-                result = recovery
-            else:
-                result.data = {
-                    **(result.data if isinstance(result.data, dict) else {}),
-                    "response": (
-                        "I did not call " + ", ".join(unavailable_tools)
-                        + "; it is registered, but no action was performed."
-                    ),
-                }
-                result.text = json.dumps(result.data, ensure_ascii=True)
         # Tool calls are prompt-mediated, so a provider can return ordinary
         # prose even though the tool is present. If it then claims check-in is
         # unavailable, give the same turn one narrow recovery attempt. This
@@ -218,58 +243,212 @@ class ConversationAgent(PromptAgent):
             "isn't accessible", "is not accessible", "can't access",
         ))
 
-    @staticmethod
-    def _registered_unavailable_tools(result: Any, tools: list[dict[str, Any]]) -> list[str]:
-        """Return registered tools the model falsely described as absent."""
-        data = result.data if isinstance(result.data, dict) else {}
-        text = str(data.get("response") or result.text or "").lower().replace("’", "'")
-        normalized = re.sub(r"\s+", " ", text)
-        unavailable = (
-            "not available", "isn't available", "is not available", "unavailable",
-            "not exposed", "isn't exposed", "is not exposed", "not accessible",
-        )
-        generic_unavailable = (
-            "doesn't expose", "does not expose", "didn't expose", "did not expose",
-            "don't expose", "do not expose",
-        )
-        neither_exposed = bool(re.search(
-            r"\bneither\b.+\bnor\b.+\b(?:is|are|was|were)\s+(?:not\s+)?exposed\b",
-            normalized,
-        ))
-        if not (
-            any(phrase in normalized for phrase in unavailable)
-            or any(phrase in normalized for phrase in generic_unavailable)
-            or neither_exposed
-        ):
+    # Models sometimes describe a capability by role rather than by its
+    # registered name ("the printer or executor tools"). Map only these
+    # unambiguous domain terms; do not guess from a generic "tools" claim.
+    _TOOL_ALIASES = {
+        "printer-management": ("printer", "printing", "cups", "jetdirect"),
+        "execute_task": ("executor", "execution", "shell command", "cli command"),
+    }
+
+    _UNAVAILABLE_PHRASES = (
+        "not available", "isn't available", "is not available", "unavailable",
+        "not exposed", "isn't exposed", "is not exposed", "not accessible",
+        "isn't accessible", "is not accessible", "no access to",
+        "don't have access", "do not have access", "can't access", "cannot access",
+        "not able to use", "unable to use", "doesn't support", "does not support",
+    )
+    _GENERIC_UNAVAILABLE_PHRASES = (
+        "doesn't expose", "does not expose", "didn't expose", "did not expose",
+        "don't expose", "do not expose",
+    )
+    # "I don't have the GitHub executor available in this channel" — a common
+    # hedge that doesn't contain any literal "not available" substring.
+    _UNAVAILABLE_HEDGE_PATTERNS = (
+        re.compile(r"\b(?:don'?t|doesn'?t|do not|does not)\s+have\b[^.!?]{0,60}\bavailable\b"),
+    )
+    _NEITHER_EXPOSED_RE = re.compile(
+        r"\bneither\b.+\bnor\b.+\b(?:is|are|was|were)\s+(?:not\s+)?exposed\b",
+    )
+
+    # Side-effecting tools whose claimed completion must be backed by an
+    # actual tool call this turn. Phrases are first-person, past-tense
+    # completion claims; kept narrow to avoid flagging ordinary conversation
+    # about past or hypothetical actions.
+    _ACTION_CLAIM_PHRASES: dict[str, tuple[str, ...]] = {
+        "send_email": (
+            "email sent", "sent the email", "sent an email", "i've sent", "i just sent",
+            "email has been sent", "relay accepted", "message was delivered",
+            "mail was sent", "email is on its way", "the email went out",
+        ),
+        "schedule_task": (
+            "i scheduled", "i've scheduled", "reminder is set", "task is scheduled",
+            "scheduling complete", "i set a reminder", "i've set a reminder",
+        ),
+        "create_plan": (
+            "i created a plan", "i've created the plan", "plan has been created",
+            "plan is now running", "the plan is in motion",
+        ),
+        "checkin": (
+            "logged a check-in", "check-in logged", "i logged the check-in",
+            "i've logged a check-in",
+        ),
+        "merge_entities": (
+            "i merged", "i've merged", "merge is complete", "entities have been merged",
+        ),
+        "ingest_files": (
+            "i ingested", "i've ingested", "ingestion is complete", "files have been ingested",
+        ),
+    }
+
+    _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+    @classmethod
+    def _split_sentences(cls, text: str) -> list[str]:
+        stripped = text.strip()
+        if not stripped:
             return []
+        return [s for s in cls._SENTENCE_SPLIT_RE.split(stripped) if s.strip()]
+
+    @staticmethod
+    def _normalize(sentence: str) -> str:
+        return re.sub(r"\s+", " ", sentence.lower().replace("’", "'"))
+
+    @classmethod
+    def _sentence_claims_unavailability(cls, normalized: str) -> bool:
+        return (
+            any(phrase in normalized for phrase in cls._UNAVAILABLE_PHRASES)
+            or any(phrase in normalized for phrase in cls._GENERIC_UNAVAILABLE_PHRASES)
+            or any(pattern.search(normalized) for pattern in cls._UNAVAILABLE_HEDGE_PATTERNS)
+            or bool(cls._NEITHER_EXPOSED_RE.search(normalized))
+        )
+
+    @classmethod
+    def _sentence_mentions_tool(cls, normalized: str, name: str) -> bool:
+        if not name:
+            return False
+        if re.search(rf"(?<![a-z0-9_-]){re.escape(name.lower())}(?![a-z0-9_-])", normalized):
+            return True
+        return any(alias in normalized for alias in cls._TOOL_ALIASES.get(name, ()))
+
+    @classmethod
+    def _registered_unavailable_tools(cls, result: Any, tools: list[dict[str, Any]]) -> list[str]:
+        """Return registered tools the model falsely described as absent.
+
+        Scoped per sentence, not across the whole response: a turn that
+        answers an unrelated question and only in passing mentions a tool by
+        name must not have its real answer treated as a false-availability
+        claim just because some other sentence elsewhere says "unavailable."
+        """
+        data = result.data if isinstance(result.data, dict) else {}
+        text = str(data.get("response") or result.text or "")
         called = {str(call.get("tool") or "") for call in (result.tool_calls or [])}
-        # Models sometimes describe a capability by role rather than by its
-        # registered name ("the printer or executor tools"). Map only these
-        # unambiguous domain terms; do not guess from a generic "tools" claim.
-        aliases = {
-            "printer-management": ("printer", "printing", "cups", "jetdirect"),
-            "execute_task": ("executor", "execution", "shell command", "cli command"),
-        }
-        registered: list[str] = []
-        for tool in tools:
-            name = str(tool.get("name") or "")
-            if (
-                name
-                and name not in called
-                and re.search(
-                    rf"(?<![a-z0-9_-]){re.escape(name.lower())}(?![a-z0-9_-])",
-                    normalized,
-                )
-            ):
-                registered.append(name)
+        found: list[str] = []
+        for sentence in cls._split_sentences(text):
+            normalized = cls._normalize(sentence)
+            if not cls._sentence_claims_unavailability(normalized):
                 continue
-            if (
-                name
-                and name not in called
-                and any(alias in normalized for alias in aliases.get(name, ()))
+            for tool in tools:
+                name = str(tool.get("name") or "")
+                if name and name not in called and name not in found and cls._sentence_mentions_tool(normalized, name):
+                    found.append(name)
+        return found
+
+    @classmethod
+    def _strip_unavailable_claim_sentences(cls, text: str, offending_tools: list[str]) -> str:
+        """Drop only the sentences that made the false claim, keeping any
+        real answer the same response also contained."""
+        kept: list[str] = []
+        for sentence in cls._split_sentences(text):
+            normalized = cls._normalize(sentence)
+            if cls._sentence_claims_unavailability(normalized) and any(
+                cls._sentence_mentions_tool(normalized, name) for name in offending_tools
             ):
-                registered.append(name)
-        return registered
+                continue
+            kept.append(sentence.strip())
+        return " ".join(kept).strip()
+
+    @classmethod
+    def _unconfirmed_action_claims(cls, result: Any, tools: list[dict[str, Any]]) -> list[str]:
+        """Return side-effecting tools the response claims to have already
+        used when no matching tool call was actually made this turn — e.g.
+        "test email sent" with no send_email call in the trace."""
+        data = result.data if isinstance(result.data, dict) else {}
+        text = str(data.get("response") or result.text or "")
+        called = {str(call.get("tool") or "") for call in (result.tool_calls or [])}
+        registered = {str(t.get("name") or "") for t in tools}
+        claimed: list[str] = []
+        for sentence in cls._split_sentences(text):
+            normalized = cls._normalize(sentence)
+            for tool_name, phrases in cls._ACTION_CLAIM_PHRASES.items():
+                if tool_name in called or tool_name not in registered or tool_name in claimed:
+                    continue
+                if any(phrase in normalized for phrase in phrases):
+                    claimed.append(tool_name)
+        return claimed
+
+    @classmethod
+    def _strip_action_claim_sentences(cls, text: str, claimed_tools: list[str]) -> str:
+        kept: list[str] = []
+        for sentence in cls._split_sentences(text):
+            normalized = cls._normalize(sentence)
+            hit = any(
+                any(phrase in normalized for phrase in cls._ACTION_CLAIM_PHRASES.get(name, ()))
+                for name in claimed_tools
+            )
+            if hit:
+                continue
+            kept.append(sentence.strip())
+        return " ".join(kept).strip()
+
+    def _run_hallucination_recovery(
+        self,
+        *,
+        result: Any,
+        user_input: str,
+        instruction: str,
+        strip_fn: Callable[[str], str],
+        correction: str,
+        tools: list[dict[str, Any]],
+        tool_handlers: dict[str, Callable[..., Any]],
+        significance: str,
+        provider: str | None,
+        model: str | None,
+        schema: dict[str, Any] | None,
+        provider_error_mode: str,
+        max_iterations: Any,
+        extra_kwargs: dict[str, Any],
+    ) -> Any:
+        """Give the model one narrow follow-up turn to either make the real
+        tool call or retract the claim; if it still doesn't call the tool,
+        keep whatever of the original answer wasn't part of the false claim
+        and append an honest correction rather than discarding the whole
+        response."""
+        recovery = self.complete_with_tools(
+            user_input + "\n\n" + instruction,
+            significance=significance,
+            provider=provider,
+            model=model,
+            schema=schema,
+            tools=tools,
+            tool_handlers=tool_handlers,
+            provider_error_mode=provider_error_mode,
+            max_iterations=min(int(max_iterations), 3),
+            **extra_kwargs,
+        )
+        if recovery.tool_calls:
+            return recovery
+        original_text = str(
+            (result.data or {}).get("response") if isinstance(result.data, dict) else (result.text or "")
+        )
+        remaining = strip_fn(original_text)
+        combined = (remaining + " " + correction).strip() if remaining else correction
+        result.data = {
+            **(result.data if isinstance(result.data, dict) else {}),
+            "response": combined,
+        }
+        result.text = json.dumps(result.data, ensure_ascii=True)
+        return result
 
     accepts_prose_finale = True
 
