@@ -1212,7 +1212,7 @@ def dispatch_job(
             candidate_paths=candidate_paths or None,
             author=author,
             db_path=db_path,
-            test_command=[str(item) for item in (payload.get("test_command") or ["python3", "-m", "pytest", "-q"])],
+            test_command=[str(item) for item in payload["test_command"]] if payload.get("test_command") else None,
             targeted_command=[str(item) for item in (payload.get("targeted_command") or [])] or None,
             worktree_root=Path(str(payload["worktree_root"])) if payload.get("worktree_root") else None,
             author_id="resident-agent",

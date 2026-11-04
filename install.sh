@@ -117,9 +117,13 @@ info "Installing dependencies (this can take a minute)…"
 # which is now an alias for the same package and is kept only so existing
 # scripts that set it keep working. It is not a way to turn embeddings on, and
 # leaving it unset is not a way to leave them out.
-PKG_SPEC="."
+#
+# The [test] extra (pytest) is installed too: the self-repair loop and its
+# bake monitor run the test suite under this venv's interpreter, and without
+# a test runner every proposal would be refused and no bake could be judged.
+PKG_SPEC=".[test]"
 if [ "$LISAN_EMBEDDINGS" = "1" ]; then
-  PKG_SPEC=".[embeddings]"
+  PKG_SPEC=".[embeddings,test]"
 fi
 # Editable install: a future `git pull` in $REPO_DIR updates the CLI in place.
 ( cd "$REPO_DIR" && "$VENV_PY" -m pip install --quiet --editable "$PKG_SPEC" )

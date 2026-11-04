@@ -150,6 +150,32 @@ class ApplyUpdateTests(unittest.TestCase):
         self.assertFalse(result["applied"])
         self.assertEqual(result["reason"], "up_to_date")
 
+    def test_installs_missing_test_runner_before_verifying(self):
+        # A venv without pytest must not fail every update as "tests_failed":
+        # the dependency install (which carries the [test] extra) reconciles it.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            remote, local = _init_remote_and_clone(tmp_path)
+            new_head = _push_new_commit(remote, tmp_path, "other")
+            calls = []
+            with patch("lisan.tools.self_update._has_pytest", return_value=False):
+                result = apply_update(
+                    local, remote="origin", branch="main", restart=False,
+                    test_runner=lambda repo, python: (calls.append("tests"), {"ok": True})[1],
+                    dependency_installer=lambda repo, python: (calls.append("deps"), {"ok": True})[1],
+                )
+            self.assertEqual(_git(local, ["rev-parse", "HEAD"]).stdout.strip(), new_head)
+        self.assertTrue(result["applied"])
+        self.assertEqual(calls, ["deps", "tests"])
+
+    def test_dependency_install_includes_test_extra(self):
+        from lisan.tools import self_update
+
+        with patch("lisan.tools.self_update.subprocess.run") as run:
+            run.return_value = subprocess.CompletedProcess([], 0, "", "")
+            self_update._pip_install_editable(Path("/opt/lisan/repo"), Path("/opt/lisan/venv/bin/python3"))
+        self.assertEqual(run.call_args.args[0][-1], "/opt/lisan/repo[test]")
+
     def test_rolls_back_on_failing_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
