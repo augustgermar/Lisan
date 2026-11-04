@@ -1,6 +1,7 @@
 # Lisan
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Coverage](https://raw.githubusercontent.com/augustgermar/Lisan/python-coverage-comment-action-data/badge.svg)](https://htmlpreview.github.io/?https://github.com/augustgermar/Lisan/blob/python-coverage-comment-action-data/htmlcov/index.html)
 
 **A research implementation of durable cognitive infrastructure for AI
 agents — an airframe for replaceable language-model engines.**
