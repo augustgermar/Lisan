@@ -90,7 +90,42 @@ def _now_utc() -> datetime:
 
 
 def _local_tz():
+    """The system's local time zone, as a DST-aware tzinfo.
+
+    ``datetime.now().astimezone().tzinfo`` is a *fixed* offset — today's —
+    so any local wall time computed for a date on the other side of a DST
+    change came out an hour off ("weekly:mon@08:00" fired at 09:00 after
+    fall-back). A ZoneInfo gives each datetime its own date's offset, and
+    arithmetic on it stays in wall-clock time. Falls back to the fixed
+    offset only when the zone cannot be named.
+    """
+    zone = _local_zone_name()
+    if zone:
+        try:
+            from zoneinfo import ZoneInfo
+
+            return ZoneInfo(zone)
+        except Exception:
+            pass
     return datetime.now().astimezone().tzinfo
+
+
+def _local_zone_name() -> str | None:
+    """IANA name of the system zone: $TZ if it names one, else the target
+    of /etc/localtime (macOS and most Linux link it into a zoneinfo tree)."""
+    import os
+
+    tz_env = (os.environ.get("TZ") or "").strip().lstrip(":")
+    if tz_env:
+        return tz_env
+    try:
+        target = os.path.realpath("/etc/localtime")
+    except OSError:
+        return None
+    marker = "/zoneinfo/"
+    if marker in target:
+        return target.split(marker, 1)[1] or None
+    return None
 
 
 def _to_iso(dt: datetime) -> str:

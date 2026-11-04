@@ -29,7 +29,7 @@ def _utc(dt: datetime) -> datetime:
 class ParseWhenTests(unittest.TestCase):
     def test_iso_naive_is_local_time(self):
         parsed = parse_when("2030-06-01 15:30")
-        local = parsed.astimezone(datetime.now().astimezone().tzinfo)
+        local = parsed.astimezone()
         self.assertEqual((local.year, local.month, local.day, local.hour, local.minute), (2030, 6, 1, 15, 30))
 
     def test_iso_with_timezone_is_preserved(self):
@@ -38,7 +38,7 @@ class ParseWhenTests(unittest.TestCase):
 
     def test_bare_time_rolls_to_tomorrow_when_past(self):
         now = datetime.now(timezone.utc)
-        one_hour_ago = (now - timedelta(hours=1)).astimezone(datetime.now().astimezone().tzinfo)
+        one_hour_ago = (now - timedelta(hours=1)).astimezone()
         parsed = parse_when(one_hour_ago.strftime("%H:%M"), now=now)
         self.assertGreater(parsed, now)
         self.assertLess(parsed - now, timedelta(days=1))
@@ -58,7 +58,7 @@ class ParseWhenTests(unittest.TestCase):
         parsed = parse_when("tomorrow 09:00", now=now)
         self.assertGreater(parsed, now)
         self.assertLess(parsed - now, timedelta(days=2))
-        local = parsed.astimezone(datetime.now().astimezone().tzinfo)
+        local = parsed.astimezone()
         self.assertEqual((local.hour, local.minute), (9, 0))
 
 
