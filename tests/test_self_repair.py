@@ -545,3 +545,62 @@ def test_one_applied_patch_per_week(tmp_path: Path):
     with pytest.raises(SelfRepairRefused, match="one applied patch"):
         assert_appetite_for_apply(vault, today=date(2026, 10, 29))
     assert_appetite_for_apply(vault, today=date(2026, 11, 2))
+
+
+# ── Test runner: interpreter and availability ───────────────────────────────
+
+
+def test_default_test_command_uses_running_interpreter(monkeypatch):
+    # A bare "python3" resolves through PATH (on macOS: the system 3.9 without
+    # pytest), which would fail a good patch's suite and trigger a rollback.
+    import sys
+    from lisan.tools import self_repair
+
+    monkeypatch.setattr(sys, "executable", "/opt/lisan/venv/bin/python")
+    assert self_repair.default_test_command() == ["/opt/lisan/venv/bin/python", "-m", "pytest", "-q"]
+
+
+def _no_pytest(monkeypatch):
+    import importlib.util
+    from lisan.tools import self_repair
+
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(
+        self_repair.importlib.util, "find_spec",
+        lambda name, *a, **k: None if name == "pytest" else real_find_spec(name, *a, **k),
+    )
+
+
+def test_propose_refuses_before_authoring_when_pytest_missing(tmp_path: Path, monkeypatch):
+    _no_pytest(monkeypatch)
+    repo = _repo(tmp_path)
+    vault = tmp_path / "vault"
+    loop = _loop(vault)
+    authored: list[str] = []
+
+    with pytest.raises(SelfRepairRefused, match="pytest is not installed"):
+        propose(
+            vault=vault, repo=repo, loop_id="loop.self-repair-1", loop_path=loop,
+            author=lambda prompt: authored.append(prompt) or _author(prompt),
+            db_path=tmp_path / "index.sqlite", worktree_root=tmp_path / "worktrees",
+        )
+    assert authored == []  # no LLM call spent on a proposal that cannot be verified
+    assert not (tmp_path / "worktrees").exists()
+
+
+def test_bake_check_missing_pytest_is_not_a_regression(tmp_path: Path, monkeypatch):
+    repo, vault, db, proposal, applied = _applied_setup(tmp_path)
+    report_path = vault / "reports" / "self-repair-proposals" / f"{proposal.proposal_id}.md"
+    _no_pytest(monkeypatch)
+
+    result = run_bake_check(
+        vault, proposal.proposal_id, repo=repo, db_path=db,
+        config={"drive": {"action_tier": 4}},  # rollback would be allowed
+    )
+    assert result["verdict"] == "suite_unavailable"
+    assert result["suite_ok"] is None
+    assert "rolled_back" not in result
+    assert (repo / "ordinary.py").read_text(encoding="utf-8") == "VALUE = 2\n"
+    assert load_markdown(report_path).frontmatter["bake_status"] == "monitoring"
+    bake_jobs = [j for j in list_jobs(db_path=db) if j["job_type"] == "self_repair.bake_check"]
+    assert bake_jobs and bake_jobs[0]["status"] == "queued"

@@ -46,7 +46,16 @@
     triplicated retrieval vocabulary are gone.
   - *`lisan doctor`* checks the architecture's claims against the live
     install.
-
+- **Self-verification runs on the right interpreter, and a missing test
+  runner is no longer scored as a failure.** Self-repair proposals and bake
+  checks ran the suite with a bare `python3` from PATH — on macOS the system
+  3.9, without pytest — so a good patch "failed" its suite and the bake
+  monitor reverted it. They now use the interpreter Lisan runs under. If
+  pytest is missing, a proposal is refused before the author is called, and
+  a bake check reports `suite_unavailable` and keeps monitoring instead of
+  rolling back. Auto-update had the same defect — every update failed
+  verification and reset — and now reconciles the venv first. `install.sh`
+  and update's dependency install now include the `[test]` extra.
 - **Auto-update.** A periodic `self_update.check` job compares local HEAD
   against the configured remote branch. `update.mode` starts unresolved
   (`null`) — `lisan init` now ends with a one-time choice, automatic or

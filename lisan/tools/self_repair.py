@@ -8,11 +8,13 @@ regression — deterministically, no LLM, no agent health dependency.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import re
 import sqlite3
 import shutil
 import subprocess
+import sys
 import tempfile
 import uuid
 from dataclasses import dataclass
@@ -101,6 +103,34 @@ BAKE_CHECK_INTERVAL_HOURS = 12
 MAX_BAKE_EXTENSIONS = 2
 REGRESSION_DROP_THRESHOLD = 0.5
 _SELF_EVAL_DIM_PREFIX = "self-eval-dim-"
+
+
+def default_test_command() -> list[str]:
+    """The suite command used when the caller does not supply one.
+
+    It runs under the interpreter Lisan itself is running in. A bare
+    ``python3`` resolves through PATH instead — on macOS that is the system
+    3.9, below the 3.11 floor and without pytest — so a perfectly good patch
+    would "fail" its suite and the bake monitor would roll it back.
+    """
+    return [sys.executable, "-m", "pytest", "-q"]
+
+
+def test_runner_problem(repo: Path) -> str | None:
+    """Why the default suite cannot run here, or None if it can.
+
+    The suite is the floor for both proposing and baking a repair. A missing
+    test runner is an install defect, not a regression, and must never be
+    scored as one. The default command runs under this very interpreter, so
+    an in-process lookup answers for it exactly.
+    """
+    if importlib.util.find_spec("pytest") is None:
+        return (
+            f"pytest is not installed for {sys.executable}, so the self-repair "
+            "loop cannot run the test suite. Install it with: "
+            f"{sys.executable} -m pip install -e '{repo}[test]'"
+        )
+    return None
 
 
 def _run(command: list[str], *, cwd: Path, timeout: int = 120) -> subprocess.CompletedProcess[str]:
@@ -287,6 +317,8 @@ def propose(
     if author_id == verifier_id:
         raise SelfRepairRefused("examiner and examinee must be independent")
     assert_appetite_for_proposal(vault)
+    if test_command is None and (problem := test_runner_problem(repo)):
+        raise SelfRepairRefused(problem)
     loop_file, loop = _loop_record(vault, loop_id, loop_path)
     base_commit = ensure_clean_checkout(repo)
     prompt = _author_prompt(loop_id, loop, candidate_paths)
@@ -310,7 +342,7 @@ def propose(
             raise SelfRepairRefused(applied.stderr.strip() or "git apply rejected the proposal")
         patch_file.unlink(missing_ok=True)
 
-        suite = _run(test_command or ["python3", "-m", "pytest", "-q"], cwd=worktree, timeout=1800)
+        suite = _run(test_command or default_test_command(), cwd=worktree, timeout=1800)
         targeted = _run(targeted_command, cwd=worktree, timeout=900) if targeted_command else suite
         result = {
             "proposal_id": proposal_id,
@@ -761,7 +793,19 @@ def run_bake_check(
 
     expired = now >= bake_end
 
-    suite = _run(test_command or ["python3", "-m", "pytest", "-q"], cwd=repo, timeout=1800)
+    if test_command is None and (problem := test_runner_problem(repo)):
+        # Neither pass nor fail: the patch is unjudged. Keep monitoring so the
+        # check resumes once the runner is installed, and never roll back on it.
+        _enqueue_bake_check(vault, proposal_id, db_path=db_path)
+        return {
+            "proposal_id": proposal_id,
+            "check_time": now.isoformat(),
+            "suite_ok": None,
+            "verdict": "suite_unavailable",
+            "error": problem,
+        }
+
+    suite = _run(test_command or default_test_command(), cwd=repo, timeout=1800)
     suite_ok = suite.returncode == 0
 
     error_delta = _error_log_line_count(vault) - int(fm.get("bake_error_log_lines") or 0)

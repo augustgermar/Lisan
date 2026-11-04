@@ -204,11 +204,26 @@ def _venv_python(repo: Path) -> Path:
 
 
 def _pip_install_editable(repo: Path, python: Path, *, timeout: int = 600) -> dict[str, Any]:
+    # [test] matches install.sh: the update itself is verified by the suite,
+    # so the venv must carry the test runner, not just the runtime.
     result = subprocess.run(
-        [str(python), "-m", "pip", "install", "--quiet", "--editable", str(repo)],
+        [str(python), "-m", "pip", "install", "--quiet", "--editable", f"{repo}[test]"],
         capture_output=True, text=True, timeout=timeout, check=False,
     )
     return {"ok": result.returncode == 0, "stderr": (result.stderr or "").strip()}
+
+
+def _has_pytest(python: Path) -> bool:
+    """Whether ``python`` can import pytest. A subprocess probe, because the
+    venv interpreter is not necessarily the one running this process."""
+    try:
+        result = subprocess.run(
+            [str(python), "-c", "import pytest"],
+            capture_output=True, text=True, timeout=60, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
 
 
 def _run_tests(repo: Path, python: Path, *, timeout: int = 1800) -> dict[str, Any]:
@@ -268,8 +283,12 @@ def apply_update(
         repo, ["diff", "--name-only", previous_commit, target_commit, "--", "pyproject.toml", "uv.lock"]
     )
     python = _venv_python(repo)
+    # A venv without pytest (installs before the [test] extra was installed by
+    # default) would fail verification on every update and roll back forever,
+    # blaming upstream for a local install defect. Reconcile it instead.
+    runner_missing = run_tests and not _has_pytest(python)
 
-    if deps_diff.stdout.strip():
+    if deps_diff.stdout.strip() or runner_missing:
         pip_result = dependency_installer(repo, python)
         if not pip_result.get("ok"):
             _run_git(repo, ["reset", "--hard", previous_commit])
