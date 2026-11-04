@@ -121,10 +121,30 @@ def _local_zone_name() -> str | None:
         target = os.path.realpath("/etc/localtime")
     except OSError:
         return None
-    marker = "/zoneinfo/"
-    if marker in target:
-        return target.split(marker, 1)[1] or None
-    return None
+    return _zone_name_from_path(target)
+
+
+# Any directory whose name starts with "zoneinfo": /usr/share/zoneinfo on Linux,
+# but macOS resolves /etc/localtime to /usr/share/zoneinfo.default/<Zone>, and
+# versioned trees like /var/db/timezone/tz/<ver>/zoneinfo/<Zone> also exist.
+# Matching only "/zoneinfo/" missed the macOS form, so the zone came back None
+# and _local_tz() fell back to today's fixed offset: issue #5.
+_ZONEINFO_TAIL = re.compile(r"/zoneinfo[^/]*/(.+)$")
+
+
+def _zone_name_from_path(target: str) -> str | None:
+    """The IANA zone name at the end of a resolved zoneinfo path, if it is one."""
+    match = _ZONEINFO_TAIL.search(target)
+    if not match:
+        return None
+    name = match.group(1)
+    try:
+        from zoneinfo import ZoneInfo
+
+        ZoneInfo(name)
+    except Exception:
+        return None
+    return name
 
 
 def _to_iso(dt: datetime) -> str:
