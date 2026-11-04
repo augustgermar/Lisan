@@ -49,3 +49,25 @@ def test_cli_exposes_the_doctor(tmp_path, capsys):
     out = json.loads(capsys.readouterr().out)
     assert code == 0 and {c["name"] for c in out} >= {"authority", "jobs", "edges"}
     assert all(c["status"] != FAIL for c in out)
+
+
+def test_passage_level_vectors_count_as_embedded(tmp_path):
+    import sqlite3
+
+    from lisan.tools.vector_store import write_embeddings
+
+    vault = tmp_path / "vault"
+    ensure_vault_layout(vault)
+    db = tmp_path / "x.sqlite"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE files (id TEXT, embedding_status TEXT)")
+    conn.executemany("INSERT INTO files VALUES (?, 'embedded')", [("rec.whole",), ("rec.split",)])
+    conn.commit()
+    conn.close()
+    write_embeddings(tmp_path / "embeddings.bin", [
+        ("rec.whole", [1.0, 0.0]),
+        ("rec.split::passage:0:abcdef012345", [0.0, 1.0]),
+        ("rec.split::passage:1:543210fedcba", [1.0, 1.0]),
+    ], model="t", dimension=2)
+    check = _by_name(run_doctor(vault, db))["embeddings"]
+    assert check.status == PASS, check

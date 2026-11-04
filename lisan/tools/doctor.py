@@ -157,7 +157,9 @@ def _check_embeddings(vault: Path, db_path: Path) -> Check:
         return Check("embeddings", claim, WARN, f"could not read files: {exc}")
     finally:
         conn.close()
-    vectors = set(load_index(db_path.parent / "embeddings.bin").vectors)
+    # Records may be stored whole (``<id>``) or as passages
+    # (``<id>::passage:<n>:<hash>``); either form means the record has a vector.
+    vectors = {key.split("::passage:", 1)[0] for key in load_index(db_path.parent / "embeddings.bin").vectors}
     missing = embedded - vectors
     if missing:
         status = FAIL if len(missing) > max(5, len(embedded) // 50) else WARN

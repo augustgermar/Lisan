@@ -251,6 +251,18 @@ class VectorScorer:
     index: EmbeddingIndex
     mode_used: str  # semantic | hash | skip
     _warned: bool = field(default=False, repr=False)
+    _passages: dict[str, list[list[float]]] | None = field(default=None, repr=False)
+
+    def _passage_vectors(self, vectors: dict[str, list[float]], file_id: str) -> list[list[float]]:
+        # Grouped once per scorer: a prefix scan of the whole index on every
+        # score() call made each retrieval quadratic in the index size.
+        if self._passages is None:
+            grouped: dict[str, list[list[float]]] = {}
+            for key, value in vectors.items():
+                if "::passage:" in key:
+                    grouped.setdefault(key.split("::passage:", 1)[0], []).append(value)
+            self._passages = grouped
+        return self._passages.get(file_id, [])
 
     @property
     def active(self) -> bool:
@@ -262,8 +274,7 @@ class VectorScorer:
         vectors = self.index.vectors_for_scoring()
         vector = vectors.get(str(file_id))
         if vector is None:
-            prefix = f"{file_id}::passage:"
-            passage_vectors = [value for key, value in vectors.items() if key.startswith(prefix)]
+            passage_vectors = self._passage_vectors(vectors, str(file_id))
             if not passage_vectors:
                 return 0.0
             index_dim = self.index.dimension or len(passage_vectors[0])
