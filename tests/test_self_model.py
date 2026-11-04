@@ -358,3 +358,70 @@ class StaleCodeInstrumentTests(unittest.TestCase):
             services = self_model._service_status()
 
         self.assertEqual(services["adjutant"], "down")
+
+    def test_systemctl_probe_failure_is_unknown_not_down(self):
+        """A process started by `systemd --user` doesn't inherit a session
+        bus, so `systemctl --user is-active` fails with "Failed to connect
+        to user scope bus" — empty stdout, exit 1 — and that used to be read
+        as "inactive" and reported as "down", a false alarm indistinguishable
+        from the service actually being dead."""
+        import subprocess as _subprocess
+        from unittest.mock import patch
+
+        from lisan.tools import self_model
+
+        def fake_run(args, **kwargs):
+            return _subprocess.CompletedProcess(
+                args, returncode=1, stdout="",
+                stderr="Failed to connect to user scope bus via local transport: "
+                "$DBUS_SESSION_BUS_ADDRESS and $XDG_RUNTIME_DIR not defined\n",
+            )
+
+        with patch.object(self_model.subprocess, "run", side_effect=fake_run), \
+                patch("platform.system", return_value="Linux"):
+            services = self_model._service_status()
+
+        self.assertEqual(services["telegram"], "unknown")
+
+    def test_systemctl_probe_gets_a_runtime_dir_when_the_env_lacks_one(self):
+        """The probe supplies the standard XDG_RUNTIME_DIR/DBUS_SESSION_BUS_ADDRESS
+        fallback so it can actually reach the bus instead of merely failing
+        gracefully."""
+        import os
+        import subprocess as _subprocess
+        from unittest.mock import patch
+
+        from lisan.tools import self_model
+
+        seen_envs = []
+
+        def fake_run(args, **kwargs):
+            seen_envs.append(kwargs.get("env"))
+            return _subprocess.CompletedProcess(args, returncode=0, stdout="active\n", stderr="")
+
+        with patch.object(self_model.subprocess, "run", side_effect=fake_run), \
+                patch("platform.system", return_value="Linux"), \
+                patch.dict(os.environ, {}, clear=True), \
+                patch("os.getuid", return_value=4242, create=True):
+            services = self_model._service_status()
+
+        self.assertEqual(services["telegram"], "up")
+        assert seen_envs and seen_envs[0]["XDG_RUNTIME_DIR"] == "/run/user/4242"
+        assert seen_envs[0]["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/run/user/4242/bus"
+
+    def test_a_real_inactive_unit_is_still_reported_down(self):
+        """The probe succeeding and reporting "inactive" must still mean
+        down — "unknown" is only for the probe itself failing to run."""
+        import subprocess as _subprocess
+        from unittest.mock import patch
+
+        from lisan.tools import self_model
+
+        def fake_run(args, **kwargs):
+            return _subprocess.CompletedProcess(args, returncode=3, stdout="inactive\n", stderr="")
+
+        with patch.object(self_model.subprocess, "run", side_effect=fake_run), \
+                patch("platform.system", return_value="Linux"):
+            services = self_model._service_status()
+
+        self.assertEqual(services["telegram"], "down")

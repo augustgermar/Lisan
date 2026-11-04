@@ -586,8 +586,11 @@ def _launchd_is_interval_triggered(label: str) -> bool:
 def _service_status() -> dict[str, str]:
     """Is the always-on layer actually alive? Platform-aware, non-fatal.
 
-    Values are "up", "idle", or "down" — not booleans, because two of those
-    three are healthy and a boolean cannot say so.
+    Values are "up", "idle", "down", or "unknown" — not booleans, because
+    three of those four are not "the service is broken" and a boolean
+    cannot say so. "unknown" means the health probe itself couldn't run
+    (e.g. `systemctl --user` had no session bus to ask), as distinct from
+    the probe running and reporting the unit inactive.
 
     ``com.lisan.jobs`` runs on a 3600s StartInterval with no KeepAlive: it
     wakes, drains the queue, and exits. Its steady state is no process at all.
@@ -603,6 +606,7 @@ def _service_status() -> dict[str, str]:
     A false alarm is not a harmless conservatism: it teaches the owner to
     discount the instrument, which costs exactly when the alarm is real.
     """
+    import os
     import platform
 
     services = {"telegram": "down", "scheduler": "down"}
@@ -616,11 +620,33 @@ def _service_status() -> dict[str, str]:
                     if line.endswith(label) and not line.startswith("-"):
                         services[key] = "up"
         elif platform.system() == "Linux":
+            # `systemctl --user` needs a session bus to talk to. A process
+            # started directly by systemd --user (this one, often) doesn't
+            # inherit XDG_RUNTIME_DIR/DBUS_SESSION_BUS_ADDRESS the way an
+            # interactive login shell does, so the probe itself fails with
+            # "Failed to connect to user scope bus" — empty stdout, exit 1.
+            # That used to be read as "inactive" and reported as "down",
+            # which is the false alarm this function's docstring already
+            # warns about, just from a different cause: not "the service is
+            # down" but "I couldn't ask." Supply the standard runtime
+            # location so the probe can actually run; if it still can't
+            # reach a bus (no systemd user session at all), say "unknown"
+            # rather than guess "down".
+            probe_env = dict(os.environ)
+            probe_env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+            probe_env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path={probe_env['XDG_RUNTIME_DIR']}/bus")
             for key, unit in units.items():
                 result = subprocess.run(
-                    ["systemctl", "--user", "is-active", unit], capture_output=True, text=True, timeout=5
+                    ["systemctl", "--user", "is-active", unit],
+                    capture_output=True, text=True, timeout=5, env=probe_env,
                 )
-                services[key] = "up" if result.stdout.strip() == "active" else "down"
+                status = result.stdout.strip()
+                if status == "active":
+                    services[key] = "up"
+                elif result.returncode != 0 and "failed to connect to" in (result.stderr or "").lower():
+                    services[key] = "unknown"
+                else:
+                    services[key] = "down"
     except Exception:
         pass
     # The Telegram service hosts the scheduler loop as a thread — when it is
@@ -813,7 +839,9 @@ def render_self_state(state: dict[str, Any]) -> str:
     services = state.get("services") or {}
     lines.append(
         "Services: " + ", ".join(
-            f"{name} {state}" if state != "idle" else f"{name} idle (scheduled, not resident)"
+            f"{name} idle (scheduled, not resident)" if state == "idle"
+            else f"{name} unknown (could not reach the service manager to check)" if state == "unknown"
+            else f"{name} {state}"
             for name, state in sorted(services.items())
         )
     )
