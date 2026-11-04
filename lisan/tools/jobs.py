@@ -67,6 +67,7 @@ JOB_TYPES = {
     "prediction.reconcile",
     "corpus.audit_priors",
     "adjutant.cycle",
+    "self_update.check",
 }
 
 # Indexing/embedding jobs are deterministic and cheap (no LLM call). These are
@@ -1584,6 +1585,12 @@ def _job_entity_rewrite_story(job: dict[str, Any], payload: dict[str, Any], job_
     )
 
 
+def _job_self_update_check(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
+    from .self_update import run_periodic_check
+
+    return run_periodic_check(vault, db_path=db_path)
+
+
 _JOB_HANDLERS: dict[str, Any] = {
     "index.rebuild_record": _job_index_rebuild_record,
     "index.rebuild_all": _job_index_rebuild_all,
@@ -1615,6 +1622,7 @@ _JOB_HANDLERS: dict[str, Any] = {
     "skill.review": _job_skill_review,
     "agent.delegate_report": _job_agent_delegate_report,
     "adjutant.cycle": _job_adjutant_cycle,
+    "self_update.check": _job_self_update_check,
     "task.reminder": _job_task,
     "task.prompt": _job_task,
     "task.run_codex": _job_task,

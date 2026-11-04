@@ -55,7 +55,9 @@ def _render_tool_rounds(rounds: list[dict[str, str]], budget: int) -> str:
         results[i] = elided
         i += 1
     parts = [
-        "\n\nTOOL_CALL:\n" + r["call"] + "\n\nTOOL_RESULT:\n" + res
+        "\n\nTOOL_CALL:\n" + r["call"]
+        + (f"\n\nTOOL_STATUS: {r['status']}" if r.get("status") else "")
+        + "\n\nTOOL_RESULT:\n" + res
         for r, res in zip(rounds, results)
     ]
     return "".join(parts) + "\n\nContinue. If you have enough information, provide the final JSON response now."
@@ -139,6 +141,16 @@ class PromptAgent:
         for key, value in kwargs.items():
             if value is None or key in self._INTERNAL_KWARGS:
                 continue
+            if key == "retrieved_context":
+                # Sentinel markers let the provider-prompt budget locate the
+                # retrieval block deterministically. Regexing rendered text
+                # for section headers is fragile: record bodies can contain
+                # ALL-CAPS: lines that look like headers and would truncate the
+                # trimmable region mid-block, turning a trimmable prompt into
+                # a spurious budget rejection.
+                value = (
+                    "[BEGIN RETRIEVED CONTEXT]\n" + str(value) + "\n[END RETRIEVED CONTEXT]"
+                )
             extras.append(f"{key.upper()}:\n{value}")
         if extras:
             rendered += "\n\n" + "\n\n".join(extras)
@@ -209,6 +221,20 @@ class PromptAgent:
         budget = _tool_prompt_budget(self.config)
         for iteration in range(max_iterations):
             current_prompt = base_prompt + _render_tool_rounds(rounds, budget)
+            # Second, provider-level guard: the round budget above elides old
+            # tool results; this one fails closed (or trims retrieved context
+            # between its sentinels) if the whole prompt still cannot fit.
+            from ..tools.context_budget import PromptBudgetError, fit_provider_prompt, budget_from_config
+            context_budget = budget_from_config(self.config)
+            prompt_budget = context_budget["budget_chars"]
+            try:
+                current_prompt, budget_accounting = fit_provider_prompt(
+                    current_prompt, budget_chars=prompt_budget
+                )
+                from ..tools.tracing import record_prompt_budget
+                record_prompt_budget(budget_accounting)
+            except PromptBudgetError as exc:
+                raise ProviderError(f"prompt budget exceeded safely: {exc}") from exc
             try:
                 response = self.llm.complete(
                     current_prompt,
@@ -253,17 +279,31 @@ class PromptAgent:
 
                 record_tool_use(tool_name, args)
                 handler = tool_handlers.get(tool_name)
+                dispatch_status = "succeeded"
                 if handler is None:
                     available = ", ".join(sorted(tool_handlers.keys()))
-                    result = f"Error: unknown tool {tool_name!r}. Available tools: {available}. Re-read the list and call the correct tool name."
+                    dispatch_status = "not_registered"
+                    result = (
+                        f"Error: unknown tool {tool_name!r}. "
+                        f"Available tools: {available}. Re-read the list and call the correct tool name."
+                    )
                 else:
                     try:
                         result = invoke_tool(handler, args, tool_name=tool_name)
+                        if isinstance(result, str) and result.startswith(f"Error: invalid arguments for {tool_name}:"):
+                            dispatch_status = "dispatch_failed"
                     except Exception as exc:
+                        dispatch_status = "dispatch_failed"
                         result = f"Error: {exc}"
-                tool_log.append({"tool": tool_name, "args": args, "result": result, "iteration": iteration + 1})
+                    if dispatch_status == "succeeded" and str(result).lstrip().startswith("Error:"):
+                        dispatch_status = "task_failed"
+                tool_log.append({
+                    "tool": tool_name, "args": args, "result": result,
+                    "status": dispatch_status, "iteration": iteration + 1,
+                })
                 rounds.append({
                     "call": json.dumps({"tool": tool_name, "args": args}, indent=2, ensure_ascii=True),
+                    "status": dispatch_status,
                     "result": fence_tool_result(tool_name, str(result)),
                 })
         if last_response is not None:

@@ -279,6 +279,23 @@ def entity_search_text(fm: dict[str, Any], body: str, archive_path: Path | None 
     return "\n\n".join(p for p in parts if p).strip()
 
 
+def shared_index_text(fm: dict[str, Any], body: str, archive_path: Path | None = None, *, limit: int = 64000) -> str:
+    """Return the bounded, provenance-preserving text shared by lexical and
+    semantic indexes.
+
+    Entity source logs are append-only and may outlive narrative compaction;
+    using this one representation for both indexes prevents FTS-only facts
+    from becoming invisible to paraphrased retrieval. The bound protects
+    provider/index memory while retaining the newest tail and the narrative.
+    """
+    text = entity_search_text(fm, body, archive_path=archive_path)
+    if len(text) <= limit:
+        return text
+    narrative = _strip_title(body).strip()
+    tail = text[-max(0, limit - len(narrative) - 80):]
+    return (narrative + "\n\n[older source passages bounded; see canonical record]\n\n" + tail).strip()[:limit]
+
+
 def _identity_names(fm: dict[str, Any]) -> list[str]:
     names = [fm.get("canonical_name"), fm.get("name")]
     aliases = fm.get("aliases") or []

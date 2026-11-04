@@ -25,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import driver  # noqa: E402  (evals/driver.py)
-from judge import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, aggregate, judge_exchange  # noqa: E402
+from judge import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, aggregate, judge_exchange, validate_score_ids  # noqa: E402
 from metrics import compute_metrics  # noqa: E402
 from rubric import rubric_from_kernel  # noqa: E402
 
@@ -69,6 +69,7 @@ def run_baseline(*, judge_provider: str, judge_model: str, skip_judge: bool, lab
                 "conversation": probe["conversation"],
                 "text": probe["text"],
                 "response": result.get("response"),
+                "authoritative_facts": probe.get("authoritative_facts", ""),
                 "elapsed_s": result.get("elapsed_s"),
                 "error": result.get("error"),
             }
@@ -80,9 +81,15 @@ def run_baseline(*, judge_provider: str, judge_model: str, skip_judge: bool, lab
         for ex in exchanges:
             print(f"judge {ex['id']} …", file=sys.stderr)
             scores = judge_exchange(
-                rubric, ex["text"], str(ex["response"] or ""), provider=judge_provider, model=judge_model
+                rubric, ex["text"], str(ex["response"] or ""), provider=judge_provider, model=judge_model,
+                source_facts=str(ex.get("authoritative_facts") or "") or None,
             )
-            scores_by_probe.append(scores)
+            valid, reason = validate_score_ids(scores, rubric)
+            if not valid:
+                ex["judge_error"] = f"malformed or incomplete score IDs: {reason}"
+                scores_by_probe.append([])
+            else:
+                scores_by_probe.append(scores)
         (vault_dir / "scores.json").write_text(
             json.dumps(
                 [{"id": ex["id"], "scores": s} for ex, s in zip(exchanges, scores_by_probe)],

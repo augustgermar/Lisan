@@ -435,10 +435,35 @@ def run_onboarding(vault: Path) -> bool:
     print(color(f"    {identity_core_path}", DIM))
     print(color(f"    {operating_path}", DIM))
     print(color(f"    {high_stakes_path}", DIM))
+    _prompt_update_mode()
+
     print()
     print(color(f"  I'm {display_name}. Your vault is set up and I'm ready to go.", BOLD))
     print()
     return True
+
+
+def _prompt_update_mode() -> None:
+    """One-time choice: how should Lisan handle new versions on GitHub?
+    Skippable like every other onboarding step — `update.mode` just stays
+    unresolved, and the periodic check never runs until it is set, here or
+    later with `lisan update config --mode ...`."""
+    from .self_update import set_update_mode
+
+    print()
+    print(color("  One more thing: new versions get published to the project's GitHub repo.", BOLD))
+    print(color("  [1] Update automatically (recommended)", DIM))
+    print(color("  [2] Just notify me when an update is available", DIM))
+    print()
+    choice = _ask("Choose 1 or 2:", allow_blank=False)
+    if choice == "1":
+        set_update_mode("automatic")
+        print(color("  ✓ Will check for updates and apply them automatically.", GREEN))
+    elif choice == "2":
+        set_update_mode("notify")
+        print(color("  ✓ Will check for updates and let you know; nothing applies on its own.", GREEN))
+    else:
+        print(color("  Skipped — set this later with `lisan update config --mode automatic|notify`.", DIM))
 
 
 def _prompt_agent_identity() -> tuple[AgentIdentity, str | None] | None:

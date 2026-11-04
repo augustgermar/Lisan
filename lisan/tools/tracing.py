@@ -67,6 +67,7 @@ class TurnTrace:
     jobs_queued: int = 0
     inline_steps: list[str] = field(default_factory=list)
     llm_calls: list[dict[str, Any]] = field(default_factory=list)
+    prompt_budget_events: list[dict[str, Any]] = field(default_factory=list)
     trace_path: str | None = None
 
     def add_step(self, step: str) -> None:
@@ -127,6 +128,7 @@ class TurnTrace:
             "jobs_queued": self.jobs_queued,
             "inline_steps": list(self.inline_steps),
             "llm_calls": list(self.llm_calls),
+            "prompt_budget_events": list(self.prompt_budget_events),
             "trace_path": self.trace_path,
         }
 
@@ -166,6 +168,12 @@ def record_inline_step(step: str) -> None:
     if trace is not None:
         trace.add_step(step)
     _notify_progress({"kind": "step", "step": step})
+
+
+def record_prompt_budget(accounting: dict[str, Any]) -> None:
+    trace = get_current_turn_trace()
+    if trace is not None:
+        trace.prompt_budget_events.append(dict(accounting))
 
 
 def record_tool_use(tool_name: str, args: dict[str, Any] | None = None) -> None:

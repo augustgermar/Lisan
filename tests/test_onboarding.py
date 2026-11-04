@@ -24,7 +24,7 @@ class OnboardingTests(unittest.TestCase):
                 name="Nova",
             )
             stdout = io.StringIO()
-            inputs = iter(["1", "Alex Morgan", "I work in finance and play in a band."])
+            inputs = iter(["1", "Alex Morgan", "I work in finance and play in a band.", "1"])
             with (
                 patch("lisan.tools.onboarding.generate_agent_identity", return_value=fixed_identity),
                 patch("lisan.tools.chat.startup_check", return_value=True),

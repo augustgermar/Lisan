@@ -33,8 +33,13 @@ def _parse(value: Any) -> datetime | None:
 
 def metadata(frontmatter: dict[str, Any], *, now: datetime | None = None, stable: bool = False, default_ttl_days: int | None = None) -> Freshness:
     now = now or datetime.now(timezone.utc)
-    observed = _parse(frontmatter.get("observed_at") or frontmatter.get("updated") or frontmatter.get("created")) or now
-    valid = _parse(frontmatter.get("valid_until") or frontmatter.get("review_after"))
+    # updated/created describe the record, not necessarily the event. Never
+    # turn an unknown event time into "now" and never use a review deadline as
+    # evidence that the underlying fact expired.
+    observed = _parse(frontmatter.get("observed_at") or frontmatter.get("created"))
+    if observed is None:
+        return Freshness("unknown", None, 0, "unknown")
+    valid = _parse(frontmatter.get("valid_until"))
     ttl = frontmatter.get("ttl_days")
     if valid is None and ttl not in (None, ""):
         try:
