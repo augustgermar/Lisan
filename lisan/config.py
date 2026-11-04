@@ -60,11 +60,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "additional_writable_dirs": [],
             # Structural scope metadata for the default cognition profile.
             # `repo` and `vault` resolve through the canonical path seam;
-            # the Codex sandbox remains the enforcement boundary.
+            # the Codex sandbox remains the enforcement boundary. Network is
+            # not actually gated here — it is enabled machine-wide by
+            # `sandbox_workspace_write.network_access = true` in
+            # ~/.codex/config.toml (set 2026-11-04 so execute_task agents can
+            # do real diagnostics, e.g. DNS/HTTPS checks). This field is
+            # descriptive only; nothing in this codebase reads it to enforce
+            # a restriction.
             "capability_scopes": {
                 "default": {
                     "filesystem": {"read": ["repo", "vault"], "write": ["repo"]},
-                    "network": False,
+                    "network": True,
                     "identity": "lisan-cognition",
                     "duration_seconds": 900,
                 },

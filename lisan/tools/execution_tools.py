@@ -301,7 +301,8 @@ TOOLS: list[dict[str, Any]] = [
             "reports when done — for work with real stages, not a single immediate action. Step "
             "kinds: 'codex' (shell/CLI/file work), 'prompt' (runs through your own pipeline — "
             "REQUIRED for any step needing gmail, messages, browser or calendar; the codex "
-            "sandbox has no network to those and fails with misleading auth errors), 'note' (an "
+            "executor has network access but not those credentials, which live in Lisan's own "
+            "tool layer, and fails with misleading auth errors), 'note' (an "
             "observation). Steps run in order and see earlier results. Approved at creation. "
             "Keep to a few concrete steps."
         ),
@@ -371,8 +372,10 @@ TOOLS: list[dict[str, Any]] = [
             "Never fuzzy phrases like 'next thursday' — resolve first; when unsure of the date "
             "prefer an offset. Optional 'recurrence': 'every:30m', 'daily@HH:MM', "
             "'annual@MM-DD@HH:MM'; omit 'when' to start at the next occurrence. "
-            "KIND RULE: 'codex' has NO network — it can never send Telegram, reach email, or "
-            "browse. Use 'reminder' to deliver text, 'prompt' to think and respond."
+            "KIND RULE: 'codex' has no access to Telegram, email, or the browser session — "
+            "those credentials live in Lisan's own tool layer, not the executor subprocess, "
+            "regardless of network access. Use 'reminder' to deliver text, 'prompt' to think "
+            "and respond."
         ),
         "parameters": {
             "type": "object",
