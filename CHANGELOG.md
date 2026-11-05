@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Removed four one-off vault migrations** from the 2026-10-01 audit
+  (`evidence_repair_migration`, `pattern_reference_migration`,
+  `confirmation_reference_migration`, `self_episode_release_migration`;
+  ~1,240 lines). Nothing called them, no test covered them, each asserted
+  one vault's exact state, and one hardcoded a developer's backup path into
+  every install. They already ran; git history keeps the code (#6).
 - **The 2026-10-29 audit series** (Claude, co-author; one commit per fix,
   each with a regression test). Highlights:
   - *Safety.* `send_email` now needs the owner's yes for the exact message
