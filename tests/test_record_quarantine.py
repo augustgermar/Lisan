@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from lisan.frontmatter import load_markdown
+from lisan.tools.rebuild_index import rebuild_index
 from lisan.tools.record_factory import new_knowledge
 from lisan.tools.record_quarantine import (
     apply_manifest,
@@ -10,7 +11,6 @@ from lisan.tools.record_quarantine import (
     rollback_manifest,
     write_manifest,
 )
-from lisan.tools.rebuild_index import rebuild_index
 from lisan.tools.retrieval import retrieve_context
 
 

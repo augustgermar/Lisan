@@ -46,7 +46,6 @@ from lisan.tools.rebuild_index import ensure_index_schema, index_single_record
 from lisan.tools.record_factory import new_open_loop
 from lisan.tools.scope import declared_scopes, normalize_scope, record_scope
 
-
 # ---------------------------------------------------------------------------
 # 1. No fallback, anywhere
 

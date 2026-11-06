@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from lisan.cli import build_parser, main
-from lisan.tools.chat import _cli_approval_fn
 from lisan.tools import execution_tools
+from lisan.tools.chat import _cli_approval_fn
 
 
 def test_cli_immediate_approval_requires_explicit_yes_and_shows_full_action():

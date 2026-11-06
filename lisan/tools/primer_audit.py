@@ -4,8 +4,8 @@ import json
 from datetime import date, timedelta
 from pathlib import Path
 
-from ..frontmatter import load_markdown
 from ..agents import DreamerAgent
+from ..frontmatter import load_markdown
 from ..paths import vault_root
 from ..utils import today_iso
 from .context_budget import Record, Section, render

@@ -7,7 +7,6 @@ from pathlib import Path
 from ..frontmatter import write_markdown
 from ..paths import vault_root
 
-
 # The capture pipeline writes the user's turn to the transcript
 # BEFORE the writer runs. A timeout / crash leaves an orphaned entry, and the
 # retry then appends a second copy. We guard with a content-equality check on

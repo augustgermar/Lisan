@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..config import load_config
 from ..paths import repo_root, skills_root
@@ -11,7 +12,6 @@ from ..providers.codex import CodexClient, _resolve_sandbox_mode
 from .assembler import assemble_context
 from .skill_loader import load_skill_handlers
 from .structured import extract_json
-
 
 # Tool names that were renamed and still work as aliases. Anything written down
 # for the agent to follow later (a skill) must use the current name: an old one
@@ -1067,7 +1067,17 @@ def _librarian_tool(
 ) -> str:
     """Conversation-facing facade for the contract-driven librarian."""
     import json as _json
-    from .librarian import build_domain, correct_knowledge, consolidate_domain, decide_proposal, finalize_intake, propose_sources, resolve_intake_domain, resume_intake
+
+    from .librarian import (
+        build_domain,
+        consolidate_domain,
+        correct_knowledge,
+        decide_proposal,
+        finalize_intake,
+        propose_sources,
+        resolve_intake_domain,
+        resume_intake,
+    )
 
     action = str(action or "").strip().lower()
     if action == "propose_sources":

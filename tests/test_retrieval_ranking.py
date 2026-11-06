@@ -7,11 +7,13 @@ from datetime import date
 from pathlib import Path
 
 from lisan.frontmatter import dump_markdown
+from lisan.tools.retrieval_graph import _load_relevant_contradictions
 from lisan.tools.retrieval_layers import (
-    _LayerCandidate, _fuse_ranked_candidates, _rank_quality_multiplier,
+    _fuse_ranked_candidates,
+    _LayerCandidate,
+    _rank_quality_multiplier,
     _recent_access_counts,
 )
-from lisan.tools.retrieval_graph import _load_relevant_contradictions
 
 
 def _row(**updates):

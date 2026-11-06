@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -75,8 +75,8 @@ def test_extract_code_rejects_url_without_code(gsetup) -> None:
 
 
 def test_token_expiry_logic(google) -> None:
-    future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
-    past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    future = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+    past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
     assert google.token_expired({"expiry": past}) is True
     assert google.token_expired({"expiry": future}) is False
     assert google.token_expired({}) is True

@@ -29,10 +29,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import skill_frontmatter as fm
 from .skill_format import SKILL_FILE, parse_frontmatter, parse_skill_md
 from .skill_gate import PlannedChange, check_name, scan_added_text
 from .skill_history import HISTORY_DIR, SkillHistoryError, _log, is_pinned, rollback_skill, snapshot_skill
-from . import skill_frontmatter as fm
 
 
 class ApplyRefused(RuntimeError):
@@ -58,7 +58,7 @@ class _Lock:
         folder.mkdir(parents=True, exist_ok=True)
         self._handle = (folder / "apply.lock").open("a")
 
-    def __enter__(self) -> "_Lock":
+    def __enter__(self) -> _Lock:
         fcntl.flock(self._handle, fcntl.LOCK_EX)
         return self
 

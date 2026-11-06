@@ -7,7 +7,7 @@ import json
 import os
 import shutil
 import stat
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +23,6 @@ from .evidence_repair_migration import (
 )
 from .record_refs import build_reference_index, resolve_reference
 from .validator import validate_record_candidate
-
 
 MIGRATION_ID = "20261001-step3-category5-pattern-references"
 
@@ -251,4 +250,4 @@ def _sha(value: bytes) -> str:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()

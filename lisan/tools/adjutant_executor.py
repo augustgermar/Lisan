@@ -17,10 +17,11 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..frontmatter import dump_markdown, load_markdown, write_markdown
 from ..utils import slugify

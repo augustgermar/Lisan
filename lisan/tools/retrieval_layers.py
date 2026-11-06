@@ -19,10 +19,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from .vector_store import VectorScorer
-
-
 from .retrieval_vocab import DOMAIN_KEYWORDS, SENSITIVE_COMPARTMENTS  # noqa: F401 — re-exported
+from .vector_store import VectorScorer
 
 
 @dataclass(slots=True)

@@ -10,8 +10,7 @@ from ..agents import ElicitorAgent, InterlocutorAgent, SkepticAgent, WriterAgent
 from ..frontmatter import write_markdown
 from ..utils import slugify, today_iso
 from .assembler import assemble_context
-from .deixis import render_deixis
-from .deixis import tokenize_principal_obj
+from .deixis import render_deixis, tokenize_principal_obj
 from .domain_fields import with_domain_fields
 from .narrative_state import (
     conversation_history,
@@ -20,16 +19,16 @@ from .narrative_state import (
     save_narrative_state,
     update_narrative_state,
 )
+from .rebuild_index import open_index_connection
 from .record_fanout import (
+    apply_behavioral_contracts,
+    close_completed_open_loops,
     fanout_claims,
     fanout_decisions,
     fanout_evidence,
-    apply_behavioral_contracts,
     fanout_open_loops,
-    close_completed_open_loops,
     fanout_state_updates,
 )
-from .rebuild_index import open_index_connection
 from .transcripts import append_transcript
 
 # Force Writer handoff after this many turns when enough has been established.

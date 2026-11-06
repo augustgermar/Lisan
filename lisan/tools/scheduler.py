@@ -21,12 +21,13 @@ from __future__ import annotations
 
 import re
 import threading
-from datetime import datetime, timedelta, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
-from .db import connect as _db_connect
+from typing import Any
 
 from ..config import load_config
+from .db import connect as _db_connect
 
 TASK_JOB_TYPES = {"task.reminder", "task.prompt", "task.run_codex"}
 
@@ -85,7 +86,7 @@ _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
 
 def _now_utc() -> datetime:
-    return datetime.now(timezone.utc).replace(microsecond=0)
+    return datetime.now(UTC).replace(microsecond=0)
 
 
 def _local_tz():
@@ -148,7 +149,7 @@ def _zone_name_from_path(target: str) -> str | None:
 
 
 def _to_iso(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _local_display(dt: datetime) -> str:
@@ -182,7 +183,7 @@ def parse_when(value: str, *, now: datetime | None = None) -> datetime:
         candidate = (local_now + timedelta(days=1)).replace(
             hour=int(tomorrow.group(1)), minute=int(tomorrow.group(2)), second=0, microsecond=0
         )
-        return candidate.astimezone(timezone.utc)
+        return candidate.astimezone(UTC)
 
     bare_time = re.match(r"^([01]?\d|2[0-3]):([0-5]\d)$", text)
     if bare_time:
@@ -192,7 +193,7 @@ def parse_when(value: str, *, now: datetime | None = None) -> datetime:
         )
         if candidate <= local_now:
             candidate += timedelta(days=1)
-        return candidate.astimezone(timezone.utc)
+        return candidate.astimezone(UTC)
 
     try:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
@@ -203,7 +204,7 @@ def parse_when(value: str, *, now: datetime | None = None) -> datetime:
         ) from None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=_local_tz())
-    return parsed.astimezone(timezone.utc)
+    return parsed.astimezone(UTC)
 
 
 def normalize_recurrence(value: str | None) -> str | None:
@@ -239,7 +240,7 @@ def normalize_recurrence(value: str | None) -> str | None:
 
 def next_occurrence(recurrence: str, *, after: datetime | None = None) -> datetime:
     """First fire time strictly after ``after`` (default: now), in UTC."""
-    after = (after or _now_utc()).astimezone(timezone.utc)
+    after = (after or _now_utc()).astimezone(UTC)
     rule = normalize_recurrence(recurrence)
     if rule is None:
         raise ValueError("next_occurrence requires a recurrence rule")
@@ -253,7 +254,7 @@ def next_occurrence(recurrence: str, *, after: datetime | None = None) -> dateti
         candidate = local_after.replace(hour=hour, minute=minute, second=0, microsecond=0)
         if candidate <= local_after:
             candidate += timedelta(days=1)
-        return candidate.astimezone(timezone.utc)
+        return candidate.astimezone(UTC)
 
     annual_parts = rule.split("@")
     month, day = (int(part) for part in annual_parts[1].split("-"))
@@ -265,7 +266,7 @@ def next_occurrence(recurrence: str, *, after: datetime | None = None) -> dateti
         actual_day = min(day, monthrange(year, month)[1])
         candidate = datetime(year, month, actual_day, annual_time[0], annual_time[1], tzinfo=_local_tz())
         if candidate > local_after:
-            return candidate.astimezone(timezone.utc)
+            return candidate.astimezone(UTC)
         year += 1
 
 
@@ -303,7 +304,7 @@ def schedule_task(
             raise ValueError("either 'when' or a recurrence rule is required")
         fire_at = next_occurrence(rule, after=now)
     elif isinstance(when, datetime):
-        fire_at = (when if when.tzinfo else when.replace(tzinfo=_local_tz())).astimezone(timezone.utc)
+        fire_at = (when if when.tzinfo else when.replace(tzinfo=_local_tz())).astimezone(UTC)
     else:
         fire_at = parse_when(when, now=now)
     if fire_at < now - timedelta(seconds=60):
@@ -393,7 +394,7 @@ def _parse_iso(value: str) -> datetime | None:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 # ── Task execution (dispatch targets for the task.* job types) ──────────────
@@ -505,9 +506,9 @@ def _deliver_owner_message(
     the target must be on the configured allowlist; anything else falls back
     to the first allowlisted id. This is deliberately the only outbound
     channel scheduled tasks can use (see the disclosure-gate roadmap)."""
-    from .telegram_bot import _chunk, _resolve_settings, _telegram_api
-
     import os
+
+    from .telegram_bot import _chunk, _resolve_settings, _telegram_api
 
     if os.environ.get("LISAN_NO_OUTBOUND"):
         # The hard kill switch for every owner-bound message. Set by the
@@ -670,7 +671,8 @@ def _start_lanes(
     on_tick: Callable[[dict[str, Any]], None] | None,
 ) -> list[threading.Thread]:
     from ..config import load_config
-    from .delegation import JOB_TYPE as DELEGATE_JOB, max_concurrent
+    from .delegation import JOB_TYPE as DELEGATE_JOB
+    from .delegation import max_concurrent
 
     workers = max_concurrent(load_config())
     common = dict(

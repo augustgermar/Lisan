@@ -7,19 +7,19 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from datetime import date
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from lisan.frontmatter import load_markdown
 from lisan.config import load_config
+from lisan.frontmatter import load_markdown
 from lisan.paths import ensure_repo_layout, vault_root
+from lisan.providers.base import LLMResponse, ProviderError
 from lisan.tools.capture import capture_text
 from lisan.tools.chat import _print_background_summary, _process_chat_turn, startup_check
 from lisan.tools.record_fanout import fanout_decisions as _create_decisions
-from lisan.tools.transcripts import append_transcript
 from lisan.tools.tracing import list_recent_turn_traces, load_turn_trace
-from lisan.providers.base import LLMResponse, ProviderError
+from lisan.tools.transcripts import append_transcript
 
 
 class ChatPerformanceTests(unittest.TestCase):

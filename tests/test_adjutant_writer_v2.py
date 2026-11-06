@@ -187,8 +187,8 @@ def _fake_agents(monkeypatch, writer_prompt_seen: list[str]):
     """One patch point: every prompt agent returns canned output by role.
     All deterministic machinery — routing, fanout, gate, executor,
     reporter, capture — runs for real."""
-    from lisan.agents.base import PromptAgent
     from lisan.agents.assembler import AssemblerAgent
+    from lisan.agents.base import PromptAgent
 
     def fake_run_json(self, user_input, **kwargs):
         name = getattr(self, "name", "")

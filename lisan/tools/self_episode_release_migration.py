@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import stat
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +18,6 @@ from .evidence_repair_migration import (
     _write_json_atomic,
 )
 from .validator import validate_record_candidate
-
 
 MIGRATION_ID = "20261001-step3-category6-self-repair-episode"
 
@@ -63,7 +62,7 @@ def prepare(vault: Path, db_path: Path, migration_root: Path) -> dict[str, Any]:
         "format": 1,
         "migration_id": MIGRATION_ID,
         "state": "prepared",
-        "prepared_at": datetime.now(timezone.utc).isoformat(),
+        "prepared_at": datetime.now(UTC).isoformat(),
         "vault": str(vault.resolve()),
         "database": str(db_path.resolve()),
         "restore_anchor": {"path": BACKUP_PATH, "sha256": BACKUP_SHA256, "predates_migration": True},

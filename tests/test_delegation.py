@@ -16,8 +16,6 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.intent_helpers import adopt_intent
-
 from lisan.providers.base import LLMResponse, ProviderError
 from lisan.tools import delegation
 from lisan.tools.delegation import (
@@ -29,6 +27,7 @@ from lisan.tools.delegation import (
     show_delegation,
 )
 from lisan.tools.jobs import claim_next_job, enqueue_job, get_job, list_jobs, run_jobs_worker
+from tests.intent_helpers import adopt_intent
 
 FULL = "danger-full-access"
 

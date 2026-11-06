@@ -16,10 +16,11 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..frontmatter import load_markdown, write_markdown
 from .adjutant_confirmations import create_confirmation_for_task
@@ -706,7 +707,7 @@ def _bake_metadata(
     bake_hours: int = DEFAULT_BAKE_HOURS,
 ) -> dict[str, Any]:
     """Compute the rollback metadata recorded at apply time."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     dimension = _targeted_dimension(vault, loop_id)
     pre_score = _latest_dimension_score(vault, dimension) if dimension else None
     return {
@@ -732,7 +733,7 @@ def _enqueue_bake_check(
     """Schedule the next bake check."""
     from .jobs import enqueue_job
 
-    scheduled = datetime.now(timezone.utc) + timedelta(hours=delay_hours)
+    scheduled = datetime.now(UTC) + timedelta(hours=delay_hours)
     return enqueue_job(
         "self_repair.bake_check",
         {"vault": str(vault), "proposal_id": proposal_id},
@@ -780,7 +781,7 @@ def run_bake_check(
                 "bake_status": fm.get("bake_status")}
 
     repo = repo or Path(__file__).resolve().parents[2]
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     bake_end_str = str(fm.get("bake_end") or "")
     bake_start_str = str(fm.get("bake_start") or "")
     dimension = fm.get("targeted_dimension")
@@ -790,7 +791,7 @@ def run_bake_check(
     try:
         bake_end = datetime.fromisoformat(bake_end_str)
         if bake_end.tzinfo is None:
-            bake_end = bake_end.replace(tzinfo=timezone.utc)
+            bake_end = bake_end.replace(tzinfo=UTC)
     except (ValueError, TypeError):
         bake_end = now
 

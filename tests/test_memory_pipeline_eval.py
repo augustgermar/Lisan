@@ -1,5 +1,5 @@
-from lisan.tools.self_eval import run_memory_pipeline_evaluation
 from lisan.cli import build_parser
+from lisan.tools.self_eval import run_memory_pipeline_evaluation
 
 
 def test_release_gate_has_a_cli_entrypoint():

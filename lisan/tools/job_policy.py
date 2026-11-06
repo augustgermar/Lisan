@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from .db import connect as _db_connect
 
 from ..paths import sqlite_path
 from ..utils import parse_utc_timestamp as _parse_timestamp
-
+from .db import connect as _db_connect
 
 DEFAULT_JOB_PRIORITIES = {
     "ingest.reindex_artifact": 40,
@@ -494,7 +493,7 @@ def _stale_claims_exist(db_path: Path | None) -> bool:
     conn = _db_connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        today = datetime.now(timezone.utc).date().isoformat()
+        today = datetime.now(UTC).date().isoformat()
         try:
             row = conn.execute(
                 """
@@ -548,11 +547,11 @@ def _last_successful_job_time(job_type: str, db_path: Path | None, conn: sqlite3
 
 
 def _hours_since(dt: datetime) -> float:
-    return max(0.0, (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).total_seconds() / 3600.0)
+    return max(0.0, (datetime.now(UTC) - dt.astimezone(UTC)).total_seconds() / 3600.0)
 
 
 def _job_date(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).date().isoformat()
+    return dt.astimezone(UTC).date().isoformat()
 
 
 def _record_identifier(payload: dict[str, Any]) -> str | None:

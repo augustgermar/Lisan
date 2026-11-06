@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from copy import deepcopy
 import tempfile
 import unittest
-from types import SimpleNamespace
+from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from lisan.frontmatter import load_markdown, write_markdown
 from lisan.config import load_config
+from lisan.frontmatter import load_markdown, write_markdown
 from lisan.paths import ensure_repo_layout, vault_root
+from lisan.tools.rebuild_index import rebuild_index
 from lisan.tools.record_factory import new_claim, new_evidence, new_pattern
 from lisan.tools.retrieval import assemble_context, retrieve_context
-from lisan.tools.rebuild_index import rebuild_index
 from lisan.tools.validator import validate_vault
 from lisan.utils import slugify
 

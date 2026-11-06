@@ -11,11 +11,10 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.intent_helpers import adopt_intent
-
 from lisan.providers.base import LLMResponse
 from lisan.tools import learning as L
 from lisan.tools.jobs import dispatch_job, enqueue_job, get_job, run_jobs_worker
+from tests.intent_helpers import adopt_intent
 
 
 @pytest.fixture()

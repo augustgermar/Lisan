@@ -32,8 +32,9 @@ import json
 import re
 import sqlite3
 import time
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from .belief_formation import EVAL_NAMESPACES
 
@@ -871,9 +872,8 @@ def backfill(
         ):
             counts["turn_events"] += 1
 
-    from .plans import list_plans
-
     from .jobs import get_job
+    from .plans import list_plans
 
     for plan in list_plans(db_path=db_path, limit=100_000):
         job = get_job(str(plan["job_id"]), db_path=db_path) or {}

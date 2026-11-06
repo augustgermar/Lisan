@@ -21,11 +21,11 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from .db import connect as _db_connect
 
 from ..frontmatter import write_markdown
 from ..paths import sqlite_path, vault_root
 from ..utils import today_iso
+from .db import connect as _db_connect
 from .domain_fields import with_domain_fields
 from .log import log_error
 

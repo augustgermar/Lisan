@@ -29,9 +29,9 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from .db import connect as _db_connect
 
 from ..paths import sqlite_path
+from .db import connect as _db_connect
 
 DEFAULTS: dict[str, Any] = {
     "enabled": True,

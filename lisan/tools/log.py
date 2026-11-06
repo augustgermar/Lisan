@@ -7,7 +7,6 @@ from typing import Any
 
 from ..paths import vault_root
 
-
 _logger: logging.Logger | None = None
 
 

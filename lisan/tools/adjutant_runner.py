@@ -15,9 +15,10 @@ from __future__ import annotations
 import sqlite3
 import time
 from calendar import timegm
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..config import load_config
 from ..frontmatter import load_markdown, write_markdown

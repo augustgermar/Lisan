@@ -6,17 +6,17 @@ from pathlib import Path
 import pytest
 
 from lisan.frontmatter import load_markdown, write_markdown
+from lisan.tools.adjutant_confirmations import approve_confirmation
+from lisan.tools.jobs import list_jobs
 from lisan.tools.self_repair import (
     SelfRepairRefused,
+    _bake_metadata,
+    _latest_dimension_score,
     apply_approved_proposal,
     propose,
     rollback_applied_proposal,
     run_bake_check,
-    _bake_metadata,
-    _latest_dimension_score,
 )
-from lisan.tools.adjutant_confirmations import approve_confirmation
-from lisan.tools.jobs import list_jobs
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -585,6 +585,7 @@ def test_default_test_command_uses_running_interpreter(monkeypatch):
     # A bare "python3" resolves through PATH (on macOS: the system 3.9 without
     # pytest), which would fail a good patch's suite and trigger a rollback.
     import sys
+
     from lisan.tools import self_repair
 
     monkeypatch.setattr(sys, "executable", "/opt/lisan/venv/bin/python")
@@ -593,6 +594,7 @@ def test_default_test_command_uses_running_interpreter(monkeypatch):
 
 def _no_pytest(monkeypatch):
     import importlib.util
+
     from lisan.tools import self_repair
 
     real_find_spec = importlib.util.find_spec

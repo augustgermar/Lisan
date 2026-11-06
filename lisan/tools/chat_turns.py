@@ -4,7 +4,6 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-
 _IDENTITY_PATTERNS = (
     r"\bwhat(?:'s| is)? your name\b",
     r"\bwho are you\b",

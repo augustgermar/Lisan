@@ -6,8 +6,8 @@ import pytest
 
 from lisan.tools.deixis import (
     render_deixis,
-    render_obj,
     render_for_display,
+    render_obj,
     tokenize_principal,
     tokenize_principal_obj,
 )

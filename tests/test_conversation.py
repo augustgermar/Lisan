@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from lisan.paths import ensure_repo_layout, vault_root
-from lisan.providers.base import LLMResponse, LisanLLM
+from lisan.providers.base import LisanLLM, LLMResponse
 from lisan.tools.conversation import run_conversation_turn
 from lisan.tools.jobs import list_jobs
 from lisan.tools.narrative_state import conversation_history

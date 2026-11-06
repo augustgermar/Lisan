@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..tools.operating_style import load_operating_style
 from ..tools.execution_tools import agent_tools, build_tool_handlers
+from ..tools.operating_style import load_operating_style
 from .base import PromptAgent
 
 

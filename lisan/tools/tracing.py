@@ -3,30 +3,30 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Iterator
-from .db import connect as _db_connect
+from typing import Any
 
 from ..paths import sqlite_path, vault_root
 from ..utils import approx_token_count
 from ..utils import utc_now_iso as _iso_now
+from .db import connect as _db_connect
 
-
-_CURRENT_TRACE: ContextVar["TurnTrace | None"] = ContextVar("lisan_current_turn_trace", default=None)
+_CURRENT_TRACE: ContextVar[TurnTrace | None] = ContextVar("lisan_current_turn_trace", default=None)
 
 # Live progress: an optional listener that receives each trace event as it is
 # recorded, so an interactive frontend (CLI chat) can narrate the turn while
 # it runs instead of only summarizing afterwards. Listener failures are
 # swallowed — observability must never break the pipeline.
-_PROGRESS_LISTENER: ContextVar["Callable[[dict[str, Any]], None] | None"] = ContextVar(
+_PROGRESS_LISTENER: ContextVar[Callable[[dict[str, Any]], None] | None] = ContextVar(
     "lisan_progress_listener", default=None
 )
 
 
-def set_progress_listener(listener: "Callable[[dict[str, Any]], None] | None") -> Token:
+def set_progress_listener(listener: Callable[[dict[str, Any]], None] | None) -> Token:
     return _PROGRESS_LISTENER.set(listener)
 
 
