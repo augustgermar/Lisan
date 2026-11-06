@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -155,7 +155,7 @@ def quarantine_identity_candidate(
             "source_ref": source_ref,
             "evidence": evidence,
             "resolver": IDENTITY_RESOLVER,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
         body = (f"# Identity candidate: {name}\n\n"
                 f"Decision: **quarantined for owner review** ({reason}).\n\n"
@@ -172,7 +172,7 @@ def log_identity_decision(vault: Path, *, name: str, decision: str,
     path = vault / "quarantine" / "identity-candidates" / "decisions.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     event = {
-        "at": datetime.now(timezone.utc).isoformat(),
+        "at": datetime.now(UTC).isoformat(),
         "resolver": IDENTITY_RESOLVER,
         "candidate_name": name,
         "decision": decision,

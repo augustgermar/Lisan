@@ -7,7 +7,6 @@ from typing import Any
 
 from .paths import config_path
 
-
 _LOCAL_DEFAULT_BASE_URL = "http://127.0.0.1:8080/v1/chat/completions"
 _LEGACY_OLLAMA_BASE_URL = "http://localhost:11434/v1/chat/completions"
 

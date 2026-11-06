@@ -5,28 +5,43 @@ import os
 import shutil
 import sys
 import textwrap
-import time
 import threading
+import time
 import uuid
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
-from .db import connect as _db_connect
 
 from ..config import load_config
 from ..paths import sqlite_path
-from .primer_index import assistant_display_name
+from ..providers.base import ProviderError
 from ..utils import today_iso
 from .chat_turns import classify_turn
+from .db import connect as _db_connect
 from .log import log_error, tail_log
-from .transcripts import append_transcript
-from .tracing import finalize_turn_trace, record_inline_step, reset_current_turn_trace, start_turn_trace
-from ..providers.base import ProviderError
+from .primer_index import assistant_display_name
 from .provider_diagnostics import ProviderDiagnosticResult, diagnose_provider
-from .term import color, readline_prompt, BOLD, DIM, ITALIC, GREEN, YELLOW, RED, BLUE, BLUE_DEEP, SKY, GREY, GREY_DIM, GREY_FAINT, CODEX, CODEX_DIM, CODEX_CMD
-
-
-
+from .term import (
+    BLUE,
+    BLUE_DEEP,
+    BOLD,
+    CODEX,
+    CODEX_CMD,
+    CODEX_DIM,
+    DIM,
+    GREEN,
+    GREY,
+    GREY_DIM,
+    GREY_FAINT,
+    ITALIC,
+    RED,
+    SKY,
+    YELLOW,
+    color,
+    readline_prompt,
+)
+from .tracing import finalize_turn_trace, record_inline_step, reset_current_turn_trace, start_turn_trace
+from .transcripts import append_transcript
 
 # ── Startup check ─────────────────────────────────────────────────────────────
 

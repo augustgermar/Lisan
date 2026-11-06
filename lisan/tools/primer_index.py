@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-
 # One to three consecutive capitalized words. Allows hyphenated last names by
 # permitting an internal hyphen-followed-by-capital pattern inside each token.
 # Uses ``[ \t]+`` for the inter-word gap (single-line whitespace only) so the

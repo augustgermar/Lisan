@@ -3,17 +3,18 @@ cycles never overlap."""
 from __future__ import annotations
 
 import sqlite3
+from datetime import UTC
 from pathlib import Path
 
 from lisan.tools.jobs import claim_next_job, enqueue_job, get_job, reap_stuck_jobs, reclaim_stale_running_jobs
 
 
 def _run_and_age(db: Path, job_type: str, minutes_ago: int) -> str:
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     job_id = enqueue_job(job_type, {"task": "x"}, db_path=db)
     claim_next_job("dead-worker", db_path=db, job_types={job_type})
-    started = (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    started = (datetime.now(UTC) - timedelta(minutes=minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
     conn = sqlite3.connect(db)
     conn.execute("UPDATE jobs SET started_at = ? WHERE id = ?", (started, job_id))
     conn.commit()

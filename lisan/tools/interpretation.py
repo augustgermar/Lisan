@@ -34,7 +34,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -196,7 +196,7 @@ def log_iip_event(vault: Path | None, event: dict[str, Any]) -> None:
         vault = vault or vault_root()
         path = vault / "logs" / LOG_NAME
         path.parent.mkdir(parents=True, exist_ok=True)
-        record = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"), **event}
+        record = {"ts": datetime.now(UTC).isoformat(timespec="seconds"), **event}
         with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record, ensure_ascii=True) + "\n")
     except Exception:
@@ -218,7 +218,7 @@ def summarize_iip_log(vault: Path | None = None, *, weeks: int = 4) -> str:
     path = vault / "logs" / LOG_NAME
     if not path.exists():
         return "No IIP events logged yet."
-    cutoff = (datetime.now(timezone.utc) - timedelta(weeks=weeks)).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(weeks=weeks)).isoformat()
     buckets: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for line in path.read_text(encoding="utf-8").splitlines():
         try:

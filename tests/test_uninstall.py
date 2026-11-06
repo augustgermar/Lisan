@@ -34,7 +34,7 @@ class UninstallTests(unittest.TestCase):
         (self.bin_dir / "lisan").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
         self.home.mkdir(parents=True, exist_ok=True)
         self.rc_file.write_text(
-            "# Added by Lisan installer\nexport PATH=\"%s:$PATH\"\nexport FOO=bar\n" % self.bin_dir,
+            f"# Added by Lisan installer\nexport PATH=\"{self.bin_dir}:$PATH\"\nexport FOO=bar\n",
             encoding="utf-8",
         )
 

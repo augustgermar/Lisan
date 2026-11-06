@@ -17,7 +17,7 @@ story_log_repair_migration.
 from __future__ import annotations
 
 import stat
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -100,7 +100,7 @@ def prepare_migration(vault: Path, edges: list[dict[str, Any]], migration_root: 
     record = {
         "migration_id": MIGRATION_ID,
         "state": "prepared",
-        "prepared_at": datetime.now(timezone.utc).isoformat(),
+        "prepared_at": datetime.now(UTC).isoformat(),
         "vault": str(vault),
         "edges_added": added,
         "files": files,

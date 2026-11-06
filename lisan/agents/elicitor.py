@@ -7,8 +7,9 @@ from datetime import datetime
 from typing import Any
 
 from ..tools.operating_style import load_operating_style
-from ..tools.primer_index import known_names as _primer_known_names, name_in_text
-from ..tools.stopwords import SENTENCE_INITIAL_OR_TOOL_STOPWORDS, MONTH_STOPWORDS, DAY_STOPWORDS
+from ..tools.primer_index import known_names as _primer_known_names
+from ..tools.primer_index import name_in_text
+from ..tools.stopwords import DAY_STOPWORDS, MONTH_STOPWORDS, SENTENCE_INITIAL_OR_TOOL_STOPWORDS
 from .base import PromptAgent
 
 

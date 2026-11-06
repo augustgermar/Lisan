@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from ..frontmatter import load_markdown, write_markdown
+from ..utils import slugify, today_iso
 from .domain_fields import normalize_domain_fields, with_domain_fields
 from .record_factory import new_decision, new_entity, new_knowledge, new_open_loop, new_state
-from ..utils import slugify, today_iso
 
 _WRITER_BLOCK_RE = re.compile(r"## Writer\n\n```json\n(.*?)\n```", re.DOTALL)
 

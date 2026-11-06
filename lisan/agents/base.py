@@ -8,10 +8,10 @@ from typing import Any
 from ..config import load_config
 from ..paths import vault_root
 from ..prompts import load_prompt
+from ..providers.base import LisanLLM, LLMResponse, ProviderError
 from ..schemas import get_schema
-from ..providers.base import LLMResponse, LisanLLM, ProviderError
-from ..tools.primer_index import assistant_display_name
 from ..tools.deixis import render_deixis
+from ..tools.primer_index import assistant_display_name
 from ..tools.structured import extract_json
 
 
@@ -224,7 +224,7 @@ class PromptAgent:
             # Second, provider-level guard: the round budget above elides old
             # tool results; this one fails closed (or trims retrieved context
             # between its sentinels) if the whole prompt still cannot fit.
-            from ..tools.context_budget import PromptBudgetError, fit_provider_prompt, budget_from_config
+            from ..tools.context_budget import PromptBudgetError, budget_from_config, fit_provider_prompt
             context_budget = budget_from_config(self.config)
             prompt_budget = context_budget["budget_chars"]
             try:

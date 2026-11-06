@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from tests.intent_helpers import adopt_intent
-
 import json
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -11,6 +9,7 @@ from lisan.providers.base import LLMResponse
 from lisan.providers.codex import _resolve_sandbox_mode
 from lisan.tools import execution_tools
 from lisan.tools.execution_tools import read_file, run_codex, search_memory
+from tests.intent_helpers import adopt_intent
 
 
 def test_search_memory_delegates_to_assemble_context(tmp_path: Path, monkeypatch) -> None:

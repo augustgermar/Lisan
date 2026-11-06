@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from lisan.agents.writer import _truncate_summary, WriterAgent
+from lisan.agents.writer import WriterAgent, _truncate_summary
 
 
 class TruncateSummaryTests(unittest.TestCase):

@@ -20,12 +20,12 @@ Pinned here:
 """
 from __future__ import annotations
 
-
 import pytest
 
 from lisan.frontmatter import load_markdown, write_markdown
 from lisan.paths import ensure_vault_layout
 from lisan.tools.migrate_refs import migrate_references
+from lisan.tools.record_factory import new_entity, new_open_loop
 from lisan.tools.record_refs import (
     build_reference_index,
     canonicalize_references,
@@ -33,7 +33,6 @@ from lisan.tools.record_refs import (
     looks_like_prose,
     resolve_reference,
 )
-from lisan.tools.record_factory import new_entity, new_open_loop
 from lisan.tools.validator import validate_vault
 
 

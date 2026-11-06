@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from lisan.providers.base import LLMResponse, LisanLLM, ProviderError
+from lisan.providers.base import LisanLLM, LLMResponse, ProviderError
 from lisan.providers.claude import ClaudeClient
 from lisan.providers.config import ProviderSelection, fallback_chain
 

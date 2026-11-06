@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from lisan.tools.memory_pipeline import _interlocutor_input
 from lisan.tools.deixis import has_unresolved_token
+from lisan.tools.memory_pipeline import _interlocutor_input
 
 _CORE = (
     '---\n'

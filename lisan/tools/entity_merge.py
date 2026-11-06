@@ -29,7 +29,6 @@ from ..frontmatter import load_markdown, write_markdown
 from ..utils import today_iso
 from .log import get_logger
 
-
 _DISTINCTION_PHRASES = (
     "different people",
     "distinct people",

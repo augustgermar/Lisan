@@ -30,7 +30,7 @@ import os
 import re
 import stat
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -163,7 +163,7 @@ def prepare_migration(vault: Path, migration_root: Path) -> dict[str, Any]:
     record = {
         "migration_id": MIGRATION_ID,
         "state": "prepared",
-        "prepared_at": datetime.now(timezone.utc).isoformat(),
+        "prepared_at": datetime.now(UTC).isoformat(),
         "vault": str(vault),
         "repaired_entries": stats,
         "files": files,
@@ -193,7 +193,7 @@ def apply_prepared_migration(vault: Path, migration_root: Path) -> dict[str, Any
             raise MigrationError(f"bundle corrupted: {item['path']}")
         _atomic_write(vault / item["path"], after, int(item["mode"]))
     record["state"] = "applied"
-    record["applied_at"] = datetime.now(timezone.utc).isoformat()
+    record["applied_at"] = datetime.now(UTC).isoformat()
     _write_json(migration_root / "migration.json", record)
     return record
 
@@ -208,7 +208,7 @@ def rollback_migration(vault: Path, migration_root: Path) -> dict[str, Any]:
         before = (migration_root / "before" / item["path"]).read_text(encoding="utf-8")
         _atomic_write(vault / item["path"], before, int(item["mode"]))
     record["state"] = "rolled_back"
-    record["rolled_back_at"] = datetime.now(timezone.utc).isoformat()
+    record["rolled_back_at"] = datetime.now(UTC).isoformat()
     _write_json(migration_root / "migration.json", record)
     return record
 

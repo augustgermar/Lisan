@@ -1,7 +1,7 @@
 """Birthdays: the reminder, and the fact the entity keeps. Invented cast only."""
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -15,8 +15,8 @@ from lisan.tools.scheduler import next_occurrence
 
 @pytest.fixture(autouse=True)
 def _utc(monkeypatch):
-    monkeypatch.setattr(birthdays, "_local_tz", lambda: timezone.utc)
-    monkeypatch.setattr(scheduler, "_local_tz", lambda: timezone.utc)
+    monkeypatch.setattr(birthdays, "_local_tz", lambda: UTC)
+    monkeypatch.setattr(scheduler, "_local_tz", lambda: UTC)
     # `birthdays` does `from .scheduler import _now_utc`, so freezing
     # birthdays._now_utc rebinds only that module's name — schedule_task kept
     # validating "is this in the past?" against the real clock. The fixture
@@ -27,7 +27,7 @@ def _utc(monkeypatch):
 
 
 def _at(y, m, d, h=8):
-    return datetime(y, m, d, h, tzinfo=timezone.utc)
+    return datetime(y, m, d, h, tzinfo=UTC)
 
 
 def _person(vault: Path, stem: str, name: str, **fm_extra) -> Path:
@@ -141,7 +141,7 @@ def test_annual_recurrence_handles_february_29_when_a_rule_names_it(monkeypatch)
     so next_occurrence must resolve it — but note this feature never emits one,
     which is why the old test asserting only this proved nothing about
     birthdays."""
-    assert next_occurrence("annual@02-29", after=_at(2027, 3, 1)) == datetime(2028, 2, 29, tzinfo=timezone.utc)
+    assert next_occurrence("annual@02-29", after=_at(2027, 3, 1)) == datetime(2028, 2, 29, tzinfo=UTC)
 
 
 # ── idempotency ───────────────────────────────────────────────────────────────

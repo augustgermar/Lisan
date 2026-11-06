@@ -20,9 +20,9 @@ import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
-from .db import connect as _db_connect
 
 from ..paths import sqlite_path, vault_root
+from .db import connect as _db_connect
 from .log import log_error
 from .transcripts import _BLOCK_RE
 

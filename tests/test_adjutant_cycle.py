@@ -15,14 +15,15 @@ import pytest
 from lisan.config import DEFAULT_CONFIG
 from lisan.frontmatter import dump_markdown, load_markdown, write_markdown
 from lisan.paths import ensure_vault_layout
-from lisan.tools.adjutant_gate import gate, required_capabilities
 from lisan.tools.adjutant_confirmations import approve_confirmation, create_confirmation_for_task, mark_executed
+from lisan.tools.adjutant_gate import gate, required_capabilities
 from lisan.tools.adjutant_poller import poll, priority_rank
 from lisan.tools.adjutant_runner import adjutant_status, format_status, run_cycle
 from lisan.tools.db import connect as db_connect
 from lisan.tools.intent import init_intent, intent_path, load_intent
 from lisan.tools.rebuild_index import ensure_index_schema, index_single_record
 from lisan.tools.record_factory import new_confirmation, new_open_loop, new_schedule
+
 
 @pytest.fixture(autouse=True)
 def shipped_config(monkeypatch):

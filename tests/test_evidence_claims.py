@@ -8,11 +8,11 @@ from pathlib import Path
 from lisan.frontmatter import load_markdown, write_markdown
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.analyst_ops import run_analyst_scan
+from lisan.tools.dreamer_ops import _bundle_approved_patterns, audit_patterns
 from lisan.tools.epistemic import review_claim_against_evidence
+from lisan.tools.rebuild_index import rebuild_index
 from lisan.tools.record_factory import new_claim, new_evidence, new_pattern, new_skeptical_review, new_state
 from lisan.tools.retrieval import assemble_context
-from lisan.tools.dreamer_ops import _bundle_approved_patterns, audit_patterns
-from lisan.tools.rebuild_index import rebuild_index
 from lisan.tools.validator import validate_vault
 
 

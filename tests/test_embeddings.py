@@ -11,13 +11,13 @@ from urllib.error import URLError
 
 import pytest
 
+from lisan.paths import ensure_repo_layout, vault_root
 from lisan.providers import embeddings as embeddings_module
 from lisan.providers.embeddings import (
     EmbeddingProvider,
     QueryEmbedding,
     _parse_openai_embeddings,
 )
-from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.rebuild_index import rebuild_index
 from lisan.tools.retrieval import retrieve_context
 from lisan.tools.vector_store import (

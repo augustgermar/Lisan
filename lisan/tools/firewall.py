@@ -6,7 +6,6 @@ from pathlib import Path
 
 from .log import log_error
 
-
 _INJECTION_PATTERNS = (
     re.compile(r"ignore\s+(previous|all|prior)\s+(instructions?|context|rules?|system)", re.IGNORECASE),
     re.compile(r"(new|updated?)\s+(system\s+)?prompt[:\s]", re.IGNORECASE),

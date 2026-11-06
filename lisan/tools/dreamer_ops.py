@@ -6,15 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from ..agents import DreamerAgent
-from ..frontmatter import load_markdown
-from ..frontmatter import write_markdown
+from ..frontmatter import load_markdown, write_markdown
 from ..paths import vault_root
 from ..utils import today_iso
 from .context_budget import ChunkPlan, Record, Section, budget_from_config, plan_chunks, render
 from .deixis import render_for_display
 from .epistemic import canonical_pattern_status, pattern_age_days, pattern_minimum_age_days
 from .primer_audit import primer_audit_sections
-
 
 # Tasks whose contract is not the generic dreamer_output shape: the class
 # schema is enforced hard at the provider layer, so a custom-output task

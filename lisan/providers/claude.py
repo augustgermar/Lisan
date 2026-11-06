@@ -140,7 +140,7 @@ def _run_sync(coro, timeout: float) -> str:
     def runner() -> None:
         try:
             box["value"] = asyncio.run(asyncio.wait_for(coro, timeout))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             box["error"] = ProviderError(f"claude call timed out after {timeout:.0f}s")
         except BaseException as exc:  # noqa: BLE001 - re-raised on the caller's thread
             box["error"] = exc

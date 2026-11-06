@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,7 +23,7 @@ from lisan.tools.scheduler import (
 
 
 def _utc(dt: datetime) -> datetime:
-    return dt.astimezone(timezone.utc)
+    return dt.astimezone(UTC)
 
 
 class ParseWhenTests(unittest.TestCase):
@@ -34,10 +34,10 @@ class ParseWhenTests(unittest.TestCase):
 
     def test_iso_with_timezone_is_preserved(self):
         parsed = parse_when("2030-06-01T15:30:00+00:00")
-        self.assertEqual(parsed, datetime(2030, 6, 1, 15, 30, tzinfo=timezone.utc))
+        self.assertEqual(parsed, datetime(2030, 6, 1, 15, 30, tzinfo=UTC))
 
     def test_bare_time_rolls_to_tomorrow_when_past(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         one_hour_ago = (now - timedelta(hours=1)).astimezone()
         parsed = parse_when(one_hour_ago.strftime("%H:%M"), now=now)
         self.assertGreater(parsed, now)
@@ -49,12 +49,12 @@ class ParseWhenTests(unittest.TestCase):
         self.assertIn("Current local time", str(ctx.exception))
 
     def test_relative_offset(self):
-        now = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+        now = datetime(2030, 1, 1, 12, 0, tzinfo=UTC)
         self.assertEqual(parse_when("+2h", now=now), now + timedelta(hours=2))
         self.assertEqual(parse_when("+30m", now=now), now + timedelta(minutes=30))
 
     def test_tomorrow_form(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         parsed = parse_when("tomorrow 09:00", now=now)
         self.assertGreater(parsed, now)
         self.assertLess(parsed - now, timedelta(days=2))
@@ -78,13 +78,13 @@ class RecurrenceTests(unittest.TestCase):
                 normalize_recurrence(bad)
 
     def test_every_next_occurrence_adds_interval(self):
-        after = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+        after = datetime(2030, 1, 1, 12, 0, tzinfo=UTC)
         self.assertEqual(next_occurrence("every:90m", after=after), after + timedelta(minutes=90))
 
     def test_daily_next_occurrence_is_strictly_future(self):
         nxt = next_occurrence("daily@09:00")
-        self.assertGreater(nxt, datetime.now(timezone.utc))
-        self.assertLess(nxt - datetime.now(timezone.utc), timedelta(days=1, minutes=1))
+        self.assertGreater(nxt, datetime.now(UTC))
+        self.assertLess(nxt - datetime.now(UTC), timedelta(days=1, minutes=1))
 
 
 class ScheduleTaskTests(unittest.TestCase):
@@ -211,7 +211,7 @@ class TaskExecutionTests(unittest.TestCase):
         self.assertEqual(follow_up["recurrence"], "every:1h")
         self.assertGreater(
             datetime.fromisoformat(follow_up["scheduled_for"].replace("Z", "+00:00")),
-            datetime.now(timezone.utc),
+            datetime.now(UTC),
         )
         self.assertEqual(follow_up["payload"]["message"], "stretch")
 

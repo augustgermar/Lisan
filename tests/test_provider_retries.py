@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from lisan.providers.base import LLMResponse, LisanLLM, ProviderError
+from lisan.providers.base import LisanLLM, LLMResponse, ProviderError
 from lisan.providers.config import ProviderSelection
 
 
@@ -195,7 +195,8 @@ class CodexBinaryErrorTests(unittest.TestCase):
 
 class RotatoClientTests(unittest.TestCase):
     def _client(self, body: dict):
-        from unittest.mock import MagicMock, patch as _patch
+        from unittest.mock import MagicMock
+        from unittest.mock import patch as _patch
 
         from lisan.providers.rotato import RotatoClient
 

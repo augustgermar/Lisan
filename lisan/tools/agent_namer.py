@@ -13,7 +13,6 @@ import hashlib
 import secrets
 from dataclasses import dataclass
 
-
 _CROCKFORD_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _CONSONANTS = "bcdfghjklmnpqrstvwxyz"
 _VOWELS = "aeiouy"

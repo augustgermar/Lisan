@@ -35,7 +35,6 @@ from typing import Any
 
 from ..frontmatter import load_markdown
 
-
 _DEFAULTS: dict[str, Any] = {
     "emotion-naming": None,   # True allows naming; False forbids; None = no opinion
     "directness": None,       # True = prefer direct statements

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-
-from tests.intent_helpers import adopt_intent
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,6 +16,7 @@ from lisan.tools.plans import (
     format_plans,
     list_plans,
 )
+from tests.intent_helpers import adopt_intent
 
 
 class _Env(unittest.TestCase):

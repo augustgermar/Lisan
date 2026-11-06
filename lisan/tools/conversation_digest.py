@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from .narrative_state import conversation_history, load_narrative_state, render_narrative_state
 from ..paths import vault_root
+from .narrative_state import conversation_history, load_narrative_state, render_narrative_state
 
 
 def generate_conversation_digest(vault: Path | None = None, conversation_id: str | None = None) -> str:

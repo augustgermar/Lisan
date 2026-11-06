@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import contextlib
 import subprocess
-from typing import Iterator
+from collections.abc import Iterator
 
 DEFAULT_CAP_SECONDS = 900
 

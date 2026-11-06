@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import date
 import re
+from datetime import date
 from pathlib import Path
 from typing import Any
+
 from ..frontmatter import FrontmatterError, load_markdown
 from ..utils import listify
-
 
 SOURCE_TYPES = {
     "email",

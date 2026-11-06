@@ -12,7 +12,6 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-
 TOKEN = r"\{\{\s*principal\s*\}\}"
 DATE_CANDIDATE = re.compile(
     rf"{TOKEN}\s+(?:(?P<day>3[01]|[12][0-9]|0?[1-9])(?P<ordinal>st|nd|rd|th)?(?!\d)"

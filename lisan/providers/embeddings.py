@@ -12,7 +12,6 @@ from urllib import error, request
 from ..config import embedding_settings, load_config
 from ..utils import hash_embedding
 
-
 # Warn-once registry so a down embedder during retrieval does not spam the log
 # on every query. Keyed by a short reason tag.
 _WARNED: set[str] = set()

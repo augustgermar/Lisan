@@ -26,8 +26,9 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..config import load_config
 from ..paths import vault_root
@@ -804,7 +805,7 @@ def run_telegram_bot(
 
 
 def _start_scheduler_thread(
-    bot: "TelegramBot",
+    bot: TelegramBot,
     *,
     vault: Path,
     db_path: Path | None,

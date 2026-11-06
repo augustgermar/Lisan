@@ -6,14 +6,14 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any
-from .db import connect as _db_connect
 
-from ..frontmatter import FrontmatterError, load_markdown, load_frontmatter_cached
+from ..frontmatter import FrontmatterError, load_frontmatter_cached, load_markdown
 from ..paths import vault_root
 from ..schemas import load_schemas
+from .common import iter_markdown_files
+from .db import connect as _db_connect
 from .domain_fields import normalize_domain_fields
 from .record_refs import ReferenceIndex, build_reference_index, resolve_reference
-from .common import iter_markdown_files
 
 
 @dataclass(slots=True)
@@ -296,9 +296,9 @@ ENUMS = {
 # Single source: tools/epistemic.py. This was a second, drift-prone copy;
 # the gate is owner-configurable via psyche.banned_hypothesis_terms
 # (null = default, [] = disabled — clinician mode, list = custom).
-from .epistemic import hypothesis_gate_terms as _hypothesis_gate_terms  # noqa: E402
-from .epistemic import BANNED_PATTERN_TERMS  # noqa: E402,F401  (back-compat re-export)
 from .adjutant_common import CONFIRMATION_RESOLUTIONS, TASK_KINDS, TASK_STATUSES, valid_cron  # noqa: E402
+from .epistemic import BANNED_PATTERN_TERMS  # noqa: E402,F401  (back-compat re-export)
+from .epistemic import hypothesis_gate_terms as _hypothesis_gate_terms  # noqa: E402
 
 # No secrets in the vault (WO-ADJUTANT §5): tokens live in env vars only.
 # High-precision prefixes of common credential formats — a warning, not an

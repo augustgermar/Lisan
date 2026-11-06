@@ -8,9 +8,10 @@ the existing drive.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from ..config import load_config
 from ..frontmatter import load_markdown, write_markdown

@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .base import PromptAgent
 from ..tools.epistemic import review_claim_against_evidence, review_pattern_against_records
+from .base import PromptAgent
 
 
 class SkepticAgent(PromptAgent):

@@ -18,8 +18,8 @@ from unittest.mock import patch
 import lisan.tools.db as db
 from lisan.tools import write_boundary
 from lisan.tools.rebuild_index import open_index_connection
-from lisan.tools.record_fanout import index_created_record
 from lisan.tools.record_factory import CreatedRecord
+from lisan.tools.record_fanout import index_created_record
 
 
 def _write_entity(vault: Path, name: str) -> Path:

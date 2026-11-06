@@ -9,12 +9,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib import error, request
-from ..tools.db import connect as _db_connect
 
 from ..config import load_config
 from ..paths import sqlite_path
-from .config import ProviderSelection, RetrySettings, fallback_chain, select_provider, transient_retry_settings
+from ..tools.db import connect as _db_connect
 from ..tools.tracing import record_llm_call
+from .config import ProviderSelection, RetrySettings, fallback_chain, select_provider, transient_retry_settings
 
 
 @dataclass(slots=True)
@@ -404,7 +404,7 @@ def _is_transient_provider_error(exc: Exception) -> bool:
     return any(marker in message for marker in transient_markers)
 
 
-def _client_for(provider: str, config: dict[str, Any]) -> "ProviderClient":
+def _client_for(provider: str, config: dict[str, Any]) -> ProviderClient:
     provider = provider.lower()
     if provider == "mock":
         return MockClient(config)

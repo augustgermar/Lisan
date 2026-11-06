@@ -4,11 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..providers.embeddings import EmbeddingProvider
-from .vector_store import cosine_similarity
-from ..utils import listify
 from ..config import load_config
-
+from ..providers.embeddings import EmbeddingProvider
+from ..utils import listify
+from .vector_store import cosine_similarity
 
 _TOKEN_REPLACEMENTS = str.maketrans({"-": " ", "_": " "})
 

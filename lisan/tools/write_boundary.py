@@ -12,7 +12,7 @@ import tempfile
 import uuid
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -98,7 +98,7 @@ def _reserve_id(path: Path, vault: Path, record_id: str, db_path: Path) -> _Rese
         return None
     vault_key = str(vault.resolve())
     token = uuid.uuid4().hex
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn = connect(db_path)
     prior_rows: list[tuple[str, str, str, str, str, str]] = []
     try:
@@ -186,7 +186,7 @@ def _finish(reservation: _Reservation) -> None:
             WHERE vault_path=? AND record_id=? AND token=?
             """,
             (
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
                 reservation.vault_key,
                 reservation.record_id,
                 reservation.token,
