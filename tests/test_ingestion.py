@@ -4,8 +4,8 @@ import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from contextlib import redirect_stdout, redirect_stderr
 from unittest.mock import patch
 
 from lisan.cli import main

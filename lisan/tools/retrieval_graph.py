@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import re
 import sqlite3
 from collections import defaultdict, deque
@@ -12,15 +12,15 @@ from typing import Any
 
 from ..frontmatter import load_markdown
 from ..utils import approx_token_count, approx_word_count, today_iso
+from .freshness import line as freshness_line
 from .retrieval_layers import (
     RetrievalItem,
     _fts_escape,
     _json_list,
     _visibility_block_reason,
 )
-from .freshness import line as freshness_line
-
 from .retrieval_vocab import DOMAIN_KEYWORDS, SENSITIVE_COMPARTMENTS  # noqa: F401 — re-exported
+
 
 @dataclass(slots=True)
 class _GraphEdge:

@@ -33,8 +33,9 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..config import load_config
 from ..paths import vault_root
@@ -365,13 +366,11 @@ def _execute_step(
         # nobody is present to answer. The provider is called directly so a
         # failure is an exception, not a string to be sniffed.
         from ..providers.codex import CodexClient
-        from .execution_tools import _build_codex_prompt
-
-        from .execution_tools import codex_workspace
 
         # The approval above never outranks intent.md's never-rules — same
         # rail run_codex honours for a direct chat command.
         from .authority import rule as authority_rule
+        from .execution_tools import _build_codex_prompt, codex_workspace
 
         ruling = authority_rule("plan.codex_step", vault=vault, config=config, detail={"step": description})
         if not ruling.allowed:

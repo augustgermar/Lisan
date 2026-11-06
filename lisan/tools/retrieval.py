@@ -3,49 +3,49 @@ from __future__ import annotations
 import re
 import sqlite3
 from pathlib import Path
-from .db import connect as _db_connect
 
 from ..config import load_config
 from ..frontmatter import load_markdown
 from ..paths import sqlite_path, vault_root
-from .tracing import record_retrieval_result
-from .vector_store import build_query_scorer
-from .primer_index import assistant_display_name, principal_name
+from .db import connect as _db_connect
 from .learned_edges import learned_edges_settings, learned_partners
-from .retrieval_layers import RetrievalItem, RetrievalResult, _LayerCandidate
-from .retrieval_layers import (
-    _retrieval_fusion_settings,
-    _collect_rejected_items,
-    _sql_ranked_candidates,
-    _fts_ranked_candidates,
-    _vector_ranked_candidates,
-    _fuse_ranked_candidates,
-    _demote_graph_neighbors,
-    _infer_domain,
-    _active_contexts,
-    _score_row,
-    _unique_items,
-    _is_blocked_visibility_reason,
-    _quarantine_sets,
-    _visibility_block_reason,
-    _recent_access_counts,
-    _query_as_of,
-    _row_valid_at,
-    _type_boost,
-)
+from .primer_index import assistant_display_name, principal_name
 from .retrieval_graph import (
     _expand_graph,
     _format_item_detail,
     _fts_candidate_ids,
-    _log_retrieval,
-    _load_relevant_contradictions,
-    _recent_conversation_turns,
     _is_fresh_conversation,
+    _load_relevant_contradictions,
+    _log_retrieval,
     _recent_activity_block,
+    _recent_conversation_turns,
 )
-
-
+from .retrieval_layers import (
+    RetrievalItem,
+    RetrievalResult,
+    _active_contexts,
+    _collect_rejected_items,
+    _demote_graph_neighbors,
+    _fts_ranked_candidates,
+    _fuse_ranked_candidates,
+    _infer_domain,
+    _is_blocked_visibility_reason,
+    _LayerCandidate,
+    _quarantine_sets,
+    _query_as_of,
+    _recent_access_counts,
+    _retrieval_fusion_settings,
+    _row_valid_at,
+    _score_row,
+    _sql_ranked_candidates,
+    _type_boost,
+    _unique_items,
+    _vector_ranked_candidates,
+    _visibility_block_reason,
+)
 from .retrieval_vocab import DOMAIN_KEYWORDS, SENSITIVE_COMPARTMENTS  # noqa: F401 — re-exported
+from .tracing import record_retrieval_result
+from .vector_store import build_query_scorer
 
 
 def _propagate_content_trust(items: list[RetrievalItem], rows_by_id: dict[str, sqlite3.Row]) -> None:

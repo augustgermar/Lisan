@@ -17,8 +17,8 @@ from unittest.mock import MagicMock, patch
 
 from lisan.frontmatter import dump_markdown, load_markdown
 from lisan.paths import ensure_repo_layout, vault_root
-from lisan.tools.jobs import INDEX_JOB_TYPES, JOB_TYPES, enqueue_job, list_jobs
 from lisan.tools.job_policy import coalesce_key_for_job, priority_for_job_type
+from lisan.tools.jobs import INDEX_JOB_TYPES, JOB_TYPES, enqueue_job, list_jobs
 
 
 def _make_vault() -> tuple[tempfile.TemporaryDirectory, Path, Path]:
@@ -303,8 +303,8 @@ class EntitesTouchedTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_new_entity_appears_in_entities_touched(self) -> None:
-        from lisan.tools.rebuild_index import open_index_connection
         from lisan.tools.memory_pipeline import _create_entity_stubs
+        from lisan.tools.rebuild_index import open_index_connection
 
         writer = {
             "entities_to_create": [
@@ -326,8 +326,8 @@ class EntitesTouchedTests(unittest.TestCase):
         self.assertIn("olivia-chen", touched[0].name)
 
     def test_existing_entity_appears_in_entities_touched(self) -> None:
-        from lisan.tools.rebuild_index import open_index_connection
         from lisan.tools.memory_pipeline import _create_entity_stubs
+        from lisan.tools.rebuild_index import open_index_connection
 
         entity_path = _seed_entity(self.vault, "diana-ross", "Diana Ross", "Diana is a friend.")
 
@@ -350,8 +350,8 @@ class EntitesTouchedTests(unittest.TestCase):
         self.assertTrue(any(p == entity_path or p.stem == "diana-ross" for p in touched))
 
     def test_empty_entities_to_create_returns_empty_list(self) -> None:
-        from lisan.tools.rebuild_index import open_index_connection
         from lisan.tools.memory_pipeline import _create_entity_stubs
+        from lisan.tools.rebuild_index import open_index_connection
 
         conn = open_index_connection(self.db_path)
         try:

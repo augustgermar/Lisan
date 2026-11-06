@@ -11,10 +11,10 @@ from lisan.tools.tracing import (
     record_llm_call,
     record_retrieval_result,
     record_tool_use,
+    reset_current_turn_trace,
     reset_progress_listener,
     set_progress_listener,
     start_turn_trace,
-    reset_current_turn_trace,
 )
 
 

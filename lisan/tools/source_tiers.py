@@ -1,7 +1,7 @@
 """Source-tier rules shared by librarian intake, ingestion, and retrieval."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 SOURCE_TIERS = ("primary", "official-secondary", "community", "owner-authored", "unverified")
@@ -35,7 +35,7 @@ def origin_for_url(url: str | None) -> str:
 
 
 def now_utc() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def origin_matches(origin: str, url: str) -> bool:

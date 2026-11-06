@@ -12,7 +12,6 @@ import subprocess
 import sys
 import time
 
-
 from lisan.tools.proctree import descendants, kill_tree
 
 PY = sys.executable

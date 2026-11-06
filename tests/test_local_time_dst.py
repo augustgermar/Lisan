@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -30,7 +30,7 @@ def pacific(monkeypatch):
 
 
 def _utc(*args):
-    return datetime(*args, tzinfo=timezone.utc)
+    return datetime(*args, tzinfo=UTC)
 
 
 def test_local_tz_follows_dst_rather_than_todays_offset(pacific):

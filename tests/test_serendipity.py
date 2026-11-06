@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 import unittest
 
-from lisan.tools.retrieval_layers import _LayerCandidate, _fuse_ranked_candidates
+from lisan.tools.retrieval_layers import _fuse_ranked_candidates, _LayerCandidate
 
 
 def _rows(n: int) -> dict[str, sqlite3.Row]:

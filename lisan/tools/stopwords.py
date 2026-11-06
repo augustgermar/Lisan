@@ -11,7 +11,6 @@ which lives in the writer / fanout validator, never by this module alone.
 
 from __future__ import annotations
 
-
 # Common sentence-initial pronouns, conjunctions, and articles.
 SENTENCE_INITIAL_STOPWORDS: frozenset[str] = frozenset({
     "I", "My", "Me", "Mine",

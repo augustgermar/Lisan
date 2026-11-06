@@ -5,10 +5,10 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
-from .db import connect as _db_connect
 
 from ..frontmatter import load_markdown
 from ..paths import sqlite_path, vault_root
+from .db import connect as _db_connect
 from .deixis import render_for_display
 from .narrative_state import load_narrative_state
 

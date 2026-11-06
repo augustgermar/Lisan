@@ -15,8 +15,6 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.intent_helpers import adopt_intent
-
 from lisan.providers.base import LLMResponse, ProviderError
 from lisan.tools import delegation, plans
 from lisan.tools.delegation import (
@@ -31,6 +29,7 @@ from lisan.tools.delegation import (
 from lisan.tools.execution_tools import delegate_tool
 from lisan.tools.jobs import cancel_job, enqueue_job, get_job, list_jobs, run_jobs_worker
 from lisan.tools.plans import cancel_plan, create_plan, format_plans, list_plans, resume_plan
+from tests.intent_helpers import adopt_intent
 
 FULL = "danger-full-access"
 CFG: dict = {}

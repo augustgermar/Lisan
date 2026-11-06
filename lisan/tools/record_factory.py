@@ -4,17 +4,15 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from .db import connect as _db_connect
 
 from ..frontmatter import load_markdown, write_markdown
-from ..utils import slugify, today_iso
+from ..utils import listify, slugify, today_iso
+from .content_trust import normalize_content_trust
+from .db import connect as _db_connect
 from .domain_fields import with_domain_fields
 from .record_refs import canonicalize_references
-from .scope import normalize_scope
-from ..utils import listify
 from .reference_resolution import resolve_reference
-from .content_trust import normalize_content_trust
-
+from .scope import normalize_scope
 
 ENTITY_DIRS = {
     # animate / agentive

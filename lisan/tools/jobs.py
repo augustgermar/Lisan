@@ -3,11 +3,17 @@ from __future__ import annotations
 import sqlite3
 import uuid
 from dataclasses import asdict, is_dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
 from ..paths import sqlite_path, vault_root
+from ..utils import json_dumps_stable as _json_dumps
+from ..utils import json_loads_forgiving as _json_loads
+from ..utils import parse_utc_timestamp as _parse_timestamp
+from ..utils import today_iso
+from .db import connect as _connect
+from .ingest_batches import ensure_ingestion_batches_table
 from .job_policy import (
     DEFAULT_STUCK_TIMEOUT_MINUTES,
     LONG_JOB_MIN_STUCK_MINUTES,
@@ -17,10 +23,6 @@ from .job_policy import (
     priority_for_job_type,
     unique_group_for_job,
 )
-from .ingest_batches import ensure_ingestion_batches_table
-from ..utils import json_dumps_stable as _json_dumps, json_loads_forgiving as _json_loads, parse_utc_timestamp as _parse_timestamp, today_iso
-from .db import connect as _connect
-
 
 JOB_STATUSES = {
     "queued",
@@ -205,7 +207,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_batch
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc).replace(microsecond=0)
+    return datetime.now(UTC).replace(microsecond=0)
 
 
 def _iso(dt: datetime | None = None) -> str:
@@ -217,10 +219,10 @@ def _normalize_timestamp(value: Any) -> str | None:
     if value in (None, ""):
         return None
     if isinstance(value, datetime):
-        dt = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-        return _iso(dt.astimezone(timezone.utc))
+        dt = value if value.tzinfo else value.replace(tzinfo=UTC)
+        return _iso(dt.astimezone(UTC))
     if isinstance(value, date):
-        dt = datetime.combine(value, time.min, tzinfo=timezone.utc)
+        dt = datetime.combine(value, time.min, tzinfo=UTC)
         return _iso(dt)
     text = str(value).strip()
     if not text:
@@ -230,10 +232,10 @@ def _normalize_timestamp(value: Any) -> str | None:
     try:
         if "T" in text or " " in text:
             dt = datetime.fromisoformat(text)
-            dt = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-            return _iso(dt.astimezone(timezone.utc))
+            dt = dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+            return _iso(dt.astimezone(UTC))
         parsed_date = date.fromisoformat(text)
-        return _iso(datetime.combine(parsed_date, time.min, tzinfo=timezone.utc))
+        return _iso(datetime.combine(parsed_date, time.min, tzinfo=UTC))
     except ValueError:
         return text
 
@@ -1245,8 +1247,8 @@ def _job_self_repair_propose(job: dict[str, Any], payload: dict[str, Any], job_t
     )
     notified = False
     try:
-        from .scheduler import _deliver_owner_message
         from .adjutant_confirmations import confirmation_keyboard
+        from .scheduler import _deliver_owner_message
 
         if proposal.confirmation_id:
             _deliver_owner_message(
@@ -1315,8 +1317,8 @@ def _explain_self_repair_apply(vault: Path, applied: Any, cfg: dict[str, Any], d
     failure must never block the notification that the apply already
     happened, so this always falls back to a deterministic sentence built
     from the loop's own summary and the changed file paths."""
-    from .self_repair import find_loop_summary, read_proposal_patch
     from ..frontmatter import load_markdown
+    from .self_repair import find_loop_summary, read_proposal_patch
 
     try:
         report_fm = load_markdown(applied.report_path).frontmatter
@@ -1507,8 +1509,8 @@ def _job_writer_extract_turn(job: dict[str, Any], payload: dict[str, Any], job_t
 
 
 def _job_capture_observe(job: dict[str, Any], payload: dict[str, Any], job_type: str, vault: Path, db_path: Path | None, provider: str | None, model: str | None, batch_id: str | None) -> Any:
-    from .memory_pipeline import run_memory_pipeline
     from .enrichment import resolve_owner_clarification
+    from .memory_pipeline import run_memory_pipeline
 
     text = str(payload.get("text") or "")
     if not text:
@@ -2014,9 +2016,9 @@ def reclaim_stale_running_jobs(db_path: Path | None = None, *, stale_minutes: in
     a codex run, a chat-turn prompt, or an Adjutant cycle is not. Delegated
     children are left to delegation.reap_overdue_delegations, which knows
     their wall limits. Returns the number requeued."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
-    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cutoff = (datetime.now(UTC) - timedelta(minutes=stale_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         conn = _connect(db_path)
     except Exception:

@@ -7,6 +7,7 @@ hypothesis gate terms. Deterministic; no LLM anywhere near this.
 from __future__ import annotations
 
 import re
+from datetime import UTC
 
 # v1 task kinds (spec §2.4 — deliberately small).
 TASK_KINDS = {"run_script", "research", "collect", "draft", "notify"}
@@ -90,6 +91,5 @@ def next_cron_stamp(cron: str, *, after=None) -> str:
 
 
 def _utc():
-    from datetime import timezone
 
-    return timezone.utc
+    return UTC

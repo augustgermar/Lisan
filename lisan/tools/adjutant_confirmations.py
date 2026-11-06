@@ -8,18 +8,19 @@ owner's yes/no is memory too.
 """
 from __future__ import annotations
 
-import sqlite3
 import hashlib
+import sqlite3
+from collections.abc import Callable
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..frontmatter import load_markdown, write_markdown
 from ..paths import sqlite_path
 from .adjutant_common import CONFIRMATION_RESOLUTIONS
 from .db import connect as _db_connect
-from .record_factory import new_confirmation
 from .rebuild_index import ensure_index_schema, reindex_record
+from .record_factory import new_confirmation
 
 DEFAULT_EXPIRY_DAYS = 7
 _CALLBACK_PREFIX = "confirm:v1"

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -427,7 +428,7 @@ def reap_overdue_delegations(
     requeue it and run it a second time; a child may have partly run, so it is
     failed with the real cause instead, any surviving orphan process is
     killed, and the owner is told once. Returns the ids reaped."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from .escalation import escalate_terminal_failure
     from .jobs import _kill_child_group, list_jobs, mark_job_failed, set_child_pid
@@ -438,7 +439,7 @@ def reap_overdue_delegations(
         if job.get("job_type") != JOB_TYPE or not job.get("started_at"):
             continue
         try:
-            started = datetime.strptime(str(job["started_at"]), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+            started = datetime.strptime(str(job["started_at"]), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC).timestamp()
         except ValueError:
             continue
         payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}

@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from lisan.tools.mail import send_email
 from lisan.tools.execution_tools import _send_email_tool
+from lisan.tools.mail import send_email
 
 
 def test_dry_run_uses_config_and_resolves_recipients():

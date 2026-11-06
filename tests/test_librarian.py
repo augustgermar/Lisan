@@ -1,10 +1,22 @@
 from pathlib import Path
 
 from lisan.frontmatter import load_markdown
-from lisan.tools.librarian import _normalize_source_query, _recommend_tier, approve_origin, build_domain, contract_path, create_contract, decide_proposal, load_intake, propose_sources, resolve_intake_domain, resume_intake
+from lisan.tools.execution_tools import TOOLS, build_tool_handlers
+from lisan.tools.librarian import (
+    _normalize_source_query,
+    _recommend_tier,
+    approve_origin,
+    build_domain,
+    contract_path,
+    create_contract,
+    decide_proposal,
+    load_intake,
+    propose_sources,
+    resolve_intake_domain,
+    resume_intake,
+)
 from lisan.tools.research import SourceFinding
 from lisan.tools.source_tiers import origin_matches, tier_confidence
-from lisan.tools.execution_tools import TOOLS, build_tool_handlers
 
 
 def test_source_tier_controls_confidence_and_origin_matching():

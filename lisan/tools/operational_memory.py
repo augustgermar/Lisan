@@ -4,22 +4,21 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .db import connect as _db_connect
 from ..frontmatter import dump_markdown, load_markdown
 from ..paths import sqlite_path, vault_root
+from .db import connect as _db_connect
 from .rebuild_index import ensure_index_schema
-
 
 ARCHIVE_ROOT = Path("archive/operational-reports")
 HEAVY_BUNDLE_CHARS = 100_000
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def _report_metadata(vault: Path, row: sqlite3.Row) -> dict[str, Any]:

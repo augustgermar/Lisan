@@ -15,7 +15,7 @@ import os
 import shutil
 import stat
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +26,6 @@ from .record_quarantine import ensure_record_quarantine_table
 from .record_refs import build_reference_index, resolve_reference
 from .validator import validate_record_candidate, validate_vault
 from .write_boundary import write_if_structured_record
-
 
 MIGRATION_ID = "20261001-step3-evidence-repair"
 BACKUP_PATH = "/Users/august/.lisan/backups/lisan-backup-20261001-071151.tar.gz.enc"
@@ -716,4 +715,4 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()

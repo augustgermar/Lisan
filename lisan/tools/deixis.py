@@ -1,8 +1,10 @@
 # lisan/tools/deixis.py
 from __future__ import annotations
+
 import re
 from pathlib import Path
 from typing import Literal
+
 from .primer_index import assistant_display_name, principal_aliases
 
 Audience = Literal["interlocutor", "substrate", "display"]

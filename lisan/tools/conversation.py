@@ -15,16 +15,17 @@ the user and the reply.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..paths import vault_root
+from .freshness import file_line
 from .log import log_error
 from .narrative_state import conversation_history
 from .self_model import cached_capability_index
 from .tracing import record_inline_step, record_jobs_queued
 from .transcripts import append_transcript
-from .freshness import file_line
 
 _HISTORY_TURNS = 30
 # Tool-bearing replies commonly contain a short runbook or ticket details.

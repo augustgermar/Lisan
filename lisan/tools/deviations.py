@@ -36,13 +36,14 @@ import json
 import re
 import sqlite3
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
-from typing import Any, Callable
-from .db import connect as _db_connect
+from typing import Any
 
 from ..frontmatter import load_markdown, write_markdown
 from ..utils import today_iso
+from .db import connect as _db_connect
 from .deixis import tokenize_principal
 from .log import get_logger, log_error
 

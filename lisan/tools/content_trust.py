@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re as _re
-
 from typing import Any
 
 TRUSTED = "trusted"

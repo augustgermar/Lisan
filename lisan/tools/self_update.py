@@ -24,9 +24,10 @@ from __future__ import annotations
 
 import json
 import subprocess
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..paths import config_path, repo_root
 from .db import connect as _connect
@@ -37,7 +38,7 @@ _GIT_TIMEOUT = 30
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # ── State (ephemeral, observed — not owner-authored config) ─────────────────

@@ -6,26 +6,27 @@ never on a particular skill being installed.
 """
 from __future__ import annotations
 
+import base64
+import html
+import ipaddress
+import json
 import os
 import re
-import json
-import html
-import base64
-import ipaddress
 import urllib.error
 import urllib.parse
 import urllib.request
-from html.parser import HTMLParser
-from datetime import datetime, timezone
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Callable, Iterable, Protocol
+from typing import Any, Protocol
 
 
 class SourceProvider(Protocol):
     name: str
 
-    def search(self, query: str, *, limit: int) -> list["SourceFinding"]: ...
+    def search(self, query: str, *, limit: int) -> list[SourceFinding]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -325,7 +326,7 @@ class WebSearchProvider:
             return []
         parser = _SearchResultParser()
         parser.feed(body)
-        retrieved = datetime.now(timezone.utc).isoformat()
+        retrieved = datetime.now(UTC).isoformat()
         rows = []
         for row in parser.rows:
             normalized_url = _normalize_search_result_url(row.get("url", ""))
@@ -557,7 +558,7 @@ class BraveSearchProvider:
         except Exception as exc:
             raise SearchProviderError(f"Brave Search unreachable: {exc}") from exc
         results = ((payload or {}).get("web") or {}).get("results") or []
-        retrieved = datetime.now(timezone.utc).isoformat()
+        retrieved = datetime.now(UTC).isoformat()
         findings: list[SourceFinding] = []
         for item in results[:count]:
             url_value = str((item or {}).get("url") or "")
@@ -638,7 +639,7 @@ class TavilySearchProvider:
             raise SearchProviderError(f"Tavily returned HTTP {exc.code}{': ' + detail if detail else ''}") from exc
         except Exception as exc:
             raise SearchProviderError(f"Tavily unreachable: {exc}") from exc
-        retrieved = datetime.now(timezone.utc).isoformat()
+        retrieved = datetime.now(UTC).isoformat()
         findings: list[SourceFinding] = []
         for item in ((payload or {}).get("results") or [])[: max(1, int(limit))]:
             url_value = str((item or {}).get("url") or "")

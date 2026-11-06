@@ -7,13 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from ..frontmatter import load_markdown, write_markdown
-from ..utils import slugify, today_iso
-from ..utils import listify
+from ..utils import listify, slugify, today_iso
 from .log import get_logger, log_error
-from .reference_resolution import normalize_text, resolve_reference
+from .rebuild_index import index_single_record
 from .record_factory import (
-    CreatedRecord,
     STATE_TTLS,
+    CreatedRecord,
     new_claim,
     new_decision,
     new_evidence,
@@ -21,8 +20,7 @@ from .record_factory import (
     normalize_state_category,
     upsert_state,
 )
-from .rebuild_index import index_single_record
-
+from .reference_resolution import normalize_text, resolve_reference
 
 # ── Reference resolution (claim IDs) ─────────────────────────────────────────
 

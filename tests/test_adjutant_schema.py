@@ -9,10 +9,10 @@ import pytest
 
 from lisan.frontmatter import load_markdown, write_markdown
 from lisan.paths import ensure_vault_layout
-from lisan.tools.record_factory import new_confirmation, new_open_loop, new_schedule
-from lisan.tools.rebuild_index import SCHEMA_SQL, ensure_index_schema, index_single_record
-from lisan.tools.validator import validate_vault
 from lisan.tools.db import connect as db_connect
+from lisan.tools.rebuild_index import SCHEMA_SQL, ensure_index_schema, index_single_record
+from lisan.tools.record_factory import new_confirmation, new_open_loop, new_schedule
+from lisan.tools.validator import validate_vault
 
 NEW_COLUMNS = ["execute_asap", "task_kind", "task_status", "next_run", "expires"]
 NEW_TABLES = ["adjutant_log", "task_runs", "confirmations"]

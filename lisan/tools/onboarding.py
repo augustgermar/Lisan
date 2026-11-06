@@ -8,9 +8,15 @@ from ..frontmatter import dump_markdown, write_markdown
 from ..paths import write_high_stakes_seed
 from ..utils import slugify, today_iso
 from .agent_namer import AgentIdentity, generate_agent_identity
-from .primer_index import assistant_display_name, assistant_hash, assistant_nickname, assistant_name, assistant_seed, principal_name
-from .term import color, BOLD, DIM, GREEN
-
+from .primer_index import (
+    assistant_display_name,
+    assistant_hash,
+    assistant_name,
+    assistant_nickname,
+    assistant_seed,
+    principal_name,
+)
+from .term import BOLD, DIM, GREEN, color
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

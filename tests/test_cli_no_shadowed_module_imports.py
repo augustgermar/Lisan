@@ -25,7 +25,6 @@ from unittest.mock import patch
 from lisan.cli import main
 from lisan.tools.provider_diagnostics import ProviderDiagnosticResult
 
-
 CLI_SOURCE = Path(__file__).resolve().parents[1] / "lisan" / "cli.py"
 
 

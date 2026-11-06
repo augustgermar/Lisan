@@ -3,9 +3,9 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 from pathlib import Path
-from .db import connect as _db_connect
 
 from ..paths import sqlite_path, vault_root
+from .db import connect as _db_connect
 from .deixis import render_for_display
 
 

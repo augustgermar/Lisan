@@ -22,10 +22,10 @@ from unittest.mock import patch
 from lisan.config import DEFAULT_CONFIG
 from lisan.tools.context_budget import (
     DEFAULT_PROVIDER_INPUT_CHARS,
+    PromptBudgetError,
     Record,
     Section,
     budget_from_config,
-    PromptBudgetError,
     fit_provider_prompt,
     plan_chunks,
     render,
@@ -200,7 +200,7 @@ class DreamerBundleTests(unittest.TestCase):
             entities.mkdir(parents=True, exist_ok=True)
             for i in range(30):
                 (entities / f"p{i}.md").write_text(
-                    '---\n{"id": "entity.p%d", "type": "entity"}\n---\n\n' % i + "y" * 6_000,
+                    f'---\n{{"id": "entity.p{i}", "type": "entity"}}\n---\n\n' + "y" * 6_000,
                     encoding="utf-8",
                 )
             budget = {"budget_chars": 40_000, "per_record_chars": 30_000, "max_chunks": 99}
@@ -260,7 +260,7 @@ class DreamerRunTests(unittest.TestCase):
         entities.mkdir(parents=True, exist_ok=True)
         for i in range(20):
             (entities / f"p{i}.md").write_text(
-                '---\n{"id": "entity.p%d", "type": "entity"}\n---\n\n' % i + "y" * 5_000,
+                f'---\n{{"id": "entity.p{i}", "type": "entity"}}\n---\n\n' + "y" * 5_000,
                 encoding="utf-8",
             )
 
@@ -362,7 +362,7 @@ class AmplificationTests(unittest.TestCase):
         entities.mkdir(parents=True, exist_ok=True)
         for i in range(6):
             (entities / f"p{i}.md").write_text(
-                '---\n{"id": "entity.p%d", "type": "entity"}\n---\n\n' % i + "UNIQUEBODY " * 4_000,
+                f'---\n{{"id": "entity.p{i}", "type": "entity"}}\n---\n\n' + "UNIQUEBODY " * 4_000,
                 encoding="utf-8",
             )
 

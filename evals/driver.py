@@ -40,9 +40,9 @@ def run_turn(conversation_id: str, text: str) -> dict:
     import os
 
     os.environ["LISAN_VAULT"] = str(VAULT)
-    from lisan.tools.chat import _process_chat_turn
-
     import contextlib
+
+    from lisan.tools.chat import _process_chat_turn
 
     started = time.time()
     with contextlib.redirect_stdout(sys.stderr):

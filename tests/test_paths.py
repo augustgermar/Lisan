@@ -218,8 +218,8 @@ class AmbientResolutionGuardTests(unittest.TestCase):
         """Why the transport needs its own guard: escalation suppresses delivery
         for a foreign vault, but a test using the *ambient* vault is by
         definition the resident one, so it passes that check."""
-        from lisan.tools.escalation import _is_resident_vault
         from lisan.paths import vault_root
+        from lisan.tools.escalation import _is_resident_vault
 
         self.assertTrue(_is_resident_vault(vault_root()))
 
@@ -243,6 +243,7 @@ class AmbientResolutionGuardTests(unittest.TestCase):
         same install, so it passed by luck — the same ambient shape that let a
         test write into production."""
         import inspect
+
         from lisan.tools import validator
 
         self.assertIn("db_path", inspect.signature(validator.validate_vault).parameters)

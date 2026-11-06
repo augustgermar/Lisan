@@ -7,9 +7,10 @@ from typing import Any
 
 from ..frontmatter import load_markdown, write_markdown
 from ..paths import vault_root
-from ..utils import json_loads_forgiving as _json_loads, utc_now_iso as _iso_now
-from .db import connect as _connect
 from ..utils import json_dumps_stable
+from ..utils import json_loads_forgiving as _json_loads
+from ..utils import utc_now_iso as _iso_now
+from .db import connect as _connect
 
 
 def _json_dumps(value: Any) -> str | None:

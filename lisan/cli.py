@@ -7,28 +7,49 @@ import subprocess
 import sys
 from pathlib import Path
 
+from .agents import (
+    AdviceAgent,
+    AnalystAgent,
+    AssemblerAgent,
+    DreamerAgent,
+    ElicitorAgent,
+    InterlocutorAgent,
+    ListenerAgent,
+    RouterAgent,
+    SkepticAgent,
+    WriterAgent,
+)
 from .config import load_config, save_default_config
-from .agents import AdviceAgent, AnalystAgent, AssemblerAgent, DreamerAgent, ElicitorAgent, InterlocutorAgent, ListenerAgent, RouterAgent, SkepticAgent, WriterAgent
-from .paths import config_path, ensure_repo_layout, ensure_root_layout, ensure_vault_layout, repo_root, seed_config_file, sqlite_path, vault_root, write_seed_files
-from .providers.base import LisanLLM, ProviderError
+from .paths import (
+    config_path,
+    ensure_repo_layout,
+    ensure_root_layout,
+    ensure_vault_layout,
+    repo_root,
+    seed_config_file,
+    sqlite_path,
+    vault_root,
+    write_seed_files,
+)
 from .prompts import list_prompts, load_prompt
-from .tools.assembler import assemble_context
-from .tools.chat import run_chat
-from .tools.capture import capture_text
-from .tools.current_brief import write_current_brief
-from .tools.conversation_digest import write_conversation_digest
-from .tools.dreamer_ops import audit_patterns, format_pattern_audit, run_dreamer_task
-from .tools.draft_review import review_draft
-from .tools.archive import archive_open_loop
+from .providers.base import LisanLLM, ProviderError
 from .tools.analyst_ops import run_analyst_scan
-from .tools.jobs import audit_jobs, cancel_job, format_job_audit, format_job_list, get_job, list_jobs, reap_stuck_jobs, retry_job, run_jobs_worker
+from .tools.archive import archive_open_loop
+from .tools.assembler import assemble_context
 from .tools.backup import backup_status, create_backup, latest_backup_path, test_backup, write_backup_log
 from .tools.batch_review import generate_batch_review, write_batch_review
-from .tools.epochs import epoch_entity
+from .tools.capture import capture_text
+from .tools.chat import run_chat
+from .tools.confidence_decay import detect_decay_candidates
+from .tools.conversation_digest import write_conversation_digest
+from .tools.current_brief import write_current_brief
+from .tools.draft_review import review_draft
 from .tools.drafts import promote_draft_to_episode
+from .tools.dreamer_ops import audit_patterns, format_pattern_audit, run_dreamer_task
 from .tools.editor import edit_record
+from .tools.epochs import epoch_entity
 from .tools.health_report import generate_health_report
-from .tools.log import log_error
+from .tools.heuristic_gate import score_text
 from .tools.ingest import (
     audit_ingestion,
     format_ingest_audit,
@@ -36,29 +57,55 @@ from .tools.ingest import (
     format_ingest_batch_summary,
     format_ingest_batches,
     format_ingest_plan,
+    format_ingest_status,
     format_reference_ingest_plan,
     ingest_reference_sources,
-    format_ingest_status,
     plan_scan_path,
     scan_path,
     show_artifact,
 )
 from .tools.ingest_batches import list_batches, quarantine_batch, summarize_batch
-from .tools.heuristic_gate import score_text
-from .tools.confidence_decay import detect_decay_candidates
+from .tools.jobs import (
+    audit_jobs,
+    cancel_job,
+    format_job_audit,
+    format_job_list,
+    get_job,
+    list_jobs,
+    reap_stuck_jobs,
+    retry_job,
+    run_jobs_worker,
+)
+from .tools.librarian import approve_origin, build_domain, consolidate_domain, correct_knowledge, create_contract
+from .tools.log import log_error
 from .tools.manifest_gen import generate_manifests
 from .tools.migrator import run_migration
-from .tools.purge import purge_installation
-from .tools.uninstall import default_bin_dir, default_install_root, uninstall_installation
+from .tools.narrative_state import (
+    conversation_history,
+    load_narrative_state,
+    render_narrative_state,
+    reset_narrative_state,
+)
 from .tools.primer_audit import run_primer_audit
 from .tools.provider_diagnostics import diagnose_provider
-from .tools.record_factory import new_claim, new_decision, new_evidence, new_evidence_correction, new_entity, new_episode, new_knowledge, new_open_loop, new_state, upsert_state
+from .tools.purge import purge_installation
 from .tools.rebuild_index import open_index_connection, rebuild_index
-from .tools.narrative_state import conversation_history, load_narrative_state, render_narrative_state, reset_narrative_state
+from .tools.record_factory import (
+    new_claim,
+    new_decision,
+    new_entity,
+    new_episode,
+    new_evidence,
+    new_evidence_correction,
+    new_knowledge,
+    new_open_loop,
+    new_state,
+    upsert_state,
+)
 from .tools.tracing import format_recent_turn_traces, format_turn_trace, list_recent_turn_traces, load_turn_trace
 from .tools.transcripts import append_transcript
+from .tools.uninstall import default_bin_dir, default_install_root, uninstall_installation
 from .tools.validator import format_report, validate_vault
-from .tools.librarian import approve_origin, build_domain, consolidate_domain, correct_knowledge, create_contract
 
 
 def _split_csv_values(value: str | None) -> list[str]:
@@ -1109,8 +1156,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "update":
         from .tools.self_update import (
-            apply_update, check_remote, ensure_self_update_job, read_update_state,
-            render_update_status, set_update_mode,
+            apply_update,
+            check_remote,
+            ensure_self_update_job,
+            read_update_state,
+            render_update_status,
+            set_update_mode,
         )
 
         if args.update_command == "status":
@@ -1978,6 +2029,7 @@ def main(argv: list[str] | None = None) -> int:
                 print("  lisan skills auth", args.name, "'<the full URL your browser lands on>'")
             return r.returncode
 
+        from .paths import skills_root
         from .tools.skills_cli import (
             install_all,
             install_skill,
@@ -1985,7 +2037,6 @@ def main(argv: list[str] | None = None) -> int:
             skills_status,
             uninstall_skill,
         )
-        from .paths import skills_root
 
         if args.skills_command == "list":
             rows = skills_status()
@@ -2280,7 +2331,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     if args.command == "deviations":
-        from .tools.deviations import scan_deviations, _self_loops
+        from .tools.deviations import _self_loops, scan_deviations
 
         vault = vault_root()
         if args.deviations_command == "scan":

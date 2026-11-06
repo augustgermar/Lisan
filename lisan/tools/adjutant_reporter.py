@@ -9,8 +9,9 @@ nothing in this module softens a failure.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .adjutant_executor import ExecutionResult
 

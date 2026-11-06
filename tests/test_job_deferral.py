@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -62,7 +62,7 @@ class DeferJobTests(unittest.TestCase):
 
         self.assertEqual(deferred["status"], "retry_wait")
         self.assertEqual(deferred["attempts"], 0, "a deferral must not spend an attempt")
-        self.assertGreater(_parse(deferred["scheduled_for"]), datetime.now(timezone.utc))
+        self.assertGreater(_parse(deferred["scheduled_for"]), datetime.now(UTC))
         self.assertIn("waiting on mid-run jobs", deferred["error"])
 
     def test_deferral_is_not_immediately_reclaimable(self) -> None:
