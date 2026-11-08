@@ -170,6 +170,27 @@ class DedupCandidateTests(_Env):
         self.assertEqual(len(cands), 1)
         self.assertEqual(cands[0]["keep"], "Deck Rebuild")
 
+    def test_date_named_entities_never_pair_with_each_other(self):
+        # Dated file names reduce to an empty base; they must not look like one thing.
+        _entity(self.vault, "d1", "2026-10-21.md", "system")
+        _entity(self.vault, "d2", "2026-11-01.md", "system")
+        _entity(self.vault, "d3", "2026-11-05.md", "system")
+        self.assertEqual(dedup_candidates(self.vault), [])
+
+    def test_decorated_siblings_do_not_pair_with_each_other(self):
+        # Both names carry a date decoration over the same generic base, and
+        # neither is the base itself, so they are not variants of one another.
+        _entity(self.vault, "q1", "questions-2026-11-04", "system")
+        _entity(self.vault, "q2", "questions-2026-11-05", "system")
+        self.assertEqual(dedup_candidates(self.vault), [])
+
+    def test_undecorated_base_still_pairs_with_its_variant(self):
+        _entity(self.vault, "dr", "Deck Rebuild", "project")
+        _entity(self.vault, "dr2", "Deck Rebuild (summer 2026)", "project")
+        cands = dedup_candidates(self.vault)
+        self.assertEqual(len(cands), 1)
+        self.assertEqual(cands[0]["keep"], "Deck Rebuild")
+
     def test_near_dup_becomes_a_question_loop(self):
         from lisan.tools.deviations import scan_deviations
         from lisan.tools.drive import phrase_question

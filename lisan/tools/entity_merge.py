@@ -308,13 +308,37 @@ def merge_entities(
     }
 
 
+_FILE_EXTENSION = re.compile(r"\.(md|markdown|txt|json|ya?ml|pdf|docx?)$", re.IGNORECASE)
+
+
+def _comparable_name(name: str) -> str:
+    """A canonical name with any file extension removed, for comparison only."""
+    return " ".join(_FILE_EXTENSION.sub("", name).split()).lower()
+
+
+def _meaningful_base(name: str) -> str:
+    """The qualifier base of a name, or '' when nothing word-like is left.
+
+    A name made only of dates or punctuation ('2026-10-30', '2026-10-30.md')
+    has no base worth matching on: stripping the date leaves nothing, and two
+    such names would otherwise count as the same thing.
+    """
+    from .entity_resolution import _qualifier_base
+
+    base = _qualifier_base(_comparable_name(name)).strip(" -_/")
+    return base if re.search(r"[a-z]{3,}", base) else ""
+
+
 def dedup_candidates(vault: Path) -> list[dict[str, Any]]:
     """Same-kind near-duplicate pairs worth asking about: one canonical name
     is a token-subset or qualifier-variant of another. Reported, never
     auto-merged — the owner (or the agent in conversation, with the owner's
-    yes) decides."""
-    from .entity_resolution import _qualifier_base
+    yes) decides.
 
+    A qualifier variant must extend a base name that is itself a candidate:
+    'Deck Rebuild' and 'Deck Rebuild (summer 2026)' pair up, but two names
+    that differ only by a date decoration do not pair with each other.
+    """
     ents = []
     root = vault / "entities"
     if not root.exists():
@@ -337,7 +361,12 @@ def dedup_candidates(vault: Path) -> list[dict[str, Any]]:
                 continue
             bt = set(b["name"].lower().split())
             subset = (at < bt or bt < at) and bool(at & bt)
-            same_base = _qualifier_base(a["name"]) == _qualifier_base(b["name"]) and a["name"].lower() != b["name"].lower()
+            base_a, base_b = _meaningful_base(a["name"]), _meaningful_base(b["name"])
+            same_base = (
+                bool(base_a) and base_a == base_b
+                and _comparable_name(a["name"]) != _comparable_name(b["name"])
+                and (_comparable_name(a["name"]) == base_a or _comparable_name(b["name"]) == base_b)
+            )
             exact = a["name"].lower() == b["name"].lower()
             if subset or same_base or exact:
                 smaller, larger = (a, b) if len(at) <= len(bt) else (b, a)
