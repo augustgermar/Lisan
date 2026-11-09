@@ -76,8 +76,11 @@ _SIGNIFICANCE = {
 }
 # emission order under the cap: model contradictions first, housekeeping last
 _CLASS_ORDER = ["cross_kind", "near_dup", "capture_defect", "interocept", "skill_health", "thin", "dangling", "stale"]
-# classes whose remedy is not a code change: the self-repair loop must not treat them as one
-_NOT_CODE_DEFECTS = frozenset({"skill_health"})
+# classes whose remedy is not a code change: the self-repair loop must not treat them as one.
+# near_dup's remedy is merging two vault records, not patching code — routing it into
+# self_repair.propose only ever produced patches to the dedup detector's own tests, which
+# validate_patch_paths refuses outright (observed live: 4 failed propose attempts in a row).
+_NOT_CODE_DEFECTS = frozenset({"skill_health", "near_dup"})
 
 
 def deviations_config(config: dict[str, Any] | None) -> dict[str, Any]:
@@ -651,7 +654,7 @@ def _queue_self_repair(
     from .action_policy import action_allowed
 
     if deviation.get("klass") in _NOT_CODE_DEFECTS:
-        return  # a failing skill is not a code defect; the remedy is a revised skill
+        return  # not a code defect: a failing skill needs a revised skill, a near-dup needs a record merge
     if not action_allowed("self_repair_propose", cfg):
         return
     repair_cfg = cfg.get("self_repair") or {}

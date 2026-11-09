@@ -327,3 +327,24 @@ class SelfEvalReachesRepairTests(_Env):
         emitted = _emit_suggestions(self.vault, many, report, db_path=self.db,
                                     config={"deviations": {"daily_cap": 1}})
         self.assertEqual(len(emitted), 1)
+
+
+class NearDupNeverReachesCodeRepairTests(_Env):
+    """A near-dup deviation's remedy is merging two vault records, not a code
+    patch — routing it to self_repair.propose only ever produced patches to
+    the dedup detector's own tests, which validate_patch_paths refuses
+    outright (observed live: 4 failed propose attempts in a row)."""
+
+    def test_a_near_dup_deviation_is_never_sent_to_the_code_self_repair_loop(self):
+        from unittest.mock import patch
+
+        from lisan.tools.deviations import _queue_self_repair
+
+        loop_path = self.vault / "open_loops" / "x.md"
+        loop_fm = {"id": "x", "status": "active"}
+        deviation = {"klass": "near_dup", "fingerprint": "near-dup-x", "summary": "looks like a dup"}
+        config = {"drive": {"action_tier": 3}, "self_repair": {"targeted_command": ["pytest", "-q"]}}
+        with patch("lisan.tools.action_policy.action_allowed", return_value=True), \
+                patch("lisan.tools.jobs.enqueue_job") as enqueue:
+            _queue_self_repair(self.vault, self.db, loop_path, loop_fm, deviation, config)
+        enqueue.assert_not_called()
