@@ -4,7 +4,6 @@ import hashlib
 import json
 import re
 from datetime import date, datetime, timezone
-from pathlib import Path
 from typing import Any
 
 
@@ -13,10 +12,6 @@ def slugify(value: str) -> str:
     value = re.sub(r"[^a-z0-9]+", "-", value)
     value = re.sub(r"-{2,}", "-", value).strip("-")
     return value or "item"
-
-
-def sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def approx_word_count(text: str) -> int:
@@ -31,16 +26,6 @@ def today_iso() -> str:
     return date.today().isoformat()
 
 
-def parse_date(value: Any) -> date | None:
-    if not value:
-        return None
-    if isinstance(value, date):
-        return value
-    if isinstance(value, str):
-        return datetime.strptime(value, "%Y-%m-%d").date()
-    return None
-
-
 def listify(value: Any) -> list[str]:
     """Coerce a value into a list of non-empty strings."""
     if value in (None, "", []):
@@ -48,29 +33,6 @@ def listify(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(item) for item in value if str(item)]
     return [str(value)]
-
-
-def ensure_list(value: Any) -> list[Any]:
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return value
-    return [value]
-
-
-def as_text(value: Any) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, (str, int, float, bool)):
-        return str(value)
-    return repr(value)
-
-
-def path_rel(base: Path, target: Path) -> str:
-    try:
-        return str(target.relative_to(base))
-    except ValueError:
-        return str(target)
 
 
 def hash_embedding(text: str, dimensions: int = 32) -> list[float]:
