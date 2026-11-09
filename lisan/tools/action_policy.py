@@ -43,6 +43,10 @@ ACTION_TIERS: dict[str, int] = {
     "self_repair_propose": 3,
     "self_repair_apply": 4,
     "self_repair_rollback": 4,
+    # Publishing a proposal upstream is orthogonal to applying it locally
+    # (docs/self_repair_upstream_workorder.md §2.1, §2.6): its own key, its
+    # own tier, raised deliberately and separately from apply/rollback.
+    "self_repair_publish_upstream": 4,
 }
 
 
