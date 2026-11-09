@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_c85826ab18010a7c_conversation_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.2">coverage.py v7.17.2</a>,
-            created at 2026-11-09 16:46 +0000
+            created at 2026-11-09 16:48 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -90,10 +90,10 @@
     <p class="run"><span class="n"><a id="t8" href="#t8">8</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">config</span> <span class="key">import</span> <span class="nam">load_config</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t9" href="#t9">9</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">paths</span> <span class="key">import</span> <span class="nam">vault_root</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t10" href="#t10">10</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">prompts</span> <span class="key">import</span> <span class="nam">load_prompt</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">schemas</span> <span class="key">import</span> <span class="nam">get_schema</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t12" href="#t12">12</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">providers</span><span class="op">.</span><span class="nam">base</span> <span class="key">import</span> <span class="nam">LLMResponse</span><span class="op">,</span> <span class="nam">LisanLLM</span><span class="op">,</span> <span class="nam">ProviderError</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">tools</span><span class="op">.</span><span class="nam">primer_index</span> <span class="key">import</span> <span class="nam">assistant_display_name</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">tools</span><span class="op">.</span><span class="nam">deixis</span> <span class="key">import</span> <span class="nam">render_deixis</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t11" href="#t11">11</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">providers</span><span class="op">.</span><span class="nam">base</span> <span class="key">import</span> <span class="nam">LisanLLM</span><span class="op">,</span> <span class="nam">LLMResponse</span><span class="op">,</span> <span class="nam">ProviderError</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t12" href="#t12">12</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">schemas</span> <span class="key">import</span> <span class="nam">get_schema</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t13" href="#t13">13</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">tools</span><span class="op">.</span><span class="nam">deixis</span> <span class="key">import</span> <span class="nam">render_deixis</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t14" href="#t14">14</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">tools</span><span class="op">.</span><span class="nam">primer_index</span> <span class="key">import</span> <span class="nam">assistant_display_name</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t15" href="#t15">15</a></span><span class="t"><span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">tools</span><span class="op">.</span><span class="nam">structured</span> <span class="key">import</span> <span class="nam">extract_json</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t16" href="#t16">16</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t17" href="#t17">17</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
@@ -306,7 +306,7 @@
     <p class="pln"><span class="n"><a id="t224" href="#t224">224</a></span><span class="t">            <span class="com"># Second, provider-level guard: the round budget above elides old</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t225" href="#t225">225</a></span><span class="t">            <span class="com"># tool results; this one fails closed (or trims retrieved context</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t226" href="#t226">226</a></span><span class="t">            <span class="com"># between its sentinels) if the whole prompt still cannot fit.</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t227" href="#t227">227</a></span><span class="t">            <span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">tools</span><span class="op">.</span><span class="nam">context_budget</span> <span class="key">import</span> <span class="nam">PromptBudgetError</span><span class="op">,</span> <span class="nam">fit_provider_prompt</span><span class="op">,</span> <span class="nam">budget_from_config</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t227" href="#t227">227</a></span><span class="t">            <span class="key">from</span> <span class="op">.</span><span class="op">.</span><span class="nam">tools</span><span class="op">.</span><span class="nam">context_budget</span> <span class="key">import</span> <span class="nam">PromptBudgetError</span><span class="op">,</span> <span class="nam">budget_from_config</span><span class="op">,</span> <span class="nam">fit_provider_prompt</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t228" href="#t228">228</a></span><span class="t">            <span class="nam">context_budget</span> <span class="op">=</span> <span class="nam">budget_from_config</span><span class="op">(</span><span class="nam">self</span><span class="op">.</span><span class="nam">config</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t229" href="#t229">229</a></span><span class="t">            <span class="nam">prompt_budget</span> <span class="op">=</span> <span class="nam">context_budget</span><span class="op">[</span><span class="str">&quot;budget_chars&quot;</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t230" href="#t230">230</a></span><span class="t">            <span class="key">try</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
@@ -504,7 +504,7 @@
             <a class="nav" href="z_c85826ab18010a7c_conversation_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.17.2">coverage.py v7.17.2</a>,
-            created at 2026-11-09 16:46 +0000
+            created at 2026-11-09 16:48 +0000
         </p>
     </div>
 </footer>
