@@ -14,6 +14,7 @@ from lisan.tools.self_repair import (
     _latest_dimension_score,
     apply_approved_proposal,
     propose,
+    publish_proposal_upstream,
     rollback_applied_proposal,
     run_bake_check,
 )
@@ -35,13 +36,16 @@ def _repo(tmp_path: Path) -> Path:
     return repo
 
 
-def _loop(vault: Path) -> Path:
+def _loop(vault: Path, *, deviation_class: str | None = None) -> Path:
     path = vault / "open_loops" / "loop.md"
-    write_markdown(path, {
+    fm = {
         "id": "loop.self-repair-1", "type": "open_loop", "created": "2026-08-15",
         "updated": "2026-08-15", "status": "active", "origin": "self",
         "summary": "ordinary behavior needs repair", "significance": "medium",
-    }, "# Loop\n")
+    }
+    if deviation_class:
+        fm["deviation_class"] = deviation_class
+    write_markdown(path, fm, "# Loop\n")
     return path
 
 
@@ -528,6 +532,7 @@ def _diff(path: str, *, new: bool = False) -> str:
     "lisan/tools/judge.py",
     "lisan/tools/purge.py",
     "lisan/tools/self_repair_helpers.py",
+    "lisan/tools/public_rationale.py",
     "tests/test_mail.py",
     ".github/workflows/ci.yml",
 ])
@@ -637,3 +642,161 @@ def test_bake_check_missing_pytest_is_not_a_regression(tmp_path: Path, monkeypat
     assert load_markdown(report_path).frontmatter["bake_status"] == "monitoring"
     bake_jobs = [j for j in list_jobs(db_path=db) if j["job_type"] == "self_repair.bake_check"]
     assert bake_jobs and bake_jobs[0]["status"] == "queued"
+
+
+# ── Upstream publication (WO-REPAIR-UPSTREAM) ────────────────────────────────
+
+
+def _publish_setup(tmp_path: Path, *, deviation_class: str = "thin"):
+    repo = _repo(tmp_path)
+    vault = tmp_path / "vault"
+    loop = _loop(vault, deviation_class=deviation_class)
+    db = tmp_path / "index.sqlite"
+    proposal = propose(
+        vault=vault, repo=repo, loop_id="loop.self-repair-1", loop_path=loop,
+        author=_author, db_path=db, test_command=["python3", "-c", "print('suite')"],
+        targeted_command=["python3", "-c", "print('target')"], worktree_root=tmp_path / "worktrees",
+    )
+    return repo, vault, db, proposal
+
+
+def _upstream_config(**overrides) -> dict:
+    upstream = {"enabled": True, "repo": "owner/repo", "remote": "origin", "install_id": "anon-1"}
+    upstream.update(overrides)
+    return {"self_repair": {"upstream": upstream}}
+
+
+def test_publish_upstream_requires_policy_tier(tmp_path: Path):
+    repo, vault, db, proposal = _publish_setup(tmp_path)
+    with pytest.raises(SelfRepairRefused, match="action-policy clamp"):
+        publish_proposal_upstream(
+            vault=vault, repo=repo, proposal_id=proposal.proposal_id, db_path=db,
+            config={**_upstream_config(), "drive": {"action_tier": 0}},
+        )
+
+
+def test_publish_upstream_requires_upstream_config(tmp_path: Path):
+    repo, vault, db, proposal = _publish_setup(tmp_path)
+    with pytest.raises(SelfRepairRefused, match="enabled"):
+        publish_proposal_upstream(
+            vault=vault, repo=repo, proposal_id=proposal.proposal_id, db_path=db,
+            policy_check=lambda *_: True, config={"self_repair": {}},
+        )
+
+
+def test_publish_upstream_requires_deviation_class_on_origin_loop(tmp_path: Path):
+    repo, vault, db, proposal = _publish_setup(tmp_path, deviation_class="")
+    with pytest.raises(SelfRepairRefused, match="deviation_class"):
+        publish_proposal_upstream(
+            vault=vault, repo=repo, proposal_id=proposal.proposal_id, db_path=db,
+            policy_check=lambda *_: True, config=_upstream_config(),
+        )
+
+
+def test_publish_upstream_corroborates_existing_pr_instead_of_duplicating(tmp_path: Path):
+    repo, vault, db, proposal = _publish_setup(tmp_path)
+    calls: list[list[str]] = []
+
+    def fake_run(args: list[str]) -> subprocess.CompletedProcess:
+        calls.append(args)
+        if args[:3] == ["gh", "pr", "list"]:
+            return subprocess.CompletedProcess(
+                args, 0, stdout='[{"number": 42, "url": "https://github.com/owner/repo/pull/42"}]', stderr="",
+            )
+        if args[:3] == ["gh", "pr", "comment"]:
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        raise AssertionError(f"unexpected call in corroboration path: {args}")
+
+    result = publish_proposal_upstream(
+        vault=vault, repo=repo, proposal_id=proposal.proposal_id, db_path=db,
+        policy_check=lambda *_: True, config=_upstream_config(), run_command=fake_run,
+    )
+
+    assert result["status"] == "corroborated"
+    assert result["pr_number"] == 42
+    assert any(c[:3] == ["gh", "pr", "comment"] for c in calls)
+    assert not any(c[:3] == ["gh", "pr", "create"] for c in calls)
+    fm = load_markdown(proposal.report_path).frontmatter
+    assert fm["upstream"]["status"] == "corroborated"
+
+
+def test_publish_upstream_pushes_branch_and_opens_pr(tmp_path: Path):
+    repo, vault, db, proposal = _publish_setup(tmp_path)
+    calls: list[list[str]] = []
+
+    def fake_run(args: list[str]) -> subprocess.CompletedProcess:
+        calls.append(args)
+        if args[:3] == ["gh", "pr", "list"]:
+            return subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
+        if args[0] == "git" and "push" in args:
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        if args[:3] == ["gh", "pr", "create"]:
+            return subprocess.CompletedProcess(args, 0, stdout="https://github.com/owner/repo/pull/99\n", stderr="")
+        raise AssertionError(f"unexpected call in publish path: {args}")
+
+    result = publish_proposal_upstream(
+        vault=vault, repo=repo, proposal_id=proposal.proposal_id, db_path=db,
+        policy_check=lambda *_: True, config=_upstream_config(), run_command=fake_run,
+    )
+
+    assert result["status"] == "published"
+    assert result["pr_url"] == "https://github.com/owner/repo/pull/99"
+    assert result["branch"] == f"self-repair/{proposal.proposal_id}"
+    push_calls = [c for c in calls if c[0] == "git" and "push" in c]
+    assert len(push_calls) == 1
+    fm = load_markdown(proposal.report_path).frontmatter
+    assert fm["upstream"]["pr_url"] == "https://github.com/owner/repo/pull/99"
+    # The live checkout is never touched by publication; apply remains a
+    # separate, orthogonal action (docs/self_repair_upstream_workorder.md §2.1).
+    assert (repo / "ordinary.py").read_text(encoding="utf-8") == "VALUE = 1\n"
+
+
+def test_publish_upstream_refuses_once_already_published(tmp_path: Path):
+    repo, vault, db, proposal = _publish_setup(tmp_path)
+
+    def fake_run(args: list[str]) -> subprocess.CompletedProcess:
+        if args[:3] == ["gh", "pr", "list"]:
+            return subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
+        if args[0] == "git" and "push" in args:
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        if args[:3] == ["gh", "pr", "create"]:
+            return subprocess.CompletedProcess(args, 0, stdout="https://github.com/owner/repo/pull/99\n", stderr="")
+        raise AssertionError(f"unexpected call: {args}")
+
+    publish_proposal_upstream(
+        vault=vault, repo=repo, proposal_id=proposal.proposal_id, db_path=db,
+        policy_check=lambda *_: True, config=_upstream_config(), run_command=fake_run,
+    )
+    with pytest.raises(SelfRepairRefused, match="already published"):
+        publish_proposal_upstream(
+            vault=vault, repo=repo, proposal_id=proposal.proposal_id, db_path=db,
+            policy_check=lambda *_: True, config=_upstream_config(), run_command=fake_run,
+        )
+
+
+def test_publish_upstream_refuses_when_rationale_matches_vault_index(tmp_path: Path):
+    import sqlite3
+
+    from lisan.tools.rebuild_index import ensure_index_schema
+
+    repo, vault, db, proposal = _publish_setup(tmp_path, deviation_class="thin")
+    conn = sqlite3.connect(db)
+    ensure_index_schema(conn)
+    # Plant an alias that collides with the deviation class name itself, so
+    # the independent denylist scan refuses even though build_public_rationale
+    # never touched any entity data — it does not trust the first pass.
+    conn.execute(
+        "INSERT INTO entity_aliases (entity_id, alias, context) VALUES (?, ?, ?)",
+        ("entity.agent.thin", "thin", None),
+    )
+    conn.commit()
+    conn.close()
+
+    def fake_run(args: list[str]) -> subprocess.CompletedProcess:
+        raise AssertionError(f"no gh/git call should happen before the leakage check: {args}")
+
+    with pytest.raises(SelfRepairRefused, match="vault-index term"):
+        publish_proposal_upstream(
+            vault=vault, repo=repo, proposal_id=proposal.proposal_id, db_path=db,
+            policy_check=lambda *_: True, config=_upstream_config(), run_command=fake_run,
+        )

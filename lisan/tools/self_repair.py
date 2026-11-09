@@ -68,6 +68,9 @@ PROTECTED_BASENAMES = frozenset({
     # undo: how a change is reversed or data recovered
     "purge.py",
     "backup.py",
+    # publication boundary: what the repair loop may say about itself in
+    # public (docs/self_repair_upstream_workorder.md)
+    "public_rationale.py",
 })
 PROTECTED_BASENAME_PREFIXES = ("self_repair",)
 PROTECTED_DIRECTORIES = ("credentials/", "backup/", "backups/", "purge/", ".github/", ".githooks/")
@@ -1040,3 +1043,174 @@ def rollback_applied_proposal(
     })
     write_markdown(report_path, fm, body)
     return {"rolled_back": True, "rollback_commit": rollback_commit, "restart_job_id": restart_job}
+
+
+# ── Upstream publication (WO-REPAIR-UPSTREAM, docs/self_repair_upstream_workorder.md) ──
+
+
+def _find_loop_frontmatter(vault: Path, loop_id: str) -> dict[str, Any] | None:
+    """Best-effort lookup of a loop record by id, regardless of status —
+    unlike ``_loop_record``, which requires ``active``/``open``/``pending``.
+    Publication can run after local apply has already resolved the loop, so
+    it must not re-demand the loop still be open."""
+    for path in sorted((vault / "open_loops").glob("*.md")):
+        try:
+            fm = dict(load_markdown(path).frontmatter)
+        except Exception:
+            continue
+        if str(fm.get("id") or "") == loop_id:
+            return fm
+    return None
+
+
+def publish_proposal_upstream(
+    *,
+    vault: Path,
+    repo: Path,
+    proposal_id: str,
+    config: dict[str, Any] | None = None,
+    db_path: Path | None = None,
+    policy_check: Callable[[str, dict[str, Any]], bool] | None = None,
+    run_command: Callable[[list[str]], subprocess.CompletedProcess[str]] | None = None,
+) -> dict[str, Any]:
+    """Open a verified Phase A proposal as a PR against a public upstream
+    repo. Orthogonal to local apply (docs/self_repair_upstream_workorder.md
+    §2.1): a proposal need not be applied locally to be published, and
+    publishing never applies it. Gated at its own action-policy tier,
+    separate from ``self_repair_apply``/``self_repair_rollback``.
+    """
+    from .action_policy import action_allowed
+    from .public_rationale import assert_no_vault_leakage, build_public_rationale
+
+    if config is None:
+        from ..config import load_config
+        config = load_config()
+    check = policy_check or (lambda kind, cfg: action_allowed(kind, cfg))
+    if not check("self_repair_publish_upstream", config):
+        raise SelfRepairRefused("self-repair upstream publication is disabled by the action-policy clamp")
+
+    proposal_id = str(proposal_id).strip()
+    if not proposal_id or "/" in proposal_id or "\\" in proposal_id or ".." in proposal_id:
+        raise SelfRepairRefused("invalid proposal id")
+    report_path, fm, body = _load_proposal_report(vault, proposal_id)
+    if fm.get("upstream"):
+        raise SelfRepairRefused(f"proposal {proposal_id} was already published upstream")
+    if str(fm.get("status") or "") not in {"active", "approved", "applied"}:
+        raise SelfRepairRefused(
+            f"proposal {proposal_id} is not eligible for upstream publication (status={fm.get('status')!r})"
+        )
+
+    loop_id = str(fm.get("loop_id") or "").strip()
+    patch = _report_patch(body)
+    paths = validate_patch_paths(patch)
+    loop_fm = _find_loop_frontmatter(vault, loop_id) or {}
+    deviation_class = str(loop_fm.get("deviation_class") or "").strip()
+    if not deviation_class:
+        raise SelfRepairRefused("upstream publication requires a deviation_class on the origin loop")
+
+    upstream_cfg = dict(((config or {}).get("self_repair") or {}).get("upstream") or {})
+    if not upstream_cfg.get("enabled"):
+        raise SelfRepairRefused("self_repair.upstream.enabled is not set")
+    upstream_repo = str(upstream_cfg.get("repo") or "").strip()
+    if not upstream_repo:
+        raise SelfRepairRefused("self_repair.upstream.repo is not configured")
+    # Per-install, not hardcoded (decided 2026-11-09, §3.2): this install's own
+    # configured credential/remote publishes under whatever account its own
+    # owner authenticated — another install's config names its own account.
+    remote = str(upstream_cfg.get("remote") or "origin").strip() or "origin"
+    install_id = str(upstream_cfg.get("install_id") or "").strip()
+    if not install_id:
+        raise SelfRepairRefused("self_repair.upstream.install_id is not configured")
+
+    rationale = build_public_rationale(
+        deviation_class=deviation_class, changed_paths=paths, record_count=1, install_id=install_id,
+    )
+    assert_no_vault_leakage(rationale.title, db_path=db_path)
+    assert_no_vault_leakage(rationale.body, db_path=db_path)
+
+    runner = run_command or (lambda args: subprocess.run(args, text=True, capture_output=True, timeout=120))
+    label = f"self-repair-{deviation_class}"
+
+    search = runner([
+        "gh", "pr", "list", "--repo", upstream_repo, "--state", "open",
+        "--search", f"label:self-repair label:{label}", "--json", "number,url",
+    ])
+    if search.returncode == 0 and (search.stdout or "").strip() not in ("", "[]"):
+        import json as _json
+        try:
+            existing = _json.loads(search.stdout)
+        except ValueError:
+            existing = []
+        if existing:
+            pr = existing[0]
+            comment_body = (
+                f"Corroborating independent verification from install-{install_id}: this "
+                f"install's Phase A suite plus targeted probe also passed for a `{deviation_class}` "
+                "proposal touching the same files."
+            )
+            assert_no_vault_leakage(comment_body, db_path=db_path)
+            runner(["gh", "pr", "comment", str(pr.get("number")), "--repo", upstream_repo, "--body", comment_body])
+            upstream_result = {
+                "status": "corroborated", "pr_url": pr.get("url"), "pr_number": pr.get("number"),
+                "published_at": date.today().isoformat(),
+            }
+            fm = dict(fm)
+            fm["upstream"] = upstream_result
+            write_markdown(report_path, fm, body)
+            return upstream_result
+
+    branch = f"self-repair/{proposal_id}"
+    applied_commit = str(fm.get("applied_commit") or "").strip()
+    base_commit = str(fm.get("base_commit") or "").strip()
+    if not base_commit:
+        raise SelfRepairRefused("proposal report is missing base_commit")
+
+    cleanup_worktree: Path | None = None
+    if applied_commit:
+        push_ref, push_cwd = applied_commit, repo
+    else:
+        tmp_root = Path(tempfile.mkdtemp(prefix="lisan-self-repair-publish-"))
+        worktree = tmp_root / proposal_id
+        _git(repo, "worktree", "add", "--detach", str(worktree), base_commit, timeout=120)
+        cleanup_worktree = worktree
+        applied = subprocess.run(
+            ["git", "apply", "--index", "-"], cwd=worktree, input=patch + "\n", text=True, capture_output=True
+        )
+        if applied.returncode:
+            raise SelfRepairRefused(applied.stderr.strip() or "verified patch no longer applies cleanly for publication")
+        commit_result = _run(
+            ["git", "commit", "-m", f"self-repair: {proposal_id} ({deviation_class})"], cwd=worktree, timeout=120
+        )
+        if commit_result.returncode:
+            raise SelfRepairRefused(commit_result.stderr.strip() or "self-repair publish commit failed")
+        push_ref, push_cwd = _git(worktree, "rev-parse", "HEAD"), worktree
+
+    try:
+        push = runner(["git", "-C", str(push_cwd), "push", remote, f"{push_ref}:refs/heads/{branch}"])
+        if push.returncode:
+            raise SelfRepairRefused((push.stderr or "").strip() or "push to upstream remote failed")
+
+        created = runner([
+            "gh", "pr", "create", "--repo", upstream_repo, "--head", branch,
+            "--title", rationale.title, "--body", rationale.body,
+            "--label", "self-repair", "--label", label,
+        ])
+        if created.returncode:
+            raise SelfRepairRefused((created.stderr or "").strip() or "gh pr create failed")
+        pr_url = (created.stdout or "").strip().splitlines()[-1].strip() if (created.stdout or "").strip() else ""
+    finally:
+        if cleanup_worktree is not None:
+            try:
+                _git(repo, "worktree", "remove", "--force", str(cleanup_worktree), timeout=120)
+            except Exception:
+                pass
+            shutil.rmtree(cleanup_worktree, ignore_errors=True)
+
+    upstream_result = {
+        "status": "published", "pr_url": pr_url, "branch": branch,
+        "published_at": date.today().isoformat(),
+    }
+    fm = dict(fm)
+    fm["upstream"] = upstream_result
+    write_markdown(report_path, fm, body)
+    return upstream_result
