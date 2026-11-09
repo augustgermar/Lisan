@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..agents import AssemblerAgent, InterlocutorAgent, ListenerAgent, SkepticAgent, WriterAgent
+from ..agents import AssemblerAgent, InterlocutorAgent, ListenerAgent, WriterAgent
 from ..agents.writer import _truncate_summary as _truncate_summary_boundary
 from ..frontmatter import load_markdown, write_markdown
 from ..utils import listify, slugify, today_iso
@@ -42,6 +42,7 @@ from .retrieval import retrieve_context
 from .self_model import cached_capability_index
 from .tracing import record_inline_step
 from .transcripts import append_transcript, transcript_path_for
+from .writer_skeptic_graph import run_writer_skeptic_graph
 
 
 @dataclass(slots=True)
@@ -58,6 +59,10 @@ class MemoryPipelineResult:
     narrative_state_path: Path | None = None
     narrative_state: dict[str, Any] | None = None
     skeptic_approved: bool = True
+    # "not_run" for paths where the Writer-Skeptic loop never executed
+    # (skip, elicitor); otherwise one of the graph dispositions.
+    skeptic_disposition: str = "not_run"
+    skeptic_audit: dict[str, Any] = field(default_factory=dict)
     entities_touched: list[Path] = field(default_factory=list)
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
 
@@ -230,43 +235,40 @@ def run_memory_pipeline(
             db_path=db_path,
             conversation_id=conversation_id,
         )
-    record_inline_step("memory_pipeline.writer")
-    # The episode path is split across two writer calls. The core call returns body + claims;
-    # the artifact call returns entities / decisions / open loops / state /
-    # evidence. Non-episode tasks stay single-shot — they're already small.
+    # Spike: LangGraph owns only the bounded Writer <-> Skeptic editorial loop.
+    # Durable memory, artifact extraction, validation, and fanout remain in this
+    # existing deterministic pipeline.
     writer_task = "episode_full_turn" if task == "episode" and tool_calls else ("episode_core" if task == "episode" else task)
-    if task == "episode":
-        writer_core = WriterAgent(vault=vault).run_json(
-            text,
-            task=writer_task,
-            interlocutor_response=json.dumps(interlocutor, indent=2, ensure_ascii=True),
-            tool_calls=json.dumps(tool_calls, indent=2, ensure_ascii=True),
+    writer_core, skeptic, ws_audit = run_writer_skeptic_graph(
+        vault=vault,
+        text=text,
+        writer_task=writer_task,
+        writer_kwargs={
             **common_kwargs,
-        )
-        writer = dict(writer_core)
-    else:
-        writer = WriterAgent(vault=vault).run_json(
-            text,
-            task=writer_task,
-            interlocutor_response=json.dumps(interlocutor, indent=2, ensure_ascii=True),
-            tool_calls=json.dumps(tool_calls, indent=2, ensure_ascii=True),
-            **common_kwargs,
-        )
-        writer_core = writer
-    writer_core = tokenize_principal_obj(writer_core, vault)
-    writer = tokenize_principal_obj(writer, vault)
-    record_inline_step("memory_pipeline.skeptic")
-    skeptic = SkepticAgent(vault=vault).run_json(
-        json.dumps(writer_core, indent=2, ensure_ascii=True),
-        significance="medium",
-        provider=provider,
-        model=model,
-        provider_error_mode="raise",
-        db_path=db_path,
-        conversation_id=conversation_id,
-        conversation_policy=json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
+            "interlocutor_response": json.dumps(interlocutor, indent=2, ensure_ascii=True),
+            "tool_calls": json.dumps(tool_calls, indent=2, ensure_ascii=True),
+        },
+        skeptic_kwargs={
+            "significance": "medium",
+            "provider": provider,
+            "model": model,
+            "provider_error_mode": "raise",
+            "db_path": db_path,
+            "conversation_id": conversation_id,
+            "conversation_policy": json.dumps(conversation_policy or {}, indent=2, ensure_ascii=True),
+        },
+        max_revisions=2,
     )
-    skeptic_approved = _skeptic_approves(skeptic)
+    writer = dict(writer_core)
+    # The graph resolves the terminal disposition structurally. Only an
+    # explicit "approved" proceeds to evidence/claim/state fanout. A
+    # "revision_exhausted" disposition (revisions spent, skeptic still wants
+    # changes) is stored as a draft for human review but is NEVER fanned
+    # out -- its interpretations must not become durable truth. This
+    # deliberately replaces the old "revise means store with caveats"
+    # fall-through in _skeptic_approves.
+    skeptic_disposition = str((ws_audit or {}).get("disposition") or "held")
+    skeptic_approved = skeptic_disposition == "approved"
     # Only run the artifact pass when the skeptic approved the core.
     # If the core is rejected, we hold the draft as needs_revision and never
     # spend a second writer call on derived artifacts that would be skipped
@@ -285,6 +287,8 @@ def run_memory_pipeline(
     draft_path = _write_draft(
         vault, text, transcript_path, listener, writer, skeptic, interlocutor,
         task, mode, action, skeptic_approved,
+        disposition=skeptic_disposition,
+        ws_audit=ws_audit,
     )
     record_inline_step("memory_pipeline.fanout")
     draft_rel = str(draft_path.relative_to(vault))
@@ -352,6 +356,8 @@ def run_memory_pipeline(
         action=action,
         mode=mode,
         skeptic_approved=skeptic_approved,
+        skeptic_disposition=skeptic_disposition,
+        skeptic_audit=dict(ws_audit or {}),
         entities_touched=entities_touched,
         tool_calls=tool_calls,
     )
@@ -1052,6 +1058,8 @@ def _write_draft(
     mode: str,
     action: str,
     skeptic_approved: bool,
+    disposition: str | None = None,
+    ws_audit: dict[str, Any] | None = None,
 ) -> Path:
     # The filename hashes the source text rather than using a live timestamp,
     # making it deterministic per turn: retries overwrite the earlier draft
@@ -1062,8 +1070,18 @@ def _write_draft(
     path = vault / "drafts" / f"{today_iso()}-{content_hash}-{slug}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     # Rejected drafts are held for Dreamer review with a distinct
-    # status so the batch review process can find them.
-    draft_status = "pending" if skeptic_approved else "needs_revision"
+    # status so the batch review process can find them. A
+    # "revision_exhausted" disposition gets its own status: the draft is
+    # stored for human review, but its evidence/claim/state fanout was
+    # deliberately withheld (never "store with caveats").
+    if disposition == "revision_exhausted":
+        draft_status = "revision_exhausted"
+    elif disposition == "approved":
+        draft_status = "pending"
+    elif disposition is not None:
+        draft_status = "needs_revision"
+    else:
+        draft_status = "pending" if skeptic_approved else "needs_revision"
     writer_fm_raw = writer.get("frontmatter")
     writer_fm: dict[str, Any] = writer_fm_raw if isinstance(writer_fm_raw, dict) else {}
     frontmatter = {
@@ -1091,8 +1109,10 @@ def _write_draft(
         "pipeline": {"action": action, "mode": mode, "task": task},
         "source": mode,
         "skeptic_approved": bool(skeptic_approved),
+        "skeptic_disposition": disposition or ("approved" if skeptic_approved else "held"),
+        "skeptic_audit": dict(ws_audit or {}),
     }
-    body = _render_draft_body(text, listener, writer, skeptic, interlocutor, task, skeptic_approved)
+    body = _render_draft_body(text, listener, writer, skeptic, interlocutor, task, skeptic_approved, disposition)
     write_markdown(path, with_domain_fields(frontmatter), body)
     return path
 
@@ -1113,12 +1133,18 @@ def _render_draft_body(
     interlocutor: dict[str, Any],
     task: str,
     skeptic_approved: bool,
+    disposition: str | None = None,
 ) -> str:
-    status_note = (
-        "Skeptic approved — fanout applied."
-        if skeptic_approved
-        else "Skeptic rejected — state/evidence/claim fanout was skipped. Held for Dreamer review."
-    )
+    if disposition == "revision_exhausted":
+        status_note = (
+            "Skeptic never approved after exhausting revisions — "
+            "state/evidence/claim fanout was deliberately withheld. "
+            "Held for human review; do not fan out without re-review."
+        )
+    elif skeptic_approved:
+        status_note = "Skeptic approved — fanout applied."
+    else:
+        status_note = "Skeptic rejected — state/evidence/claim fanout was skipped. Held for Dreamer review."
     return f"""# Memory Draft
 
 ## Status
