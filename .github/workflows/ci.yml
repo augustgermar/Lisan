@@ -37,6 +37,11 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The badge step pushes to one shared branch. Serialize per ref so two
+    # overlapping pushes cannot race, and let the running job finish its push.
+    concurrency:
+      group: coverage-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       contents: write
       pull-requests: write
