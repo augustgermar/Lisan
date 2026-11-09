@@ -42,6 +42,7 @@ nav:
   - Design Documents:
     - Adjutant (Execution Layer): adjutant_workorder.md
     - Self-Repair Loop: self_repair_workorder.md
+    - Self-Repair Upstream Publication: self_repair_upstream_workorder.md
     - Psychological Layer: psyche_workorder.md
     - Ground Truth: ground_truth_workorder.md
     - Enrichment (Ship 2): ship2_enable_workorder.md
