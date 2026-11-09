@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..agents import AssemblerAgent, InterlocutorAgent, ListenerAgent, WriterAgent
+from ..agents.writer import _truncate_summary as _truncate_summary_boundary
 from ..frontmatter import load_markdown, write_markdown
 from ..utils import listify, slugify, today_iso
 from .db import connect as _db_connect
@@ -42,7 +43,6 @@ from .self_model import cached_capability_index
 from .tracing import record_inline_step
 from .transcripts import append_transcript, transcript_path_for
 from .writer_skeptic_graph import run_writer_skeptic_graph
-from ..agents.writer import _truncate_summary as _truncate_summary_boundary
 
 
 @dataclass(slots=True)

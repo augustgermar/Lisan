@@ -29,7 +29,6 @@ from ..agents import SkepticAgent, WriterAgent
 from .deixis import tokenize_principal_obj
 from .tracing import record_inline_step
 
-
 # ---------------------------------------------------------------------------
 # Structured revision feedback: the provenance boundary.
 # ---------------------------------------------------------------------------

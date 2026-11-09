@@ -10,12 +10,12 @@ from unittest.mock import patch
 from lisan.frontmatter import load_markdown, write_markdown
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools import memory_pipeline as mp
+from lisan.tools import writer_skeptic_graph as wsg
 from lisan.tools.batch_review import _pending_drafts
 from lisan.tools.capture import capture_text
 from lisan.tools.rebuild_index import index_single_record, open_index_connection
 from lisan.tools.record_factory import new_claim
 from lisan.tools.retrieval import assemble_context
-from lisan.tools import writer_skeptic_graph as wsg
 
 
 class IncrementalIndexTests(unittest.TestCase):
