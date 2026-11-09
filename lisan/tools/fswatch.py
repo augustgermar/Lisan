@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..config import load_config
 from ..paths import sqlite_path

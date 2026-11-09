@@ -25,9 +25,9 @@ import tempfile
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
-from .db import connect as _db_connect
 
 from ..frontmatter import load_markdown, write_markdown
+from .db import connect as _db_connect
 from .log import get_logger, log_error
 
 DEFAULTS: dict[str, Any] = {

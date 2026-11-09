@@ -19,12 +19,12 @@ from unittest.mock import patch
 from lisan.config import load_config
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.context_budget import bound_final_context
+from lisan.tools.judge import judge_exchange, validate_score_ids
 from lisan.tools.memory_pipeline import run_memory_pipeline
 from lisan.tools.rebuild_index import rebuild_index
-from lisan.tools.transcripts import append_transcript
 from lisan.tools.retrieval import assemble_context
+from lisan.tools.transcripts import append_transcript
 from lisan.tools.vector_store import EmbeddingIndex, VectorScorer
-from lisan.tools.judge import judge_exchange, validate_score_ids
 
 
 @dataclass(frozen=True)

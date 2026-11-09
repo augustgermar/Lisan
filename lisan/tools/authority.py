@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -159,7 +159,7 @@ def _audit(vault: Path, action: str, ruling: Ruling, detail: dict[str, Any] | No
         log_dir = vault / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         entry = {
-            "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "at": datetime.now(UTC).isoformat(timespec="seconds"),
             "action": action,
             **asdict(ruling),
         }

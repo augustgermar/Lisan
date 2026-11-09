@@ -12,6 +12,7 @@ from ..config import load_config
 from ..frontmatter import load_markdown, write_markdown
 from ..paths import vault_root
 from ..utils import slugify, today_iso
+from .checkin import observation_summary_for_entity
 from .deixis import render_for_display
 from .epistemic import (
     canonical_pattern_status,
@@ -22,7 +23,6 @@ from .epistemic import (
     pattern_is_too_broad,
 )
 from .record_factory import new_pattern, new_skeptical_review
-from .checkin import observation_summary_for_entity
 
 
 @dataclass(slots=True)
@@ -453,8 +453,8 @@ def build_self_analyst_bundle(vault: Path, *, db_path: Path | None = None) -> st
     """Assemble the corpus for self-analysis: first-person episodes,
     self-eval history, job outcomes, deviation findings.
     NOT owner check-ins — those never mention the agent."""
-    from .db import connect as _db_connect
     from ..paths import sqlite_path
+    from .db import connect as _db_connect
 
     sections: list[str] = ["# Self-Analyst Bundle", ""]
     self_ent = find_self_entity(vault)

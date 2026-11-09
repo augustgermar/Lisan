@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -43,7 +43,7 @@ def vault(tmp_path):
 # Cadence math (local-tz aware; computed, never stored)
 
 def _at(y, m, d, hh=0, mm=0):
-    return datetime(y, m, d, hh, mm, tzinfo=timezone.utc)
+    return datetime(y, m, d, hh, mm, tzinfo=UTC)
 
 
 def test_weekly_cadence_advances_to_named_weekday():

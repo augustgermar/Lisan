@@ -6,8 +6,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from lisan.frontmatter import load_markdown
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools import telegram_bot
+from lisan.tools.adjutant_confirmations import (
+    confirmation_callback_token,
+    confirmation_keyboard,
+    create_confirmation_for_task,
+)
 from lisan.tools.telegram_bot import (
     TelegramBot,
     _chunk,
@@ -17,15 +23,9 @@ from lisan.tools.telegram_bot import (
     _valid_token_format,
     detect_owner_id,
     get_me,
-    set_my_commands,
     save_telegram_settings,
+    set_my_commands,
 )
-from lisan.tools.adjutant_confirmations import (
-    confirmation_callback_token,
-    confirmation_keyboard,
-    create_confirmation_for_task,
-)
-from lisan.frontmatter import load_markdown
 
 
 def _update(text: str, *, user_id: int = 1, chat_id: int = 99, update_id: int = 1) -> dict:

@@ -8,8 +8,9 @@ import shutil
 import subprocess
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..paths import repo_root
 from ..tools.structured import extract_json

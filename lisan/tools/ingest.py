@@ -20,7 +20,7 @@ import mimetypes
 import os
 import re
 import sqlite3
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -28,14 +28,13 @@ from ..config import load_config
 from ..frontmatter import FrontmatterError, load_markdown, write_markdown
 from ..paths import sqlite_path, vault_root
 from ..utils import slugify
-from .document_chunker import Chunk, chunk_document
-from .entity_kind import assign_kind
-from .record_factory import new_artifact, new_claim, new_evidence, new_entity, new_knowledge
-from .ingest_batches import create_batch, update_batch_status
 from ..utils import utc_now_iso as _iso_now
 from .db import connect as _connect
+from .document_chunker import Chunk, chunk_document
+from .entity_kind import assign_kind
+from .ingest_batches import create_batch, update_batch_status
+from .record_factory import new_artifact, new_claim, new_entity, new_evidence, new_knowledge
 from .source_tiers import tier_confidence
-
 
 INGESTION_MANIFEST_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS ingestion_manifest (
@@ -1251,7 +1250,7 @@ def _ingest_single_file(
     file_name = source_path.name
     file_ext = source_path.suffix.lower()
     mime_type = mimetypes.guess_type(file_name)[0]
-    modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    modified_at = datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat().replace("+00:00", "Z")
     imported_at = now
     artifact_hash = _hash_file(source_path)
     sensitivity = _classify_sensitivity(source_path, source_type, preview_path=source_path)
@@ -2291,11 +2290,11 @@ def _knowledge_category_for_source(source_type: str, suffix: str) -> str:
 
 
 def _today_iso() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
+    return datetime.now(UTC).date().isoformat()
 
 
 def _one_year_from_today() -> str:
-    return (datetime.now(timezone.utc).date() + timedelta(days=365)).isoformat()
+    return (datetime.now(UTC).date() + timedelta(days=365)).isoformat()
 
 
 def _load_entity_catalog(vault: Path) -> list[dict[str, Any]]:

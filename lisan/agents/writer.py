@@ -201,9 +201,9 @@ class WriterAgent(PromptAgent):
         """
         from ..tools.primer_index import known_names as _primer_known_names
         from ..tools.stopwords import (
-            SENTENCE_INITIAL_OR_TOOL_STOPWORDS,
-            MONTH_STOPWORDS,
             DAY_STOPWORDS,
+            MONTH_STOPWORDS,
+            SENTENCE_INITIAL_OR_TOOL_STOPWORDS,
         )
 
         primer_cast = _primer_known_names(self.vault)

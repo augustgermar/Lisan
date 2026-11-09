@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+
 import pytest
 
 from lisan.providers import embeddings as embeddings_module

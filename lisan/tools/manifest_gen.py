@@ -6,8 +6,8 @@ from typing import Any
 
 from ..frontmatter import FrontmatterError, load_markdown
 from ..paths import vault_root
-from .domain_fields import normalize_domain_fields
 from .common import iter_markdown_files
+from .domain_fields import normalize_domain_fields
 
 
 def generate_manifests(vault: Path | None = None, write: bool = True) -> dict[str, str]:

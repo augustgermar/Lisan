@@ -3,9 +3,10 @@ from __future__ import annotations
 import importlib.util
 import inspect
 import json
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Callable
+from typing import Any
 
 
 def load_skills(skills_dir: Path) -> list[dict[str, Any]]:

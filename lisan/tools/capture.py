@@ -5,16 +5,16 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from ..paths import sqlite_path
 from .log import log_capture, log_error
 from .memory_pipeline import run_memory_pipeline
 from .tracing import (
     finalize_turn_trace,
     get_current_turn_trace,
+    record_jobs_queued,
     reset_current_turn_trace,
     start_turn_trace,
 )
-from ..paths import sqlite_path
-from .tracing import record_jobs_queued
 
 
 def capture_text(

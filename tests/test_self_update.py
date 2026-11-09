@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.self_update import (
     apply_update,
     check_remote,
@@ -21,7 +22,6 @@ from lisan.tools.self_update import (
     run_periodic_check,
     set_update_mode,
 )
-from lisan.paths import ensure_repo_layout, vault_root
 
 
 def _git(repo: Path, args: list[str]) -> subprocess.CompletedProcess:

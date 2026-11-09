@@ -10,14 +10,14 @@ from pathlib import Path
 from lisan.frontmatter import load_markdown, write_markdown
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.analyst_ops import (
+    _MIN_SELF_EPISODES,
+    _MIN_SELF_EVAL_ENTRIES,
+    _SELF_EVAL_HISTORY_REL,
     AnalystRunResult,
     build_self_analyst_bundle,
     find_self_entity,
     run_self_analyst_scan,
     self_analysis_eligible,
-    _MIN_SELF_EPISODES,
-    _MIN_SELF_EVAL_ENTRIES,
-    _SELF_EVAL_HISTORY_REL,
 )
 from lisan.tools.epistemic import PATTERN_TYPES, discover_self_pattern_hypotheses
 from lisan.tools.job_policy import (

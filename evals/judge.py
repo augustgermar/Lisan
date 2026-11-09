@@ -6,5 +6,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from lisan.tools.judge import (  # noqa: E402,F401
-    DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, aggregate, judge_exchange, validate_score_ids,
+    DEFAULT_JUDGE_MODEL,
+    DEFAULT_JUDGE_PROVIDER,
+    aggregate,
+    judge_exchange,
+    validate_score_ids,
 )

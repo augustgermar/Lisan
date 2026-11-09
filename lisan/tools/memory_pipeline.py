@@ -6,43 +6,42 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from .db import connect as _db_connect
 
 from ..agents import AssemblerAgent, InterlocutorAgent, ListenerAgent, SkepticAgent, WriterAgent
-from .heuristic_gate import is_correction_turn
+from ..agents.writer import _truncate_summary as _truncate_summary_boundary
 from ..frontmatter import load_markdown, write_markdown
-from ..utils import slugify, today_iso
-from .elicitor_session import run_elicitor_session
-from .domain_fields import with_domain_fields
-from .firewall import scan_text
-from .log import log_error
-# Patch seam: entity_resolution calls _memory_pipeline.resolve_reference so tests
-# can patch it here. Unused in this module by design.
-from .reference_resolution import resolve_reference  # noqa: F401
-from ..utils import listify
-from .narrative_state import load_narrative_state
-from .retrieval import retrieve_context
+from ..utils import listify, slugify, today_iso
+from .db import connect as _db_connect
 from .deixis import render_deixis, tokenize_principal, tokenize_principal_obj
-from .record_fanout import (
-    fanout_claims,
-    fanout_decisions,
-    fanout_evidence,
-    apply_behavioral_contracts,
-    fanout_knowledge,
-    close_completed_open_loops,
-    fanout_open_loops,
-    fanout_state_updates,
-)
+from .domain_fields import with_domain_fields
+from .elicitor_session import run_elicitor_session
+from .entity_resolution import _create_entity_stubs, _create_relationship_edges
+from .firewall import scan_text
+from .heuristic_gate import is_correction_turn
+from .log import log_error
+from .narrative_state import load_narrative_state
 from .rebuild_index import index_single_record, open_index_connection
-from .self_model import cached_capability_index
-from .tracing import record_inline_step
 from .record_factory import (
     supersede_record,
 )
-from .transcripts import append_transcript, transcript_path_for
-from .entity_resolution import _create_entity_stubs, _create_relationship_edges
-from ..agents.writer import _truncate_summary as _truncate_summary_boundary
+from .record_fanout import (
+    apply_behavioral_contracts,
+    close_completed_open_loops,
+    fanout_claims,
+    fanout_decisions,
+    fanout_evidence,
+    fanout_knowledge,
+    fanout_open_loops,
+    fanout_state_updates,
+)
 
+# Patch seam: entity_resolution calls _memory_pipeline.resolve_reference so tests
+# can patch it here. Unused in this module by design.
+from .reference_resolution import resolve_reference  # noqa: F401
+from .retrieval import retrieve_context
+from .self_model import cached_capability_index
+from .tracing import record_inline_step
+from .transcripts import append_transcript, transcript_path_for
 
 
 @dataclass(slots=True)
@@ -953,7 +952,8 @@ def _compute_frequent_names(vault: Path, conversation_id: str | None, threshold:
         return frozenset()
     conv_text = " ".join(conv_lines)
     from collections import Counter
-    from .stopwords import SENTENCE_INITIAL_OR_TOOL_STOPWORDS, DAY_STOPWORDS, MONTH_STOPWORDS
+
+    from .stopwords import DAY_STOPWORDS, MONTH_STOPWORDS, SENTENCE_INITIAL_OR_TOOL_STOPWORDS
     words = re.findall(r"\b[A-Z][a-z]{2,}\b", conv_text)
     counts = Counter(words)
     return frozenset(
@@ -968,6 +968,7 @@ def _compute_frequent_names(vault: Path, conversation_id: str | None, threshold:
 def _build_correction_context(text: str, db_path: Path | None = None) -> str:
     """FTS search for active claims/state records that may be superseded by this correction."""
     import sqlite3 as _sqlite3
+
     from ..paths import sqlite_path
     _db = db_path or sqlite_path()
     if not _db.exists():

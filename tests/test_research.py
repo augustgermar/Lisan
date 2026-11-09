@@ -1,7 +1,14 @@
 from __future__ import annotations
 
-from lisan.tools.research import BraveSearchProvider, SearchProviderError, TavilySearchProvider, WebSearchProvider, installed_published_providers, search_published_sources
-from lisan.tools.research import _normalize_search_result_url
+from lisan.tools.research import (
+    BraveSearchProvider,
+    SearchProviderError,
+    TavilySearchProvider,
+    WebSearchProvider,
+    _normalize_search_result_url,
+    installed_published_providers,
+    search_published_sources,
+)
 
 
 class _Response:

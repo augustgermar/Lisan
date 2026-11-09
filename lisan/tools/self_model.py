@@ -23,15 +23,16 @@ import argparse
 import json
 import subprocess
 import time
+from datetime import UTC
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
-from .db import connect as _db_connect
 
 from .. import __version__
 from ..config import load_config
 from ..paths import config_path, repo_root, schemas_dir, skills_root, sqlite_path, vault_root
 from ..utils import utc_now_iso
+from .db import connect as _db_connect
 
 # Capabilities that are designed but deliberately not built yet. Declared
 # explicitly so the agent can say "not yet" with confidence instead of
@@ -388,9 +389,9 @@ def snapshot_self_state(vault: Path | None = None, db_path: Path | None = None) 
                 # owner over a series with 8 straight terminal failures. The
                 # snapshot must carry that record with the schedule.
                 try:
-                    from datetime import datetime, timedelta, timezone
+                    from datetime import datetime, timedelta
 
-                    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    cutoff = (datetime.now(UTC) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
                     fail_row = conn.execute(
                         "SELECT COUNT(*) FROM jobs WHERE job_type = ? AND status = 'failed' AND finished_at >= ?",
                         (next_task["job_type"], cutoff),
@@ -526,7 +527,7 @@ def _machine_sleep_status() -> dict[str, str]:
     story was a Mac in Deep Idle all morning."""
     import platform
     import re as _re
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     if platform.system() != "Darwin":
         return {}
@@ -551,7 +552,7 @@ def _machine_sleep_status() -> dict[str, str]:
             # Omit the key so the renderer says "unknown", or drops the claim.
             if seconds <= 0:
                 continue
-            stamp = datetime.fromtimestamp(seconds, tz=timezone.utc).astimezone()
+            stamp = datetime.fromtimestamp(seconds, tz=UTC).astimezone()
             out[key] = stamp.strftime("%Y-%m-%d %H:%M %Z")
         except Exception:
             continue

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import unittest
 import sqlite3
+import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 

@@ -23,9 +23,10 @@ produces the same chunks, which is what makes a failure reproducible.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Iterable
 import re
+from collections.abc import Iterable
+from dataclasses import dataclass, field
+from typing import Any
 
 # The codex ceiling, observed live: {"max_chars": 1048576}. Configurable
 # because it is a property of the provider, not of this code.

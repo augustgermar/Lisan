@@ -2,6 +2,7 @@
 way formation does, and the prediction ledger reaches the reviser."""
 from __future__ import annotations
 
+from datetime import UTC
 
 from lisan.tools import dreamer_ops, job_policy
 from lisan.tools.job_policy import coalesce_key_for_job
@@ -20,10 +21,10 @@ def test_reconcile_is_queued_weekly_when_beliefs_exist(tmp_path, monkeypatch):
     monkeypatch.setattr("lisan.tools.self_beliefs.list_self_beliefs", lambda v: [{"id": "b"}])
     meta = {"vault": str(tmp_path)}
     assert job_policy._should_queue_belief_reconcile(meta, tmp_path / "none.sqlite")
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     monkeypatch.setattr(job_policy, "_last_successful_job_time",
-                        lambda job_type, db, conn=None: datetime.now(timezone.utc))
+                        lambda job_type, db, conn=None: datetime.now(UTC))
     assert not job_policy._should_queue_belief_reconcile(meta, tmp_path / "none.sqlite")
 
 

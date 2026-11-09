@@ -5,14 +5,14 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 from typing import Any
-from .db import connect as _db_connect
 
 from ..frontmatter import load_markdown
 from ..paths import ensure_vault_layout, sqlite_path, vault_root
-from .log import log_error
-from .rebuild_index import ensure_index_schema
+from .db import connect as _db_connect
 from .deixis import render_for_display
 from .domain_fields import with_domain_fields
+from .log import log_error
+from .rebuild_index import ensure_index_schema
 
 
 def generate_health_report(vault: Path | None = None, db_path: Path | None = None) -> str:

@@ -6,10 +6,10 @@ domain; everything else remains unverified and is not silently upgraded.
 """
 from __future__ import annotations
 
-import tempfile
 import hashlib
 import json
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -18,9 +18,9 @@ from ..frontmatter import load_markdown, write_markdown
 from ..paths import sqlite_path
 from ..utils import slugify, today_iso
 from .ingest import ingest_reference_sources
+from .record_factory import supersede_record
 from .research import SourceFinding, WebSearchProvider, installed_published_providers, search_published_sources
 from .source_tiers import normalize_source_tier, now_utc, origin_for_url, origin_matches
-from .record_factory import supersede_record
 
 
 def contract_path(vault: Path, domain: str) -> Path:
@@ -159,7 +159,7 @@ def _first_sentence(text: str) -> str:
     return text
 
 
-def _url_terms(match: "re.Match[str]") -> str:
+def _url_terms(match: re.Match[str]) -> str:
     """Turn a URL into the words a search engine can match.
 
     The raw URL is preserved by the caller as the owner's intended origin;

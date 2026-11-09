@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from ..tools.execution_tools import agent_tools, build_tool_handlers
 from .base import PromptAgent

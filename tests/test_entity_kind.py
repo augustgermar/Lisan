@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lisan.tools.entity_kind import assign_kind, classify_structural, CANONICAL_KINDS
+from lisan.frontmatter import load_markdown
+from lisan.tools.entity_kind import CANONICAL_KINDS, assign_kind, classify_structural
 from lisan.tools.primer_index import roster, roster_kind
 from lisan.tools.record_factory import new_entity
-from lisan.frontmatter import load_markdown
 
 _CORE = """---
 principal:
@@ -193,6 +193,7 @@ class KindStickinessTests(unittest.TestCase):
 
     def test_existing_place_is_not_duplicated_as_person(self):
         import tempfile
+
         from lisan.tools.entity_resolution import _create_entity_stubs
 
         with tempfile.TemporaryDirectory() as tmp:

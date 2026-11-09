@@ -1,23 +1,23 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
-import sqlite3
 
 from lisan.paths import ensure_repo_layout, vault_root
 from lisan.tools.job_policy import which_jobs_for_turn
 from lisan.tools.jobs import (
+    JOB_OUTPUT_VALIDATORS,
+    JobOutputEmpty,
     audit_jobs,
     cancel_job,
     claim_next_job,
     enqueue_job,
     format_job_audit,
     get_job,
-    JobOutputEmpty,
-    JOB_OUTPUT_VALIDATORS,
     list_jobs,
     mark_job_failed,
     mark_job_succeeded,
@@ -128,7 +128,7 @@ class JobQueueTests(unittest.TestCase):
         due_id = enqueue_job(
             "index.rebuild_record",
             {"vault": str(self.vault)},
-            scheduled_for=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            scheduled_for=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             db_path=self.db_path,
         )
         claimed = claim_next_job("worker-b", db_path=self.db_path)
@@ -320,8 +320,8 @@ class StaleReclaimTests(unittest.TestCase):
     def test_stale_running_jobs_are_reclaimed(self):
         """A worker that dies mid-job must not orphan its claim forever —
         seven narratives were stranded exactly this way on 2026-07-05."""
-        from lisan.tools.jobs import enqueue_job, get_job, reclaim_stale_running_jobs
         from lisan.tools.db import connect
+        from lisan.tools.jobs import enqueue_job, get_job, reclaim_stale_running_jobs
 
         job_id = enqueue_job("index.rebuild_record", {"x": 1}, db_path=self.db)
         conn = connect(self.db)
@@ -333,8 +333,8 @@ class StaleReclaimTests(unittest.TestCase):
         self.assertEqual(get_job(job_id, db_path=self.db)["status"], "queued")
         # a FRESH running claim is left alone
         conn = connect(self.db)
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        from datetime import datetime
+        now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         conn.execute("UPDATE jobs SET status='running', started_at=? WHERE id=?", (now, job_id))
         conn.commit()
         conn.close()

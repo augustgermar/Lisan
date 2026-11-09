@@ -5,12 +5,12 @@ from pathlib import Path
 
 from lisan.frontmatter import load_markdown, write_markdown
 from lisan.paths import ensure_repo_layout, vault_root
-from lisan.tools.enrichment import EnrichmentResolution, _append_source_log, resolve_owner_clarification, seek
-from lisan.tools.record_factory import new_entity
-from lisan.tools.rebuild_index import rebuild_index
-from lisan.tools.transcript_lane import search_transcripts
 from lisan.providers.embeddings import IndexEmbedding, QueryEmbedding
+from lisan.tools.enrichment import EnrichmentResolution, _append_source_log, resolve_owner_clarification, seek
+from lisan.tools.rebuild_index import rebuild_index
+from lisan.tools.record_factory import new_entity
 from lisan.tools.research import SourceFinding
+from lisan.tools.transcript_lane import search_transcripts
 
 
 def _loop(vault: Path, loop_id: str = "open_loop.thin-ruth") -> Path:

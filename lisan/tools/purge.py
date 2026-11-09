@@ -5,7 +5,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..config import save_default_config
-from ..paths import embeddings_path, ensure_repo_layout, ensure_vault_layout, repo_root, sqlite_path, vault_root, write_seed_files
+from ..paths import (
+    embeddings_path,
+    ensure_repo_layout,
+    ensure_vault_layout,
+    repo_root,
+    sqlite_path,
+    vault_root,
+    write_seed_files,
+)
 from .backup import create_backup
 
 

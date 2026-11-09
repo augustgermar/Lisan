@@ -11,14 +11,13 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from ..frontmatter import FrontmatterError, load_markdown
 from .db import connect
 from .validator import validate_vault
-
 
 QUARANTINE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS record_quarantine (
@@ -122,7 +121,7 @@ def build_manifest(
     return {
         "format": 1,
         "migration_id": migration_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "vault": str(vault.resolve()),
         "database": str(db_path.resolve()),
         "validator_summary": report.summary(),
@@ -148,7 +147,7 @@ def apply_manifest(manifest_path: Path, vault: Path, db_path: Path) -> dict[str,
         if not target.is_file() or _sha256(target) != str(record["content_sha256"]):
             raise RuntimeError(f"Record changed since quarantine dry run: {target}")
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn = connect(db_path)
     try:
         ensure_record_quarantine_table(conn)
@@ -227,6 +226,6 @@ def rollback_manifest(manifest_path: Path, db_path: Path) -> dict[str, Any]:
     finally:
         conn.close()
     manifest["applied"] = False
-    manifest["rolled_back_at"] = datetime.now(timezone.utc).isoformat()
+    manifest["rolled_back_at"] = datetime.now(UTC).isoformat()
     write_manifest(manifest_path, manifest)
     return manifest

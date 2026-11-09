@@ -22,8 +22,9 @@ checkout; it is isolated, bounded, and cannot apply code changes.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .log import get_logger
 

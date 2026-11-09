@@ -16,14 +16,14 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any
+
 from ..frontmatter import load_markdown, write_markdown
-from ..utils import slugify, today_iso
-from ..utils import listify
-from .deixis import has_unresolved_token
-from .record_fanout import basis_or_default, index_created_record
-from .record_factory import CreatedRecord, new_entity
-from .reference_resolution import normalize_text, resolution_action
+from ..utils import listify, slugify, today_iso
 from .db import connect as _db_connect
+from .deixis import has_unresolved_token
+from .record_factory import CreatedRecord, new_entity
+from .record_fanout import basis_or_default, index_created_record
+from .reference_resolution import normalize_text, resolution_action
 
 
 def _create_entity_stubs(
@@ -39,9 +39,9 @@ def _create_entity_stubs(
     Returns paths for all entities processed (new or existing) so callers
     can enqueue story-rewrite jobs for entities that received new material.
     """
+    from .entity_kind import assign_kind
     from .primer_index import known_names as _primer_known_names
     from .primer_index import roster as _roster
-    from .entity_kind import assign_kind
     from .stopwords import MONTH_STOPWORDS
 
     entities = writer.get("entities_to_create") or []
@@ -273,6 +273,7 @@ def _create_relationship_edges(
     file. Returns the number of new edges.
     """
     import sqlite3 as _sqlite3
+
     from ..frontmatter import load_markdown, write_markdown
     from ..paths import sqlite_path
     from ..tools.rebuild_index import index_single_record

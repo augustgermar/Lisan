@@ -12,14 +12,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from ..config import load_config
 from ..providers.embeddings import EmbeddingProvider
 from .vector_store import cosine_similarity
-
 
 _BLOCK_RE = re.compile(
     r"(?:^|\n)## Conversation — (?P<time>[^\n]+)\n\n(?P<body>.*?)(?=\n## Conversation — |\Z)",

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -27,12 +27,12 @@ def _parse(value: Any) -> datetime | None:
         except ValueError:
             return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def metadata(frontmatter: dict[str, Any], *, now: datetime | None = None, stable: bool = False, default_ttl_days: int | None = None) -> Freshness:
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     # updated/created describe the record, not necessarily the event. Never
     # turn an unknown event time into "now" and never use a review deadline as
     # evidence that the underlying fact expired.
@@ -60,5 +60,5 @@ def line(frontmatter: dict[str, Any], *, stable: bool = False, default_ttl_days:
 
 
 def file_line(path: Path, *, stable: bool = False, default_ttl_days: int | None = None) -> str:
-    observed = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+    observed = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat()
     return line({"observed_at": observed}, stable=stable, default_ttl_days=default_ttl_days)

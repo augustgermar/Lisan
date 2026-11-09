@@ -12,7 +12,6 @@ from ..config import load_config
 from ..providers.embeddings import EmbeddingProvider
 from .anisotropy import anisotropy_settings, apply_correction, compute_calibration
 
-
 # embeddings.bin format (JSON lines):
 #   line 1 (optional header): {"__meta__": {"model": str, "dimension": int, "version": 1}}
 #   line n: {"id": <record id>, "embedding": [floats]}
@@ -329,7 +328,7 @@ def reset_terminal_notes() -> None:
     _NOTED.clear()
 
 
-def _check_scorer(scorer: "VectorScorer", embeddings_file: Path) -> None:
+def _check_scorer(scorer: VectorScorer, embeddings_file: Path) -> None:
     index = scorer.index
     if not scorer.query_vector:
         terminal_note("the embedder is unavailable", "pip install fastembed, then `lisan rebuild-index`")

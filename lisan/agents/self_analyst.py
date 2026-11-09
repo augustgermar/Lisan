@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .base import PromptAgent
 from ..tools.epistemic import discover_self_pattern_hypotheses
+from .base import PromptAgent
 
 
 class SelfAnalystAgent(PromptAgent):

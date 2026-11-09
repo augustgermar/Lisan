@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-import re
-from typing import Iterable
 
 # Chunks are embedded as ``summary + "\n\n" + body`` (summary is the chunk
 # breadcrumb) by BAAI/bge-small-en-v1.5, which reads at most 512 tokens and
