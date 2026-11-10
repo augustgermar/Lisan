@@ -244,6 +244,15 @@ def test_final_disposition_matrix():
     assert f(None, 0, 2) == "held"
 
 
+def test_high_risk_revise_never_reaches_fanout_per_spec_10_1_8():
+    """High-risk material is never auto-committed: only an explicit approve
+    proceeds to fanout, whatever the risk rating or revision count."""
+    f = mod.final_disposition
+    for count in (0, 1, 2):
+        assert f({"recommended_action": "revise", "risk": "high", "approved": False}, count, 2) != "approved"
+    assert f({"recommended_action": "approve", "risk": "high", "approved": True}, 0, 2) == "approved"
+
+
 def test_structure_skeptic_feedback_drops_factual_fields():
     skeptic = {
         "recommended_action": "revise",

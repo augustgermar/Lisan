@@ -235,7 +235,7 @@ def run_memory_pipeline(
             db_path=db_path,
             conversation_id=conversation_id,
         )
-    # Spike: LangGraph owns only the bounded Writer <-> Skeptic editorial loop.
+    # LangGraph (optional) owns only the bounded Writer <-> Skeptic editorial loop.
     # Durable memory, artifact extraction, validation, and fanout remain in this
     # existing deterministic pipeline.
     writer_task = "episode_full_turn" if task == "episode" and tool_calls else ("episode_core" if task == "episode" else task)
@@ -266,7 +266,7 @@ def run_memory_pipeline(
     # changes) is stored as a draft for human review but is NEVER fanned
     # out -- its interpretations must not become durable truth. This
     # deliberately replaces the old "revise means store with caveats"
-    # fall-through in _skeptic_approves.
+    # fall-through.
     skeptic_disposition = str((ws_audit or {}).get("disposition") or "held")
     skeptic_approved = skeptic_disposition == "approved"
     # Only run the artifact pass when the skeptic approved the core.
@@ -788,30 +788,6 @@ def _dedupe_retrieval_items(items: list[Any]) -> list[Any]:
         seen.add(item_id)
         unique.append(item)
     return unique
-
-
-def _skeptic_approves(skeptic: dict[str, Any] | None) -> bool:
-    """Gate state/evidence/claim fanout on skeptic approval.
-
-    Block only when the skeptic explicitly holds a record — meaning it should
-    not be stored yet. "revise" means "store with caveats", which we honour by
-    proceeding; the issues list is preserved in the draft for human review.
-    """
-    if not isinstance(skeptic, dict):
-        return True
-    action = str(skeptic.get("recommended_action") or "").lower()
-    if action in {"hold", "needs_revision"}:
-        return False
-    # SPEC 10.1 #8: high-risk material is never auto-committed. "revise"
-    # stores with caveats only when the skeptic does not rate it high-risk.
-    if str(skeptic.get("risk") or "").lower() == "high" and action != "approve":
-        return False
-    approved = skeptic.get("approved")
-    # approved=False with no explicit hold action is treated as revise — proceed.
-    # approved=False AND hold is already caught above.
-    if approved is False and action not in {"approve", "revise", ""}:
-        return False
-    return True
 
 
 def _interlocutor_input(
