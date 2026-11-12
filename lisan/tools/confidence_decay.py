@@ -42,11 +42,11 @@ def detect_decay_candidates(vault: Path | None = None, db_path: Path | None = No
         # Rule 2: disputed or unresolved claims older than 90 days
         rows = conn.execute(
             """
-            SELECT c.id, c.claim_type, c.confidence, c.status, c.created, f.id AS file_id, f.summary AS file_summary
-            FROM claims c JOIN files f ON c.file_id = f.id
-            WHERE (c.status='unresolved' AND c.created < date('now', '-90 days'))
-               OR c.status='disputed'
-            ORDER BY c.created ASC
+            SELECT id, claim_type, confidence, status, created, episode_id
+            FROM claims
+            WHERE (status='unresolved' AND created < date('now', '-90 days'))
+               OR status='disputed'
+            ORDER BY created ASC
             """
         ).fetchall()
         if rows:
@@ -54,7 +54,7 @@ def detect_decay_candidates(vault: Path | None = None, db_path: Path | None = No
             lines.append("## Rule 2 — Disputed or long-unresolved claims")
             lines.append("These claims should be downgraded to `disputed` confidence.")
             for row in rows:
-                lines.append(f"- `{row['id']}` | {row['claim_type']} | {row['confidence']} | {row['status']} | file: `{row['file_id']}`")
+                lines.append(f"- `{row['id']}` | {row['claim_type']} | {row['confidence']} | {row['status']} | file: `{row['episode_id'] or 'none'}`")
             lines.append("")
 
         # Rule 3: stale state files (past TTL) — confidence should be 'stale'
